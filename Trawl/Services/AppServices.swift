@@ -26,6 +26,11 @@ final class AppServices {
         let torrentService = TorrentService(apiClient: apiClient)
         let syncService = SyncService(apiClient: apiClient)
 
+        // Fetch server default save path (best-effort — don't fail startup if this errors)
+        if let prefs = try? await apiClient.getPreferences(), let path = prefs.savePath, !path.isEmpty {
+            syncService.defaultSavePath = path
+        }
+
         return AppServices(
             authService: authService,
             apiClient: apiClient,

@@ -18,8 +18,10 @@ final class AddTorrentViewModel {
     // State
     var isSubmitting: Bool = false
     var error: String?
+    var submissionErrorAlert: ErrorAlertItem?
     var availableCategories: [String] = []
     var recentSavePaths: [RecentSavePath] = []
+    var serverDefaultSavePath: String?
 
     private let torrentService: TorrentService
     private let syncService: SyncService
@@ -47,16 +49,15 @@ final class AddTorrentViewModel {
     /// Load categories from sync state and recent paths from SwiftData.
     func loadDefaults(modelContext: ModelContext) async {
         availableCategories = syncService.sortedCategoryNames
+        serverDefaultSavePath = syncService.defaultSavePath
 
         // Load recent save paths, sorted by most recently used
         let descriptor = FetchDescriptor<RecentSavePath>(sortBy: [SortDescriptor(\.lastUsed, order: .reverse)])
         recentSavePaths = (try? modelContext.fetch(descriptor)) ?? []
 
-        // Pre-fill save path from the most recent path or server default
-        if savePath.isEmpty {
-            if let recent = recentSavePaths.first {
-                savePath = recent.path
-            }
+        // Pre-fill save path from the most recent path
+        if savePath.isEmpty, let recent = recentSavePaths.first {
+            savePath = recent.path
         }
     }
 
@@ -64,6 +65,7 @@ final class AddTorrentViewModel {
     func submit(modelContext: ModelContext) async -> Bool {
         isSubmitting = true
         error = nil
+        submissionErrorAlert = nil
 
         do {
             let path = savePath.isEmpty ? nil : savePath
@@ -81,6 +83,10 @@ final class AddTorrentViewModel {
             case .file:
                 guard let fileData = torrentFileData, let fileName = torrentFileName else {
                     error = "No torrent file selected."
+                    submissionErrorAlert = ErrorAlertItem(
+                        title: "Couldn't Add Torrent",
+                        message: "No torrent file selected."
+                    )
                     isSubmitting = false
                     return false
                 }
@@ -103,6 +109,10 @@ final class AddTorrentViewModel {
             return true
         } catch {
             self.error = error.localizedDescription
+            submissionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Add Torrent",
+                message: error.localizedDescription
+            )
             isSubmitting = false
             return false
         }

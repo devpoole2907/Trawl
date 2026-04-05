@@ -24,7 +24,7 @@ actor QBittorrentAPIClient {
     }
 
     func logout() async throws {
-        let request = buildRequest(path: "/api/v2/auth/logout", method: "POST")
+        let request = try buildRequest(path: "/api/v2/auth/logout", method: "POST")
         _ = try? await performRequest(request)
         await authService.logout()
     }
@@ -32,7 +32,7 @@ actor QBittorrentAPIClient {
     // MARK: - App
 
     func getAppVersion() async throws -> String {
-        let request = buildRequest(path: "/api/v2/app/version")
+        let request = try buildRequest(path: "/api/v2/app/version")
         let (data, _) = try await performRequest(request)
         guard let version = String(data: data, encoding: .utf8) else {
             throw QBError.invalidResponse
@@ -41,7 +41,7 @@ actor QBittorrentAPIClient {
     }
 
     func getPreferences() async throws -> AppPreferences {
-        let request = buildRequest(path: "/api/v2/app/preferences")
+        let request = try buildRequest(path: "/api/v2/app/preferences")
         let (data, _) = try await performRequest(request)
         return try decode(AppPreferences.self, from: data)
     }
@@ -54,19 +54,25 @@ actor QBittorrentAPIClient {
         if let category { queryItems.append(.init(name: "category", value: category)) }
         if let sort { queryItems.append(.init(name: "sort", value: sort)) }
 
-        let request = buildRequest(path: "/api/v2/torrents/info", queryItems: queryItems)
+        let request = try buildRequest(path: "/api/v2/torrents/info", queryItems: queryItems)
         let (data, _) = try await performRequest(request)
         return try decode([Torrent].self, from: data)
     }
 
     func addTorrentMagnet(magnetURL: String, savePath: String?, category: String?, paused: Bool, sequentialDownload: Bool) async throws {
-        var params: [String: String] = ["urls": magnetURL]
-        if let savePath { params["savepath"] = savePath }
-        if let category { params["category"] = category }
-        if paused { params["paused"] = "true" }
-        if sequentialDownload { params["sequentialDownload"] = "true" }
+        let boundary = UUID().uuidString
+        var request = try buildRequest(path: "/api/v2/torrents/add", method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
-        let request = buildFormRequest(path: "/api/v2/torrents/add", params: params)
+        var body = Data()
+        body.appendMultipartField(boundary: boundary, name: "urls", value: magnetURL)
+        if let savePath { body.appendMultipartField(boundary: boundary, name: "savepath", value: savePath) }
+        if let category { body.appendMultipartField(boundary: boundary, name: "category", value: category) }
+        if paused { body.appendMultipartField(boundary: boundary, name: "stopped", value: "true") }
+        if sequentialDownload { body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true") }
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
         let (_, response) = try await performRequest(request)
         guard response.statusCode == 200 else {
             throw QBError.serverError(statusCode: response.statusCode, message: "Failed to add torrent")
@@ -75,13 +81,13 @@ actor QBittorrentAPIClient {
 
     func addTorrentFile(fileData: Data, fileName: String, savePath: String?, category: String?, paused: Bool, sequentialDownload: Bool) async throws {
         let boundary = UUID().uuidString
-        var request = buildRequest(path: "/api/v2/torrents/add", method: "POST")
+        var request = try buildRequest(path: "/api/v2/torrents/add", method: "POST")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
 
         var body = Data()
 
         // File part
-        body.appendMultipart(boundary: boundary, name: "torrents", filename: fileName, mimeType: "application/x-bittorrent", data: fileData)
+        body.appendMultipart(boundary: boundary, name: "torrents", filename: fileName, data: fileData)
 
         // Form fields
         if let savePath {
@@ -91,7 +97,7 @@ actor QBittorrentAPIClient {
             body.appendMultipartField(boundary: boundary, name: "category", value: category)
         }
         if paused {
-            body.appendMultipartField(boundary: boundary, name: "paused", value: "true")
+            body.appendMultipartField(boundary: boundary, name: "stopped", value: "true")
         }
         if sequentialDownload {
             body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true")
@@ -111,30 +117,42 @@ actor QBittorrentAPIClient {
             "hashes": hashes.joined(separator: "|"),
             "deleteFiles": deleteFiles ? "true" : "false"
         ]
-        let request = buildFormRequest(path: "/api/v2/torrents/delete", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/delete", params: params)
         _ = try await performRequest(request)
     }
 
     func pauseTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.joined(separator: "|")]
-        let request = buildFormRequest(path: "/api/v2/torrents/pause", params: params)
-        _ = try await performRequest(request)
+        // qBittorrent v5+ uses /stop; v4 used /pause
+        let request = try buildFormRequest(path: "/api/v2/torrents/stop", params: params)
+        let (_, response) = try await performRequest(request)
+        if response.statusCode == 404 {
+            // Fall back to v4 endpoint
+            let fallback = try buildFormRequest(path: "/api/v2/torrents/pause", params: params)
+            _ = try await performRequest(fallback)
+        }
     }
 
     func resumeTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.joined(separator: "|")]
-        let request = buildFormRequest(path: "/api/v2/torrents/resume", params: params)
-        _ = try await performRequest(request)
+        // qBittorrent v5+ uses /start; v4 used /resume
+        let request = try buildFormRequest(path: "/api/v2/torrents/start", params: params)
+        let (_, response) = try await performRequest(request)
+        if response.statusCode == 404 {
+            // Fall back to v4 endpoint
+            let fallback = try buildFormRequest(path: "/api/v2/torrents/resume", params: params)
+            _ = try await performRequest(fallback)
+        }
     }
 
     func recheckTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.joined(separator: "|")]
-        let request = buildFormRequest(path: "/api/v2/torrents/recheck", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/recheck", params: params)
         _ = try await performRequest(request)
     }
 
     func getTorrentFiles(hash: String) async throws -> [TorrentFile] {
-        let request = buildRequest(path: "/api/v2/torrents/files", queryItems: [.init(name: "hash", value: hash)])
+        let request = try buildRequest(path: "/api/v2/torrents/files", queryItems: [.init(name: "hash", value: hash)])
         let (data, _) = try await performRequest(request)
         let rawFiles = try decode([TorrentFile].self, from: data)
         // Assign array indices since the API doesn't return an index field
@@ -147,12 +165,12 @@ actor QBittorrentAPIClient {
             "id": fileIndices.map(String.init).joined(separator: "|"),
             "priority": String(priority.rawValue)
         ]
-        let request = buildFormRequest(path: "/api/v2/torrents/filePrio", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/filePrio", params: params)
         _ = try await performRequest(request)
     }
 
     func getTorrentProperties(hash: String) async throws -> TorrentProperties {
-        let request = buildRequest(path: "/api/v2/torrents/properties", queryItems: [.init(name: "hash", value: hash)])
+        let request = try buildRequest(path: "/api/v2/torrents/properties", queryItems: [.init(name: "hash", value: hash)])
         let (data, _) = try await performRequest(request)
         return try decode(TorrentProperties.self, from: data)
     }
@@ -162,7 +180,7 @@ actor QBittorrentAPIClient {
             "hashes": hashes.joined(separator: "|"),
             "location": location
         ]
-        let request = buildFormRequest(path: "/api/v2/torrents/setLocation", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/setLocation", params: params)
         _ = try await performRequest(request)
     }
 
@@ -171,24 +189,24 @@ actor QBittorrentAPIClient {
             "hashes": hashes.joined(separator: "|"),
             "category": category
         ]
-        let request = buildFormRequest(path: "/api/v2/torrents/setCategory", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/setCategory", params: params)
         _ = try await performRequest(request)
     }
 
     func renameTorrent(hash: String, name: String) async throws {
         let params: [String: String] = ["hash": hash, "name": name]
-        let request = buildFormRequest(path: "/api/v2/torrents/rename", params: params)
+        let request = try buildFormRequest(path: "/api/v2/torrents/rename", params: params)
         _ = try await performRequest(request)
     }
 
     func getCategories() async throws -> [String: SyncCategory] {
-        let request = buildRequest(path: "/api/v2/torrents/categories")
+        let request = try buildRequest(path: "/api/v2/torrents/categories")
         let (data, _) = try await performRequest(request)
         return try decode([String: SyncCategory].self, from: data)
     }
 
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
-        let request = buildRequest(path: "/api/v2/torrents/trackers", queryItems: [.init(name: "hash", value: hash)])
+        let request = try buildRequest(path: "/api/v2/torrents/trackers", queryItems: [.init(name: "hash", value: hash)])
         let (data, _) = try await performRequest(request)
         return try decode([TorrentTracker].self, from: data)
     }
@@ -196,7 +214,7 @@ actor QBittorrentAPIClient {
     // MARK: - Transfer
 
     func getTransferInfo() async throws -> TransferInfo {
-        let request = buildRequest(path: "/api/v2/transfer/info")
+        let request = try buildRequest(path: "/api/v2/transfer/info")
         let (data, _) = try await performRequest(request)
         return try decode(TransferInfo.self, from: data)
     }
@@ -204,7 +222,7 @@ actor QBittorrentAPIClient {
     // MARK: - Sync
 
     func syncMainData(rid: Int) async throws -> SyncMainData {
-        let request = buildRequest(path: "/api/v2/sync/maindata", queryItems: [.init(name: "rid", value: String(rid))])
+        let request = try buildRequest(path: "/api/v2/sync/maindata", queryItems: [.init(name: "rid", value: String(rid))])
         let (data, _) = try await performRequest(request)
         return try decode(SyncMainData.self, from: data)
     }
@@ -252,18 +270,23 @@ actor QBittorrentAPIClient {
         try await authService.login(hostURL: baseURL, username: username, password: password)
     }
 
-    private func buildRequest(path: String, method: String = "GET", queryItems: [URLQueryItem] = []) -> URLRequest {
-        var components = URLComponents(string: "\(baseURL)\(path)")!
+    private func buildRequest(path: String, method: String = "GET", queryItems: [URLQueryItem] = []) throws -> URLRequest {
+        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
+            throw QBError.invalidResponse
+        }
         if !queryItems.isEmpty {
             components.queryItems = queryItems
         }
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw QBError.invalidResponse
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         return request
     }
 
-    private func buildFormRequest(path: String, params: [String: String]) -> URLRequest {
-        var request = buildRequest(path: path, method: "POST")
+    private func buildFormRequest(path: String, params: [String: String]) throws -> URLRequest {
+        var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
         let body = params.map { "\($0.key)=\(formEncode($0.value))" }.joined(separator: "&")
         request.httpBody = body.data(using: .utf8)
@@ -290,10 +313,9 @@ actor QBittorrentAPIClient {
 // MARK: - Multipart Data Helpers
 
 private extension Data {
-    nonisolated mutating func appendMultipart(boundary: String, name: String, filename: String, mimeType: String, data: Data) {
+    nonisolated mutating func appendMultipart(boundary: String, name: String, filename: String, data: Data) {
         append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!)
-        append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n\r\n".data(using: .utf8)!)
         append(data)
         append("\r\n".data(using: .utf8)!)
     }

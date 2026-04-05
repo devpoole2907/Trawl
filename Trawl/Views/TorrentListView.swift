@@ -6,7 +6,6 @@ struct TorrentListView: View {
     @State private var viewModel: TorrentListViewModel?
     @State private var showAddSheet = false
     @State private var torrentToDelete: Torrent?
-    @State private var deleteFiles = false
     private let externalSearchText: Binding<String>?
     private let showsSearchField: Bool
     private let title: String
@@ -28,7 +27,9 @@ struct TorrentListView: View {
         }
         .navigationTitle(title)
         .navigationSubtitle(navigationSubtitleText)
+        #if os(iOS)
         .toolbarTitleDisplayMode(.large)
+        #endif
         .toolbar { toolbarContent }
         .refreshable {
             await viewModel?.refresh()
@@ -47,14 +48,31 @@ struct TorrentListView: View {
             get: { torrentToDelete != nil },
             set: { if !$0 { torrentToDelete = nil } }
         )) {
-            Toggle("Also delete files", isOn: $deleteFiles)
-            Button("Delete", role: .destructive) {
+            Button("Delete and Remove Files", role: .destructive) {
                 if let torrent = torrentToDelete {
-                    Task { await viewModel?.deleteTorrent(torrent, deleteFiles: deleteFiles) }
+                    Task { await viewModel?.deleteTorrent(torrent, deleteFiles: true) }
+                }
+                torrentToDelete = nil
+            }
+            Button("Delete Torrent Only", role: .destructive) {
+                if let torrent = torrentToDelete {
+                    Task { await viewModel?.deleteTorrent(torrent, deleteFiles: false) }
                 }
                 torrentToDelete = nil
             }
             Button("Cancel", role: .cancel) { torrentToDelete = nil }
+        } message: {
+            Text("This action can’t be undone.")
+        }
+        .alert(item: Binding(
+            get: { viewModel?.actionErrorAlert },
+            set: { viewModel?.actionErrorAlert = $0 }
+        )) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .task {
             if viewModel == nil {
@@ -63,6 +81,10 @@ struct TorrentListView: View {
                 vm.searchText = currentSearchText
                 vm.startSync()
             }
+        }
+        .onDisappear {
+            viewModel?.stopSync()
+            viewModel = nil
         }
         .onChange(of: currentSearchText) { _, newValue in
             viewModel?.searchText = newValue
@@ -84,6 +106,33 @@ struct TorrentListView: View {
                     NavigationLink(value: torrent.hash) {
                         TorrentRowView(torrent: torrent)
                     }
+                    .contextMenu {
+                        let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP
+                        if isPaused {
+                            Button {
+                                Task { await vm.resumeTorrent(torrent) }
+                            } label: {
+                                Label("Resume", systemImage: "play.fill")
+                            }
+                        } else {
+                            Button {
+                                Task { await vm.pauseTorrent(torrent) }
+                            } label: {
+                                Label("Pause", systemImage: "pause.fill")
+                            }
+                        }
+                        Button {
+                            Task { await vm.recheckTorrent(torrent) }
+                        } label: {
+                            Label("Recheck", systemImage: "arrow.clockwise")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            torrentToDelete = torrent
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
                     .swipeActions(edge: .leading) {
                         if torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP {
                             Button {
@@ -101,6 +150,14 @@ struct TorrentListView: View {
                             .tint(.orange)
                         }
                     }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            Task { await vm.recheckTorrent(torrent) }
+                        } label: {
+                            Label("Recheck", systemImage: "arrow.clockwise")
+                        }
+                        .tint(.blue)
+                    }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
                             torrentToDelete = torrent
@@ -116,7 +173,7 @@ struct TorrentListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .automatic) {
             if let vm = viewModel {
                 Menu {
                     ForEach(TorrentFilter.allCases) { filter in
@@ -152,9 +209,9 @@ struct TorrentListView: View {
             }
         }
 
-        ToolbarSpacer(.fixed, placement: .topBarTrailing)
+        ToolbarSpacer(.fixed, placement: .automatic)
 
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: .automatic) {
             Button("Add Torrent", systemImage: "plus") {
                 showAddSheet = true
             }
@@ -183,15 +240,7 @@ struct TorrentListView: View {
     }
 
     private func countForFilter(_ filter: TorrentFilter, vm: TorrentListViewModel) -> Int {
-        let all = Array(syncService.torrents.values)
-        switch filter {
-        case .all: return all.count
-        case .downloading: return all.filter { $0.state.filterCategory == .downloading }.count
-        case .seeding: return all.filter { $0.state.filterCategory == .seeding }.count
-        case .paused: return all.filter { $0.state.filterCategory == .paused }.count
-        case .completed: return all.filter { $0.state.isCompleted }.count
-        case .errored: return all.filter { $0.state.filterCategory == .errored }.count
-        }
+        vm.filterCounts[filter] ?? 0
     }
 
     private func filterLabel(for filter: TorrentFilter, vm: TorrentListViewModel) -> String {

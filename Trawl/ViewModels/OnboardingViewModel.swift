@@ -11,6 +11,7 @@ final class OnboardingViewModel {
     var isValidating: Bool = false
     var validationError: String?
     var isValid: Bool = false
+    var hasAttemptedSubmit: Bool = false
 
     func loadExistingServer(_ server: ServerProfile, username: String, password: String) {
         hostURL = server.hostURL
@@ -31,13 +32,15 @@ final class OnboardingViewModel {
             trimmedURL = "http://" + trimmedURL
         }
 
+        hasAttemptedSubmit = true
+
         guard !trimmedURL.isEmpty else {
-            validationError = "Server URL is required."
+            validationError = nil
             return false
         }
 
         guard !username.isEmpty, !password.isEmpty else {
-            validationError = "Username and password are required."
+            validationError = nil
             return false
         }
 

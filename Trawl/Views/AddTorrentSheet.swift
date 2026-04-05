@@ -12,6 +12,12 @@ struct AddTorrentSheet: View {
     @State private var showFilePicker = false
     @State private var inputTab: AddTorrentInputMode = .magnet
 
+    let initialMagnetURL: String?
+
+    init(initialMagnetURL: String? = nil) {
+        self.initialMagnetURL = initialMagnetURL
+    }
+
     var body: some View {
         NavigationStack {
             Group {
@@ -22,7 +28,9 @@ struct AddTorrentSheet: View {
                 }
             }
             .navigationTitle("Add Torrent")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -41,11 +49,17 @@ struct AddTorrentSheet: View {
             }
             .presentationDetents([.medium, .large])
             .presentationDragIndicator(.visible)
+            #if os(macOS)
+            .frame(minWidth: 620, idealWidth: 700, minHeight: 540)
+            #endif
             .task {
                 if viewModel == nil {
                     let vm = AddTorrentViewModel(torrentService: torrentService, syncService: syncService)
                     viewModel = vm
                     await vm.loadDefaults(modelContext: modelContext)
+                    if let url = initialMagnetURL {
+                        vm.magnetLink = url
+                    }
                 }
             }
         }
@@ -71,57 +85,19 @@ struct AddTorrentSheet: View {
                 }
             }
 
-            Section(footer: Text(inputTab == .magnet ? "Paste a magnet link from Safari or another app." : "Choose a .torrent file to upload to your server.")) {
-                Picker("Source", selection: $inputTab) {
-                    Text("Magnet Link").tag(AddTorrentInputMode.magnet)
-                    Text("Torrent File").tag(AddTorrentInputMode.file)
-                }
-                .pickerStyle(.segmented)
-                .onChange(of: inputTab) { _, newValue in
-                    if newValue == .magnet {
-                        vm.torrentFileData = nil
-                        vm.torrentFileName = nil
-                    } else {
-                        vm.magnetLink = ""
-                    }
-                }
-            }
+            sourcePickerSection(vm: vm)
 
             Section {
-                switch inputTab {
-                case .magnet:
-                    TextField("magnet:?xt=urn:btih:...", text: $vm.magnetLink, axis: .vertical)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .lineLimit(3...6)
-
-                case .file:
-                    if let fileName = vm.torrentFileName {
-                        HStack {
-                            Image(systemName: "doc.fill")
-                                .foregroundStyle(.blue)
-                            Text(fileName)
-                                .lineLimit(1)
-                            Spacer()
-                            Button("Change") { showFilePicker = true }
-                                .font(.caption)
-                        }
-                    } else {
-                        Button {
-                            showFilePicker = true
-                        } label: {
-                            Label("Select .torrent File", systemImage: "doc.badge.plus")
-                        }
-                    }
-                }
+                inputSection(vm: vm)
             }
 
             Section {
                 LabeledContent("Save Path") {
-                    TextField("Default", text: $vm.savePath)
+                    TextField(vm.serverDefaultSavePath ?? "Server default", text: $vm.savePath)
                         .multilineTextAlignment(.trailing)
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                 }
 
                 if !vm.recentSavePaths.isEmpty {
@@ -171,14 +147,97 @@ struct AddTorrentSheet: View {
                 }
             }
         }
-        .sheet(isPresented: $showFilePicker) {
-            DocumentPicker(contentTypes: [UTType(filenameExtension: "torrent") ?? .data]) { url in
+        .alert(item: Binding(
+            get: { vm.submissionErrorAlert },
+            set: { vm.submissionErrorAlert = $0 }
+        )) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+        .fileImporter(
+            isPresented: $showFilePicker,
+            allowedContentTypes: [UTType(filenameExtension: "torrent") ?? .data]
+        ) { result in
+            if case .success(let url) = result {
                 guard url.startAccessingSecurityScopedResource() else { return }
                 defer { url.stopAccessingSecurityScopedResource() }
                 if let data = try? Data(contentsOf: url) {
                     vm.torrentFileData = data
                     vm.torrentFileName = url.lastPathComponent
                     inputTab = .file
+                }
+            }
+        }
+        #if os(macOS)
+        .formStyle(.grouped)
+        .padding(20)
+        .frame(maxWidth: 760, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #endif
+    }
+
+    private func magnetTextField(magnetLink: Binding<String>) -> some View {
+        #if os(iOS)
+        return TextField("magnet:?xt=urn:btih:...", text: magnetLink, axis: .vertical)
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .lineLimit(3...6)
+        #else
+        return TextField("magnet:?xt=urn:btih:...", text: magnetLink, axis: .vertical)
+            .autocorrectionDisabled()
+            .lineLimit(3...6)
+        #endif
+    }
+
+    @ViewBuilder
+    private func sourcePickerSection(vm: AddTorrentViewModel) -> some View {
+        @Bindable var vm = vm
+        let footer = inputTab == .magnet
+            ? "Paste a magnet link from Safari or another app."
+            : "Choose a .torrent file to upload to your server."
+        Section(footer: Text(footer)) {
+            Picker("Source", selection: $inputTab) {
+                Text("Magnet Link").tag(AddTorrentInputMode.magnet)
+                Text("Torrent File").tag(AddTorrentInputMode.file)
+            }
+            .pickerStyle(.segmented)
+            .onChange(of: inputTab) { _, newValue in
+                if newValue == .magnet {
+                    vm.torrentFileData = nil
+                    vm.torrentFileName = nil
+                } else {
+                    vm.magnetLink = ""
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func inputSection(vm: AddTorrentViewModel) -> some View {
+        @Bindable var vm = vm
+        switch inputTab {
+        case .magnet:
+            magnetTextField(magnetLink: $vm.magnetLink)
+        case .file:
+            if let fileName = vm.torrentFileName {
+                HStack {
+                    Image(systemName: "doc.fill")
+                        .foregroundStyle(.blue)
+                    Text(fileName)
+                        .lineLimit(1)
+                    Spacer()
+                    Button("Change") { showFilePicker = true }
+                        .font(.caption)
+                }
+            } else {
+                Button {
+                    showFilePicker = true
+                } label: {
+                    Label("Select .torrent File", systemImage: "doc.badge.plus")
                 }
             }
         }

@@ -1,6 +1,6 @@
 import Foundation
 
-enum QBError: LocalizedError, Sendable {
+enum QBError: LocalizedError, @unchecked Sendable {
     case authFailed
     case networkError(Error)
     case invalidResponse

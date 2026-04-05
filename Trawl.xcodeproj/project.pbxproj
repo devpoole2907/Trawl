@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC100000CC100000CC100000 /* TrawlShare.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC100000CC100000CC100000 /* TrawlShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -50,6 +50,7 @@
 
 /* Begin PBXFileReference section */
 		7C724A1A2F81D5920073A650 /* Trawl.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Trawl.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		EE000001EE000001EE000001 /* TrawlMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrawlMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C724A292F81D5940073A650 /* TrawlTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C724A332F81D5940073A650 /* TrawlUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC100000CC100000CC100000 /* TrawlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,40 +61,59 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
-				ShareAddTorrentView.swift,
-				ShareViewController.swift,
+				Share/ShareAddTorrentView.swift,
+				Share/ShareViewController.swift,
+				"TrawlApp-Info.plist",
+				TrawlMac.entitlements,
+				"TrawlMac-Info.plist",
 			);
 			target = 7C724A192F81D5920073A650 /* Trawl */;
 		};
 		CCB00000CCB00000CCB00000 /* Exceptions for "Trawl" folder in "TrawlShare" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				AddTorrentSheet.swift,
-				AddTorrentViewModel.swift,
-				AppServices.swift,
 				Assets.xcassets,
-				ByteFormatter.swift,
 				CLAUDE_CODE_GUIDE.md,
-				ContentView.swift,
-				DocumentPicker.swift,
-				FileListView.swift,
 				Info.plist,
-				NotificationService.swift,
-				OnboardingSheet.swift,
-				OnboardingViewModel.swift,
-				SettingsView.swift,
-				SettingsViewModel.swift,
-				SyncService.swift,
-				TorrentDetailView.swift,
-				TorrentDetailViewModel.swift,
-				TorrentListView.swift,
-				TorrentListViewModel.swift,
-				TorrentRowView.swift,
-				TorrentService.swift,
-				TrackerListView.swift,
+				Services/AppServices.swift,
+				Services/NotificationService.swift,
+				Services/SyncService.swift,
+				Services/TorrentService.swift,
+				"TrawlApp-Info.plist",
 				TrawlApp.swift,
+				Utilities/ByteFormatter.swift,
+				ViewModels/AddTorrentViewModel.swift,
+				ViewModels/OnboardingViewModel.swift,
+				ViewModels/SettingsViewModel.swift,
+				ViewModels/TorrentDetailViewModel.swift,
+				ViewModels/TorrentListViewModel.swift,
+				Views/AddTorrentSheet.swift,
+				Views/ContentView.swift,
+				Views/DocumentPicker.swift,
+				Views/FileListView.swift,
+				Views/OnboardingSheet.swift,
+				Views/SettingsView.swift,
+				Views/TorrentDetailView.swift,
+				Views/TorrentListView.swift,
+				Views/TorrentRowView.swift,
+				Views/TrackerListView.swift,
+				TrawlMac.entitlements,
+				"TrawlMac-Info.plist",
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
+		};
+		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				CLAUDE_CODE_GUIDE.md,
+				Info.plist,
+				Share/ShareAddTorrentView.swift,
+				Share/ShareViewController.swift,
+				Trawl.entitlements,
+				"TrawlApp-Info.plist",
+				Views/DocumentPicker.swift,
+			);
+			target = EE000005EE000005EE000005 /* TrawlMac */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
@@ -120,6 +140,14 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				CCB00000CCB00000CCB00000 /* Exceptions for "Trawl" folder in "TrawlShare" target */,
+			);
+			path = Trawl;
+			sourceTree = "<group>";
+		};
+		EE000006EE000006EE000006 /* Trawl */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */,
 			);
 			path = Trawl;
 			sourceTree = "<group>";
@@ -155,6 +183,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EE000003EE000003EE000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -173,6 +208,7 @@
 			isa = PBXGroup;
 			children = (
 				7C724A1A2F81D5920073A650 /* Trawl.app */,
+				EE000001EE000001EE000001 /* TrawlMac.app */,
 				7C724A292F81D5940073A650 /* TrawlTests.xctest */,
 				7C724A332F81D5940073A650 /* TrawlUITests.xctest */,
 				CC100000CC100000CC100000 /* TrawlShare.appex */,
@@ -283,6 +319,28 @@
 			productReference = CC100000CC100000CC100000 /* TrawlShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		EE000005EE000005EE000005 /* TrawlMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = EE000010EE000010EE000010 /* Build configuration list for PBXNativeTarget "TrawlMac" */;
+			buildPhases = (
+				EE000002EE000002EE000002 /* Sources */,
+				EE000003EE000003EE000003 /* Frameworks */,
+				EE000004EE000004EE000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				EE000006EE000006EE000006 /* Trawl */,
+			);
+			name = TrawlMac;
+			packageProductDependencies = (
+			);
+			productName = TrawlMac;
+			productReference = EE000001EE000001EE000001 /* TrawlMac.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -304,6 +362,9 @@
 						CreatedOnToolsVersion = 26.4;
 						TestTargetID = 7C724A192F81D5920073A650;
 					};
+					EE000005EE000005EE000005 = {
+						CreatedOnToolsVersion = 26.4;
+					};
 				};
 			};
 			buildConfigurationList = 7C724A152F81D5920073A650 /* Build configuration list for PBXProject "Trawl" */;
@@ -324,6 +385,7 @@
 				7C724A282F81D5940073A650 /* TrawlTests */,
 				7C724A322F81D5940073A650 /* TrawlUITests */,
 				CC000003CC000003CC000003 /* TrawlShare */,
+				EE000005EE000005EE000005 /* TrawlMac */,
 			);
 		};
 /* End PBXProject section */
@@ -357,6 +419,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EE000004EE000004EE000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -382,6 +451,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC300000CC300000CC300000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		EE000002EE000002EE000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -535,15 +611,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = L9DB7QA9DE;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Trawl;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Trawl/TrawlApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
@@ -572,15 +641,8 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = L9DB7QA9DE;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = Trawl;
-				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.utilities";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Trawl/TrawlApp-Info.plist";
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				MARKETING_VERSION = 1.0;
@@ -596,6 +658,63 @@
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		EE000008EE000008EE000008 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Trawl/TrawlMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Trawl/TrawlMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		EE000009EE000009EE000009 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = Trawl/TrawlMac.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "Trawl/TrawlMac-Info.plist";
+				LD_RUNPATH_SEARCH_PATHS = "@executable_path/../Frameworks";
+				MACOSX_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				SWIFT_COMPILATION_MODE = wholemodule;
 			};
 			name = Release;
 		};
@@ -704,6 +823,7 @@
 		CC600000CC600000CC600000 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = Trawl/TrawlShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -733,6 +853,7 @@
 		CC700000CC700000CC700000 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
+				CODE_SIGN_ALLOW_ENTITLEMENTS_MODIFICATION = YES;
 				CODE_SIGN_ENTITLEMENTS = Trawl/TrawlShare.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
@@ -803,6 +924,15 @@
 			buildConfigurations = (
 				CC600000CC600000CC600000 /* Debug */,
 				CC700000CC700000CC700000 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		EE000010EE000010EE000010 /* Build configuration list for PBXNativeTarget "TrawlMac" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EE000008EE000008EE000008 /* Debug */,
+				EE000009EE000009EE000009 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

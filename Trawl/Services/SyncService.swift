@@ -10,6 +10,7 @@ final class SyncService {
     private(set) var serverState: ServerState?
     private(set) var isPolling: Bool = false
     private(set) var lastError: QBError?
+    var defaultSavePath: String?
 
     // MARK: - Internal State
     private var rid: Int = 0
@@ -82,32 +83,34 @@ final class SyncService {
 
         // --- Torrents ---
         if isFullUpdate {
-            // Full update: replace all torrents wholesale
+            // Full update: build a fresh dict and assign in one shot
+            var fresh: [String: Torrent] = [:]
             if let newTorrents = data.torrents {
-                var fresh: [String: Torrent] = [:]
                 for (hash, syncData) in newTorrents {
                     fresh[hash] = Torrent.fromDelta(hash: hash, delta: syncData)
                 }
-                torrents = fresh
             }
+            if let removed = data.torrentsRemoved {
+                for hash in removed { fresh.removeValue(forKey: hash) }
+            }
+            torrents = fresh
         } else {
-            // Partial update: merge changed fields
+            // Partial update: batch all mutations into a single assignment so
+            // @Observable fires exactly one notification instead of one per torrent.
+            var updated = torrents
             if let updatedTorrents = data.torrents {
                 for (hash, delta) in updatedTorrents {
-                    if let existing = torrents[hash] {
-                        torrents[hash] = existing.applying(delta: delta)
+                    if let existing = updated[hash] {
+                        updated[hash] = existing.applying(delta: delta)
                     } else {
-                        torrents[hash] = Torrent.fromDelta(hash: hash, delta: delta)
+                        updated[hash] = Torrent.fromDelta(hash: hash, delta: delta)
                     }
                 }
             }
-        }
-
-        // Remove deleted torrents
-        if let removed = data.torrentsRemoved {
-            for hash in removed {
-                torrents.removeValue(forKey: hash)
+            if let removed = data.torrentsRemoved {
+                for hash in removed { updated.removeValue(forKey: hash) }
             }
+            torrents = updated
         }
 
         // --- Categories ---

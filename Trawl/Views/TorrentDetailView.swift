@@ -6,9 +6,7 @@ struct TorrentDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: TorrentDetailViewModel?
 
-    // Alert state
     @State private var showDeleteAlert = false
-    @State private var deleteFiles = false
     @State private var showRenameAlert = false
     @State private var renameText = ""
     @State private var showLocationAlert = false
@@ -29,7 +27,16 @@ struct TorrentDetailView: View {
             }
         }
         .navigationTitle(viewModel?.torrent?.name ?? "Detail")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            if let vm = viewModel, let torrent = vm.torrent {
+                ToolbarItem(placement: .automatic) {
+                    actionsMenu(vm: vm, torrent: torrent)
+                }
+            }
+        }
         .task {
             if viewModel == nil {
                 let vm = TorrentDetailViewModel(torrentHash: torrentHash, torrentService: torrentService, syncService: syncService)
@@ -47,9 +54,7 @@ struct TorrentDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 headerSection(torrent: torrent)
-                speedSection(torrent: torrent)
                 infoSection(torrent: torrent, vm: vm)
-                actionsSection(vm: vm, torrent: torrent)
                 navigationSection(vm: vm)
                 if let error = vm.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -64,14 +69,19 @@ struct TorrentDetailView: View {
             .padding()
         }
         .alert("Delete Torrent?", isPresented: $showDeleteAlert) {
-            Toggle("Also delete files", isOn: $deleteFiles)
-            Button("Delete", role: .destructive) {
+            Button("Delete and Remove Files", role: .destructive) {
                 Task {
-                    await vm.deleteTorrent(deleteFiles: deleteFiles)
-                    dismiss()
+                    if await vm.deleteTorrent(deleteFiles: true) { dismiss() }
+                }
+            }
+            Button("Delete Torrent Only", role: .destructive) {
+                Task {
+                    if await vm.deleteTorrent(deleteFiles: false) { dismiss() }
                 }
             }
             Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This action can't be undone.")
         }
         .alert("Rename Torrent", isPresented: $showRenameAlert) {
             TextField("New name", text: $renameText)
@@ -87,24 +97,33 @@ struct TorrentDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
+        .alert(item: Binding(
+            get: { vm.actionErrorAlert },
+            set: { vm.actionErrorAlert = $0 }
+        )) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
     }
 
     // MARK: - Sections
 
     @ViewBuilder
     private func headerSection(torrent: Torrent) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(torrent.name)
                 .font(.headline)
                 .textSelection(.enabled)
 
-            HStack {
+            HStack(spacing: 6) {
                 DetailStatusBadge(
                     title: torrent.state.displayName,
                     systemImage: torrent.state.systemImage,
                     tint: torrent.state.color
                 )
-
                 if let category = torrent.category, !category.isEmpty {
                     DetailBadgeLabel(title: category)
                 }
@@ -113,25 +132,40 @@ struct TorrentDetailView: View {
             ProgressView(value: torrent.progress)
                 .tint(torrent.progress >= 1.0 ? .green : .blue)
 
-            Text("\(Int(torrent.progress * 100))% complete")
+            HStack {
+                Text("\(Int(torrent.progress * 100))% complete")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Spacer()
+                Text(ByteFormatter.format(bytes: torrent.totalSize))
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            let hasDownload = torrent.dlspeed > 0
+            let hasUpload = torrent.upspeed > 0
+            let hasETA = !torrent.state.isCompleted && torrent.eta > 0
+            if hasDownload || hasUpload || hasETA {
+                HStack(spacing: 16) {
+                    if hasDownload {
+                        Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
+                            .foregroundStyle(.blue)
+                    }
+                    if hasUpload {
+                        Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
+                            .foregroundStyle(.green)
+                    }
+                    if hasETA {
+                        Label(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+            }
         }
         .padding()
         .background(.thinMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 20))
-    }
-
-    @ViewBuilder
-    private func speedSection(torrent: Torrent) -> some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
-            MetricCard(title: "Download", value: ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down.circle.fill", tint: .blue)
-            MetricCard(title: "Upload", value: ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up.circle.fill", tint: .green)
-
-            if !torrent.state.isCompleted {
-                MetricCard(title: "ETA", value: ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock.fill", tint: .secondary)
-            }
-        }
     }
 
     @ViewBuilder
@@ -166,59 +200,73 @@ struct TorrentDetailView: View {
     }
 
     @ViewBuilder
-    private func actionsSection(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Actions")
-                .font(.subheadline)
-                .bold()
+    private func actionsMenu(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
+        let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP
+            || torrent.state == .stoppedDL || torrent.state == .stoppedUP
 
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
-                if torrent.state == .pausedDL || torrent.state == .pausedUP {
-                    ActionButton(title: "Resume", systemImage: "play.fill", tint: .green) {
-                        Task { await vm.resume() }
-                    }
-                } else {
-                    ActionButton(title: "Pause", systemImage: "pause.fill", tint: .orange) {
-                        Task { await vm.pause() }
-                    }
+        Menu {
+            if isPaused {
+                Button {
+                    Task { await vm.resume() }
+                } label: {
+                    Label("Resume", systemImage: "play.fill")
                 }
-
-                ActionButton(title: "Recheck", systemImage: "arrow.clockwise", tint: .blue) {
-                    Task { await vm.recheck() }
-                }
-
-                ActionButton(title: "Rename", systemImage: "pencil", tint: .purple) {
-                    renameText = torrent.name
-                    showRenameAlert = true
-                }
-
-                ActionButton(title: "Move", systemImage: "folder", tint: .indigo) {
-                    locationText = torrent.savePath
-                    showLocationAlert = true
-                }
-
-                ActionButton(title: "Category", systemImage: "tag", tint: .teal) {
-                    showCategoryPicker = true
-                }
-                .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
-                    Button("None") {
-                        Task { await vm.setCategory("") }
-                    }
-                    ForEach(vm.availableCategories, id: \.self) { cat in
-                        Button(cat) {
-                            Task { await vm.setCategory(cat) }
-                        }
-                    }
-                }
-
-                ActionButton(title: "Delete", systemImage: "trash", tint: .red) {
-                    showDeleteAlert = true
+            } else {
+                Button {
+                    Task { await vm.pause() }
+                } label: {
+                    Label("Pause", systemImage: "pause.fill")
                 }
             }
+
+            Button {
+                Task { await vm.recheck() }
+            } label: {
+                Label("Recheck", systemImage: "arrow.clockwise")
+            }
+
+            Divider()
+
+            Button {
+                renameText = torrent.name
+                showRenameAlert = true
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+
+            Button {
+                locationText = torrent.savePath
+                showLocationAlert = true
+            } label: {
+                Label("Move", systemImage: "folder")
+            }
+
+            Button {
+                showCategoryPicker = true
+            } label: {
+                Label("Category", systemImage: "tag")
+            }
+            .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
+                Button("None") {
+                    Task { await vm.setCategory("") }
+                }
+                ForEach(vm.availableCategories, id: \.self) { cat in
+                    Button(cat) {
+                        Task { await vm.setCategory(cat) }
+                    }
+                }
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                showDeleteAlert = true
+            } label: {
+                Label("Delete Torrent", systemImage: "trash")
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
         }
-        .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -286,50 +334,6 @@ private struct InfoRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-    }
-}
-
-private struct ActionButton: View {
-    let title: String
-    let systemImage: String
-    let tint: Color
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 12)
-                .background(tint.opacity(0.12))
-                .foregroundStyle(tint)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-private struct MetricCard: View {
-    let title: String
-    let value: String
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: systemImage)
-                .font(.subheadline)
-                .foregroundStyle(tint)
-
-            Text(value)
-                .font(.headline)
-
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
-        .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 18))
     }
 }
 

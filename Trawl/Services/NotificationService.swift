@@ -1,6 +1,8 @@
 import Foundation
 import UserNotifications
+#if os(iOS)
 import BackgroundTasks
+#endif
 import SwiftData
 
 final class NotificationService: Sendable {
@@ -17,8 +19,9 @@ final class NotificationService: Sendable {
         }
     }
 
-    /// Register the next background app refresh task.
+    /// Register the next background app refresh task (iOS only).
     func registerBackgroundTask() {
+        #if os(iOS)
         let request = BGAppRefreshTaskRequest(identifier: backgroundTaskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
         do {
@@ -26,6 +29,7 @@ final class NotificationService: Sendable {
         } catch {
             print("Failed to schedule background task: \(error)")
         }
+        #endif
     }
 
     /// Called from the background task handler. Fetches current torrent states,

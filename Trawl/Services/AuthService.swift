@@ -81,6 +81,9 @@ actor AuthService {
     }
 
     private func urlEncode(_ string: String) -> String {
-        string.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? string
+        // Must encode &, =, + which are delimiters in application/x-www-form-urlencoded
+        var allowed = CharacterSet.alphanumerics
+        allowed.insert(charactersIn: "-._~")
+        return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
     }
 }

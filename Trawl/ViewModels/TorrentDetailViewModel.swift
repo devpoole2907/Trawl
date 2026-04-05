@@ -9,6 +9,7 @@ final class TorrentDetailViewModel {
     var properties: TorrentProperties?
     var isLoading: Bool = false
     var error: String?
+    var actionErrorAlert: ErrorAlertItem?
 
     private let torrentService: TorrentService
     private let syncService: SyncService
@@ -72,8 +73,12 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.pauseTorrents(hashes: [torrentHash])
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Pause Torrent",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -81,8 +86,12 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.resumeTorrents(hashes: [torrentHash])
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Resume Torrent",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -90,17 +99,27 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.recheckTorrents(hashes: [torrentHash])
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Recheck Torrent",
+                message: error.localizedDescription
+            )
         }
     }
 
-    func deleteTorrent(deleteFiles: Bool) async {
+    func deleteTorrent(deleteFiles: Bool) async -> Bool {
         do {
             try await torrentService.deleteTorrents(hashes: [torrentHash], deleteFiles: deleteFiles)
             error = nil
+            actionErrorAlert = nil
+            return true
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: deleteFiles ? "Couldn't Delete Torrent and Files" : "Couldn't Delete Torrent",
+                message: error.localizedDescription
+            )
+            return false
         }
     }
 
@@ -109,8 +128,12 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.renameTorrent(hash: torrentHash, name: newName)
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Rename Torrent",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -119,8 +142,12 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.setTorrentLocation(hashes: [torrentHash], location: path)
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Move Torrent",
+                message: error.localizedDescription
+            )
         }
     }
 
@@ -128,8 +155,12 @@ final class TorrentDetailViewModel {
         do {
             try await torrentService.setTorrentCategory(hashes: [torrentHash], category: category)
             error = nil
+            actionErrorAlert = nil
         } catch {
-            self.error = error.localizedDescription
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Change Category",
+                message: error.localizedDescription
+            )
         }
     }
 }
