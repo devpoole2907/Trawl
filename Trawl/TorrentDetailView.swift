@@ -25,6 +25,7 @@ struct TorrentDetailView: View {
                 ContentUnavailableView("Torrent Not Found", systemImage: "questionmark.circle", description: Text("This torrent may have been removed."))
             } else {
                 ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .navigationTitle(viewModel?.torrent?.name ?? "Detail")
@@ -33,7 +34,10 @@ struct TorrentDetailView: View {
             if viewModel == nil {
                 let vm = TorrentDetailViewModel(torrentHash: torrentHash, torrentService: torrentService, syncService: syncService)
                 viewModel = vm
-                await vm.loadProperties()
+                async let properties: Void = vm.loadProperties()
+                async let files: Void = vm.loadFiles()
+                async let trackers: Void = vm.loadTrackers()
+                _ = await (properties, files, trackers)
             }
         }
     }
@@ -42,27 +46,19 @@ struct TorrentDetailView: View {
     private func detailContent(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                // Header
                 headerSection(torrent: torrent)
-
-                // Speed & ETA
                 speedSection(torrent: torrent)
-
-                // Info grid
                 infoSection(torrent: torrent, vm: vm)
-
-                // Actions
                 actionsSection(vm: vm, torrent: torrent)
-
-                // Navigation links
                 navigationSection(vm: vm)
-
-                // Error
                 if let error = vm.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.red)
-                        .font(.caption)
-                        .padding(.horizontal)
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding()
+                        .background(.thinMaterial)
+                        .clipShape(RoundedRectangle(cornerRadius: 18))
                 }
             }
             .padding()
@@ -91,16 +87,6 @@ struct TorrentDetailView: View {
             }
             Button("Cancel", role: .cancel) {}
         }
-        .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
-            Button("None") {
-                Task { await vm.setCategory("") }
-            }
-            ForEach(vm.availableCategories, id: \.self) { cat in
-                Button(cat) {
-                    Task { await vm.setCategory(cat) }
-                }
-            }
-        }
     }
 
     // MARK: - Sections
@@ -110,19 +96,17 @@ struct TorrentDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(torrent.name)
                 .font(.headline)
+                .textSelection(.enabled)
 
             HStack {
-                Label(torrent.state.displayName, systemImage: torrent.state.systemImage)
-                    .font(.subheadline)
-                    .foregroundStyle(torrent.state.color)
+                DetailStatusBadge(
+                    title: torrent.state.displayName,
+                    systemImage: torrent.state.systemImage,
+                    tint: torrent.state.color
+                )
 
                 if let category = torrent.category, !category.isEmpty {
-                    Text(category)
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.quaternary)
-                        .clipShape(Capsule())
+                    DetailBadgeLabel(title: category)
                 }
             }
 
@@ -130,44 +114,24 @@ struct TorrentDetailView: View {
                 .tint(torrent.progress >= 1.0 ? .green : .blue)
 
             Text("\(Int(torrent.progress * 100))% complete")
-                .font(.caption)
+                .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
+        .padding()
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
     private func speedSection(torrent: Torrent) -> some View {
-        HStack(spacing: 24) {
-            VStack {
-                Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down.circle.fill")
-                    .foregroundStyle(.blue)
-                Text("Download")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            VStack {
-                Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up.circle.fill")
-                    .foregroundStyle(.green)
-                Text("Upload")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 120), spacing: 12)], spacing: 12) {
+            MetricCard(title: "Download", value: ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down.circle.fill", tint: .blue)
+            MetricCard(title: "Upload", value: ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up.circle.fill", tint: .green)
 
             if !torrent.state.isCompleted {
-                VStack {
-                    Label(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock.fill")
-                    Text("ETA")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
+                MetricCard(title: "ETA", value: ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock.fill", tint: .secondary)
             }
         }
-        .font(.subheadline)
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -175,7 +139,7 @@ struct TorrentDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Info")
                 .font(.subheadline)
-                .fontWeight(.semibold)
+                .bold()
 
             InfoRow(label: "Size", value: ByteFormatter.format(bytes: torrent.totalSize))
             InfoRow(label: "Downloaded", value: ByteFormatter.format(bytes: torrent.totalSize - torrent.amountLeft))
@@ -197,8 +161,8 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -206,9 +170,9 @@ struct TorrentDetailView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Actions")
                 .font(.subheadline)
-                .fontWeight(.semibold)
+                .bold()
 
-            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 12)], spacing: 12) {
                 if torrent.state == .pausedDL || torrent.state == .pausedUP {
                     ActionButton(title: "Resume", systemImage: "play.fill", tint: .green) {
                         Task { await vm.resume() }
@@ -236,6 +200,16 @@ struct TorrentDetailView: View {
                 ActionButton(title: "Category", systemImage: "tag", tint: .teal) {
                     showCategoryPicker = true
                 }
+                .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
+                    Button("None") {
+                        Task { await vm.setCategory("") }
+                    }
+                    ForEach(vm.availableCategories, id: \.self) { cat in
+                        Button(cat) {
+                            Task { await vm.setCategory(cat) }
+                        }
+                    }
+                }
 
                 ActionButton(title: "Delete", systemImage: "trash", tint: .red) {
                     showDeleteAlert = true
@@ -243,8 +217,8 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -282,8 +256,8 @@ struct TorrentDetailView: View {
                 .padding()
             }
         }
-        .background(.regularMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 12))
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 20))
     }
 
     // MARK: - Helpers
@@ -302,14 +276,15 @@ private struct InfoRow: View {
     let value: String
 
     var body: some View {
-        HStack {
-            Text(label)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            Spacer()
+        LabeledContent {
             Text(value)
-                .font(.caption)
+                .font(.subheadline)
                 .multilineTextAlignment(.trailing)
+                .textSelection(.enabled)
+        } label: {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 }
@@ -325,11 +300,64 @@ private struct ActionButton: View {
             Label(title, systemImage: systemImage)
                 .font(.subheadline)
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 10)
+                .padding(.vertical, 12)
                 .background(tint.opacity(0.12))
                 .foregroundStyle(tint)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: 14))
         }
         .buttonStyle(.plain)
+    }
+}
+
+private struct MetricCard: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: systemImage)
+                .font(.subheadline)
+                .foregroundStyle(tint)
+
+            Text(value)
+                .font(.headline)
+
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, minHeight: 88, alignment: .leading)
+        .padding()
+        .background(.thinMaterial)
+        .clipShape(RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+private struct DetailStatusBadge: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12))
+            .foregroundStyle(tint)
+            .clipShape(Capsule())
+    }
+}
+
+private struct DetailBadgeLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.tertiary)
+            .clipShape(Capsule())
     }
 }

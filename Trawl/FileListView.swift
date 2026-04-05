@@ -6,7 +6,7 @@ struct FileListView: View {
     var body: some View {
         List {
             if viewModel.isLoading && viewModel.files.isEmpty {
-                ProgressView("Loading files...")
+                ProgressView("Loading files…")
             } else if viewModel.files.isEmpty {
                 ContentUnavailableView("No Files", systemImage: "doc.questionmark", description: Text("No files found for this torrent."))
             } else {
@@ -43,11 +43,11 @@ private struct FileRow: View {
 
             HStack {
                 Text(ByteFormatter.format(bytes: file.size))
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Text("\(Int(file.progress * 100))%")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Spacer()
@@ -66,14 +66,14 @@ private struct FileRow: View {
                     }
                 } label: {
                     Label(file.priority.displayName, systemImage: file.priority.systemImage)
-                        .font(.caption)
+                        .font(.subheadline)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.quaternary)
+                        .background(.thinMaterial)
                         .clipShape(Capsule())
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }

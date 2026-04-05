@@ -7,6 +7,7 @@ struct AddTorrentSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
+    @Query(filter: #Predicate<ServerProfile> { $0.isActive }) private var activeServers: [ServerProfile]
     @State private var viewModel: AddTorrentViewModel?
     @State private var showFilePicker = false
     @State private var inputTab: AddTorrentInputMode = .magnet
@@ -21,6 +22,7 @@ struct AddTorrentSheet: View {
                 }
             }
             .navigationTitle("Add Torrent")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -38,6 +40,7 @@ struct AddTorrentSheet: View {
                 }
             }
             .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
             .task {
                 if viewModel == nil {
                     let vm = AddTorrentViewModel(torrentService: torrentService, syncService: syncService)
@@ -52,8 +55,23 @@ struct AddTorrentSheet: View {
     private func addTorrentForm(vm: AddTorrentViewModel) -> some View {
         @Bindable var vm = vm
         Form {
-            // Input mode picker
-            Section {
+            if let server = activeServer {
+                Section {
+                    LabeledContent("Server") {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(server.displayName)
+                            Text(server.hostURL)
+                                .foregroundStyle(.secondary)
+                        }
+                        .font(.subheadline)
+                        .multilineTextAlignment(.trailing)
+                    }
+                } header: {
+                    Text("Destination")
+                }
+            }
+
+            Section(footer: Text(inputTab == .magnet ? "Paste a magnet link from Safari or another app." : "Choose a .torrent file to upload to your server.")) {
                 Picker("Source", selection: $inputTab) {
                     Text("Magnet Link").tag(AddTorrentInputMode.magnet)
                     Text("Torrent File").tag(AddTorrentInputMode.file)
@@ -69,7 +87,6 @@ struct AddTorrentSheet: View {
                 }
             }
 
-            // Input section
             Section {
                 switch inputTab {
                 case .magnet:
@@ -100,11 +117,8 @@ struct AddTorrentSheet: View {
                 }
             }
 
-            // Options
-            Section("Options") {
-                HStack {
-                    Text("Save Path")
-                    Spacer()
+            Section {
+                LabeledContent("Save Path") {
                     TextField("Default", text: $vm.savePath)
                         .multilineTextAlignment(.trailing)
                         .textInputAutocapitalization(.never)
@@ -119,7 +133,7 @@ struct AddTorrentSheet: View {
                         }
                     } label: {
                         Label("Recent Paths", systemImage: "clock.arrow.circlepath")
-                            .font(.caption)
+                            .font(.subheadline)
                     }
                 }
 
@@ -134,14 +148,17 @@ struct AddTorrentSheet: View {
 
                 Toggle("Start Paused", isOn: $vm.startPaused)
                 Toggle("Sequential Download", isOn: $vm.sequentialDownload)
+            } header: {
+                Text("Options")
+            } footer: {
+                Text("Leave Save Path blank to use the server default. Recent Paths helps you quickly reuse a location.")
             }
 
-            // Status
             if vm.isSubmitting {
                 Section {
                     HStack {
                         ProgressView()
-                        Text("Adding torrent...")
+                        Text(submissionText)
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -165,5 +182,16 @@ struct AddTorrentSheet: View {
                 }
             }
         }
+    }
+
+    private var activeServer: ServerProfile? {
+        activeServers.first
+    }
+
+    private var submissionText: String {
+        if let server = activeServer {
+            return "Sending to \(server.displayName)…"
+        }
+        return "Adding torrent…"
     }
 }

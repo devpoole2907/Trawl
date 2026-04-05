@@ -8,53 +8,63 @@ struct SettingsView: View {
     @Environment(TorrentService.self) private var torrentService
     @State private var viewModel = SettingsViewModel()
     @State private var showOnboarding = false
+    let showsDoneButton: Bool
+
+    init(showsDoneButton: Bool = true) {
+        self.showsDoneButton = showsDoneButton
+    }
 
     var body: some View {
         NavigationStack {
             Form {
-                // Server section
-                Section("Server") {
+                Section {
                     if let server = viewModel.serverProfile {
                         HStack {
                             VStack(alignment: .leading) {
                                 Text(server.displayName)
                                     .font(.subheadline)
                                 Text(server.hostURL)
-                                    .font(.caption)
+                                    .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
                             Spacer()
                             if syncService.isPolling {
-                                Image(systemName: "circle.fill")
-                                    .font(.caption2)
+                                Label("Connected", systemImage: "circle.fill")
+                                    .font(.caption)
                                     .foregroundStyle(.green)
+                                    .labelStyle(.titleAndIcon)
                             }
                         }
 
                         if let lastConnected = server.lastConnected {
-                            HStack {
-                                Text("Last Connected")
-                                    .foregroundStyle(.secondary)
-                                Spacer()
+                            LabeledContent("Last Connected") {
                                 Text(lastConnected.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption)
+                                    .font(.subheadline)
                             }
                         }
 
-                        Button("Edit Server") {
+                        Button("Edit Server", systemImage: "server.rack") {
                             showOnboarding = true
                         }
+                
                     } else {
-                        Button("Add Server") {
+                        Button("Add Server", systemImage: "plus") {
                             showOnboarding = true
                         }
+                        .buttonStyle(.borderedProminent)
                     }
+                } header: {
+                    Text("Server")
+                } footer: {
+                    Text("Update the qBittorrent Web UI address, credentials, or display name.")
                 }
 
-                // Polling section
                 Section("Polling") {
-                    VStack(alignment: .leading) {
-                        Text("Refresh Interval: \(String(format: "%.0f", viewModel.pollingInterval))s")
+                    LabeledContent("Refresh Interval") {
+                        Text("\(String(format: "%.0f", viewModel.pollingInterval))s")
+                            .foregroundStyle(.secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
                         Slider(value: $viewModel.pollingInterval, in: 1...10, step: 1) {
                             Text("Polling Interval")
                         }
@@ -64,7 +74,6 @@ struct SettingsView: View {
                     }
                 }
 
-                // Notifications section
                 Section("Notifications") {
                     Toggle("Download Notifications", isOn: $viewModel.notificationsEnabled)
                         .onChange(of: viewModel.notificationsEnabled) {
@@ -73,42 +82,33 @@ struct SettingsView: View {
 
                     if viewModel.notificationsEnabled && !viewModel.notificationPermissionGranted {
                         Label("Notification permission not granted. Enable in Settings.", systemImage: "exclamationmark.triangle")
-                            .font(.caption)
+                            .font(.subheadline)
                             .foregroundStyle(.orange)
                     }
                 }
 
-                // About section
-                Section("About") {
+                Section("Connection Details") {
                     if let appVersion = viewModel.appVersion {
-                        HStack {
-                            Text("App Version")
-                            Spacer()
+                        LabeledContent("App Version") {
                             Text(appVersion)
                                 .foregroundStyle(.secondary)
                         }
                     }
 
                     if let qbVersion = viewModel.qbVersion {
-                        HStack {
-                            Text("qBittorrent Version")
-                            Spacer()
+                        LabeledContent("qBittorrent Version") {
                             Text(qbVersion)
                                 .foregroundStyle(.secondary)
                         }
                     }
 
-                    HStack {
-                        Text("Connection")
-                        Spacer()
+                    LabeledContent("Connection") {
                         Text(syncService.serverState?.connectionStatus ?? "Unknown")
                             .foregroundStyle(.secondary)
                     }
 
                     if let dhtNodes = syncService.serverState?.dhtNodes {
-                        HStack {
-                            Text("DHT Nodes")
-                            Spacer()
+                        LabeledContent("DHT Nodes") {
                             Text("\(dhtNodes)")
                                 .foregroundStyle(.secondary)
                         }
@@ -116,13 +116,16 @@ struct SettingsView: View {
                 }
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+                if showsDoneButton {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
+                    }
                 }
             }
             .sheet(isPresented: $showOnboarding) {
-                OnboardingSheet(onComplete: {
+                OnboardingSheet(serverProfile: viewModel.serverProfile, onComplete: {
                     Task { await viewModel.loadSettings(modelContext: modelContext) }
                 })
             }

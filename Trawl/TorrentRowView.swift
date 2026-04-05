@@ -4,66 +4,59 @@ struct TorrentRowView: View {
     let torrent: Torrent
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // Torrent name
+        VStack(alignment: .leading, spacing: 10) {
             Text(torrent.name)
                 .font(.subheadline)
-                .fontWeight(.medium)
-                .lineLimit(1)
+                .lineLimit(2)
 
-            // State badge and category
             HStack(spacing: 6) {
-                Label(torrent.state.displayName, systemImage: torrent.state.systemImage)
-                    .font(.caption)
-                    .foregroundStyle(torrent.state.color)
+                StatusBadge(
+                    title: torrent.state.displayName,
+                    systemImage: torrent.state.systemImage,
+                    tint: torrent.state.color
+                )
 
                 if let category = torrent.category, !category.isEmpty {
-                    Text(category)
-                        .font(.caption2)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.quaternary)
-                        .clipShape(Capsule())
+                    BadgeLabel(title: category)
                 }
             }
 
-            // Progress bar
             ProgressView(value: torrent.progress)
                 .tint(progressTint)
 
-            // Stats row
             HStack(spacing: 12) {
                 if torrent.dlspeed > 0 {
                     Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.blue)
                 }
 
                 if torrent.upspeed > 0 {
                     Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.green)
                 }
 
                 if !torrent.state.isCompleted && torrent.eta > 0 && torrent.eta < 8_640_000 {
                     Label(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
                 Text(ByteFormatter.format(bytes: torrent.size))
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Text(percentText)
-                    .font(.caption2)
-                    .fontWeight(.medium)
+                    .font(.caption)
+                    .bold()
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 6)
+        .accessibilityElement(children: .combine)
     }
 
     private var percentText: String {
@@ -74,5 +67,34 @@ struct TorrentRowView: View {
         if torrent.progress >= 1.0 { return .green }
         if torrent.state.filterCategory == .errored { return .red }
         return .blue
+    }
+}
+
+private struct StatusBadge: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+
+    var body: some View {
+        Label(title, systemImage: systemImage)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(tint.opacity(0.12))
+            .foregroundStyle(tint)
+            .clipShape(Capsule())
+    }
+}
+
+private struct BadgeLabel: View {
+    let title: String
+
+    var body: some View {
+        Text(title)
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(.tertiary)
+            .clipShape(Capsule())
     }
 }

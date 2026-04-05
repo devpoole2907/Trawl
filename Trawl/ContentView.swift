@@ -8,57 +8,64 @@ struct ContentView: View {
     @State private var appServices: AppServices?
     @State private var connectionError: String?
     @State private var isConnecting = false
+    @State private var selectedTab: RootTab = .torrents
+    @State private var searchText = ""
 
     var body: some View {
         Group {
             if let services = appServices {
-                TorrentListView()
-                    .environment(services.syncService)
-                    .environment(services.torrentService)
+                connectedContent(services: services)
             } else if isConnecting {
                 VStack(spacing: 16) {
                     ProgressView()
                         .controlSize(.large)
-                    Text("Connecting to server...")
-                        .foregroundStyle(.secondary)
-                }
-            } else if let error = connectionError {
-                VStack(spacing: 16) {
-                    Image(systemName: "wifi.exclamationmark")
-                        .font(.largeTitle)
-                        .foregroundStyle(.red)
-                    Text("Connection Failed")
+                    Text("Connecting to qBittorrent")
                         .font(.headline)
-                    Text(error)
+
+                    if let server = activeServer {
+                        VStack(spacing: 4) {
+                            Text(server.displayName)
+                            Text(server.hostURL)
+                                .foregroundStyle(.secondary)
+                        }
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Button("Retry") { initializeServices() }
-                        .buttonStyle(.borderedProminent)
-                    Button("Edit Server") { showOnboarding = true }
-                        .buttonStyle(.bordered)
+                    }
+
+                    Button("Edit Server", systemImage: "server.rack") {
+                        showOnboarding = true
+                    }
+                   
                 }
                 .padding()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let error = connectionError {
+                ContentUnavailableView {
+                    Label("Connection Failed", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        initializeServices()
+                    }
+                    Button("Edit Server", systemImage: "server.rack") {
+                        showOnboarding = true
+                    }
+                }
             } else {
-                // Empty state — no server configured
-                VStack(spacing: 16) {
-                    Image(systemName: "externaldrive.badge.wifi")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("Welcome to Trawl")
-                        .font(.title2)
-                        .fontWeight(.semibold)
+                ContentUnavailableView {
+                    Label("Welcome to Trawl", systemImage: "externaldrive.badge.wifi")
+                } description: {
                     Text("Connect to your qBittorrent server to get started.")
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Button("Add Server") { showOnboarding = true }
-                        .buttonStyle(.borderedProminent)
+                } actions: {
+                    Button("Add Server", systemImage: "plus") {
+                        showOnboarding = true
+                    }
                 }
-                .padding()
             }
         }
         .sheet(isPresented: $showOnboarding) {
-            OnboardingSheet(onComplete: { initializeServices() })
+            OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
         }
         .task {
             if servers.isEmpty {
@@ -69,8 +76,44 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private func connectedContent(services: AppServices) -> some View {
+        TabView(selection: $selectedTab) {
+            Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
+                NavigationStack {
+                    TorrentListView(title: activeServer?.displayName ?? "Trawl", searchText: $searchText, showsSearchField: false)
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                }
+            }
+
+            Tab(value: RootTab.search, role: .search) {
+                NavigationStack {
+                    TorrentListView(title: activeServer?.displayName ?? "Trawl", searchText: $searchText, showsSearchField: true)
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                        .searchable(text: $searchText, prompt: "Search torrents")
+                }
+            }
+
+            Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
+                NavigationStack {
+                    SettingsView(showsDoneButton: false)
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                }
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        .tabViewSearchActivation(.searchTabSelection)
+    }
+
+    private var activeServer: ServerProfile? {
+        servers.first(where: { $0.isActive }) ?? servers.first
+    }
+
     private func initializeServices() {
-        guard let server = servers.first(where: { $0.isActive }) ?? servers.first else {
+        guard let server = activeServer else {
             showOnboarding = true
             return
         }
@@ -96,6 +139,7 @@ struct ContentView: View {
                 try? modelContext.save()
 
                 appServices = services
+                selectedTab = .torrents
                 isConnecting = false
             } catch {
                 connectionError = error.localizedDescription
@@ -103,4 +147,10 @@ struct ContentView: View {
             }
         }
     }
+}
+
+private enum RootTab: Hashable {
+    case torrents
+    case search
+    case settings
 }

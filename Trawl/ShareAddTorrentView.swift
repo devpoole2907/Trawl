@@ -92,7 +92,7 @@ struct ShareAddTorrentView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { submit() }
-                        .disabled(activeServers.isEmpty || isSubmitting)
+                        .disabled(activeServers.isEmpty || isSubmitting || !hasPayload)
                 }
             }
             .task {
@@ -102,6 +102,11 @@ struct ShareAddTorrentView: View {
     }
 
     private func submit() {
+        guard hasPayload else {
+            error = "No torrent link or file was provided."
+            return
+        }
+
         guard let server = activeServers.first else {
             error = "No server configured."
             return
@@ -184,5 +189,10 @@ struct ShareAddTorrentView: View {
         } catch {
             // Non-critical — categories just won't be available
         }
+    }
+
+    private var hasPayload: Bool {
+        magnetURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ||
+        (torrentFileData != nil && torrentFileName != nil)
     }
 }

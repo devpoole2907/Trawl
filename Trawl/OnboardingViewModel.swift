@@ -12,9 +12,16 @@ final class OnboardingViewModel {
     var validationError: String?
     var isValid: Bool = false
 
+    func loadExistingServer(_ server: ServerProfile, username: String, password: String) {
+        hostURL = server.hostURL
+        displayName = server.displayName == server.hostURL ? "" : server.displayName
+        self.username = username
+        self.password = password
+    }
+
     /// Validates the connection and saves the server profile.
     /// Returns true if saved successfully.
-    func validateAndSave(modelContext: ModelContext) async -> Bool {
+    func validateAndSave(modelContext: ModelContext, editingServer: ServerProfile? = nil) async -> Bool {
         var trimmedURL = hostURL
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
@@ -47,17 +54,26 @@ final class OnboardingViewModel {
 
             // Connection successful — save the profile
             let name = displayName.isEmpty ? trimmedURL : displayName
-            let profile = ServerProfile(displayName: name, hostURL: trimmedURL)
+            let profile: ServerProfile
 
-            // Deactivate any existing active servers
-            let descriptor = FetchDescriptor<ServerProfile>(predicate: #Predicate { $0.isActive })
-            if let existingServers = try? modelContext.fetch(descriptor) {
-                for server in existingServers {
-                    server.isActive = false
+            if let editingServer {
+                editingServer.displayName = name
+                editingServer.hostURL = trimmedURL
+                editingServer.isActive = true
+                profile = editingServer
+            } else {
+                profile = ServerProfile(displayName: name, hostURL: trimmedURL)
+
+                // Deactivate any existing active servers
+                let descriptor = FetchDescriptor<ServerProfile>(predicate: #Predicate { $0.isActive })
+                if let existingServers = try? modelContext.fetch(descriptor) {
+                    for server in existingServers {
+                        server.isActive = false
+                    }
                 }
-            }
 
-            modelContext.insert(profile)
+                modelContext.insert(profile)
+            }
 
             // Save credentials to Keychain
             try await KeychainHelper.shared.save(key: profile.usernameKey, value: username)

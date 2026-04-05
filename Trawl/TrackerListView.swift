@@ -27,36 +27,37 @@ private struct TrackerRow: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(tracker.url)
                 .font(.subheadline)
-                .lineLimit(1)
+                .lineLimit(2)
+                .textSelection(.enabled)
 
             HStack(spacing: 12) {
                 Label("\(tracker.numSeeds)", systemImage: "arrow.up")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.green)
 
                 Label("\(tracker.numLeeches)", systemImage: "arrow.down")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.blue)
 
                 Label("\(tracker.numPeers)", systemImage: "person.2")
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
 
                 Spacer()
 
                 Text(statusText)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(statusColor)
             }
 
             if !tracker.msg.isEmpty {
                 Text(tracker.msg)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                    .lineLimit(2)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var statusText: String {
