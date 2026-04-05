@@ -1,32 +1,38 @@
-//
-//  TrawlApp.swift
-//  Trawl
-//
-//  Created by James Poole on 05/04/2026.
-//
-
 import SwiftUI
 import SwiftData
+import BackgroundTasks
 
 @main
 struct TrawlApp: App {
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            Item.self,
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+    let modelContainer: ModelContainer
 
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
+    init() {
+        let schema = Schema([
+            ServerProfile.self,
+            CachedTorrentState.self,
+            RecentSavePath.self
+        ])
+        let config = ModelConfiguration(
+            groupContainer: .identifier(AppGroup.identifier)
+        )
+        modelContainer = try! ModelContainer(for: schema, configurations: [config])
+
+        // Register background task for torrent completion notifications
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.poole.james.Trawl.torrentCheck",
+            using: nil
+        ) { task in
+            Task {
+                await NotificationService.shared.handleBackgroundRefresh()
+                task.setTaskCompleted(success: true)
+            }
         }
-    }()
+    }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
         }
-        .modelContainer(sharedModelContainer)
+        .modelContainer(modelContainer)
     }
 }
