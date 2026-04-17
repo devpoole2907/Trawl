@@ -6,14 +6,10 @@ struct TorrentListView: View {
     @State private var viewModel: TorrentListViewModel?
     @State private var showAddSheet = false
     @State private var torrentToDelete: Torrent?
-    private let externalSearchText: Binding<String>?
-    private let showsSearchField: Bool
     private let title: String
 
-    init(title: String = "Trawl", searchText: Binding<String>? = nil, showsSearchField: Bool = true) {
+    init(title: String = "Trawl") {
         self.title = title
-        self.externalSearchText = searchText
-        self.showsSearchField = showsSearchField
     }
 
     var body: some View {
@@ -78,16 +74,12 @@ struct TorrentListView: View {
             if viewModel == nil {
                 let vm = TorrentListViewModel(syncService: syncService, torrentService: torrentService)
                 viewModel = vm
-                vm.searchText = currentSearchText
                 vm.startSync()
             }
         }
         .onDisappear {
             viewModel?.stopSync()
             viewModel = nil
-        }
-        .onChange(of: currentSearchText) { _, newValue in
-            viewModel?.searchText = newValue
         }
     }
 
@@ -219,21 +211,6 @@ struct TorrentListView: View {
         }
     }
 
-    private var resolvedSearchBinding: Binding<String> {
-        if let externalSearchText {
-            return externalSearchText
-        }
-
-        return Binding(
-            get: { viewModel?.searchText ?? "" },
-            set: { viewModel?.searchText = $0 }
-        )
-    }
-
-    private var currentSearchText: String {
-        resolvedSearchBinding.wrappedValue
-    }
-
     private var navigationSubtitleText: String {
         guard let viewModel else { return "" }
         return resultSummary(for: viewModel)
@@ -264,14 +241,10 @@ struct TorrentListView: View {
 
     @ViewBuilder
     private func emptyState(for vm: TorrentListViewModel) -> some View {
-        if !currentSearchText.isEmpty {
-            ContentUnavailableView.search
-        } else {
-            ContentUnavailableView {
-                Label(emptyStateTitle(for: vm.selectedFilter), systemImage: emptyStateSymbol(for: vm.selectedFilter))
-            } description: {
-                Text(emptyStateDescription(for: vm.selectedFilter))
-            }
+        ContentUnavailableView {
+            Label(emptyStateTitle(for: vm.selectedFilter), systemImage: emptyStateSymbol(for: vm.selectedFilter))
+        } description: {
+            Text(emptyStateDescription(for: vm.selectedFilter))
         }
     }
 

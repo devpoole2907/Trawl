@@ -34,6 +34,39 @@ final class SyncService {
         categories.keys.sorted()
     }
 
+    func setTorrentCategoryLocally(hash: String, category: String) {
+        guard var torrent = torrents[hash] else { return }
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        torrent.category = normalizedCategory.isEmpty ? nil : normalizedCategory
+        torrents[hash] = torrent
+    }
+
+    func addCategoryLocally(name: String, savePath: String?) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let trimmedSavePath = savePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        categories[trimmedName] = SyncCategory(
+            name: trimmedName,
+            savePath: trimmedSavePath?.isEmpty == true ? nil : trimmedSavePath
+        )
+    }
+
+    func removeCategoriesLocally(names: [String]) {
+        let removedNames = Set(names)
+        guard !removedNames.isEmpty else { return }
+
+        for name in removedNames {
+            categories.removeValue(forKey: name)
+        }
+
+        var updatedTorrents = torrents
+        for (hash, var torrent) in updatedTorrents where torrent.category.map(removedNames.contains) == true {
+            torrent.category = nil
+            updatedTorrents[hash] = torrent
+        }
+        torrents = updatedTorrents
+    }
+
     // MARK: - Polling Control
 
     func startPolling() {
@@ -80,6 +113,7 @@ final class SyncService {
 
     private func applyDelta(_ data: SyncMainData) {
         let isFullUpdate = data.fullUpdate == true
+        var completedTorrentNames: [String] = []
 
         // --- Torrents ---
         if isFullUpdate {
@@ -87,7 +121,11 @@ final class SyncService {
             var fresh: [String: Torrent] = [:]
             if let newTorrents = data.torrents {
                 for (hash, syncData) in newTorrents {
-                    fresh[hash] = Torrent.fromDelta(hash: hash, delta: syncData)
+                    let nextTorrent = Torrent.fromDelta(hash: hash, delta: syncData)
+                    if let existing = torrents[hash], !existing.state.isCompleted, nextTorrent.state.isCompleted {
+                        completedTorrentNames.append(nextTorrent.name)
+                    }
+                    fresh[hash] = nextTorrent
                 }
             }
             if let removed = data.torrentsRemoved {
@@ -101,7 +139,11 @@ final class SyncService {
             if let updatedTorrents = data.torrents {
                 for (hash, delta) in updatedTorrents {
                     if let existing = updated[hash] {
-                        updated[hash] = existing.applying(delta: delta)
+                        let nextTorrent = existing.applying(delta: delta)
+                        if !existing.state.isCompleted, nextTorrent.state.isCompleted {
+                            completedTorrentNames.append(nextTorrent.name)
+                        }
+                        updated[hash] = nextTorrent
                     } else {
                         updated[hash] = Torrent.fromDelta(hash: hash, delta: delta)
                     }
@@ -150,6 +192,14 @@ final class SyncService {
                 serverState = existing.merging(newState)
             } else {
                 serverState = newState
+            }
+        }
+
+        if !completedTorrentNames.isEmpty {
+            Task { @MainActor in
+                for name in completedTorrentNames {
+                    InAppNotificationCenter.shared.showDownloadCompleted(name: name)
+                }
             }
         }
     }

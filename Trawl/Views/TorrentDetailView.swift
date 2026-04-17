@@ -11,7 +11,6 @@ struct TorrentDetailView: View {
     @State private var renameText = ""
     @State private var showLocationAlert = false
     @State private var locationText = ""
-    @State private var showCategoryPicker = false
 
     let torrentHash: String
 
@@ -62,8 +61,7 @@ struct TorrentDetailView: View {
                         .font(.subheadline)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
                 }
             }
             .padding()
@@ -164,8 +162,7 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -195,8 +192,7 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -241,20 +237,13 @@ struct TorrentDetailView: View {
                 Label("Move", systemImage: "folder")
             }
 
-            Button {
-                showCategoryPicker = true
+            Menu {
+                categoryMenuButton(title: "None", category: "", currentCategory: torrent.category)
+                ForEach(vm.availableCategories, id: \.self) { category in
+                    categoryMenuButton(title: category, category: category, currentCategory: torrent.category)
+                }
             } label: {
                 Label("Category", systemImage: "tag")
-            }
-            .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
-                Button("None") {
-                    Task { await vm.setCategory("") }
-                }
-                ForEach(vm.availableCategories, id: \.self) { cat in
-                    Button(cat) {
-                        Task { await vm.setCategory(cat) }
-                    }
-                }
             }
 
             Divider()
@@ -304,8 +293,7 @@ struct TorrentDetailView: View {
                 .padding()
             }
         }
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     // MARK: - Helpers
@@ -314,6 +302,23 @@ struct TorrentDetailView: View {
         guard timestamp > 0 else { return "—" }
         let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
         return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @ViewBuilder
+    private func categoryMenuButton(title: String, category: String, currentCategory: String?) -> some View {
+        Button {
+            Task { await viewModel?.setCategory(category) }
+        } label: {
+            if normalizedCategory(currentCategory) == normalizedCategory(category) {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    private func normalizedCategory(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 }
 

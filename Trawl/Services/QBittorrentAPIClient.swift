@@ -205,6 +205,25 @@ actor QBittorrentAPIClient {
         return try decode([String: SyncCategory].self, from: data)
     }
 
+    func createCategory(name: String, savePath: String?) async throws {
+        var params: [String: String] = ["category": name]
+        if let savePath, !savePath.isEmpty {
+            params["savePath"] = savePath
+        }
+        let request = try buildFormRequest(path: "/api/v2/torrents/createCategory", params: params)
+        _ = try await performRequest(request)
+    }
+
+    func removeCategories(names: [String]) async throws {
+        let filteredNames = names.filter { !$0.isEmpty }
+        guard !filteredNames.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/removeCategories",
+            params: ["categories": filteredNames.joined(separator: "\n")]
+        )
+        _ = try await performRequest(request)
+    }
+
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
         let request = try buildRequest(path: "/api/v2/torrents/trackers", queryItems: [.init(name: "hash", value: hash)])
         let (data, _) = try await performRequest(request)

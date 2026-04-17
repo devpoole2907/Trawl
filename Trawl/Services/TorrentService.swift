@@ -88,6 +88,17 @@ final class TorrentService {
         try await apiClient.getCategories()
     }
 
+    func createCategory(name: String, savePath: String?) async throws {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let trimmedSavePath = savePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        try await apiClient.createCategory(name: trimmedName, savePath: trimmedSavePath)
+    }
+
+    func removeCategories(names: [String]) async throws {
+        try await apiClient.removeCategories(names: names)
+    }
+
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
         try await apiClient.getTrackers(hash: hash)
     }

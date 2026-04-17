@@ -152,8 +152,14 @@ final class TorrentDetailViewModel {
     }
 
     func setCategory(_ category: String) async {
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            try await torrentService.setTorrentCategory(hashes: [torrentHash], category: category)
+            try await torrentService.setTorrentCategory(hashes: [torrentHash], category: normalizedCategory)
+            if !normalizedCategory.isEmpty {
+                syncService.addCategoryLocally(name: normalizedCategory, savePath: nil)
+            }
+            syncService.setTorrentCategoryLocally(hash: torrentHash, category: normalizedCategory)
+            await syncService.refreshNow()
             error = nil
             actionErrorAlert = nil
         } catch {

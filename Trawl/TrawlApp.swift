@@ -10,12 +10,17 @@ import CoreServices
 @main
 struct TrawlApp: App {
     let modelContainer: ModelContainer
+    @State private var arrServiceManager = ArrServiceManager()
+    @State private var sshSessionStore = SSHSessionStore()
+    @State private var inAppNotificationCenter = InAppNotificationCenter.shared
 
     init() {
         let schema = Schema([
             ServerProfile.self,
             CachedTorrentState.self,
-            RecentSavePath.self
+            RecentSavePath.self,
+            ArrServiceProfile.self,
+            SSHProfile.self
         ])
         // Try the shared app group container first (needed for Share Extension access).
         // Fall back to the default container if the group isn't provisioned (e.g. simulator).
@@ -49,6 +54,9 @@ struct TrawlApp: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environment(arrServiceManager)
+                .environment(sshSessionStore)
+                .environment(inAppNotificationCenter)
         }
         .modelContainer(modelContainer)
     }
