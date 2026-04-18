@@ -21,11 +21,27 @@ struct ArrServiceSettingsView: View {
     }
 
     private var isConnected: Bool {
-        serviceType == .sonarr ? serviceManager.sonarrConnected : serviceManager.radarrConnected
+        switch serviceType {
+        case .sonarr: serviceManager.sonarrConnected
+        case .radarr: serviceManager.radarrConnected
+        case .prowlarr: serviceManager.prowlarrConnected
+        }
     }
 
     private var serviceColor: Color {
-        serviceType == .sonarr ? .purple : .orange
+        switch serviceType {
+        case .sonarr: .purple
+        case .radarr: .orange
+        case .prowlarr: .yellow
+        }
+    }
+
+    private var supportsDiskSpace: Bool {
+        serviceType != .prowlarr
+    }
+
+    private var supportsCommands: Bool {
+        serviceType != .prowlarr
     }
 
     var body: some View {
@@ -111,7 +127,7 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if !diskSpaces.isEmpty {
+                if supportsDiskSpace && !diskSpaces.isEmpty {
                     Section("Disk Space") {
                         ForEach(diskSpaces) { disk in
                             VStack(alignment: .leading, spacing: 6) {
@@ -151,28 +167,30 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                Section {
-                    Button("Refresh All", systemImage: "arrow.clockwise") {
-                        Task { await runCommand(named: "Refresh All", action: refreshAll) }
-                    }
-                    .disabled(isRunningCommand)
+                if supportsCommands {
+                    Section {
+                        Button("Refresh All", systemImage: "arrow.clockwise") {
+                            Task { await runCommand(named: "Refresh All", action: refreshAll) }
+                        }
+                        .disabled(isRunningCommand)
 
-                    Button("RSS Sync", systemImage: "dot.radiowaves.left.and.right") {
-                        Task { await runCommand(named: "RSS Sync", action: rssSync) }
-                    }
-                    .disabled(isRunningCommand)
+                        Button("RSS Sync", systemImage: "dot.radiowaves.left.and.right") {
+                            Task { await runCommand(named: "RSS Sync", action: rssSync) }
+                        }
+                        .disabled(isRunningCommand)
 
-                    Button("Search All Missing", systemImage: "magnifyingglass") {
-                        Task { await runCommand(named: "Search All Missing", action: searchAllMissing) }
-                    }
-                    .disabled(isRunningCommand)
-                } header: {
-                    Text("Commands")
-                } footer: {
-                    if let commandStatusMessage {
-                        Text(commandStatusMessage)
-                    } else {
-                        Text("Send maintenance commands directly to \(serviceType.displayName).")
+                        Button("Search All Missing", systemImage: "magnifyingglass") {
+                            Task { await runCommand(named: "Search All Missing", action: searchAllMissing) }
+                        }
+                        .disabled(isRunningCommand)
+                    } header: {
+                        Text("Commands")
+                    } footer: {
+                        if let commandStatusMessage {
+                            Text(commandStatusMessage)
+                        } else {
+                            Text("Send maintenance commands directly to \(serviceType.displayName).")
+                        }
                     }
                 }
 
@@ -215,6 +233,7 @@ struct ArrServiceSettingsView: View {
         let client: ArrDiskSpaceProviding? = switch serviceType {
         case .sonarr: serviceManager.sonarrClient
         case .radarr: serviceManager.radarrClient
+        case .prowlarr: nil
         }
         guard let client else { diskSpaces = []; return }
         do {
@@ -245,6 +264,8 @@ struct ArrServiceSettingsView: View {
             serviceManager.sonarrClient
         case .radarr:
             serviceManager.radarrClient
+        case .prowlarr:
+            serviceManager.prowlarrClient
         }
 
         guard let client else {
@@ -288,6 +309,8 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             await viewModel.refreshMovies()
+        case .prowlarr:
+            break
         }
     }
 
@@ -299,6 +322,8 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             await viewModel.rssSync()
+        case .prowlarr:
+            break
         }
     }
 
@@ -310,6 +335,8 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             await viewModel.searchAllMissing()
+        case .prowlarr:
+            break
         }
     }
 }
@@ -320,6 +347,7 @@ private protocol ArrServiceStatusProviding: Sendable {
 
 extension SonarrAPIClient: ArrServiceStatusProviding {}
 extension RadarrAPIClient: ArrServiceStatusProviding {}
+extension ProwlarrAPIClient: ArrServiceStatusProviding {}
 
 private protocol ArrDiskSpaceProviding: Sendable {
     func getDiskSpace() async throws -> [ArrDiskSpace]
@@ -383,6 +411,16 @@ struct ArrServicesSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
+                HStack {
+                    Label("Prowlarr", systemImage: "magnifyingglass.circle")
+                    Spacer()
+                    Image(systemName: serviceManager.prowlarrConnected ? "circle.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(serviceManager.prowlarrConnected ? .green : .red)
+                    Text(serviceManager.prowlarrConnected ? "Connected" : "Disconnected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if !serviceManager.connectionErrors.isEmpty {
@@ -408,6 +446,7 @@ struct ArrServicesSettingsView: View {
         switch profile.resolvedServiceType {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
+        case .prowlarr: serviceManager.prowlarrConnected
         }
     }
 
@@ -431,7 +470,7 @@ private struct ServiceProfileRow: View {
     var body: some View {
         HStack {
             Image(systemName: profile.resolvedServiceType.systemImage)
-                .foregroundStyle(profile.resolvedServiceType == .sonarr ? .blue : .purple)
+                .foregroundStyle(iconColor)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -454,6 +493,14 @@ private struct ServiceProfileRow: View {
                         .foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    private var iconColor: Color {
+        switch profile.resolvedServiceType {
+        case .sonarr: .blue
+        case .radarr: .purple
+        case .prowlarr: .yellow
         }
     }
 }

@@ -15,6 +15,10 @@ enum MoreDestination: Hashable {
     case qbittorrentSettings
     case sonarrSettings
     case radarrSettings
+    case prowlarrSettings
+    case prowlarrIndexers
+    case prowlarrSearch
+    case prowlarrStats
 }
 
 struct MoreView: View {
@@ -57,6 +61,21 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.tags) {
                         moreRow(icon: "number", color: .cyan,
                                 title: "Tags", subtitle: "Create and manage qBittorrent tags")
+                    }
+
+                    NavigationLink(value: MoreDestination.prowlarrIndexers) {
+                        moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
+                                title: "Indexers", subtitle: "Manage Prowlarr indexers")
+                    }
+
+                    NavigationLink(value: MoreDestination.prowlarrSearch) {
+                        moreRow(icon: "text.magnifyingglass", color: .yellow,
+                                title: "Indexer Search", subtitle: "Search across all indexers")
+                    }
+
+                    NavigationLink(value: MoreDestination.prowlarrStats) {
+                        moreRow(icon: "chart.bar.fill", color: .yellow,
+                                title: "Indexer Stats", subtitle: "Query and grab statistics")
                     }
 
                     NavigationLink(value: MoreDestination.ssh) {
@@ -127,7 +146,58 @@ struct MoreView: View {
                 case .radarrSettings:
                     ArrServiceSettingsView(serviceType: .radarr)
                         .environment(arrServiceManager)
+                case .prowlarrSettings:
+                    ArrServiceSettingsView(serviceType: .prowlarr)
+                        .environment(arrServiceManager)
+                case .prowlarrIndexers:
+                    prowlarrIndexersDestination
+                case .prowlarrSearch:
+                    prowlarrSearchDestination
+                case .prowlarrStats:
+                    prowlarrStatsDestination
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var prowlarrIndexersDestination: some View {
+        if arrServiceManager.prowlarrConnected {
+            ProwlarrIndexerListView()
+                .environment(arrServiceManager)
+        } else {
+            ContentUnavailableView {
+                Label("Prowlarr Not Set Up", systemImage: "magnifyingglass.circle")
+            } description: {
+                Text("Add a Prowlarr server in Settings to manage your indexers.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var prowlarrSearchDestination: some View {
+        if arrServiceManager.prowlarrConnected {
+            ProwlarrSearchView()
+                .environment(arrServiceManager)
+        } else {
+            ContentUnavailableView {
+                Label("Prowlarr Not Set Up", systemImage: "text.magnifyingglass")
+            } description: {
+                Text("Add a Prowlarr server in Settings to search indexers.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var prowlarrStatsDestination: some View {
+        if arrServiceManager.prowlarrConnected {
+            ProwlarrStatsView()
+                .environment(arrServiceManager)
+        } else {
+            ContentUnavailableView {
+                Label("Prowlarr Not Set Up", systemImage: "chart.bar")
+            } description: {
+                Text("Add a Prowlarr server in Settings to view indexer statistics.")
             }
         }
     }

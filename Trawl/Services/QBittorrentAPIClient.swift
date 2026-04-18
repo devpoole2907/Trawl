@@ -118,7 +118,7 @@ actor QBittorrentAPIClient {
             "deleteFiles": deleteFiles ? "true" : "false"
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/delete", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to delete torrents")
     }
 
     func pauseTorrents(hashes: [String]) async throws {
@@ -148,7 +148,7 @@ actor QBittorrentAPIClient {
     func recheckTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.joined(separator: "|")]
         let request = try buildFormRequest(path: "/api/v2/torrents/recheck", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to recheck torrents")
     }
 
     func getTorrentFiles(hash: String) async throws -> [TorrentFile] {
@@ -166,7 +166,7 @@ actor QBittorrentAPIClient {
             "priority": String(priority.rawValue)
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/filePrio", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update file priority")
     }
 
     func getTorrentProperties(hash: String) async throws -> TorrentProperties {
@@ -181,7 +181,7 @@ actor QBittorrentAPIClient {
             "location": location
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setLocation", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent location")
     }
 
     func setTorrentCategory(hashes: [String], category: String) async throws {
@@ -190,13 +190,13 @@ actor QBittorrentAPIClient {
             "category": category
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setCategory", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent category")
     }
 
     func renameTorrent(hash: String, name: String) async throws {
         let params: [String: String] = ["hash": hash, "name": name]
         let request = try buildFormRequest(path: "/api/v2/torrents/rename", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to rename torrent")
     }
 
     func getCategories() async throws -> [String: SyncCategory] {
@@ -211,7 +211,7 @@ actor QBittorrentAPIClient {
             params["savePath"] = savePath
         }
         let request = try buildFormRequest(path: "/api/v2/torrents/createCategory", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to create category")
     }
 
     func removeCategories(names: [String]) async throws {
@@ -221,7 +221,7 @@ actor QBittorrentAPIClient {
             path: "/api/v2/torrents/removeCategories",
             params: ["categories": filteredNames.joined(separator: "\n")]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove categories")
     }
 
     func getTags() async throws -> [String] {
@@ -237,7 +237,7 @@ actor QBittorrentAPIClient {
             path: "/api/v2/torrents/createTags",
             params: ["tags": filteredTags.joined(separator: ",")]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to create tags")
     }
 
     func deleteTags(tags: [String]) async throws {
@@ -247,7 +247,7 @@ actor QBittorrentAPIClient {
             path: "/api/v2/torrents/deleteTags",
             params: ["tags": filteredTags.joined(separator: ",")]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to delete tags")
     }
 
     func addTorrentTags(hashes: [String], tags: [String]) async throws {
@@ -261,7 +261,7 @@ actor QBittorrentAPIClient {
                 "tags": filteredTags.joined(separator: ",")
             ]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add torrent tags")
     }
 
     func removeTorrentTags(hashes: [String], tags: [String]) async throws {
@@ -275,7 +275,7 @@ actor QBittorrentAPIClient {
                 "tags": filteredTags.joined(separator: ",")
             ]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove torrent tags")
     }
 
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
@@ -309,7 +309,7 @@ actor QBittorrentAPIClient {
             path: "/api/v2/transfer/setDownloadLimit",
             params: ["limit": String(limit)]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update download limit")
     }
 
     func setGlobalUploadLimit(limit: Int64) async throws {
@@ -317,7 +317,7 @@ actor QBittorrentAPIClient {
             path: "/api/v2/transfer/setUploadLimit",
             params: ["limit": String(limit)]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update upload limit")
     }
 
     func isAlternativeSpeedEnabled() async throws -> Bool {
@@ -328,7 +328,7 @@ actor QBittorrentAPIClient {
 
     func toggleAlternativeSpeed() async throws {
         let request = try buildRequest(path: "/api/v2/transfer/toggleSpeedLimitsMode", method: "POST")
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to toggle alternative speed mode")
     }
 
     func setTorrentDownloadLimit(hashes: [String], limit: Int64) async throws {
@@ -339,7 +339,7 @@ actor QBittorrentAPIClient {
                 "limit": String(limit)
             ]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent download limit")
     }
 
     func setTorrentUploadLimit(hashes: [String], limit: Int64) async throws {
@@ -350,7 +350,7 @@ actor QBittorrentAPIClient {
                 "limit": String(limit)
             ]
         )
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent upload limit")
     }
 
     // MARK: - Sync
@@ -433,6 +433,17 @@ actor QBittorrentAPIClient {
         allowed.remove("&")
         allowed.remove("=")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+    }
+
+    private func performSuccessfulMutation(
+        _ request: URLRequest,
+        successCodes: Set<Int> = [200],
+        failureMessage: String
+    ) async throws {
+        let (_, response) = try await performRequest(request)
+        guard successCodes.contains(response.statusCode) else {
+            throw QBError.serverError(statusCode: response.statusCode, message: failureMessage)
+        }
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {

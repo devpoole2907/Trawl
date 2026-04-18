@@ -24,6 +24,7 @@ struct RadarrMovieDetailView: View {
     @State private var isAlternateTitlesExpanded = false
     @State private var showAddSheet = false
     @State private var didAdd = false
+    @State private var deleteActionError: ErrorAlertItem?
 
     /// Library init — movie lives in the ViewModel's loaded library.
     init(movieId: Int, viewModel: RadarrViewModel) {
@@ -86,7 +87,7 @@ struct RadarrMovieDetailView: View {
             Toggle("Also delete files", isOn: $deleteFiles)
             Button("Delete", role: .destructive) {
                 if let id = resolvedLibraryId {
-                    Task { await viewModel.deleteMovie(id: id, deleteFiles: deleteFiles) }
+                    Task { await handleDeleteMovie(id: id) }
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -94,12 +95,19 @@ struct RadarrMovieDetailView: View {
         .alert("Delete File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
                 if let fileId = movie?.movieFile?.id {
-                    Task { await viewModel.deleteMovieFile(id: fileId) }
+                    Task { await handleDeleteMovieFile(id: fileId) }
                 }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes the current movie file from Radarr.")
+        }
+        .alert(item: $deleteActionError) { item in
+            Alert(
+                title: Text(item.title),
+                message: Text(item.message),
+                dismissButton: .default(Text("OK"))
+            )
         }
         .sheet(isPresented: $showEditSheet) {
             if let movie, isInLibrary {
@@ -131,6 +139,24 @@ struct RadarrMovieDetailView: View {
         if let movieId { return movieId }
         guard let tmdbId = movie?.tmdbId else { return nil }
         return viewModel.movies.first { $0.tmdbId == tmdbId }?.id
+    }
+
+    private func handleDeleteMovie(id: Int) async {
+        let didDelete = await viewModel.deleteMovie(id: id, deleteFiles: deleteFiles)
+        guard !didDelete, let error = viewModel.error else { return }
+        deleteActionError = ErrorAlertItem(
+            title: deleteFiles ? "Couldn't Delete Movie and Files" : "Couldn't Delete Movie",
+            message: error
+        )
+    }
+
+    private func handleDeleteMovieFile(id: Int) async {
+        let didDelete = await viewModel.deleteMovieFile(id: id)
+        guard !didDelete, let error = viewModel.error else { return }
+        deleteActionError = ErrorAlertItem(
+            title: "Couldn't Delete Movie File",
+            message: error
+        )
     }
     private var queueItems: [ArrQueueItem] {
         guard let id = resolvedLibraryId else { return [] }

@@ -60,15 +60,18 @@ struct ContentView: View {
             case .qbittorrent:
                 OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
             case .sonarr:
-                ArrSetupSheet(initialServiceType: .sonarr, onComplete: {})
+                ArrSetupSheet(initialServiceType: .sonarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
             case .radarr:
-                ArrSetupSheet(initialServiceType: .radarr, onComplete: {})
+                ArrSetupSheet(initialServiceType: .radarr, onComplete: refreshArrConfiguration)
+                    .environment(arrServiceManager)
+            case .prowlarr:
+                ArrSetupSheet(initialServiceType: .prowlarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
             }
         }
         .sheet(isPresented: $showArrSetup) {
-            ArrSetupSheet(onComplete: {})
+            ArrSetupSheet(onComplete: refreshArrConfiguration)
                 .environment(arrServiceManager)
         }
         #if os(macOS)
@@ -184,6 +187,9 @@ struct ContentView: View {
                 featureRow(icon: "film.fill", color: .orange,
                            title: "Radarr",
                            description: "Discover and collect movies")
+                featureRow(icon: "magnifyingglass.circle.fill", color: .yellow,
+                           title: "Prowlarr",
+                           description: "Manage and search your indexers")
             }
             .padding(.horizontal, 8)
 
@@ -238,6 +244,16 @@ struct ContentView: View {
                     isConfigured: radarrProfile != nil
                 ) {
                     setupTarget = .radarr
+                }
+
+                setupRow(
+                    icon: "magnifyingglass.circle.fill",
+                    color: .yellow,
+                    title: "Prowlarr",
+                    description: "Manage and search your indexers",
+                    isConfigured: prowlarrProfile != nil
+                ) {
+                    setupTarget = .prowlarr
                 }
             }
 
@@ -353,8 +369,12 @@ struct ContentView: View {
                     path: $morePath,
                     openSSHSession: { openSSHSession() },
                     selectSSHProfile: { profile in
-                        sshSessionStore.prepareSession(for: profile)
-                        openSSHSession()
+                        Task {
+                            await sshSessionStore.prepareSession(for: profile)
+                            await MainActor.run {
+                                openSSHSession()
+                            }
+                        }
                     }
                 )
                     .environment(arrServiceManager)
@@ -366,6 +386,9 @@ struct ContentView: View {
                     }
                     .environment(\.navigateToRadarrSettings) {
                         morePath.append(.radarrSettings)
+                    }
+                    .environment(\.navigateToProwlarrSettings) {
+                        morePath.append(.prowlarrSettings)
                     }
             }
         }
@@ -411,9 +434,13 @@ struct ContentView: View {
         #endif
         .alert("Disconnect?", isPresented: $showSSHDisconnectConfirm) {
             Button("Disconnect", role: .destructive) {
-                withAnimation(.easeInOut(duration: 0.22)) {
-                    sshSessionStore.disconnect()
-                    showSSHSessionSheet = false
+                Task {
+                    await sshSessionStore.disconnect()
+                    await MainActor.run {
+                        withAnimation(.easeInOut(duration: 0.22)) {
+                            showSSHSessionSheet = false
+                        }
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}
@@ -495,8 +522,12 @@ struct ContentView: View {
         arrProfiles.first(where: { $0.resolvedServiceType == .radarr })
     }
 
+    private var prowlarrProfile: ArrServiceProfile? {
+        arrProfiles.first(where: { $0.resolvedServiceType == .prowlarr })
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil
     }
 
     private var shouldShowWelcomeScreen: Bool {
@@ -513,33 +544,53 @@ struct ContentView: View {
 
     private func initializeServices() {
         guard let server = activeServer else {
+            appServices?.syncService.stopPolling()
+            appServices = nil
+            connectionError = nil
+            isConnecting = false
             return
         }
 
+        let initiatingServerID = server.id
+        let previousServices = appServices
         isConnecting = true
         connectionError = nil
 
         Task {
             do {
-                let previousServices = appServices
                 let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
                 guard !username.isEmpty, !password.isEmpty else {
+                    guard activeServerID == initiatingServerID else { return }
+                    previousServices?.syncService.stopPolling()
+                    appServices = nil
                     connectionError = "Credentials not found. Please re-enter your server details."
                     isConnecting = false
                     return
                 }
 
                 let services = try await AppServices.build(from: server, username: username, password: password)
+                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
                 previousServices?.syncService.stopPolling()
                 await services.syncService.refreshNow()
+                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
                 services.syncService.startPolling()
 
                 // Update last connected
                 server.lastConnected = .now
                 try? modelContext.save()
 
+                guard activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
                 appServices = services
                 selectedTab = .torrents
                 isConnecting = false
@@ -556,9 +607,18 @@ struct ContentView: View {
                     pendingMagnetURL = nil
                 }
             } catch {
+                guard activeServerID == initiatingServerID else { return }
+                previousServices?.syncService.stopPolling()
+                appServices = nil
                 connectionError = error.localizedDescription
                 isConnecting = false
             }
+        }
+    }
+
+    private func refreshArrConfiguration() {
+        Task {
+            await arrServiceManager.refreshConfiguration()
         }
     }
 
@@ -658,12 +718,14 @@ private enum SetupTarget: Identifiable {
     case qbittorrent
     case sonarr
     case radarr
+    case prowlarr
 
     var id: String {
         switch self {
         case .qbittorrent: "qbittorrent"
         case .sonarr: "sonarr"
         case .radarr: "radarr"
+        case .prowlarr: "prowlarr"
         }
     }
 }

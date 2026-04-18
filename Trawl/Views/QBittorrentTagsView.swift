@@ -40,8 +40,8 @@ struct QBittorrentTagsView: View {
         .navigationTitle("Tags")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

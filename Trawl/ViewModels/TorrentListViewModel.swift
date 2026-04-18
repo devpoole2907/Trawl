@@ -130,7 +130,7 @@ final class TorrentListViewModel {
     func toggleAlternativeSpeed() async {
         do {
             try await torrentService.toggleAlternativeSpeed()
-            isAlternativeSpeedEnabled.toggle()
+            isAlternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
             await syncService.refreshNow()
             actionErrorAlert = nil
         } catch {

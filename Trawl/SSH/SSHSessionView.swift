@@ -74,11 +74,11 @@ final class SSHSessionStore {
         }
     }
 
-    func prepareSession(for profile: SSHProfile) {
+    func prepareSession(for profile: SSHProfile) async {
         if activeProfile?.id != profile.id {
             // Resume any pending fingerprint continuation before switching
             confirmFingerprint(accepted: false)
-            connection.disconnect()
+            await connection.disconnect()
             titleOverride = nil
             wantsKeyboard = false
         }
@@ -107,7 +107,7 @@ final class SSHSessionStore {
         guard let activeProfile else { return }
         // Resume any pending fingerprint continuation before reconnecting
         confirmFingerprint(accepted: false)
-        connection.disconnect()
+        await connection.disconnect()
         titleOverride = nil
         wantsKeyboard = false
         await connect(to: activeProfile, modelContext: modelContext)
@@ -122,11 +122,11 @@ final class SSHSessionStore {
         bridge.hideKeyboard()
     }
 
-    func disconnect() {
+    func disconnect() async {
         // Resume any pending fingerprint continuation before disconnecting
         confirmFingerprint(accepted: false)
         bridge.hideKeyboard()
-        connection.disconnect()
+        await connection.disconnect()
         activeProfile = nil
         titleOverride = nil
         wantsKeyboard = false
@@ -247,8 +247,10 @@ struct SSHSessionView: View {
         .toolbar { toolbarContent }
         .alert("Disconnect?", isPresented: $showDisconnectConfirm) {
             Button("Disconnect", role: .destructive) {
-                sshSessionStore.disconnect()
-                dismiss()
+                Task {
+                    await sshSessionStore.disconnect()
+                    dismiss()
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {

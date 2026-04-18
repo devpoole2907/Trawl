@@ -142,7 +142,7 @@ struct ServerListView: View {
             try await KeychainHelper.shared.delete(key: server.usernameKey)
             try await KeychainHelper.shared.delete(key: server.passwordKey)
         } catch {
-            // Continue with model deletion even if credentials were already missing.
+            return
         }
 
         let wasActive = server.isActive

@@ -25,6 +25,8 @@ struct SearchView: View {
     @State private var arrLookupTask: Task<Void, Never>?
     @State private var activeArrLookupTerm = ""
     @State private var lastCompletedArrLookupTerm = ""
+    @State private var sonarrLookupContextKey = ""
+    @State private var radarrLookupContextKey = ""
 
     // TMDb trending
     @AppStorage("tmdb.apiKey") private var tmdbAPIKey: String = ""
@@ -843,11 +845,28 @@ struct SearchView: View {
     // MARK: - Arr lookup
 
     private func createLookupViewModels() {
-        if sonarrLookupVM == nil && arrServiceManager.sonarrConnected {
+        let nextSonarrKey = sonarrLookupKey(
+            isConnected: arrServiceManager.sonarrConnected,
+            series: sonarrSeries
+        )
+        if !arrServiceManager.sonarrConnected {
+            sonarrLookupVM = nil
+            sonarrLookupContextKey = nextSonarrKey
+        } else if sonarrLookupVM == nil || sonarrLookupContextKey != nextSonarrKey {
             sonarrLookupVM = SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: sonarrSeries)
+            sonarrLookupContextKey = nextSonarrKey
         }
-        if radarrLookupVM == nil && arrServiceManager.radarrConnected {
+
+        let nextRadarrKey = radarrLookupKey(
+            isConnected: arrServiceManager.radarrConnected,
+            movies: radarrMovies
+        )
+        if !arrServiceManager.radarrConnected {
+            radarrLookupVM = nil
+            radarrLookupContextKey = nextRadarrKey
+        } else if radarrLookupVM == nil || radarrLookupContextKey != nextRadarrKey {
             radarrLookupVM = RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: radarrMovies)
+            radarrLookupContextKey = nextRadarrKey
         }
     }
 
@@ -860,7 +879,7 @@ struct SearchView: View {
 
         let isCurrentlySearchingTerm = activeArrLookupTerm == term
             && ((sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false))
-        if isCurrentlySearchingTerm || lastCompletedArrLookupTerm == term {
+        if isCurrentlySearchingTerm || (lastCompletedArrLookupTerm == term && !immediate) {
             return
         }
 
@@ -908,6 +927,16 @@ struct SearchView: View {
         hasSearchedArr = false
         sonarrLookupVM?.clearSearchResults()
         radarrLookupVM?.clearSearchResults()
+    }
+
+    private func sonarrLookupKey(isConnected: Bool, series: [SonarrSeries]) -> String {
+        guard isConnected else { return "disconnected" }
+        return "connected:\(series.map(\.id).sorted().map(String.init).joined(separator: ","))"
+    }
+
+    private func radarrLookupKey(isConnected: Bool, movies: [RadarrMovie]) -> String {
+        guard isConnected else { return "disconnected" }
+        return "connected:\(movies.map(\.id).sorted().map(String.init).joined(separator: ","))"
     }
 
 

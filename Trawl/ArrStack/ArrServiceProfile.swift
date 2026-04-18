@@ -34,6 +34,7 @@ final class ArrServiceProfile {
 enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
     case sonarr
     case radarr
+    case prowlarr
 
     var id: String { rawValue }
 
@@ -41,6 +42,7 @@ enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sonarr: "Sonarr"
         case .radarr: "Radarr"
+        case .prowlarr: "Prowlarr"
         }
     }
 
@@ -48,6 +50,7 @@ enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sonarr: 8989
         case .radarr: 7878
+        case .prowlarr: 9696
         }
     }
 
@@ -55,6 +58,7 @@ enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         switch self {
         case .sonarr: "tv"
         case .radarr: "film"
+        case .prowlarr: "magnifyingglass.circle"
         }
     }
 }

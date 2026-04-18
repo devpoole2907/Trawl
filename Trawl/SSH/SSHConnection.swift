@@ -154,6 +154,8 @@ private actor SshSessionActor {
 
         // Pass the context as the abstract pointer so callbacks can recover it
         guard let sess = libssh2_session_init_ex(nil, nil, nil, ref.toOpaque()) else {
+            ref.release()
+            self.contextRef = nil
             throw SSHConnectionError.connectionFailed("libssh2_session_init failed")
         }
         self.session = sess
@@ -475,9 +477,9 @@ final class SSHConnection: @unchecked Sendable {
         } catch {
             conn.stateUpdateHandler = nil
             transition(to: .failed(error.localizedDescription))
-            conn.cancel()
             nwConnection = nil
             receiveBuffer = nil
+            conn.cancel()
             throw error
         }
 
@@ -514,6 +516,8 @@ final class SSHConnection: @unchecked Sendable {
             startReadLoop()
         } catch {
             transition(to: .failed(error.localizedDescription))
+            nwConnection = nil
+            receiveBuffer = nil
             await sshActor.teardown()
             conn.cancel()
             throw error
@@ -530,13 +534,14 @@ final class SSHConnection: @unchecked Sendable {
         Task { await sshActor.resizePTY(cols: cols, rows: rows) }
     }
 
-    func disconnect() {
+    func disconnect() async {
         readLoopTask?.cancel()
         readLoopTask = nil
-        nwConnection?.cancel()
+        let connection = nwConnection
         nwConnection = nil
         receiveBuffer = nil
-        Task { await sshActor.teardown() }
+        await sshActor.teardown()
+        connection?.cancel()
         transition(to: .disconnected)
     }
 
@@ -547,6 +552,7 @@ final class SSHConnection: @unchecked Sendable {
     // MARK: Private: NWConnection receive loop
 
     private nonisolated func startReceiving(_ conn: NWConnection, buffer: SshReceiveBuffer) {
+        @Sendable
         func scheduleReceive() {
             conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
                 guard let self else { return }

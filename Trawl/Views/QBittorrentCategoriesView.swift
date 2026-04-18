@@ -41,8 +41,8 @@ struct QBittorrentCategoriesView: View {
         .navigationTitle("Categories")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbarBackground(.hidden, for: .navigationBar)
+        #endif
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {

@@ -171,6 +171,8 @@ struct ArrActivityView: View {
         case .radarr:
             try? await serviceManager.radarrClient?.deleteQueueItem(id: activityItem.item.id)
             radarrQueue.removeAll { $0.id == activityItem.item.id }
+        case .prowlarr:
+            break
         }
     }
 }
@@ -291,13 +293,15 @@ struct ArrHealthView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var sonarrHealth: [ArrHealthCheck] = []
     @State private var radarrHealth: [ArrHealthCheck] = []
+    @State private var prowlarrHealth: [ArrHealthCheck] = []
     @State private var isLoading = false
     @State private var loadErrors: [String] = []
 
     private var allChecks: [HealthItem] {
         (
             sonarrHealth.map { HealthItem(check: $0, source: .sonarr) } +
-            radarrHealth.map { HealthItem(check: $0, source: .radarr) }
+            radarrHealth.map { HealthItem(check: $0, source: .radarr) } +
+            prowlarrHealth.map { HealthItem(check: $0, source: .prowlarr) }
         )
         .sorted { $0.severityRank > $1.severityRank }
     }
@@ -310,6 +314,10 @@ struct ArrHealthView: View {
         allChecks.filter { $0.source == .radarr }
     }
 
+    private var prowlarrItems: [HealthItem] {
+        allChecks.filter { $0.source == .prowlarr }
+    }
+
     var body: some View {
         contentView
             .navigationTitle("Health")
@@ -317,9 +325,10 @@ struct ArrHealthView: View {
             .background(backgroundGradient)
             .refreshable { await loadHealth() }
             .task(id: healthReloadKey) {
-                guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
+                guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected else {
                     sonarrHealth = []
                     radarrHealth = []
+                    prowlarrHealth = []
                     loadErrors = []
                     isLoading = false
                     return
@@ -334,17 +343,17 @@ struct ArrHealthView: View {
         if isLoading && allChecks.isEmpty && loadErrors.isEmpty {
             ProgressView("Loading health checks...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected {
+        } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.prowlarrConnected {
             ContentUnavailableView(
                 "No Arr Services Connected",
                 systemImage: "heart.text.square",
-                description: Text("This screen shows Sonarr and Radarr health warnings and errors.")
+                description: Text("This screen shows Sonarr, Radarr, and Prowlarr health warnings and errors.")
             )
         } else if allChecks.isEmpty && loadErrors.isEmpty {
             ContentUnavailableView(
                 "No Health Issues",
                 systemImage: "checkmark.circle",
-                description: Text("Sonarr and Radarr are not currently reporting any health warnings.")
+                description: Text("Your connected Arr services are not currently reporting any health warnings.")
             )
         } else {
             ScrollView {
@@ -355,6 +364,10 @@ struct ArrHealthView: View {
 
                     if !radarrItems.isEmpty {
                         healthSection(title: "Radarr", color: .orange, items: radarrItems)
+                    }
+
+                    if !prowlarrItems.isEmpty {
+                        healthSection(title: "Prowlarr", color: .yellow, items: prowlarrItems)
                     }
 
                     if !loadErrors.isEmpty {
@@ -386,7 +399,7 @@ struct ArrHealthView: View {
 
     private func healthSection(title: String, color: Color, items: [HealthItem]) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: title == "Sonarr" ? "tv" : "film")
+            Label(title, systemImage: healthSectionIcon(for: title))
                 .font(.headline)
                 .foregroundStyle(color)
 
@@ -429,7 +442,7 @@ struct ArrHealthView: View {
     }
 
     private var healthReloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)"
     }
 
     private func loadHealth() async {
@@ -438,14 +451,26 @@ struct ArrHealthView: View {
 
         async let sonarrResult = loadHealthChecks(from: serviceManager.sonarrClient, source: .sonarr)
         async let radarrResult = loadHealthChecks(from: serviceManager.radarrClient, source: .radarr)
+        async let prowlarrResult = loadHealthChecks(from: serviceManager.prowlarrClient, source: .prowlarr)
 
         let sonarrOutcome = await sonarrResult
         let radarrOutcome = await radarrResult
+        let prowlarrOutcome = await prowlarrResult
 
         sonarrHealth = sonarrOutcome.checks
         radarrHealth = radarrOutcome.checks
-        loadErrors = [sonarrOutcome.errorMessage, radarrOutcome.errorMessage].compactMap { $0 }
+        prowlarrHealth = prowlarrOutcome.checks
+        loadErrors = [sonarrOutcome.errorMessage, radarrOutcome.errorMessage, prowlarrOutcome.errorMessage].compactMap { $0 }
         isLoading = false
+    }
+
+    private func healthSectionIcon(for title: String) -> String {
+        switch title {
+        case "Sonarr": "tv"
+        case "Radarr": "film"
+        case "Prowlarr": "magnifyingglass.circle"
+        default: "heart.text.square"
+        }
     }
 
     private func loadHealthChecks(from client: ArrAPIClientProviding?, source: ArrServiceType) async -> HealthLoadResult {
@@ -560,3 +585,4 @@ private protocol ArrAPIClientProviding: Sendable {
 
 extension SonarrAPIClient: ArrAPIClientProviding {}
 extension RadarrAPIClient: ArrAPIClientProviding {}
+extension ProwlarrAPIClient: ArrAPIClientProviding {}

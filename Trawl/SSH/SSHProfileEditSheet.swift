@@ -398,7 +398,7 @@ struct SSHProfileEditSheet: View {
 
         // Disconnect if this profile is currently active
         if sshSessionStore.activeProfile?.id == profile.id {
-            sshSessionStore.disconnect()
+            await sshSessionStore.disconnect()
         }
 
         do {

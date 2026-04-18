@@ -302,13 +302,15 @@ final class RadarrViewModel {
         }
     }
 
-    func deleteMovie(id: Int, deleteFiles: Bool = false) async {
-        guard let client else { return }
+    func deleteMovie(id: Int, deleteFiles: Bool = false) async -> Bool {
+        guard let client else { return false }
         do {
             try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
             movies.removeAll { $0.id == id }
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 
@@ -341,8 +343,8 @@ final class RadarrViewModel {
         }
     }
 
-    func deleteMovieFile(id: Int) async {
-        guard let client else { return }
+    func deleteMovieFile(id: Int) async -> Bool {
+        guard let client else { return false }
         let movieId = movies.first(where: { $0.movieFile?.id == id })?.id
 
         do {
@@ -351,8 +353,10 @@ final class RadarrViewModel {
                 await refreshMovieInLibrary(id: movieId)
                 await loadMovies()
             }
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 

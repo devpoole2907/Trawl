@@ -19,6 +19,7 @@ struct SettingsView: View {
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
     @Environment(\.navigateToRadarrSettings) private var navigateToRadarrSettings
+    @Environment(\.navigateToProwlarrSettings) private var navigateToProwlarrSettings
 
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -38,8 +39,12 @@ struct SettingsView: View {
                 }
             }
             .task {
+                arrServiceManager.syncProfiles(arrProfiles)
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
+            }
+            .task(id: arrProfilesSyncKey) {
+                arrServiceManager.syncProfiles(arrProfiles)
             }
     }
 
@@ -55,6 +60,19 @@ struct SettingsView: View {
 
     private var radarrProfile: ArrServiceProfile? {
         arrProfiles.first(where: { $0.resolvedServiceType == .radarr })
+    }
+
+    private var prowlarrProfile: ArrServiceProfile? {
+        arrProfiles.first(where: { $0.resolvedServiceType == .prowlarr })
+    }
+
+    private var arrProfilesSyncKey: String {
+        arrProfiles
+            .map {
+                "\($0.id.uuidString):\($0.serviceType):\($0.hostURL):\($0.isEnabled)"
+            }
+            .sorted()
+            .joined(separator: "|")
     }
 
     // MARK: - Form
@@ -93,6 +111,18 @@ struct SettingsView: View {
                         url: radarrProfile?.hostURL,
                         isConnected: arrServiceManager.radarrConnected,
                         isConfigured: radarrProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToProwlarrSettings) {
+                    serviceRow(
+                        icon: "magnifyingglass.circle.fill", color: .yellow,
+                        name: prowlarrProfile?.displayName ?? "Prowlarr",
+                        url: prowlarrProfile?.hostURL,
+                        isConnected: arrServiceManager.prowlarrConnected,
+                        isConfigured: prowlarrProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -220,6 +250,7 @@ struct QBittorrentSettingsView: View {
     @State private var appPreferences: AppPreferences?
     @State private var didLoadSpeedLimits = false
     @State private var speedLimitErrorAlert: ErrorAlertItem?
+    @State private var isUpdatingAlternativeSpeed = false
 
     var body: some View {
         Form {
@@ -304,7 +335,7 @@ struct QBittorrentSettingsView: View {
 
                 Toggle("Alternative Speed Mode", isOn: $alternativeSpeedEnabled)
                     .onChange(of: alternativeSpeedEnabled) {
-                        guard didLoadSpeedLimits else { return }
+                        guard didLoadSpeedLimits, !isUpdatingAlternativeSpeed else { return }
                         Task { await updateAlternativeSpeedMode(alternativeSpeedEnabled) }
                     }
             } header: {
@@ -408,16 +439,20 @@ struct QBittorrentSettingsView: View {
     }
 
     private func updateAlternativeSpeedMode(_ enabled: Bool) async {
+        guard !isUpdatingAlternativeSpeed else { return }
+        isUpdatingAlternativeSpeed = true
+        defer { isUpdatingAlternativeSpeed = false }
+
         do {
             let currentValue = try await torrentService.isAlternativeSpeedEnabled()
             if currentValue != enabled {
                 try await torrentService.toggleAlternativeSpeed()
             }
-            alternativeSpeedEnabled = enabled
+            alternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
             await syncService.refreshNow()
             speedLimitErrorAlert = nil
         } catch {
-            alternativeSpeedEnabled.toggle()
+            alternativeSpeedEnabled = (try? await torrentService.isAlternativeSpeedEnabled()) ?? alternativeSpeedEnabled
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Toggle Alternative Speed",
                 message: error.localizedDescription
@@ -496,6 +531,10 @@ private struct NavigateToRadarrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToProwlarrSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToQbittorrentSettings: () -> Void {
         get { self[NavigateToQbittorrentSettingsKey.self] }
@@ -510,5 +549,10 @@ extension EnvironmentValues {
     var navigateToRadarrSettings: () -> Void {
         get { self[NavigateToRadarrSettingsKey.self] }
         set { self[NavigateToRadarrSettingsKey.self] = newValue }
+    }
+
+    var navigateToProwlarrSettings: () -> Void {
+        get { self[NavigateToProwlarrSettingsKey.self] }
+        set { self[NavigateToProwlarrSettingsKey.self] = newValue }
     }
 }

@@ -10,15 +10,19 @@ final class ArrServiceManager {
     // Active clients (nil if not configured)
     private(set) var sonarrClient: SonarrAPIClient?
     private(set) var radarrClient: RadarrAPIClient?
+    private(set) var prowlarrClient: ProwlarrAPIClient?
 
     // Connection state
     private(set) var sonarrConnected: Bool = false
     private(set) var radarrConnected: Bool = false
+    private(set) var prowlarrConnected: Bool = false
     private(set) var isInitializing: Bool = false
     private(set) var sonarrIsConnecting: Bool = false
     private(set) var radarrIsConnecting: Bool = false
+    private(set) var prowlarrIsConnecting: Bool = false
     private(set) var sonarrConnectionError: String? = nil
     private(set) var radarrConnectionError: String? = nil
+    private(set) var prowlarrConnectionError: String? = nil
     private(set) var connectionErrors: [String: String] = [:]  // serviceId -> error
 
     // Stored for retry
@@ -41,6 +45,10 @@ final class ArrServiceManager {
             await connectService(profile)
         }
         isInitializing = false
+    }
+
+    func syncProfiles(_ profiles: [ArrServiceProfile]) {
+        storedProfiles = profiles
     }
 
     /// Retry connecting a specific service using the last known profiles.
@@ -90,6 +98,14 @@ final class ArrServiceManager {
                 radarrQualityProfiles = (try? await client.getQualityProfiles()) ?? []
                 radarrRootFolders = (try? await client.getRootFolders()) ?? []
                 radarrTags = (try? await client.getTags()) ?? []
+
+            case .prowlarr:
+                let client = ProwlarrAPIClient(baseURL: profile.hostURL, apiKey: apiKey)
+                _ = try await client.getSystemStatus()
+                prowlarrClient = client
+                prowlarrConnected = true
+                prowlarrConnectionError = nil
+                connectionErrors.removeValue(forKey: profile.id.uuidString)
             }
         } catch {
             connectionErrors[profile.id.uuidString] = error.localizedDescription
@@ -101,12 +117,16 @@ final class ArrServiceManager {
     func disconnectAll() {
         sonarrClient = nil
         radarrClient = nil
+        prowlarrClient = nil
         sonarrConnected = false
         radarrConnected = false
+        prowlarrConnected = false
         sonarrIsConnecting = false
         radarrIsConnecting = false
+        prowlarrIsConnecting = false
         sonarrConnectionError = nil
         radarrConnectionError = nil
+        prowlarrConnectionError = nil
         sonarrQualityProfiles = []
         radarrQualityProfiles = []
         sonarrRootFolders = []
@@ -123,6 +143,8 @@ final class ArrServiceManager {
             clearConnectionState(for: .sonarr, preserveError: false)
         case .radarr:
             clearConnectionState(for: .radarr, preserveError: false)
+        case .prowlarr:
+            clearConnectionState(for: .prowlarr, preserveError: false)
         }
 
         if let profileID {
@@ -132,8 +154,14 @@ final class ArrServiceManager {
 
     /// Test a connection without persisting it.
     func testConnection(hostURL: String, apiKey: String, serviceType: ArrServiceType) async throws -> ArrSystemStatus {
-        let client = ArrAPIClient(baseURL: hostURL, apiKey: apiKey)
-        return try await client.getSystemStatus()
+        switch serviceType {
+        case .prowlarr:
+            let client = ProwlarrAPIClient(baseURL: hostURL, apiKey: apiKey)
+            return try await client.getSystemStatus()
+        default:
+            let client = ArrAPIClient(baseURL: hostURL, apiKey: apiKey)
+            return try await client.getSystemStatus()
+        }
     }
 
     /// Refresh cached configuration data for all connected services.
@@ -152,10 +180,9 @@ final class ArrServiceManager {
 
     private func setConnectingState(_ isConnecting: Bool, for serviceType: ArrServiceType) {
         switch serviceType {
-        case .sonarr:
-            sonarrIsConnecting = isConnecting
-        case .radarr:
-            radarrIsConnecting = isConnecting
+        case .sonarr: sonarrIsConnecting = isConnecting
+        case .radarr: radarrIsConnecting = isConnecting
+        case .prowlarr: prowlarrIsConnecting = isConnecting
         }
     }
 
@@ -167,6 +194,9 @@ final class ArrServiceManager {
         case .radarr:
             radarrConnected = false
             radarrConnectionError = message
+        case .prowlarr:
+            prowlarrConnected = false
+            prowlarrConnectionError = message
         }
     }
 
@@ -186,6 +216,10 @@ final class ArrServiceManager {
             radarrQualityProfiles = []
             radarrRootFolders = []
             radarrTags = []
+        case .prowlarr:
+            prowlarrClient = nil
+            prowlarrConnected = false
+            if !preserveError { prowlarrConnectionError = nil }
         }
     }
 }
