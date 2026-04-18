@@ -53,6 +53,7 @@ enum SSHAuth: Sendable {
 /// NWConnection fills this; libssh2's recv callback drains it synchronously.
 private final class SshReceiveBuffer: @unchecked Sendable {
     private var buffer = Data()
+    private var readIndex = 0
     private let lock = NSLock()
 
     func append(_ data: Data) {
@@ -63,12 +64,23 @@ private final class SshReceiveBuffer: @unchecked Sendable {
     /// Copy up to `maxLength` bytes into `ptr`. Returns bytes copied, or -EAGAIN when empty.
     func read(into ptr: UnsafeMutableRawPointer, maxLength: Int) -> Int {
         lock.lock(); defer { lock.unlock() }
-        guard !buffer.isEmpty else { return -Int(EAGAIN) }
-        let n = min(maxLength, buffer.count)
+        
+        let available = buffer.count - readIndex
+        guard available > 0 else { return -Int(EAGAIN) }
+        
+        let n = min(maxLength, available)
         buffer.withUnsafeBytes { src in
-            ptr.copyMemory(from: src.baseAddress!, byteCount: n)
+            let base = src.baseAddress!.advanced(by: readIndex)
+            ptr.copyMemory(from: base, byteCount: n)
         }
-        buffer.removeFirst(n)
+        readIndex += n
+        
+        // Compact the buffer if we've read at least half and it's substantial
+        if readIndex > 32768 && readIndex > buffer.count / 2 {
+            buffer.removeFirst(readIndex)
+            readIndex = 0
+        }
+        
         return n
     }
 }
@@ -78,11 +90,42 @@ private final class SshReceiveBuffer: @unchecked Sendable {
 private final class SshSessionContext: @unchecked Sendable {
     let connection: NWConnection
     let receiveBuffer: SshReceiveBuffer
+    
+    // Tracking for backpressure and error propagation
+    private let lock = NSLock()
+    private(set) var pendingSendBytes = 0
+    private(set) var sendError: Error?
+    
+    // Limits: stop sending when we have ~1MB in flight
+    static let maxPendingBytes = 1024 * 1024
 
     nonisolated
     init(connection: NWConnection, receiveBuffer: SshReceiveBuffer) {
         self.connection = connection
         self.receiveBuffer = receiveBuffer
+    }
+
+    func incrementPending(_ count: Int) {
+        lock.lock(); defer { lock.unlock() }
+        pendingSendBytes += count
+    }
+
+    func decrementPending(_ count: Int, error: Error?) {
+        lock.lock(); defer { lock.unlock() }
+        pendingSendBytes -= count
+        if let error, sendError == nil {
+            sendError = error
+        }
+    }
+
+    var isFull: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return pendingSendBytes >= Self.maxPendingBytes
+    }
+
+    var error: Error? {
+        lock.lock(); defer { lock.unlock() }
+        return sendError
     }
 }
 
@@ -114,9 +157,26 @@ nonisolated(unsafe) private let libssh2SendCallback: @convention(c) (
     let ctx = Unmanaged<SshSessionContext>
         .fromOpaque(abstract.pointee!)
         .takeUnretainedValue()
+    
+    // Check for previous fatal send error
+    if ctx.error != nil { return -1 }
+    
+    // Backpressure: if we have too much in flight, tell libssh2 to try again later
+    if ctx.isFull {
+        return -Int(EAGAIN)
+    }
+
     let data = Data(bytes: buffer, count: length)
-    ctx.connection.send(content: data, completion: .idempotent)
-    return length  // NWConnection queues sends; report success optimistically
+    ctx.incrementPending(length)
+    
+    ctx.connection.send(content: data, completion: .contentProcessed({ error in
+        ctx.decrementPending(length, error: error)
+        // If we were waiting on backpressure, we don't have an easy way to wake up from here 
+        // without an actor reference, but pingTasks on the actor is called on receive.
+        // For send backpressure specifically, libssh2 will retry when we call a function that triggers a write.
+    }))
+    
+    return length
 }
 
 // ssize_t recv(socket, void *buffer, size_t length, int flags, void **abstract)
@@ -207,11 +267,16 @@ private actor SshSessionActor {
     /// Retries `block` until it stops returning LIBSSH2_ERROR_EAGAIN.
     private func callSsh(_ block: () -> Int32) async throws {
         while true {
+            // Check for underlying transport send error
+            if let transportError = contextRef?.takeUnretainedValue().error {
+                throw transportError
+            }
+
             let rc = block()
             if rc == LIBSSH2_ERROR_EAGAIN {
                 try await waitForRetry()
             } else if rc < 0 {
-                throw SSHConnectionError.connectionFailed("libssh2 error \(rc)")
+                throw lastErrorDetails()
             } else {
                 return
             }
@@ -303,6 +368,12 @@ private actor SshSessionActor {
 
     func sendToChannel(_ data: Data) async throws {
         guard let ch = channel else { return }
+        
+        // Check for underlying transport send error
+        if let transportError = contextRef?.takeUnretainedValue().error {
+            throw transportError
+        }
+
         let bytes = [UInt8](data)
         var remaining = bytes.count
         var offset = 0
@@ -320,7 +391,12 @@ private actor SshSessionActor {
                 offset += n
                 remaining -= n
             } else if Int32(n) == LIBSSH2_ERROR_EAGAIN {
-                try await waitForRetry()
+                // If the underlying context is full, wait a bit before retrying to allow NWConnection to drain
+                if contextRef?.takeUnretainedValue().isFull == true {
+                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                } else {
+                    try await waitForRetry()
+                }
             } else if n < 0 {
                 throw lastErrorDetails()
             } else {
