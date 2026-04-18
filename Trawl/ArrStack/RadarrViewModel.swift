@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 
+@MainActor
 @Observable
 final class RadarrViewModel {
     // Library state
@@ -248,19 +249,31 @@ final class RadarrViewModel {
 
     func toggleMovieMonitored(_ movie: RadarrMovie) async {
         guard let client else { return }
-        let newMonitored = !(movie.monitored ?? true)
-        let updatedMovie = movie.updatingForEdit(
-            monitored: newMonitored,
-            qualityProfileId: movie.qualityProfileId ?? qualityProfiles.first?.id ?? 0,
-            minimumAvailability: movie.minimumAvailability ?? "released",
-            rootFolderPath: movie.rootFolderPath ?? rootFolders.first?.path ?? "",
-            tags: movie.tags ?? []
-        )
-        // Optimistic update — UI responds immediately
-        if let idx = self.movies.firstIndex(where: { $0.id == movie.id }) {
-            self.movies[idx] = updatedMovie
+        guard movie.id > 0 else {
+            await loadMovies()
+            return
         }
+        let newMonitored = !(movie.monitored ?? true)
         do {
+            let canonicalMovie = try await client.getMovie(id: movie.id)
+            guard canonicalMovie.qualityProfileId != nil,
+                  let rootFolderPath = canonicalMovie.rootFolderPath,
+                  !rootFolderPath.isEmpty else {
+                await loadMovies()
+                return
+            }
+
+            let updatedMovie = canonicalMovie.updatingForEdit(
+                monitored: newMonitored,
+                qualityProfileId: canonicalMovie.qualityProfileId ?? 0,
+                minimumAvailability: canonicalMovie.minimumAvailability ?? "released",
+                rootFolderPath: rootFolderPath,
+                tags: canonicalMovie.tags ?? []
+            )
+
+            if let idx = self.movies.firstIndex(where: { $0.id == movie.id }) {
+                self.movies[idx] = updatedMovie
+            }
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
@@ -360,6 +373,10 @@ final class RadarrViewModel {
             self.error = error.localizedDescription
         }
         isLoadingHistory = false
+    }
+
+    func loadNextHistoryPage() async {
+        await loadHistory(page: historyPage + 1)
     }
 
     func removeQueueItem(id: Int, blocklist: Bool = false) async {

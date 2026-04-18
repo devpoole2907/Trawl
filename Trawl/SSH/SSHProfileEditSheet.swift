@@ -246,30 +246,52 @@ struct SSHProfileEditSheet: View {
             ? trimmedHost
             : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        let profile: SSHProfile
         if let existing {
-            existing.displayName = resolvedName
-            existing.host        = trimmedHost
-            existing.port        = port
-            existing.username    = trimmedUsername
-            existing.authTypeRaw = authType.rawValue
-            profile = existing
-        } else {
-            profile = SSHProfile(
+            let previousDisplayName = existing.displayName
+            let previousHost = existing.host
+            let previousPort = existing.port
+            let previousUsername = existing.username
+            let previousAuthTypeRaw = existing.authTypeRaw
+            let previousCredentials = await snapshotCredentials(for: existing)
+
+            do {
+                try await writeCredentials(for: existing)
+                existing.displayName = resolvedName
+                existing.host = trimmedHost
+                existing.port = port
+                existing.username = trimmedUsername
+                existing.authTypeRaw = authType.rawValue
+                try modelContext.save()
+                dismiss()
+            } catch {
+                existing.displayName = previousDisplayName
+                existing.host = previousHost
+                existing.port = previousPort
+                existing.username = previousUsername
+                existing.authTypeRaw = previousAuthTypeRaw
+                modelContext.rollback()
+                await restoreCredentials(previousCredentials, for: existing)
+                saveError = error.localizedDescription
+            }
+            return
+        }
+
+        let profile = SSHProfile(
                 displayName: resolvedName,
                 host: trimmedHost,
                 port: port,
                 username: trimmedUsername,
                 authType: authType
-            )
-            modelContext.insert(profile)
-        }
+        )
 
         do {
             try await writeCredentials(for: profile)
+            modelContext.insert(profile)
             try modelContext.save()
             dismiss()
         } catch {
+            modelContext.rollback()
+            await clearCredentials(for: profile)
             saveError = error.localizedDescription
         }
     }
@@ -307,6 +329,50 @@ struct SSHProfileEditSheet: View {
         }
     }
 
+    private func snapshotCredentials(for profile: SSHProfile) async -> SSHCredentialSnapshot {
+        let helper = KeychainHelper.shared
+        async let passwordValue = try? helper.read(key: profile.passwordKey)
+        async let privateKeyValue = try? helper.read(key: profile.privateKeyKey)
+        async let passphraseValue = try? helper.read(key: profile.passphraseKey)
+        return await SSHCredentialSnapshot(
+            password: passwordValue ?? nil,
+            privateKey: privateKeyValue ?? nil,
+            passphrase: passphraseValue ?? nil
+        )
+    }
+
+    private func restoreCredentials(_ snapshot: SSHCredentialSnapshot, for profile: SSHProfile) async {
+        let helper = KeychainHelper.shared
+        do {
+            if let password = snapshot.password {
+                try await helper.save(key: profile.passwordKey, value: password)
+            } else {
+                try await helper.delete(key: profile.passwordKey)
+            }
+
+            if let privateKey = snapshot.privateKey {
+                try await helper.save(key: profile.privateKeyKey, value: privateKey)
+            } else {
+                try await helper.delete(key: profile.privateKeyKey)
+            }
+
+            if let passphrase = snapshot.passphrase {
+                try await helper.save(key: profile.passphraseKey, value: passphrase)
+            } else {
+                try await helper.delete(key: profile.passphraseKey)
+            }
+        } catch {
+            saveError = error.localizedDescription
+        }
+    }
+
+    private func clearCredentials(for profile: SSHProfile) async {
+        let helper = KeychainHelper.shared
+        try? await helper.delete(key: profile.passwordKey)
+        try? await helper.delete(key: profile.privateKeyKey)
+        try? await helper.delete(key: profile.passphraseKey)
+    }
+
     // MARK: - Delete
 
     private func delete() async {
@@ -321,4 +387,10 @@ struct SSHProfileEditSheet: View {
         try? modelContext.save()
         dismiss()
     }
+}
+
+private struct SSHCredentialSnapshot: Sendable {
+    let password: String?
+    let privateKey: String?
+    let passphrase: String?
 }

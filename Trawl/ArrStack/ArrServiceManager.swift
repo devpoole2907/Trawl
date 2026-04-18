@@ -4,6 +4,7 @@ import SwiftData
 
 /// Central coordinator for all configured *arr services.
 /// Holds active API clients and provides unified access to Sonarr/Radarr data.
+@MainActor
 @Observable
 final class ArrServiceManager {
     // Active clients (nil if not configured)

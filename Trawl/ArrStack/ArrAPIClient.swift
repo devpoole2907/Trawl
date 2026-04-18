@@ -83,33 +83,33 @@ actor ArrAPIClient {
     // MARK: - HTTP Infrastructure
 
     func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
-        let request = buildRequest(path: path, method: "GET", queryItems: queryItems)
+        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
         return try await perform(request)
     }
 
     func post<T: Decodable>(_ path: String, jsonBody: Any) async throws -> T {
-        var request = buildRequest(path: path, method: "POST")
+        var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
         return try await perform(request)
     }
 
     func postCodable<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
-        var request = buildRequest(path: path, method: "POST")
+        var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         return try await perform(request)
     }
 
     func putCodable<T: Decodable, B: Encodable>(_ path: String, body: B, queryItems: [URLQueryItem] = []) async throws -> T {
-        var request = buildRequest(path: path, method: "PUT", queryItems: queryItems)
+        var request = try buildRequest(path: path, method: "PUT", queryItems: queryItems)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         return try await perform(request)
     }
 
     func delete(_ path: String, queryItems: [URLQueryItem] = []) async throws {
-        let request = buildRequest(path: path, method: "DELETE", queryItems: queryItems)
+        let request = try buildRequest(path: path, method: "DELETE", queryItems: queryItems)
         let (_, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw ArrError.invalidResponse }
         if http.statusCode == 401 { throw ArrError.invalidAPIKey }
@@ -120,7 +120,7 @@ actor ArrAPIClient {
 
     /// Fire-and-forget POST (for commands that return empty body)
     func postVoid(_ path: String, jsonBody: Any) async throws {
-        var request = buildRequest(path: path, method: "POST")
+        var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
         let (_, response) = try await session.data(for: request)
@@ -133,12 +133,15 @@ actor ArrAPIClient {
 
     // MARK: - Private
 
-    private func buildRequest(path: String, method: String, queryItems: [URLQueryItem] = []) -> URLRequest {
-        var components = URLComponents(string: "\(baseURL)\(path)")!
-        var allItems = queryItems
-        allItems.append(URLQueryItem(name: "apikey", value: apiKey))
-        components.queryItems = allItems
-        var request = URLRequest(url: components.url!)
+    private func buildRequest(path: String, method: String, queryItems: [URLQueryItem] = []) throws -> URLRequest {
+        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
+            throw ArrError.invalidURL
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else {
+            throw ArrError.invalidURL
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
         return request

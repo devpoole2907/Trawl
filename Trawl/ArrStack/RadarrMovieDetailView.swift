@@ -76,9 +76,11 @@ struct RadarrMovieDetailView: View {
             }
         }
         .navigationTitle(movie?.title ?? "Movie")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        #endif
         .toolbar { toolbarContent }
         .alert("Delete Movie?", isPresented: $showDeleteAlert) {
             Toggle("Also delete files", isOn: $deleteFiles)
@@ -893,7 +895,11 @@ private struct RadarrAddToLibrarySheet: View {
                 }
             }
             .navigationTitle("Add to Radarr")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

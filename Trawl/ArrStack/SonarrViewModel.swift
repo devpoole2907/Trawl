@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 
+@MainActor
 @Observable
 final class SonarrViewModel {
     // Library state
@@ -398,6 +399,10 @@ final class SonarrViewModel {
             self.error = error.localizedDescription
         }
         isLoadingHistory = false
+    }
+
+    func loadNextHistoryPage() async {
+        await loadHistory(page: historyPage + 1)
     }
 
     func removeQueueItem(id: Int, blocklist: Bool = false) async {

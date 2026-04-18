@@ -8,6 +8,7 @@ enum SSHConnectionError: LocalizedError, Sendable {
     case authFailed
     case channelSetupFailed
     case notConnected
+    case disconnectedOrTeardown
     case hostKeyMismatch(expected: String, got: String)
     case keyParseFailure
     case connectionFailed(String)
@@ -20,6 +21,8 @@ enum SSHConnectionError: LocalizedError, Sendable {
             return "Failed to open a shell channel on the server."
         case .notConnected:
             return "Not connected."
+        case .disconnectedOrTeardown:
+            return "SSH session disconnected while an operation was waiting for network readiness."
         case .hostKeyMismatch(let exp, let got):
             return """
             Host key mismatch — possible MITM attack!
@@ -73,6 +76,7 @@ private final class SshSessionContext: @unchecked Sendable {
     let connection: NWConnection
     let receiveBuffer: SshReceiveBuffer
 
+    nonisolated
     init(connection: NWConnection, receiveBuffer: SshReceiveBuffer) {
         self.connection = connection
         self.receiveBuffer = receiveBuffer
@@ -82,7 +86,7 @@ private final class SshSessionContext: @unchecked Sendable {
 // MARK: - C callbacks  (signatures must match LIBSSH2_SEND_FUNC / LIBSSH2_RECV_FUNC)
 
 // ssize_t send(socket, const void *buffer, size_t length, int flags, void **abstract)
-private let libssh2SendCallback: @convention(c) (
+nonisolated(unsafe) private let libssh2SendCallback: @convention(c) (
     libssh2_socket_t,
     UnsafeRawPointer,
     Int,
@@ -99,7 +103,7 @@ private let libssh2SendCallback: @convention(c) (
 }
 
 // ssize_t recv(socket, void *buffer, size_t length, int flags, void **abstract)
-private let libssh2RecvCallback: @convention(c) (
+nonisolated(unsafe) private let libssh2RecvCallback: @convention(c) (
     libssh2_socket_t,
     UnsafeMutableRawPointer,
     Int,
@@ -146,6 +150,8 @@ private actor SshSessionActor {
     }
 
     func teardown() {
+        let waiting = pendingTasks
+        pendingTasks.removeAll()
         if let ch = channel {
             libssh2_channel_close(ch)
             libssh2_channel_free(ch)
@@ -158,6 +164,9 @@ private actor SshSessionActor {
         session = nil
         contextRef?.release()
         contextRef = nil
+        for continuation in waiting {
+            continuation.resume(throwing: SSHConnectionError.disconnectedOrTeardown)
+        }
     }
 
     // MARK: EAGAIN retry
@@ -170,14 +179,18 @@ private actor SshSessionActor {
         for c in waiting { c.resume(returning: ()) }
     }
 
+    private func waitForRetry() async throws {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+            pendingTasks.append(cont)
+        }
+    }
+
     /// Retries `block` until it stops returning LIBSSH2_ERROR_EAGAIN.
     private func callSsh(_ block: () -> Int32) async throws {
         while true {
             let rc = block()
             if rc == LIBSSH2_ERROR_EAGAIN {
-                try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-                    pendingTasks.append(cont)
-                }
+                try await waitForRetry()
             } else if rc < 0 {
                 throw SSHConnectionError.connectionFailed("libssh2 error \(rc)")
             } else {
@@ -269,23 +282,36 @@ private actor SshSessionActor {
         libssh2_channel_request_pty_size_ex(ch, Int32(cols), Int32(rows), 0, 0)
     }
 
-    func sendToChannel(_ data: Data) {
+    func sendToChannel(_ data: Data) async throws {
         guard let ch = channel else { return }
-        data.withUnsafeBytes { ptr in
-            guard let base = ptr.baseAddress else { return }
-            var remaining = data.count
-            var offset = 0
-            while remaining > 0 {
-                let n = libssh2_channel_write_ex(ch, 0,
-                    base.advanced(by: offset).assumingMemoryBound(to: CChar.self),
-                    remaining)
-                if n > 0 { offset += n; remaining -= n } else { break }
+        let bytes = [UInt8](data)
+        var remaining = bytes.count
+        var offset = 0
+        while remaining > 0 {
+            let n = bytes.withUnsafeBufferPointer { ptr -> Int in
+                guard let base = ptr.baseAddress else { return 0 }
+                return libssh2_channel_write_ex(
+                    ch,
+                    0,
+                    UnsafeRawPointer(base).advanced(by: offset).assumingMemoryBound(to: CChar.self),
+                    remaining
+                )
+            }
+            if n > 0 {
+                offset += n
+                remaining -= n
+            } else if Int32(n) == LIBSSH2_ERROR_EAGAIN {
+                try await waitForRetry()
+            } else if n < 0 {
+                throw lastErrorDetails()
+            } else {
+                throw SSHConnectionError.connectionFailed("SSH channel write returned 0 before all bytes were sent.")
             }
         }
     }
 
     /// Attempt to read available bytes. Returns nil when there's nothing ready.
-    func readChannel() -> [UInt8]? {
+    func readChannel() throws -> [UInt8]? {
         guard let ch = channel else { return nil }
         var buf = [UInt8](repeating: 0, count: 32768)
         let n = buf.withUnsafeMutableBytes { ptr in
@@ -293,12 +319,32 @@ private actor SshSessionActor {
                 ptr.baseAddress!.assumingMemoryBound(to: CChar.self), ptr.count)
         }
         if n > 0 { return Array(buf.prefix(n)) }
+        if Int32(n) == LIBSSH2_ERROR_EAGAIN { return nil }
+        if n < 0 { throw lastErrorDetails() }
         return nil
     }
 
     var isChannelClosed: Bool {
         guard let ch = channel else { return true }
         return libssh2_channel_eof(ch) != 0
+    }
+
+    private func lastErrorDetails() -> SSHConnectionError {
+        if let session {
+            var messagePointer: UnsafeMutablePointer<Int8>?
+            var messageLength: Int32 = 0
+            let sessionError = libssh2_session_last_error(session, &messagePointer, &messageLength, 0)
+            if sessionError < 0, let messagePointer {
+                let message = String(cString: messagePointer)
+                if !message.isEmpty {
+                    return .connectionFailed(message)
+                }
+            }
+            let errno = libssh2_session_last_errno(session)
+            return .connectionFailed("libssh2 error \(errno)")
+        }
+
+        return .notConnected
     }
 }
 
@@ -353,29 +399,37 @@ final class SSHConnection: @unchecked Sendable {
         let conn = NWConnection(to: endpoint, using: .tcp)
         self.nwConnection = conn
 
-        // Wait for the TCP connection to be ready
-        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            conn.stateUpdateHandler = { newState in
-                switch newState {
-                case .ready:
-                    cont.resume()
-                case .failed(let err):
-                    cont.resume(throwing: SSHConnectionError.connectionFailed(err.localizedDescription))
-                case .cancelled:
-                    cont.resume(throwing: SSHConnectionError.connectionFailed("Cancelled"))
-                default:
-                    break
+        do {
+            // Wait for the TCP connection to be ready
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                conn.stateUpdateHandler = { newState in
+                    switch newState {
+                    case .ready:
+                        cont.resume()
+                    case .failed(let err):
+                        cont.resume(throwing: SSHConnectionError.connectionFailed(err.localizedDescription))
+                    case .cancelled:
+                        cont.resume(throwing: SSHConnectionError.connectionFailed("Cancelled"))
+                    default:
+                        break
+                    }
                 }
+                conn.start(queue: .global(qos: .userInitiated))
             }
-            conn.start(queue: .global(qos: .userInitiated))
+            conn.stateUpdateHandler = nil
+
+            // Start filling the receive buffer from the network
+            startReceiving(conn)
+
+            // Initialise libssh2 session
+            try await sshActor.setup(connection: conn, receiveBuffer: receiveBuffer)
+        } catch {
+            conn.stateUpdateHandler = nil
+            transition(to: .failed(error.localizedDescription))
+            conn.cancel()
+            nwConnection = nil
+            throw error
         }
-        conn.stateUpdateHandler = nil
-
-        // Start filling the receive buffer from the network
-        startReceiving(conn)
-
-        // Initialise libssh2 session
-        try await sshActor.setup(connection: conn, receiveBuffer: receiveBuffer)
 
         do {
             try await sshActor.handshake()
@@ -417,7 +471,7 @@ final class SSHConnection: @unchecked Sendable {
     // MARK: Send / Resize / Disconnect
 
     func send(_ data: Data) {
-        Task { await sshActor.sendToChannel(data) }
+        Task { try? await sshActor.sendToChannel(data) }
     }
 
     func resize(cols: Int, rows: Int) {
@@ -459,14 +513,27 @@ final class SSHConnection: @unchecked Sendable {
         readLoopTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
-                if let bytes = await self.sshActor.readChannel(), !bytes.isEmpty {
-                    DispatchQueue.main.async { self.onOutput?(bytes) }
-                } else if await self.sshActor.isChannelClosed {
-                    self.handleConnectionClose()
+                do {
+                    if let bytes = try await self.sshActor.readChannel(), !bytes.isEmpty {
+                        DispatchQueue.main.async { self.onOutput?(bytes) }
+                    } else if await self.sshActor.isChannelClosed {
+                        await MainActor.run {
+                            self.handleConnectionClose()
+                        }
+                        return
+                    } else {
+                        // Brief pause to avoid busy-spinning when no data is ready
+                        try? await Task.sleep(nanoseconds: 10_000_000)
+                    }
+                } catch {
+                    await self.sshActor.teardown()
+                    await MainActor.run {
+                        self.nwConnection?.cancel()
+                        self.nwConnection = nil
+                        self.transition(to: .failed(error.localizedDescription))
+                        self.onClose?()
+                    }
                     return
-                } else {
-                    // Brief pause to avoid busy-spinning when no data is ready
-                    try? await Task.sleep(nanoseconds: 10_000_000)
                 }
             }
         }

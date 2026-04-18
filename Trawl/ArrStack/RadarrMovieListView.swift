@@ -8,6 +8,7 @@ struct RadarrMovieListView: View {
     @State private var showSettings = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
+    @State private var pendingDeleteMovie: RadarrMovie?
 
     var body: some View {
         Group {
@@ -51,6 +52,29 @@ struct RadarrMovieListView: View {
         .toolbarTitleDisplayMode(.large)
         #endif
         .toolbar { toolbarContent }
+        .confirmationDialog(
+            "Delete Movie?",
+            isPresented: Binding(
+                get: { pendingDeleteMovie != nil },
+                set: { if !$0 { pendingDeleteMovie = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteMovie
+        ) { movie in
+            Button("Delete from Radarr", role: .destructive) {
+                pendingDeleteMovie = nil
+                Task { await viewModel?.deleteMovie(id: movie.id, deleteFiles: false) }
+            }
+            Button("Delete Movie and Files", role: .destructive) {
+                pendingDeleteMovie = nil
+                Task { await viewModel?.deleteMovie(id: movie.id, deleteFiles: true) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteMovie = nil
+            }
+        } message: { movie in
+            Text("Choose whether to remove only \(movie.title) from Radarr or also delete its files.")
+        }
         .refreshable { await viewModel?.loadMovies() }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -113,7 +137,7 @@ struct RadarrMovieListView: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            Task { await vm.deleteMovie(id: movie.id, deleteFiles: false) }
+                            pendingDeleteMovie = movie
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }

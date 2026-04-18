@@ -8,6 +8,7 @@ struct SonarrSeriesListView: View {
     @State private var showSettings = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
+    @State private var pendingDeleteSeries: SonarrSeries?
 
     var body: some View {
         Group {
@@ -51,6 +52,29 @@ struct SonarrSeriesListView: View {
         .toolbarTitleDisplayMode(.large)
         #endif
         .toolbar { toolbarContent }
+        .confirmationDialog(
+            "Delete Series?",
+            isPresented: Binding(
+                get: { pendingDeleteSeries != nil },
+                set: { if !$0 { pendingDeleteSeries = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingDeleteSeries
+        ) { show in
+            Button("Delete from Sonarr", role: .destructive) {
+                pendingDeleteSeries = nil
+                Task { await viewModel?.deleteSeries(id: show.id, deleteFiles: false) }
+            }
+            Button("Delete Series and Files", role: .destructive) {
+                pendingDeleteSeries = nil
+                Task { await viewModel?.deleteSeries(id: show.id, deleteFiles: true) }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDeleteSeries = nil
+            }
+        } message: { show in
+            Text("Choose whether to remove only \(show.title) from Sonarr or also delete its files.")
+        }
         .refreshable {
             await viewModel?.loadSeries()
         }
@@ -126,7 +150,7 @@ struct SonarrSeriesListView: View {
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            Task { await vm.deleteSeries(id: show.id, deleteFiles: false) }
+                            pendingDeleteSeries = show
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }

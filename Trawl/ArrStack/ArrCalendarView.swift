@@ -1,4 +1,9 @@
 import SwiftUI
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
 
 // MARK: - Main View
 
@@ -37,7 +42,7 @@ struct ArrCalendarView: View {
                     calendarContent
 
                     if isLoadingInitial {
-                        Color(.systemBackground)
+                        platformSystemBackgroundColor
                         ProgressView()
                     }
                 }
@@ -170,6 +175,7 @@ struct ArrCalendarView: View {
         }
         .scrollPosition(id: $visibleDay, anchor: .top)
         .toolbar {
+            #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
                 Button("Today") {
                     withAnimation {
@@ -177,6 +183,7 @@ struct ArrCalendarView: View {
                     }
                 }
             }
+            #endif
         }
     }
 
@@ -192,6 +199,16 @@ struct ArrCalendarView: View {
 
     private var reloadKey: String {
         "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+    }
+
+    private var platformSystemBackgroundColor: Color {
+        #if os(iOS)
+        Color(.systemBackground)
+        #elseif os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color.clear
+        #endif
     }
 
     private func filteredEvents(for day: Date) -> [CalendarEvent] {
@@ -354,7 +371,7 @@ private struct DayTimelineRow: View {
             .padding(.bottom, events.isEmpty ? 12 : 10)
 
             Rectangle()
-                .fill(Color(uiColor: .separator).opacity(events.isEmpty ? 0.4 : 0.8))
+                .fill(platformSeparatorColor.opacity(events.isEmpty ? 0.4 : 0.8))
                 .frame(width: 0.5)
                 .frame(maxHeight: .infinity)
 
@@ -396,6 +413,16 @@ private struct DayTimelineRow: View {
                 Divider()
             }
         }
+    }
+
+    private var platformSeparatorColor: Color {
+        #if os(iOS)
+        Color(uiColor: .separator)
+        #elseif os(macOS)
+        Color(nsColor: .separatorColor)
+        #else
+        .secondary
+        #endif
     }
 }
 

@@ -179,16 +179,14 @@ struct ArrHistoryView: View {
     private func loadMoreHistory() async {
         await withTaskGroup(of: Void.self) { group in
             if scope != .radarr, let sonarrViewModel, sonarrViewModel.canLoadMoreHistory {
-                let nextPage = (sonarrViewModel.history.count / 20) + 1
                 group.addTask {
-                    await sonarrViewModel.loadHistory(page: nextPage)
+                    await sonarrViewModel.loadNextHistoryPage()
                 }
             }
 
             if scope != .sonarr, let radarrViewModel, radarrViewModel.canLoadMoreHistory {
-                let nextPage = (radarrViewModel.history.count / 20) + 1
                 group.addTask {
-                    await radarrViewModel.loadHistory(page: nextPage)
+                    await radarrViewModel.loadNextHistoryPage()
                 }
             }
         }

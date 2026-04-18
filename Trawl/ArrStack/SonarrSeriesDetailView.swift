@@ -98,9 +98,11 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .navigationTitle(series?.title ?? "Series")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
+        #endif
         .toolbar { toolbarContent }
         .task(id: resolvedSeriesId) {
             if let id = resolvedSeriesId {
@@ -888,7 +890,11 @@ private struct SonarrAddToLibrarySheet: View {
                 }
             }
             .navigationTitle("Add to Sonarr")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            .toolbarBackground(.hidden, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

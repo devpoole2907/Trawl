@@ -195,11 +195,43 @@ struct ArrCommand: Codable, Identifiable, Sendable {
 // MARK: - Disk Space
 
 struct ArrDiskSpace: Codable, Identifiable, Sendable {
-    var id: String { path ?? UUID().uuidString }
+    let id: String
     let path: String?
     let label: String?
     let freeSpace: Int64?
     let totalSpace: Int64?
+
+    init(path: String?, label: String?, freeSpace: Int64?, totalSpace: Int64?) {
+        self.path = path
+        self.label = label
+        self.freeSpace = freeSpace
+        self.totalSpace = totalSpace
+        self.id = path ?? UUID().uuidString
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decodeIfPresent(String.self, forKey: .path)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        freeSpace = try container.decodeIfPresent(Int64.self, forKey: .freeSpace)
+        totalSpace = try container.decodeIfPresent(Int64.self, forKey: .totalSpace)
+        id = path ?? UUID().uuidString
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(path, forKey: .path)
+        try container.encodeIfPresent(label, forKey: .label)
+        try container.encodeIfPresent(freeSpace, forKey: .freeSpace)
+        try container.encodeIfPresent(totalSpace, forKey: .totalSpace)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case label
+        case freeSpace
+        case totalSpace
+    }
 }
 
 // MARK: - Disk Space Snapshot (UI model)
@@ -218,6 +250,7 @@ struct ArrDiskSpaceSnapshot: Identifiable, Sendable {
 
 enum ArrError: LocalizedError, Sendable {
     case invalidAPIKey
+    case invalidURL
     case networkError(Error)
     case invalidResponse
     case decodingError(Error)
@@ -229,6 +262,8 @@ enum ArrError: LocalizedError, Sendable {
         switch self {
         case .invalidAPIKey:
             "Invalid API key. Check your *arr service settings."
+        case .invalidURL:
+            "Invalid service URL."
         case .networkError(let error):
             "Network error: \(error.localizedDescription)"
         case .invalidResponse:

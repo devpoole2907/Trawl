@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // MARK: - Movie
@@ -132,7 +133,7 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         } else if let tmdbId {
             id = -tmdbId
         } else {
-            id = -abs(title.hashValue)
+            id = Self.stableFallbackID(for: title)
         }
     }
 
@@ -232,6 +233,16 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
             return url
         }
         return nil
+    }
+
+    nonisolated private static func stableFallbackID(for title: String) -> Int {
+        let digest = SHA256.hash(data: Data(title.utf8))
+        let prefix = digest.prefix(8)
+        let value = prefix.reduce(UInt64(0)) { partial, byte in
+            (partial << 8) | UInt64(byte)
+        }
+        let positive = Int(truncatingIfNeeded: value & 0x3FFF_FFFF_FFFF_FFFF)
+        return -max(positive, 1)
     }
 
     /// Human-readable status
