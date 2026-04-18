@@ -15,21 +15,10 @@ struct ProwlarrIndexerDetailView: View {
         List {
             // MARK: Status Section
             Section("Status") {
-                HStack {
-                    Label(indexer.enable ? "Enabled" : "Disabled",
-                          systemImage: indexer.enable ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(indexer.enable ? .green : .secondary)
-
-                    Spacer()
-
-                    Button(indexer.enable ? "Disable" : "Enable") {
-                        Task { await viewModel.toggleIndexer(indexer) }
-                    }
-                    .font(.subheadline)
-                    .buttonStyle(.bordered)
-                    .tint(indexer.enable ? .orange : .green)
-                    .controlSize(.small)
-                }
+                Toggle("Enabled", isOn: Binding(
+                    get: { indexer.enable },
+                    set: { _ in Task { await viewModel.toggleIndexer(indexer) } }
+                ))
 
                 if let proto = indexer.protocol {
                     detailRow(label: "Protocol", value: proto.displayName)
@@ -138,7 +127,9 @@ struct ProwlarrIndexerDetailView: View {
             }
         }
         .alert("Test Result", isPresented: $showTestResult) {
-            Button("OK", role: .cancel) {}
+            Button("OK", role: .cancel) {
+                viewModel.clearTestResult()
+            }
         } message: {
             Text(viewModel.testResult ?? viewModel.indexerError ?? "No result available")
         }

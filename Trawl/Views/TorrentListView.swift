@@ -8,6 +8,7 @@ struct TorrentListView: View {
     @State private var torrentToDelete: Torrent?
     @State private var showBatchDeleteConfirm = false
     @State private var batchDeleteFiles = false
+    @State private var editMode: EditMode = .inactive
     private let title: String
 
     init(title: String = "Trawl") {
@@ -28,6 +29,7 @@ struct TorrentListView: View {
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
         #endif
+        .environment(\.editMode, $editMode)
         .toolbar { toolbarContent }
         .refreshable {
             await viewModel?.refresh()
@@ -60,7 +62,7 @@ struct TorrentListView: View {
             }
             Button("Cancel", role: .cancel) { torrentToDelete = nil }
         } message: {
-            Text("This action can’t be undone.")
+            Text("This action can't be undone.")
         }
         .alert(batchDeleteAlertTitle, isPresented: $showBatchDeleteConfirm) {
             Button("Delete and Remove Files", role: .destructive) {
@@ -71,7 +73,7 @@ struct TorrentListView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This action can’t be undone.")
+            Text("This action can't be undone.")
         }
         .alert(item: Binding(
             get: { viewModel?.actionErrorAlert },
@@ -88,7 +90,6 @@ struct TorrentListView: View {
                 let vm = TorrentListViewModel(syncService: syncService, torrentService: torrentService)
                 viewModel = vm
                 vm.startSync()
-                await vm.loadAlternativeSpeedMode()
             }
         }
         .onDisappear {
@@ -107,117 +108,112 @@ struct TorrentListView: View {
             emptyState(for: vm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
+            List(selection: editMode.isEditing ? $vm.selectedHashes : .constant(Set<String>())) {
                 ForEach(vm.filteredTorrents) { torrent in
-                    if vm.isSelecting {
-                        selectionRow(torrent: torrent, vm: vm)
-                    } else {
-                        NavigationLink(value: torrent.hash) {
-                            TorrentRowView(torrent: torrent)
-                        }
-                        .contextMenu {
-                            let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP
-                            if isPaused {
-                                Button {
-                                    Task { await vm.resumeTorrent(torrent) }
-                                } label: {
-                                    Label("Resume", systemImage: "play.fill")
-                                }
-                            } else {
-                                Button {
-                                    Task { await vm.pauseTorrent(torrent) }
-                                } label: {
-                                    Label("Pause", systemImage: "pause.fill")
-                                }
-                            }
+                    NavigationLink(value: torrent.hash) {
+                        TorrentRowView(torrent: torrent)
+                    }
+                    .tag(torrent.hash)
+                    .contextMenu {
+                        let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP
+                        if isPaused {
                             Button {
-                                Task { await vm.recheckTorrent(torrent) }
+                                Task { await vm.resumeTorrent(torrent) }
                             } label: {
-                                Label("Recheck", systemImage: "arrow.clockwise")
+                                Label("Resume", systemImage: "play.fill")
                             }
-                            Divider()
-                            Button(role: .destructive) {
-                                torrentToDelete = torrent
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
-                        .swipeActions(edge: .leading) {
-                            if torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP {
-                                Button {
-                                    Task { await vm.resumeTorrent(torrent) }
-                                } label: {
-                                    Label("Resume", systemImage: "play.fill")
-                                }
-                                .tint(.green)
-                            } else {
-                                Button {
-                                    Task { await vm.pauseTorrent(torrent) }
-                                } label: {
-                                    Label("Pause", systemImage: "pause.fill")
-                                }
-                                .tint(.orange)
-                            }
-                        }
-                        .swipeActions(edge: .leading) {
+                        } else {
                             Button {
-                                Task { await vm.recheckTorrent(torrent) }
+                                Task { await vm.pauseTorrent(torrent) }
                             } label: {
-                                Label("Recheck", systemImage: "arrow.clockwise")
+                                Label("Pause", systemImage: "pause.fill")
                             }
-                            .tint(.blue)
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                torrentToDelete = torrent
+                        Button {
+                            Task { await vm.recheckTorrent(torrent) }
+                        } label: {
+                            Label("Recheck", systemImage: "arrow.clockwise")
+                        }
+                        Divider()
+                        Button(role: .destructive) {
+                            torrentToDelete = torrent
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        if torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP {
+                            Button {
+                                Task { await vm.resumeTorrent(torrent) }
                             } label: {
-                                Label("Delete", systemImage: "trash")
+                                Label("Resume", systemImage: "play.fill")
                             }
+                            .tint(.green)
+                        } else {
+                            Button {
+                                Task { await vm.pauseTorrent(torrent) }
+                            } label: {
+                                Label("Pause", systemImage: "pause.fill")
+                            }
+                            .tint(.orange)
+                        }
+                    }
+                    .swipeActions(edge: .leading) {
+                        Button {
+                            Task { await vm.recheckTorrent(torrent) }
+                        } label: {
+                            Label("Recheck", systemImage: "arrow.clockwise")
+                        }
+                        .tint(.blue)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            torrentToDelete = torrent
+                        } label: {
+                            Label("Delete", systemImage: "trash")
                         }
                     }
                 }
             }
             .listStyle(.plain)
             .onChange(of: vm.selectedFilter) {
-                if vm.isSelecting { vm.clearSelection() }
+                withAnimation { editMode = .inactive }
+                vm.clearSelection()
+            }
+            .onChange(of: editMode) { _, newMode in
+                if !newMode.isEditing {
+                    vm.clearSelection()
+                }
+                vm.isSelecting = newMode.isEditing
             }
         }
-    }
-
-    @ViewBuilder
-    private func selectionRow(torrent: Torrent, vm: TorrentListViewModel) -> some View {
-        Button {
-            vm.toggleSelection(torrent)
-        } label: {
-            HStack(spacing: 12) {
-                Image(systemName: vm.selectedHashes.contains(torrent.hash) ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(vm.selectedHashes.contains(torrent.hash) ? .blue : .secondary)
-                    .frame(width: 24)
-                TorrentRowView(torrent: torrent)
-            }
-        }
-        .buttonStyle(.plain)
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        if let vm = viewModel, vm.isSelecting {
+        if editMode.isEditing, let vm = viewModel {
             ToolbarItem(placement: .cancellationAction) {
-                Button("Done") {
+                Button("Cancel") {
+                    withAnimation { editMode = .inactive }
                     vm.clearSelection()
                 }
             }
 
-            ToolbarItemGroup(placement: .bottomBar) {
+            ToolbarItemGroup(placement: .automatic) {
+                Button(vm.selectedHashes.count == vm.filteredTorrents.count ? "Deselect All" : "Select All") {
+                    if vm.selectedHashes.count == vm.filteredTorrents.count {
+                        vm.selectedHashes = []
+                    } else {
+                        vm.selectAll()
+                    }
+                }
+
                 Button {
                     Task { await vm.pauseSelected() }
                 } label: {
                     Label("Pause", systemImage: "pause.fill")
                 }
                 .disabled(vm.selectedHashes.isEmpty)
-
-                Spacer()
 
                 Button {
                     Task { await vm.resumeSelected() }
@@ -226,8 +222,6 @@ struct TorrentListView: View {
                 }
                 .disabled(vm.selectedHashes.isEmpty)
 
-                Spacer()
-
                 Button {
                     Task { await vm.recheckSelected() }
                 } label: {
@@ -235,28 +229,15 @@ struct TorrentListView: View {
                 }
                 .disabled(vm.selectedHashes.isEmpty)
 
-                Spacer()
-
                 Button(role: .destructive) {
                     showBatchDeleteConfirm = true
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
                 .disabled(vm.selectedHashes.isEmpty)
-                .tint(.red)
-            }
-
-            ToolbarItem(placement: .automatic) {
-                Button(vm.selectedHashes.count == vm.filteredTorrents.count ? "Deselect All" : "Select All") {
-                    if vm.selectedHashes.count == vm.filteredTorrents.count {
-                        vm.selectedHashes = []
-                    } else {
-                        vm.selectAll()
-                    }
-                }
             }
         } else {
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItemGroup(placement: .topBarLeading) {
                 if let vm = viewModel {
                     Menu {
                         ForEach(TorrentFilter.allCases) { filter in
@@ -292,19 +273,11 @@ struct TorrentListView: View {
                 }
             }
 
-            ToolbarSpacer(.fixed, placement: .automatic)
-
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItemGroup(placement: .topBarTrailing) {
                 if viewModel != nil {
-                    Button("Toggle Alternative Speed", systemImage: viewModel?.isAlternativeSpeedEnabled == true ? "tortoise.fill" : "tortoise") {
-                        Task { await viewModel?.toggleAlternativeSpeed() }
+                    Button("Select") {
+                        withAnimation { editMode = .active }
                     }
-                    .labelStyle(.iconOnly)
-
-                    Button("Select", systemImage: "checkmark.circle") {
-                        viewModel?.isSelecting = true
-                    }
-                    .labelStyle(.iconOnly)
                 }
 
                 Button("Add Torrent", systemImage: "plus") {
@@ -317,9 +290,9 @@ struct TorrentListView: View {
 
     private var navigationSubtitleText: String {
         guard let viewModel else { return "" }
-        if viewModel.isSelecting {
+        if editMode.isEditing {
             let count = viewModel.selectedHashes.count
-            return count == 0 ? "None selected" : count == 1 ? "1 selected" : "\(count) selected"
+            return count == 0 ? "None Selected" : count == 1 ? "1 Selected" : "\(count) Selected"
         }
         return resultSummary(for: viewModel)
     }

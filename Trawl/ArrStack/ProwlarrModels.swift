@@ -12,35 +12,12 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     let infoLink: String?
     var tags: [Int]?
     var priority: Int?
+    let appProfileId: Int?
     let shouldSearch: Bool?
     let supportsRss: Bool?
     let supportsSearch: Bool?
     let `protocol`: ProwlarrIndexerProtocol?
     let fields: [ProwlarrIndexerField]?
-
-    func toTestPayload() -> [String: Any] {
-        var dict: [String: Any] = ["id": id]
-        if let name { dict["name"] = name }
-        dict["enable"] = enable
-        if let implementation { dict["implementation"] = implementation }
-        if let configContract { dict["configContract"] = configContract }
-        if let fields {
-            dict["fields"] = fields.map { field -> [String: Any] in
-                var f: [String: Any] = ["name": field.name ?? ""]
-                if let v = field.value {
-                    switch v {
-                    case .string(let s): f["value"] = s
-                    case .int(let i): f["value"] = i
-                    case .double(let d): f["value"] = d
-                    case .bool(let b): f["value"] = b
-                    case .null: break
-                    }
-                }
-                return f
-            }
-        }
-        return dict
-    }
 }
 
 enum ProwlarrIndexerProtocol: String, Codable, Sendable {
@@ -71,6 +48,16 @@ struct ProwlarrIndexerField: Codable, Sendable {
     let type: String?
     let advanced: Bool?
     let hidden: String?
+    let selectOptions: [ProwlarrSelectOption]?
+}
+
+struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
+    let name: String?
+    let value: Int?
+    let order: Int?
+    let hint: String?
+
+    var id: Int { value ?? 0 }
 }
 
 /// Type-erased JSON value for indexer config fields
@@ -79,6 +66,7 @@ enum AnyCodableValue: Codable, Sendable {
     case int(Int)
     case double(Double)
     case bool(Bool)
+    case array([AnyCodableValue])
     case null
 
     init(from decoder: Decoder) throws {
@@ -88,6 +76,7 @@ enum AnyCodableValue: Codable, Sendable {
         else if let v = try? container.decode(Int.self) { self = .int(v) }
         else if let v = try? container.decode(Double.self) { self = .double(v) }
         else if let v = try? container.decode(String.self) { self = .string(v) }
+        else if let v = try? container.decode([AnyCodableValue].self) { self = .array(v) }
         else { self = .null }
     }
 
@@ -98,6 +87,7 @@ enum AnyCodableValue: Codable, Sendable {
         case .int(let v): try container.encode(v)
         case .double(let v): try container.encode(v)
         case .bool(let v): try container.encode(v)
+        case .array(let v): try container.encode(v)
         case .null: try container.encodeNil()
         }
     }
@@ -108,6 +98,7 @@ enum AnyCodableValue: Codable, Sendable {
         case .int(let v): return String(v)
         case .double(let v): return String(v)
         case .bool(let v): return v ? "Yes" : "No"
+        case .array(let v): return v.isEmpty ? nil : v.compactMap(\.displayString).joined(separator: ", ")
         case .null: return nil
         }
     }

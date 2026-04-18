@@ -97,6 +97,7 @@
 				ArrStack/ArrSharedModels.swift,
 				ArrStack/ArrWantedView.swift,
 				ArrStack/ProwlarrAPIClient.swift,
+				ArrStack/ProwlarrAddIndexerSheet.swift,
 				ArrStack/ProwlarrIndexerDetailView.swift,
 				ArrStack/ProwlarrIndexerListView.swift,
 				ArrStack/ProwlarrModels.swift,

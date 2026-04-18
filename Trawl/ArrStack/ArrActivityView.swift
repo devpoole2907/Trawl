@@ -21,38 +21,41 @@ struct ArrActivityView: View {
             modePicker
             contentView
         }
-            .background(backgroundGradient)
-            .overlay(alignment: .bottom) {
-                if mode == .queue, let error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .padding()
-                }
+        .background(backgroundGradient)
+        .overlay(alignment: .bottom) {
+            if mode == .queue, let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .padding()
             }
-            .navigationTitle("Activity")
-            .refreshable {
-                if mode == .queue {
-                    await loadQueues()
-                }
-            }
-            .task(id: "\(mode.rawValue)-\(activityReloadKey)") {
-                guard mode == .queue else { return }
-
-                guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
-                    sonarrQueue = []
-                    radarrQueue = []
-                    error = nil
-                    isLoading = false
-                    return
-                }
-
+        }
+        .navigationTitle("Activity")
+        .refreshable {
+            if mode == .queue {
                 await loadQueues()
             }
+        }
+        .task(id: "\(mode.rawValue)-\(activityReloadKey)") {
+            guard mode == .queue else { return }
+
+            guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
+                sonarrQueue = []
+                radarrQueue = []
+                error = nil
+                isLoading = false
+                return
+            }
+
+            await loadQueues()
+        }
     }
 
     private var modePicker: some View {
-        Picker("Section", selection: $mode) {
+        Picker("Section", selection: Binding(
+            get: { mode },
+            set: { newMode in withAnimation { mode = newMode } }
+        )) {
             ForEach(ArrActivityMode.allCases) { mode in
                 Text(mode.title).tag(mode)
             }
@@ -97,6 +100,7 @@ struct ArrActivityView: View {
     private var queueContentView: some View {
         if isLoading && allItems.isEmpty {
             ProgressView("Loading activity...")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected {
             ContentUnavailableView(
                 "No Arr Services Connected",
@@ -110,19 +114,39 @@ struct ArrActivityView: View {
                 description: Text("Nothing is currently downloading or importing in Sonarr or Radarr.")
             )
         } else {
+            let sonarrItems = allItems.filter { $0.source == .sonarr }
+            let radarrItems = allItems.filter { $0.source == .radarr }
             List {
-                ForEach(allItems) { activityItem in
-                    QueueItemRow(item: activityItem.item, source: activityItem.source)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                Task { await removeItem(activityItem) }
-                            } label: {
-                                Label("Remove", systemImage: "trash")
-                            }
+                if !sonarrItems.isEmpty {
+                    Section("Sonarr") {
+                        ForEach(sonarrItems) { activityItem in
+                            QueueItemRow(item: activityItem.item, source: activityItem.source)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        Task { await removeItem(activityItem) }
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
                         }
+                    }
+                }
+                if !radarrItems.isEmpty {
+                    Section("Radarr") {
+                        ForEach(radarrItems) { activityItem in
+                            QueueItemRow(item: activityItem.item, source: activityItem.source)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        Task { await removeItem(activityItem) }
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                        }
+                    }
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }
     }
@@ -374,26 +398,40 @@ struct ArrHealthView: View {
                 description: Text("Your connected Arr services are not currently reporting any health warnings.")
             )
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    if !sonarrItems.isEmpty {
-                        healthSection(title: "Sonarr", color: .blue, items: sonarrItems)
-                    }
-
-                    if !radarrItems.isEmpty {
-                        healthSection(title: "Radarr", color: .orange, items: radarrItems)
-                    }
-
-                    if !prowlarrItems.isEmpty {
-                        healthSection(title: "Prowlarr", color: .yellow, items: prowlarrItems)
-                    }
-
-                    if !loadErrors.isEmpty {
-                        errorSection
+            List {
+                if !sonarrItems.isEmpty {
+                    Section("Sonarr") {
+                        ForEach(sonarrItems) { item in
+                            HealthCheckRow(item: item)
+                        }
                     }
                 }
-                .padding(16)
+                if !radarrItems.isEmpty {
+                    Section("Radarr") {
+                        ForEach(radarrItems) { item in
+                            HealthCheckRow(item: item)
+                        }
+                    }
+                }
+                if !prowlarrItems.isEmpty {
+                    Section("Prowlarr") {
+                        ForEach(prowlarrItems) { item in
+                            HealthCheckRow(item: item)
+                        }
+                    }
+                }
+                if !loadErrors.isEmpty {
+                    Section("Load Errors") {
+                        ForEach(loadErrors, id: \.self) { error in
+                            Label(error, systemImage: "wifi.exclamationmark")
+                                .foregroundStyle(.orange)
+                                .font(.subheadline)
+                        }
+                    }
+                }
             }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
         }
     }
 
@@ -413,37 +451,6 @@ struct ArrHealthView: View {
             )
         }
         .ignoresSafeArea()
-    }
-
-    private func healthSection(title: String, color: Color, items: [HealthItem]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: healthSectionIcon(for: title))
-                .font(.headline)
-                .foregroundStyle(color)
-
-            ForEach(items) { item in
-                HealthCheckRow(item: item)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18))
-            }
-        }
-    }
-
-    private var errorSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label("Errors", systemImage: "wifi.exclamationmark")
-                .font(.headline)
-                .foregroundStyle(.orange)
-
-            ForEach(loadErrors, id: \.self) { error in
-                Label(error, systemImage: "wifi.exclamationmark")
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(14)
-                    .foregroundStyle(.orange)
-                    .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-            }
-        }
     }
 
     private var navigationSubtitle: String {
@@ -480,15 +487,6 @@ struct ArrHealthView: View {
         prowlarrHealth = prowlarrOutcome.checks
         loadErrors = [sonarrOutcome.errorMessage, radarrOutcome.errorMessage, prowlarrOutcome.errorMessage].compactMap { $0 }
         isLoading = false
-    }
-
-    private func healthSectionIcon(for title: String) -> String {
-        switch title {
-        case "Sonarr": "tv"
-        case "Radarr": "film"
-        case "Prowlarr": "magnifyingglass.circle"
-        default: "heart.text.square"
-        }
     }
 
     private func loadHealthChecks(from client: ArrAPIClientProviding?, source: ArrServiceType) async -> HealthLoadResult {

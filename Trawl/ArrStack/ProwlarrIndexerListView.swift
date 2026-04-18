@@ -5,6 +5,7 @@ struct ProwlarrIndexerListView: View {
     @State private var viewModel: ProwlarrViewModel?
     @State private var indexerToDelete: ProwlarrIndexer?
     @State private var showTestResultAlert = false
+    @State private var showAddSheet = false
 
     var body: some View {
         Group {
@@ -24,6 +25,11 @@ struct ProwlarrIndexerListView: View {
                 viewModel = ProwlarrViewModel(serviceManager: serviceManager)
             }
             await viewModel?.loadIndexers()
+        }
+        .sheet(isPresented: $showAddSheet) {
+            if let vm = viewModel {
+                ProwlarrAddIndexerSheet(viewModel: vm)
+            }
         }
     }
 
@@ -87,35 +93,14 @@ struct ProwlarrIndexerListView: View {
         let totalFailed = entries.reduce(0) { $0 + ($1.numberOfFailedQueries ?? 0) }
 
         Section("Overview") {
-            HStack(spacing: 20) {
-                statOverviewCell(label: "Queries", value: "\(totalQueries)", color: .primary)
-                statOverviewCell(label: "Grabs", value: "\(totalGrabs)", color: .green)
-                statOverviewCell(label: "Failed", value: "\(totalFailed)", color: .red)
-                if totalQueries > 0 {
-                    let rate = Double(totalQueries - totalFailed) / Double(totalQueries) * 100
-                    statOverviewCell(label: "Success", value: String(format: "%.0f%%", rate), color: .blue)
-                }
+            LabeledContent("Queries", value: "\(totalQueries)")
+            LabeledContent("Grabs", value: "\(totalGrabs)")
+            LabeledContent("Failed", value: "\(totalFailed)")
+            if totalQueries > 0 {
+                let rate = Double(totalQueries - totalFailed) / Double(totalQueries) * 100
+                LabeledContent("Success Rate", value: String(format: "%.0f%%", rate))
             }
-            .padding(.vertical, 8)
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
         }
-    }
-
-    private func statOverviewCell(label: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(value)
-                .font(.title3.weight(.bold))
-                .foregroundStyle(color)
-            Text(label)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-                .textCase(.uppercase)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.vertical, 12)
-        .padding(.horizontal, 16)
-        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
     }
 
     @ViewBuilder
@@ -196,6 +181,13 @@ struct ProwlarrIndexerListView: View {
     private func toolbarContent(vm: ProwlarrViewModel) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             Button {
+                showAddSheet = true
+            } label: {
+                Label("Add Indexer", systemImage: "plus")
+            }
+        }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
                 Task { await vm.testAllIndexers() }
             } label: {
                 Label("Test All", systemImage: "checkmark.circle.badge.questionmark")
@@ -227,7 +219,7 @@ struct ProwlarrIndexerListView: View {
         ContentUnavailableView(
             "No Indexers",
             systemImage: "magnifyingglass.circle",
-            description: Text("Add indexers in Prowlarr's web interface, then they'll appear here.")
+            description: Text("Tap + to add your first indexer.")
         )
         .listRowBackground(Color.clear)
     }

@@ -61,7 +61,6 @@ struct TorrentDetailView: View {
             VStack(alignment: .leading, spacing: 16) {
                 headerSection(torrent: torrent, vm: vm)
                 infoSection(torrent: torrent, vm: vm)
-                speedLimitsSection(vm: vm)
                 navigationSection(vm: vm)
                 if let error = vm.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -226,46 +225,6 @@ struct TorrentDetailView: View {
     }
 
     @ViewBuilder
-    private func speedLimitsSection(vm: TorrentDetailViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Speed Limits")
-                .font(.subheadline)
-                .bold()
-
-            if let properties = vm.properties {
-                Picker("Download Limit", selection: $selectedDownloadLimit) {
-                    ForEach(limitOptions(including: max(0, properties.dlLimit)), id: \.self) { limit in
-                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
-                    }
-                }
-
-                Button("Save Download Limit") {
-                    Task { await vm.setTorrentDownloadLimit(selectedDownloadLimit) }
-                }
-
-                Picker("Upload Limit", selection: $selectedUploadLimit) {
-                    ForEach(limitOptions(including: max(0, properties.upLimit)), id: \.self) { limit in
-                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
-                    }
-                }
-
-                Button("Save Upload Limit") {
-                    Task { await vm.setTorrentUploadLimit(selectedUploadLimit) }
-                }
-
-                Text("Use 0 to inherit the current global qBittorrent speed limit.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            } else {
-                ProgressView("Loading speed limits…")
-                    .font(.subheadline)
-            }
-        }
-        .padding()
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
-    }
-
-    @ViewBuilder
     private func actionsMenu(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
         let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP
             || torrent.state == .stoppedDL || torrent.state == .stoppedUP
@@ -320,6 +279,46 @@ struct TorrentDetailView: View {
                 showTagsSheet = true
             } label: {
                 Label("Tags", systemImage: "number")
+            }
+
+            Divider()
+
+            Menu {
+                Picker(
+                    "Download Limit",
+                    selection: Binding(
+                        get: { selectedDownloadLimit },
+                        set: { newVal in
+                            selectedDownloadLimit = newVal
+                            Task { await vm.setTorrentDownloadLimit(newVal) }
+                        }
+                    )
+                ) {
+                    ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
+                    }
+                }
+            } label: {
+                Label("Download Limit", systemImage: "arrow.down.circle")
+            }
+
+            Menu {
+                Picker(
+                    "Upload Limit",
+                    selection: Binding(
+                        get: { selectedUploadLimit },
+                        set: { newVal in
+                            selectedUploadLimit = newVal
+                            Task { await vm.setTorrentUploadLimit(newVal) }
+                        }
+                    )
+                ) {
+                    ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
+                    }
+                }
+            } label: {
+                Label("Upload Limit", systemImage: "arrow.up.circle")
             }
 
             Divider()

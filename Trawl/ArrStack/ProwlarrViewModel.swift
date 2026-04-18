@@ -14,6 +14,10 @@ final class ProwlarrViewModel {
     private(set) var testResult: String?
     private(set) var isTesting = false
 
+    // MARK: - Schema State
+    private(set) var schemaIndexers: [ProwlarrIndexer] = []
+    private(set) var isLoadingSchema = false
+
     // MARK: - Search State
     var searchQuery = ""
     var searchType: ProwlarrSearchType = .search
@@ -107,6 +111,35 @@ final class ProwlarrViewModel {
 
     func clearIndexerError() {
         indexerError = nil
+    }
+
+    func loadSchema() async {
+        guard let client else { return }
+        guard schemaIndexers.isEmpty else { return }
+        isLoadingSchema = true
+        do {
+            schemaIndexers = try await client.getIndexerSchema()
+                .sorted { ($0.name ?? "") < ($1.name ?? "") }
+        } catch {
+            indexerError = error.localizedDescription
+        }
+        isLoadingSchema = false
+    }
+
+    func addIndexer(_ indexer: ProwlarrIndexer) async {
+        guard let client else { return }
+        indexerError = nil
+        do {
+            let created = try await client.createIndexer(indexer)
+            indexers.append(created)
+            indexers.sort { ($0.name ?? "") < ($1.name ?? "") }
+        } catch {
+            indexerError = error.localizedDescription
+        }
+    }
+
+    func clearTestResult() {
+        testResult = nil
     }
 
     func testIndexer(_ indexer: ProwlarrIndexer) async {

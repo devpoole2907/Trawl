@@ -37,8 +37,16 @@ actor ProwlarrAPIClient {
         try await base.putCodable("/api/v1/indexer/\(indexer.id)", body: indexer)
     }
 
+    func getIndexerSchema() async throws -> [ProwlarrIndexer] {
+        try await base.get("/api/v1/indexer/schema")
+    }
+
+    func createIndexer(_ indexer: ProwlarrIndexer) async throws -> ProwlarrIndexer {
+        try await base.postCodable("/api/v1/indexer", body: indexer)
+    }
+
     func testIndexer(_ indexer: ProwlarrIndexer) async throws {
-        try await base.postVoid("/api/v1/indexer/test", jsonBody: indexer.toTestPayload())
+        try await base.postVoidCodable("/api/v1/indexer/test", body: indexer)
     }
 
     func testAllIndexers() async throws {

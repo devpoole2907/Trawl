@@ -131,6 +131,23 @@ actor ArrAPIClient {
         }
     }
 
+    /// Fire-and-forget POST with a Codable body (for commands that return empty body)
+    func postVoidCodable<B: Encodable>(_ path: String, body: B) async throws {
+        var request = try buildRequest(path: path, method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let encoded = try JSONEncoder().encode(body)
+        request.httpBody = encoded
+        print("[ArrAPIClient] POST \(path) body: \(String(data: encoded, encoding: .utf8) ?? "<unreadable>")")
+        let (data, response) = try await session.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw ArrError.invalidResponse }
+        if http.statusCode == 401 { throw ArrError.invalidAPIKey }
+        guard (200..<400).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8)
+            print("[ArrAPIClient] POST \(path) \(http.statusCode) response: \(body ?? "<empty>")")
+            throw ArrError.serverError(statusCode: http.statusCode, message: body)
+        }
+    }
+
     // MARK: - Private
 
     private func buildRequest(path: String, method: String, queryItems: [URLQueryItem] = []) throws -> URLRequest {
