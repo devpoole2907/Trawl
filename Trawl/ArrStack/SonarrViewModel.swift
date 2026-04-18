@@ -174,19 +174,6 @@ final class SonarrViewModel {
         guard let client else { return }
         let newMonitored = !(series.monitored ?? true)
 
-        // Optimistic update — UI responds immediately
-        let optimisticSeries = series.updatingForEdit(
-            monitored: newMonitored,
-            qualityProfileId: series.qualityProfileId ?? qualityProfiles.first?.id ?? 0,
-            seriesType: series.seriesType ?? "standard",
-            seasonFolder: series.seasonFolder ?? true,
-            rootFolderPath: series.rootFolderPath ?? rootFolders.first?.path ?? "",
-            tags: series.tags ?? []
-        )
-        if let idx = self.series.firstIndex(where: { $0.id == series.id }) {
-            self.series[idx] = optimisticSeries
-        }
-
         do {
             // Fetch canonical series from API to ensure we have all required fields
             let canonicalSeries = try await client.getSeries(id: series.id)
@@ -196,12 +183,12 @@ final class SonarrViewModel {
                   canonicalSeries.rootFolderPath != nil,
                   canonicalSeries.seriesType != nil,
                   canonicalSeries.seasonFolder != nil else {
-                // Missing required fields, revert optimistic update
+                // Missing required fields
                 await loadSeries()
                 return
             }
 
-            // Merge only the monitored flag into the canonical object
+            // Build the update from canonical fields
             let updatedSeries = canonicalSeries.updatingForEdit(
                 monitored: newMonitored,
                 qualityProfileId: canonicalSeries.qualityProfileId!,
@@ -210,6 +197,11 @@ final class SonarrViewModel {
                 rootFolderPath: canonicalSeries.rootFolderPath!,
                 tags: canonicalSeries.tags ?? []
             )
+
+            // Update UI with the correct data
+            if let idx = self.series.firstIndex(where: { $0.id == series.id }) {
+                self.series[idx] = updatedSeries
+            }
 
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
             await MainActor.run {

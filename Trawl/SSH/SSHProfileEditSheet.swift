@@ -1,7 +1,9 @@
 import SwiftUI
 import SwiftData
+import OSLog
 
 struct SSHProfileEditSheet: View {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "SSHProfileEditSheet")
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(SSHSessionStore.self) private var sshSessionStore
@@ -385,10 +387,30 @@ struct SSHProfileEditSheet: View {
     }
 
     private func clearCredentials(for profile: SSHProfile) async {
-        let helper = KeychainHelper.shared
-        try? await helper.delete(key: profile.passwordKey)
-        try? await helper.delete(key: profile.privateKeyKey)
-        try? await helper.delete(key: profile.passphraseKey)
+        await deleteCredential(forKey: profile.passwordKey, label: "password")
+        await deleteCredential(forKey: profile.privateKeyKey, label: "private key")
+        await deleteCredential(forKey: profile.passphraseKey, label: "passphrase")
+    }
+
+    private func deleteCredential(forKey key: String, label: String) async {
+        do {
+            try await KeychainHelper.shared.delete(key: key)
+        } catch let error as KeychainError where isIgnorableDeleteError(error) {
+            return
+        } catch {
+            Self.logger.error("Failed to delete SSH \(label, privacy: .public) from Keychain: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private func isIgnorableDeleteError(_ error: KeychainError) -> Bool {
+        switch error {
+        case .deleteFailed(let status):
+            status == errSecItemNotFound
+        case .notFound:
+            true
+        default:
+            false
+        }
     }
 
     // MARK: - Delete
@@ -407,38 +429,9 @@ struct SSHProfileEditSheet: View {
             try modelContext.save()
 
             // Only delete keychain items after successful save
-            do {
-                try await KeychainHelper.shared.delete(key: profile.passwordKey)
-            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
-                // Item not found is acceptable
-            } catch KeychainError.notFound {
-                // Item not found is acceptable
-            } catch {
-                // Log actual errors but don't fail the deletion
-                print("Warning: Failed to delete password from Keychain: \(error)")
-            }
-
-            do {
-                try await KeychainHelper.shared.delete(key: profile.privateKeyKey)
-            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
-                // Item not found is acceptable
-            } catch KeychainError.notFound {
-                // Item not found is acceptable
-            } catch {
-                // Log actual errors but don't fail the deletion
-                print("Warning: Failed to delete private key from Keychain: \(error)")
-            }
-
-            do {
-                try await KeychainHelper.shared.delete(key: profile.passphraseKey)
-            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
-                // Item not found is acceptable
-            } catch KeychainError.notFound {
-                // Item not found is acceptable
-            } catch {
-                // Log actual errors but don't fail the deletion
-                print("Warning: Failed to delete passphrase from Keychain: \(error)")
-            }
+            await deleteCredential(forKey: profile.passwordKey, label: "password")
+            await deleteCredential(forKey: profile.privateKeyKey, label: "private key")
+            await deleteCredential(forKey: profile.passphraseKey, label: "passphrase")
 
             dismiss()
         } catch {

@@ -650,9 +650,7 @@ private extension Torrent {
         case .downloading, .metaDL, .forcedDL, .forcedUP, .uploading, .checkingDL, .checkingUP,
              .checkingResumeData, .allocating, .moving:
             true
-        case .stalledDL, .stalledUP:
-            dlspeed > 0 || upspeed > 0
-        case .queuedDL, .queuedUP:
+        case .stalledDL, .stalledUP, .queuedDL, .queuedUP:
             dlspeed > 0 || upspeed > 0
         case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP, .error, .missingFiles, .unknown:
             false

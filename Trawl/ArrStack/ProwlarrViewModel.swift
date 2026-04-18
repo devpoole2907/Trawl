@@ -189,6 +189,8 @@ final class ProwlarrViewModel {
         searchQuery = ""
         searchResults = []
         searchError = nil
+        currentRequestToken = nil
+        isSearching = false
     }
 
     // MARK: - Stats

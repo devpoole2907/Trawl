@@ -429,7 +429,7 @@ struct ArrServicesSettingsView: View {
 
             if !serviceManager.connectionErrors.isEmpty {
                 Section("Errors") {
-                    ForEach(Array(serviceManager.connectionErrors.values), id: \.self) { error in
+                    ForEach(Array(serviceManager.connectionErrors), id: \.key) { _, error in
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.red)

@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import OSLog
 #if os(iOS)
 import BackgroundTasks
 #endif
@@ -9,6 +10,8 @@ import CoreServices
 
 @main
 struct TrawlApp: App {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "App")
+    
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
     @State private var sshSessionStore = SSHSessionStore()
@@ -28,11 +31,11 @@ struct TrawlApp: App {
             let groupConfiguration = ModelConfiguration(groupContainer: .identifier(AppGroup.identifier))
             modelContainer = try ModelContainer(for: schema, configurations: [groupConfiguration])
         } catch {
-            print("Failed to initialize App Group ModelContainer: \(error)")
+            Self.logger.error("Failed to initialize App Group ModelContainer: \(error.localizedDescription, privacy: .public)")
             do {
                 modelContainer = try ModelContainer(for: schema)
             } catch {
-                print("Failed to initialize default ModelContainer: \(error)")
+                Self.logger.error("Failed to initialize default ModelContainer: \(error.localizedDescription, privacy: .public)")
                 do {
                     let inMemoryConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
                     modelContainer = try ModelContainer(for: schema, configurations: [inMemoryConfiguration])
@@ -44,6 +47,7 @@ struct TrawlApp: App {
                         )
                     }
                 } catch {
+                    Self.logger.fault("Failed to initialize even an in-memory ModelContainer: \(error.localizedDescription, privacy: .public)")
                     fatalError("Failed to initialize even an in-memory ModelContainer: \(error)")
                 }
             }

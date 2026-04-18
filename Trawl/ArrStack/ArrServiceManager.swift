@@ -69,7 +69,7 @@ final class ArrServiceManager {
         defer { setConnectingState(false, for: serviceType) }
 
         do {
-            guard let apiKey = try KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
+            guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
                   !apiKey.isEmpty else {
                 let errorMessage = "API key not found in Keychain."
                 connectionErrors[profile.id.uuidString] = errorMessage
@@ -187,14 +187,32 @@ final class ArrServiceManager {
     /// Refresh cached configuration data for all connected services.
     func refreshConfiguration() async {
         if let sonarr = sonarrClient {
-            sonarrQualityProfiles = (try? await sonarr.getQualityProfiles()) ?? sonarrQualityProfiles
-            sonarrRootFolders = (try? await sonarr.getRootFolders()) ?? sonarrRootFolders
-            sonarrTags = (try? await sonarr.getTags()) ?? sonarrTags
+            do {
+                async let qp = sonarr.getQualityProfiles()
+                async let rf = sonarr.getRootFolders()
+                async let t = sonarr.getTags()
+                let (profiles, folders, fetchedTags) = try await (qp, rf, t)
+                sonarrQualityProfiles = profiles
+                sonarrRootFolders = folders
+                sonarrTags = fetchedTags
+                sonarrConnectionError = nil
+            } catch {
+                sonarrConnectionError = "Failed to refresh Sonarr config: \(error.localizedDescription)"
+            }
         }
         if let radarr = radarrClient {
-            radarrQualityProfiles = (try? await radarr.getQualityProfiles()) ?? radarrQualityProfiles
-            radarrRootFolders = (try? await radarr.getRootFolders()) ?? radarrRootFolders
-            radarrTags = (try? await radarr.getTags()) ?? radarrTags
+            do {
+                async let qp = radarr.getQualityProfiles()
+                async let rf = radarr.getRootFolders()
+                async let t = radarr.getTags()
+                let (profiles, folders, fetchedTags) = try await (qp, rf, t)
+                radarrQualityProfiles = profiles
+                radarrRootFolders = folders
+                radarrTags = fetchedTags
+                radarrConnectionError = nil
+            } catch {
+                radarrConnectionError = "Failed to refresh Radarr config: \(error.localizedDescription)"
+            }
         }
     }
 

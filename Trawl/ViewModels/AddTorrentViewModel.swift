@@ -73,8 +73,8 @@ final class AddTorrentViewModel {
 
             switch inputMode {
             case .magnet:
-                try await torrentService.addTorrentMagnet(
-                    magnetURL: magnetLink,
+                try await torrentService.addTorrentURL(
+                    url: magnetLink,
                     savePath: path,
                     category: category,
                     paused: startPaused,

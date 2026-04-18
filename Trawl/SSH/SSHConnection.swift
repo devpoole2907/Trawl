@@ -496,16 +496,14 @@ final class SSHConnection: @unchecked Sendable {
         self.receiveBuffer = newBuffer
 
         // Validate port is within valid range before casting to UInt16
-        let validatedPort: UInt16
-        if port >= 1 && port <= 65535 {
-            validatedPort = UInt16(port)
-        } else {
-            validatedPort = 22  // Use default port if invalid
+        guard port >= 1 && port <= 65535 else {
+            throw SSHConnectionError.connectionFailed("Invalid SSH port: \(port)")
         }
+        let validatedPort = UInt16(port)
 
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: validatedPort) ?? 22
+            port: NWEndpoint.Port(rawValue: validatedPort)!
         )
         let conn = NWConnection(to: endpoint, using: .tcp)
         self.nwConnection = conn

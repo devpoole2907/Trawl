@@ -148,33 +148,31 @@ struct ArrActivityView: View {
         let sonarrClient = serviceManager.sonarrClient
         let radarrClient = serviceManager.radarrClient
 
-        var sonarrError: String?
-        var radarrError: String?
-
-        async let sonarrLoad: () = {
-            guard let client = sonarrClient else { return }
+        async let sonarrLoad: ([ArrQueueItem], String?) = {
+            guard let client = sonarrClient else { return ([], nil) }
             do {
                 let response = try await client.getQueue(page: 1, pageSize: 50)
-                sonarrQueue = response.records
+                return (response.records ?? [], nil)
             } catch {
-                sonarrError = "Sonarr: \(error.localizedDescription)"
+                return ([], "Sonarr: \(error.localizedDescription)")
             }
         }()
 
-        async let radarrLoad: () = {
-            guard let client = radarrClient else { return }
+        async let radarrLoad: ([ArrQueueItem], String?) = {
+            guard let client = radarrClient else { return ([], nil) }
             do {
                 let response = try await client.getQueue(page: 1, pageSize: 50)
-                radarrQueue = response.records
+                return (response.records ?? [], nil)
             } catch {
-                radarrError = "Radarr: \(error.localizedDescription)"
+                return ([], "Radarr: \(error.localizedDescription)")
             }
         }()
 
-        await sonarrLoad
-        await radarrLoad
+        let (sonarrResult, radarrResult) = await (sonarrLoad, radarrLoad)
+        sonarrQueue = sonarrResult.0
+        radarrQueue = radarrResult.0
 
-        let errors = [sonarrError, radarrError].compactMap { $0 }
+        let errors = [sonarrResult.1, radarrResult.1].compactMap { $0 }
         if !errors.isEmpty {
             self.error = errors.joined(separator: ", ")
         }

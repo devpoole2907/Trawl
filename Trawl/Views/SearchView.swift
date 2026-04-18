@@ -133,20 +133,9 @@ struct SearchView: View {
                 startArrLookup()
             }
         }
-        .task {
+        .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)\(tmdbAPIKey)") {
             await refreshLibrary()
             createLookupViewModels()
-            await loadTrending()
-        }
-        .task(id: arrServiceManager.sonarrConnected) {
-            await refreshLibrary()
-            createLookupViewModels()
-        }
-        .task(id: arrServiceManager.radarrConnected) {
-            await refreshLibrary()
-            createLookupViewModels()
-        }
-        .task(id: tmdbAPIKey) {
             await loadTrending()
         }
         .alert(item: $actionErrorAlert) { item in

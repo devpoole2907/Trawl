@@ -8,7 +8,7 @@ final class ArrServiceProfile {
     @Attribute(.unique) var id: UUID
     var displayName: String
     var hostURL: String              // e.g. "http://192.168.1.100:8989"
-    var serviceType: String          // "sonarr" or "radarr"
+    var serviceType: String          // "sonarr", "radarr", or "prowlarr"
     var isEnabled: Bool
     var dateAdded: Date
     var lastSynced: Date?

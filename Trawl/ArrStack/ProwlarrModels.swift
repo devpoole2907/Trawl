@@ -143,6 +143,12 @@ enum ProwlarrSearchType: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
+    private static let publishDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
     let guid: String?
     let title: String?
     let indexerId: Int?
@@ -160,8 +166,12 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     let uploadVolumeFactor: Double?
     let `protocol`: ProwlarrIndexerProtocol?
 
-    private let fallbackId = UUID().uuidString
-    var id: String { guid ?? fallbackId }
+    var id: String {
+        if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return guid
+        }
+        return "search-result-\(indexerId ?? 0)-\(title ?? "unknown")"
+    }
 
     var isFreeleech: Bool { downloadVolumeFactor == 0.0 }
 
@@ -173,8 +183,13 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     }
 
     var ageDescription: String? {
-        guard let publishDate,
-              let date = ISO8601DateFormatter().date(from: publishDate) else { return nil }
+        guard let publishDate else { return nil }
+
+        let date =
+            Self.publishDateFormatter.date(from: publishDate) ??
+            ISO8601DateFormatter().date(from: publishDate)
+
+        guard let date else { return nil }
         let components = Calendar.current.dateComponents([.day, .hour, .minute], from: date, to: Date())
         if let days = components.day, days > 0 {
             return days == 1 ? "1d ago" : "\(days)d ago"

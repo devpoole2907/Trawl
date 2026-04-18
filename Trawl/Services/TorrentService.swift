@@ -25,10 +25,10 @@ final class TorrentService {
         try await apiClient.getTorrents(filter: filter, category: category, sort: sort)
     }
 
-    func addTorrentMagnet(magnetURL: String, savePath: String?, category: String?, paused: Bool = false, sequentialDownload: Bool = false) async throws {
-        let trimmed = magnetURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.lowercased().hasPrefix("magnet:") else {
-            throw QBError.serverError(statusCode: 0, message: "Invalid magnet link format")
+    func addTorrentURL(url: String, savePath: String?, category: String?, paused: Bool = false, sequentialDownload: Bool = false) async throws {
+        let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw QBError.serverError(statusCode: 0, message: "URL is empty")
         }
         try await apiClient.addTorrentMagnet(magnetURL: trimmed, savePath: savePath, category: category, paused: paused, sequentialDownload: sequentialDownload)
     }

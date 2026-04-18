@@ -262,10 +262,8 @@ final class SyncService {
         }
 
         if !completedTorrentNames.isEmpty {
-            Task { @MainActor in
-                for name in completedTorrentNames {
-                    InAppNotificationCenter.shared.showDownloadCompleted(name: name)
-                }
+            for name in completedTorrentNames {
+                InAppNotificationCenter.shared.showDownloadCompleted(name: name)
             }
         }
     }

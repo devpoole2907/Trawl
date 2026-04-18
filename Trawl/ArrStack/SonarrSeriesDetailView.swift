@@ -806,7 +806,7 @@ struct SonarrSeriesDetailView: View {
                         Divider()
                     }
                     Button {
-                        Task { await viewModel.refreshSeries() }
+                        Task { try? await viewModel.refreshSeries() }
                     } label: {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }

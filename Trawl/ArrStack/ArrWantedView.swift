@@ -196,13 +196,13 @@ struct ArrWantedView: View {
         await withTaskGroup(of: Void.self) { group in
             if let sonarrViewModel {
                 group.addTask {
-                    await sonarrViewModel.searchAllMissing()
+                    try? await sonarrViewModel.searchAllMissing()
                 }
             }
 
             if let radarrViewModel {
                 group.addTask {
-                    await radarrViewModel.searchAllMissing()
+                    try? await radarrViewModel.searchAllMissing()
                 }
             }
         }

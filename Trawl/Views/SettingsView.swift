@@ -15,6 +15,7 @@ struct SettingsView: View {
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
     @State private var tmdbAPIKey: String = ""
+    @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
@@ -52,7 +53,10 @@ struct SettingsView: View {
                 arrServiceManager.syncProfiles(arrProfiles)
             }
             .onChange(of: tmdbAPIKey) { _, newValue in
-                Task {
+                tmdbAPIKeySaveTask?.cancel()
+                tmdbAPIKeySaveTask = Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     if trimmed.isEmpty {
                         try? await KeychainHelper.shared.delete(key: "tmdb.apiKey")
@@ -60,6 +64,9 @@ struct SettingsView: View {
                         try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: trimmed)
                     }
                 }
+            }
+            .onDisappear {
+                tmdbAPIKeySaveTask?.cancel()
             }
     }
 

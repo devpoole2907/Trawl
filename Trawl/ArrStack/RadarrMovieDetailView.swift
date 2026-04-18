@@ -831,7 +831,7 @@ struct RadarrMovieDetailView: View {
                         }
 
                         Button {
-                            Task { await viewModel.refreshMovies() }
+                            Task { try? await viewModel.refreshMovies() }
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
