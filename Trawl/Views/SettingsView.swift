@@ -442,6 +442,8 @@ struct QBittorrentSettingsView: View {
 
     private func updateGlobalDownloadLimit(_ limit: Int64) async {
         do {
+            let currentValue = try await torrentService.getGlobalDownloadLimit()
+            guard currentValue != limit else { return }
             try await torrentService.setGlobalDownloadLimit(limit: limit)
             await syncService.refreshNow()
             speedLimitErrorAlert = nil
@@ -455,6 +457,8 @@ struct QBittorrentSettingsView: View {
 
     private func updateGlobalUploadLimit(_ limit: Int64) async {
         do {
+            let currentValue = try await torrentService.getGlobalUploadLimit()
+            guard currentValue != limit else { return }
             try await torrentService.setGlobalUploadLimit(limit: limit)
             await syncService.refreshNow()
             speedLimitErrorAlert = nil
@@ -473,9 +477,11 @@ struct QBittorrentSettingsView: View {
 
         do {
             let currentValue = try await torrentService.isAlternativeSpeedEnabled()
-            if currentValue != enabled {
-                try await torrentService.toggleAlternativeSpeed()
+            guard currentValue != enabled else {
+                isUpdatingAlternativeSpeed = false
+                return
             }
+            try await torrentService.toggleAlternativeSpeed()
             alternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
             await syncService.refreshNow()
             speedLimitErrorAlert = nil

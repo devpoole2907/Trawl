@@ -209,9 +209,15 @@ private actor SshSessionActor {
     private var sendQueue: [Data] = []
     private var isSending = false
 
+    // Global libssh2 initialization state
+    private static let initOnce: Void = {
+        libssh2_init(0)
+    }()
+
     // MARK: Setup / Teardown
 
     func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) throws {
+        _ = Self.initOnce
         let ctx = SshSessionContext(connection: connection, receiveBuffer: receiveBuffer)
         let ref = Unmanaged.passRetained(ctx)
         self.contextRef = ref
@@ -365,9 +371,11 @@ private actor SshSessionActor {
         }
     }
 
-    func resizePTY(cols: Int, rows: Int) {
+    func resizePTY(cols: Int, rows: Int) async throws {
         guard let ch = channel else { return }
-        libssh2_channel_request_pty_size_ex(ch, Int32(cols), Int32(rows), 0, 0)
+        try await callSsh {
+            libssh2_channel_request_pty_size_ex(ch, Int32(cols), Int32(rows), 0, 0)
+        }
     }
 
     func sendToChannel(_ data: Data) async throws {
@@ -640,7 +648,7 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     func resize(cols: Int, rows: Int) {
-        Task { await sshActor.resizePTY(cols: cols, rows: rows) }
+        Task { try? await sshActor.resizePTY(cols: cols, rows: rows) }
     }
 
     func disconnect() async {

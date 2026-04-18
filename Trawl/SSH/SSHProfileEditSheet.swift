@@ -170,7 +170,7 @@ struct SSHProfileEditSheet: View {
 
             case .privateKey:
                 TextField(
-                    "Paste PEM contents (e.g. ~/.ssh/id_ed25519)",
+                    "Paste PEM contents (e.g. begin with -----BEGIN OPENSSH PRIVATE KEY-----)",
                     text: $privateKeyPEM,
                     axis: .vertical
                 )
@@ -218,6 +218,7 @@ struct SSHProfileEditSheet: View {
                 Button("Save") {
                     hasAttemptedSubmit = true
                     guard canSave else { return }
+                    isSaving = true
                     Task { await save() }
                 }
                 .fontWeight(.semibold)

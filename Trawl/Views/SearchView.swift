@@ -11,6 +11,7 @@ struct SearchView: View {
     @State private var filter: ResultKind = .all
     @State private var showClearConfirmation = false
     @State private var actionErrorAlert: ErrorAlertItem?
+    @State private var arrAddInFlightIDs: Set<String> = []
 
     // Loaded library
     @State private var sonarrSeries: [SonarrSeries] = []
@@ -133,7 +134,13 @@ struct SearchView: View {
                 startArrLookup()
             }
         }
-        .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)\(tmdbAPIKey)") {
+        .task {
+            // Load TMDb API key from Keychain first
+            if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
+                tmdbAPIKey = key
+            }
+        }
+        .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
             await refreshLibrary()
             createLookupViewModels()
             await loadTrending()
@@ -987,11 +994,6 @@ struct SearchView: View {
     // MARK: - TMDb trending
 
     private func loadTrending() async {
-        // Load API key from Keychain first
-        if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-            tmdbAPIKey = key
-        }
-
         guard !tmdbAPIKey.isEmpty else {
             trendingMovies = []
             trendingTV = []
@@ -1128,6 +1130,12 @@ struct SearchView: View {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "This search result is missing a TVDB ID.")
             return
         }
+
+        let flightID = "series-\(tvdbId)"
+        guard !arrAddInFlightIDs.contains(flightID) else { return }
+        arrAddInFlightIDs.insert(flightID)
+        defer { arrAddInFlightIDs.remove(flightID) }
+
         guard let titleSlug = series.titleSlug, !titleSlug.isEmpty else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "This search result is missing a title slug.")
             return
@@ -1170,6 +1178,12 @@ struct SearchView: View {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "This search result is missing a TMDb ID.")
             return
         }
+
+        let flightID = "movie-\(tmdbId)"
+        guard !arrAddInFlightIDs.contains(flightID) else { return }
+        arrAddInFlightIDs.insert(flightID)
+        defer { arrAddInFlightIDs.remove(flightID) }
+
         guard let qualityProfileId = viewModel.qualityProfiles.first?.id else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "No Radarr quality profile is available.")
             return

@@ -660,58 +660,63 @@ struct SonarrSeriesDetailView: View {
         let isExpanded = expandedSeasons.contains(seasonNum)
 
         return VStack(spacing: 0) {
-            Button {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                    if isExpanded { expandedSeasons.remove(seasonNum) }
-                    else { expandedSeasons.insert(seasonNum) }
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
-                            .font(.subheadline.weight(.semibold))
-                        Text("\(filesCount) of \(seasonEpisodes.count) episodes")
-                            .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 0) {
+                Button {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        if isExpanded { expandedSeasons.remove(seasonNum) }
+                        else { expandedSeasons.insert(seasonNum) }
                     }
-
-                    Spacer(minLength: 8)
-
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
-                        if seasonEpisodes.count > 0 {
-                            Capsule()
-                                .fill(filesCount == seasonEpisodes.count ? Color.green : Color.purple)
-                                .frame(
-                                    width: 48 * CGFloat(filesCount) / CGFloat(seasonEpisodes.count),
-                                    height: 4
-                                )
+                } label: {
+                    HStack(spacing: 10) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(filesCount) of \(seasonEpisodes.count) episodes")
+                                .font(.caption).foregroundStyle(.secondary)
                         }
-                    }
 
-                    if let id = resolvedSeriesId {
-                        Button {
-                            Task { await viewModel.searchSeason(seriesId: id, seasonNumber: seasonNum) }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .padding(7)
-                                .glassEffect(.regular.interactive(), in: Circle())
+                        Spacer(minLength: 8)
+
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
+                            if seasonEpisodes.count > 0 {
+                                Capsule()
+                                    .fill(filesCount == seasonEpisodes.count ? Color.green : Color.purple)
+                                    .frame(
+                                        width: 48 * CGFloat(filesCount) / CGFloat(seasonEpisodes.count),
+                                        height: 4
+                                    )
+                            }
                         }
-                        .buttonStyle(.plain)
-                    }
 
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 12)
-                .frame(maxWidth: .infinity)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .accessibilityLabel(seasonNum == 0 ? "Expand Specials" : "Expand Season \(seasonNum)")
+
+                if let id = resolvedSeriesId {
+                    Button {
+                        Task { await viewModel.searchSeason(seriesId: id, seasonNumber: seasonNum) }
+                    } label: {
+                        Image(systemName: "magnifyingglass")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .padding(7)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Search for season \(seasonNum)")
+                    .padding(.trailing, 14)
+                }
             }
-            .buttonStyle(.plain)
 
             if isExpanded {
                 Divider()

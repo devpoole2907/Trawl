@@ -282,7 +282,7 @@ private struct QueueItemRow: View {
             }
 
             if let messages = item.statusMessages, !messages.isEmpty {
-                ForEach(messages, id: \.title) { msg in
+                ForEach(Array(messages.enumerated()), id: \.0) { index, msg in
                     if let msgs = msg.messages {
                         Text(msgs.joined(separator: ", "))
                             .font(.caption2)
@@ -324,9 +324,9 @@ struct ArrHealthView: View {
 
     private var allChecks: [HealthItem] {
         (
-            sonarrHealth.map { HealthItem(check: $0, source: .sonarr) } +
-            radarrHealth.map { HealthItem(check: $0, source: .radarr) } +
-            prowlarrHealth.map { HealthItem(check: $0, source: .prowlarr) }
+            sonarrHealth.enumerated().map { HealthItem(check: $0.element, source: .sonarr, index: $0.offset) } +
+            radarrHealth.enumerated().map { HealthItem(check: $0.element, source: .radarr, index: $0.offset) } +
+            prowlarrHealth.enumerated().map { HealthItem(check: $0.element, source: .prowlarr, index: $0.offset) }
         )
         .sorted { $0.severityRank > $1.severityRank }
     }
@@ -517,8 +517,9 @@ private struct HealthLoadResult {
 private struct HealthItem: Identifiable {
     let check: ArrHealthCheck
     let source: ArrServiceType
+    let index: Int
 
-    var id: String { "\(source.rawValue)-\(check.id)" }
+    var id: String { "\(source.rawValue)-\(check.id)-\(index)" }
 
     var severityRank: Int {
         switch check.type?.lowercased() {
