@@ -32,6 +32,20 @@ final class InAppNotificationCenter {
         )
     }
 
+    func showError(title: String, message: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+
+        enqueue(
+            InAppBannerItem(
+                title: trimmedTitle,
+                message: trimmedMessage,
+                systemImage: "exclamationmark.triangle.fill"
+            )
+        )
+    }
+
     func showMonitoringChanged(itemName: String, itemType: String, isMonitoring: Bool) {
         let trimmedName = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedType = itemType.trimmingCharacters(in: .whitespacesAndNewlines)

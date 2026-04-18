@@ -24,12 +24,29 @@ struct TrawlApp: App {
         ])
         // Try the shared app group container first (needed for Share Extension access).
         // Fall back to the default container if the group isn't provisioned (e.g. simulator).
-        if let container = try? ModelContainer(for: schema, configurations: [
-            ModelConfiguration(groupContainer: .identifier(AppGroup.identifier))
-        ]) {
-            modelContainer = container
-        } else {
-            modelContainer = try! ModelContainer(for: schema)
+        do {
+            let groupConfiguration = ModelConfiguration(groupContainer: .identifier(AppGroup.identifier))
+            modelContainer = try ModelContainer(for: schema, configurations: [groupConfiguration])
+        } catch {
+            print("Failed to initialize App Group ModelContainer: \(error)")
+            do {
+                modelContainer = try ModelContainer(for: schema)
+            } catch {
+                print("Failed to initialize default ModelContainer: \(error)")
+                do {
+                    let inMemoryConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
+                    modelContainer = try ModelContainer(for: schema, configurations: [inMemoryConfiguration])
+                    
+                    Task { @MainActor in
+                        InAppNotificationCenter.shared.showError(
+                            title: "Storage Error",
+                            message: "Failed to load saved data. Changes will not be saved."
+                        )
+                    }
+                } catch {
+                    fatalError("Failed to initialize even an in-memory ModelContainer: \(error)")
+                }
+            }
         }
 
         // Register with Launch Services so macOS knows this app handles magnet: URLs
