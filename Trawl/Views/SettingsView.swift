@@ -14,7 +14,7 @@ struct SettingsView: View {
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
-    @AppStorage("tmdb.apiKey") private var tmdbAPIKey: String = ""
+    @State private var tmdbAPIKey: String = ""
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
@@ -42,9 +42,19 @@ struct SettingsView: View {
                 arrServiceManager.syncProfiles(arrProfiles)
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
+                
+                // Load TMDb API key from Keychain
+                if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
+                    tmdbAPIKey = key
+                }
             }
             .task(id: arrProfilesSyncKey) {
                 arrServiceManager.syncProfiles(arrProfiles)
+            }
+            .onChange(of: tmdbAPIKey) { _, newValue in
+                Task {
+                    try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: newValue)
+                }
             }
     }
 

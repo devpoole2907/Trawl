@@ -29,7 +29,7 @@ struct SearchView: View {
     @State private var radarrLookupContextKey = ""
 
     // TMDb trending
-    @AppStorage("tmdb.apiKey") private var tmdbAPIKey: String = ""
+    @State private var tmdbAPIKey: String = ""
     @State private var trendingMovies: [TMDbItem] = []
     @State private var trendingTV: [TMDbItem] = []
     @State private var isLoadingTrending = false
@@ -998,6 +998,11 @@ struct SearchView: View {
     // MARK: - TMDb trending
 
     private func loadTrending() async {
+        // Load API key from Keychain first
+        if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
+            tmdbAPIKey = key
+        }
+
         guard !tmdbAPIKey.isEmpty else {
             trendingMovies = []
             trendingTV = []
