@@ -18,7 +18,6 @@ enum MoreDestination: Hashable {
     case prowlarrSettings
     case prowlarrIndexers
     case prowlarrSearch
-    case prowlarrStats
 }
 
 struct MoreView: View {
@@ -71,11 +70,6 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.prowlarrSearch) {
                         moreRow(icon: "text.magnifyingglass", color: .yellow,
                                 title: "Indexer Search", subtitle: "Search across all indexers")
-                    }
-
-                    NavigationLink(value: MoreDestination.prowlarrStats) {
-                        moreRow(icon: "chart.bar.fill", color: .yellow,
-                                title: "Indexer Stats", subtitle: "Query and grab statistics")
                     }
 
                     NavigationLink(value: MoreDestination.ssh) {
@@ -153,8 +147,6 @@ struct MoreView: View {
                     prowlarrIndexersDestination
                 case .prowlarrSearch:
                     prowlarrSearchDestination
-                case .prowlarrStats:
-                    prowlarrStatsDestination
                 }
             }
         }
@@ -184,20 +176,6 @@ struct MoreView: View {
                 Label("Prowlarr Not Set Up", systemImage: "text.magnifyingglass")
             } description: {
                 Text("Add a Prowlarr server in Settings to search indexers.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var prowlarrStatsDestination: some View {
-        if arrServiceManager.prowlarrConnected {
-            ProwlarrStatsView()
-                .environment(arrServiceManager)
-        } else {
-            ContentUnavailableView {
-                Label("Prowlarr Not Set Up", systemImage: "chart.bar")
-            } description: {
-                Text("Add a Prowlarr server in Settings to view indexer statistics.")
             }
         }
     }

@@ -45,13 +45,19 @@ final class ProwlarrViewModel {
         do {
             async let fetchedIndexers = client.getIndexers()
             async let fetchedStatuses = client.getIndexerStatuses()
-            let (loaded, statuses) = try await (fetchedIndexers, fetchedStatuses)
+            async let fetchedStats = client.getIndexerStats()
+            let (loaded, statuses, stats) = try await (fetchedIndexers, fetchedStatuses, fetchedStats)
             indexers = loaded.sorted { ($0.name ?? "") < ($1.name ?? "") }
             indexerStatuses = statuses
+            indexerStats = stats
         } catch {
             indexerError = error.localizedDescription
         }
         isLoadingIndexers = false
+    }
+
+    func statsForIndexer(id: Int) -> ProwlarrIndexerStatEntry? {
+        indexerStats?.indexers?.first(where: { $0.indexerId == id })
     }
 
     func toggleIndexer(_ indexer: ProwlarrIndexer) async {

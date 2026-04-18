@@ -35,6 +35,9 @@ struct ProwlarrIndexerListView: View {
             } else if vm.indexers.isEmpty {
                 emptyState
             } else {
+                if let stats = vm.indexerStats {
+                    statsOverviewSection(stats: stats)
+                }
                 indexerSections(vm: vm)
             }
         }
@@ -75,6 +78,45 @@ struct ProwlarrIndexerListView: View {
     }
 
     @ViewBuilder
+    private func statsOverviewSection(stats: ProwlarrIndexerStats) -> some View {
+        let entries = stats.indexers ?? []
+        let totalQueries = entries.compactMap(\.numberOfQueries).reduce(0, +)
+        let totalGrabs = entries.compactMap(\.numberOfGrabs).reduce(0, +)
+        let totalFailed = entries.compactMap(\.numberOfFailedQueries).reduce(0, +)
+
+        Section("Overview") {
+            HStack(spacing: 20) {
+                statOverviewCell(label: "Queries", value: "\(totalQueries)", color: .primary)
+                statOverviewCell(label: "Grabs", value: "\(totalGrabs)", color: .green)
+                statOverviewCell(label: "Failed", value: "\(totalFailed)", color: .red)
+                if totalQueries > 0 {
+                    let rate = Double(totalQueries - totalFailed) / Double(totalQueries) * 100
+                    statOverviewCell(label: "Success", value: String(format: "%.0f%%", rate), color: .blue)
+                }
+            }
+            .padding(.vertical, 8)
+            .listRowBackground(Color.clear)
+            .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0))
+        }
+    }
+
+    private func statOverviewCell(label: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(value)
+                .font(.title3.weight(.bold))
+                .foregroundStyle(color)
+            Text(label)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.vertical, 12)
+        .padding(.horizontal, 16)
+        .background(Color.secondary.opacity(0.05), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    @ViewBuilder
     private func indexerSections(vm: ProwlarrViewModel) -> some View {
         if !vm.torrentIndexers.isEmpty {
             Section("Torrent") {
@@ -106,7 +148,8 @@ struct ProwlarrIndexerListView: View {
         } label: {
             IndexerRowView(
                 indexer: indexer,
-                status: vm.statusForIndexer(id: indexer.id)
+                status: vm.statusForIndexer(id: indexer.id),
+                stats: vm.statsForIndexer(id: indexer.id)
             )
         }
         .swipeActions(edge: .leading) {
@@ -210,6 +253,7 @@ struct ProwlarrIndexerListView: View {
 private struct IndexerRowView: View {
     let indexer: ProwlarrIndexer
     let status: ProwlarrIndexerStatus?
+    let stats: ProwlarrIndexerStatEntry?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -248,6 +292,22 @@ private struct IndexerRowView: View {
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                             .labelStyle(.titleAndIcon)
+                    }
+
+                    if let grabs = stats?.numberOfGrabs, grabs > 0 {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text("\(grabs) grabs")
+                            .font(.caption)
+                            .foregroundStyle(.green)
+                    }
+
+                    if let rate = stats?.successRate {
+                        Text("·")
+                            .foregroundStyle(.tertiary)
+                        Text(String(format: "%.0f%%", rate * 100))
+                            .font(.caption)
+                            .foregroundStyle(rate > 0.9 ? .green : rate > 0.7 ? .orange : .red)
                     }
                 }
             }
