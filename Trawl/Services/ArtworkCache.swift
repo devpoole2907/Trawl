@@ -157,7 +157,7 @@ actor ArtworkCache {
     /// Caps the longest edge at 800px and encodes at 0.75 quality.
     private func compressedData(from data: Data) -> Data? {
         let maxDimension: CGFloat = 800
-#if os(iOS)
+#if os(iOS) || os(visionOS)
         guard let image = UIImage(data: data) else { return nil }
         let size = image.size
         guard size.width > 0, size.height > 0 else { return nil }
@@ -174,6 +174,11 @@ actor ArtworkCache {
         let size = image.size
         guard size.width > 0, size.height > 0 else { return nil }
         let scale = min(maxDimension / max(size.width, size.height), 1.0)
+        if scale >= 1.0 {
+            guard let tiffData = image.tiffRepresentation,
+                  let bitmap = NSBitmapImageRep(data: tiffData) else { return nil }
+            return bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.75])
+        }
         let newSize = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let resized = NSImage(size: newSize)
         resized.lockFocus()

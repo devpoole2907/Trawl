@@ -14,6 +14,7 @@ final class RadarrViewModel {
     var searchText: String = "" { didSet { rebuildFilteredMovies() } }
     private(set) var searchResults: [RadarrMovie] = []
     private(set) var isSearching: Bool = false
+    private var searchRequestToken: UUID?
     private(set) var wantedMovies: [RadarrMovie] = []
     private(set) var isLoadingWantedMissing: Bool = false
     private(set) var wantedMissingTotalRecords: Int = 0
@@ -163,20 +164,27 @@ final class RadarrViewModel {
     func searchForNewMovies(term: String) async {
         guard let client, !term.isEmpty else {
             searchResults = []
+            searchRequestToken = nil
             return
         }
+
+        let requestToken = UUID()
+        searchRequestToken = requestToken
         isSearching = true
         searchResults = []
         error = nil
         defer { isSearching = false }
+
         do {
             let results = try await client.lookupMovie(term: term)
             guard !Task.isCancelled else { return }
+            guard searchRequestToken == requestToken else { return }
             searchResults = results
         } catch is CancellationError {
             return
         } catch {
             guard !Task.isCancelled else { return }
+            guard searchRequestToken == requestToken else { return }
             self.error = error.localizedDescription
             searchResults = []
         }
@@ -186,6 +194,7 @@ final class RadarrViewModel {
         searchResults = []
         error = nil
         isSearching = false
+        searchRequestToken = nil
     }
 
     func addMovie(

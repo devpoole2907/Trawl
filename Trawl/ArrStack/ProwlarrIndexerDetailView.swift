@@ -100,7 +100,6 @@ struct ProwlarrIndexerDetailView: View {
                 Button {
                     Task {
                         await viewModel.testIndexer(indexer)
-                        showTestResult = true
                     }
                 } label: {
                     Label("Test Indexer", systemImage: "checkmark.circle")
@@ -128,10 +127,20 @@ struct ProwlarrIndexerDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .onChange(of: viewModel.testResult) { _, newValue in
+            if newValue != nil {
+                showTestResult = true
+            }
+        }
+        .onChange(of: viewModel.indexerError) { _, newValue in
+            if newValue != nil {
+                showTestResult = true
+            }
+        }
         .alert("Test Result", isPresented: $showTestResult) {
             Button("OK", role: .cancel) {}
         } message: {
-            Text(viewModel.testResult ?? "")
+            Text(viewModel.testResult ?? viewModel.indexerError ?? "No result available")
         }
         .alert("Remove Indexer?", isPresented: $showDeleteConfirm) {
             Button("Remove", role: .destructive) {

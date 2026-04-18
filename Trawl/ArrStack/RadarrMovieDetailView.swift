@@ -990,11 +990,13 @@ private struct RadarrAddToLibrarySheet: View {
     }
 
     private func addMovie() async {
+        guard !isAdding else { return }
         guard let tmdbId = movie.tmdbId,
               let qualityProfileId = selectedQualityProfileId,
               let rootFolderPath = selectedRootFolderPath else { return }
 
         isAdding = true
+        defer { isAdding = false }
         let success = await viewModel.addMovie(
             title: movie.title,
             tmdbId: tmdbId,
@@ -1004,7 +1006,6 @@ private struct RadarrAddToLibrarySheet: View {
             monitorOption: monitorOption,
             searchForMovie: searchForMovie
         )
-        isAdding = false
 
         if success {
             await onAdded()

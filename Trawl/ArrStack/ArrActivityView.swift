@@ -148,32 +148,37 @@ struct ArrActivityView: View {
         let sonarrClient = serviceManager.sonarrClient
         let radarrClient = serviceManager.radarrClient
 
-        async let sonarrLoad: () = Task {
+        var sonarrError: String?
+        var radarrError: String?
+
+        async let sonarrLoad: () = {
             guard let client = sonarrClient else { return }
             do {
                 let response = try await client.getQueue(page: 1, pageSize: 50)
                 sonarrQueue = response.records
             } catch {
-                self.error = "Sonarr: \(error.localizedDescription)"
+                sonarrError = "Sonarr: \(error.localizedDescription)"
             }
-        }.value
+        }()
 
-        async let radarrLoad: () = Task {
+        async let radarrLoad: () = {
             guard let client = radarrClient else { return }
             do {
                 let response = try await client.getQueue(page: 1, pageSize: 50)
                 radarrQueue = response.records
             } catch {
-                if self.error == nil {
-                    self.error = "Radarr: \(error.localizedDescription)"
-                } else {
-                    self.error = "\(self.error ?? ""), Radarr: \(error.localizedDescription)"
-                }
+                radarrError = "Radarr: \(error.localizedDescription)"
             }
-        }.value
+        }()
 
         await sonarrLoad
         await radarrLoad
+
+        let errors = [sonarrError, radarrError].compactMap { $0 }
+        if !errors.isEmpty {
+            self.error = errors.joined(separator: ", ")
+        }
+
         isLoading = false
     }
 

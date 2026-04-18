@@ -40,11 +40,11 @@ final class ArrServiceManager {
     func initialize(from profiles: [ArrServiceProfile]) async {
         storedProfiles = profiles
         isInitializing = true
+        defer { isInitializing = false }
         disconnectAll()
         for profile in profiles where profile.isEnabled {
             await connectService(profile)
         }
-        isInitializing = false
     }
 
     func syncProfiles(_ profiles: [ArrServiceProfile]) {
@@ -69,7 +69,7 @@ final class ArrServiceManager {
         defer { setConnectingState(false, for: serviceType) }
 
         do {
-            guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
+            guard let apiKey = try KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
                   !apiKey.isEmpty else {
                 let errorMessage = "API key not found in Keychain."
                 connectionErrors[profile.id.uuidString] = errorMessage

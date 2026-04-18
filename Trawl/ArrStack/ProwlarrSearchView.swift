@@ -181,6 +181,8 @@ struct ProwlarrSearchView: View {
 private struct SearchResultRow: View {
     let result: ProwlarrSearchResult
     @State private var showActionSheet = false
+    @State private var showAddTorrentSheet = false
+    @State private var downloadedTorrentURL: String?
 
     var body: some View {
         Button {
@@ -253,7 +255,8 @@ private struct SearchResultRow: View {
                     }
                 } else if result.isTorrent {
                     Button("Add to qBittorrent") {
-                        openMagnet(url)
+                        downloadedTorrentURL = url
+                        showAddTorrentSheet = true
                     }
                 } else {
                     Text("Usenet — not supported in Trawl")
@@ -268,6 +271,11 @@ private struct SearchResultRow: View {
                 }
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showAddTorrentSheet) {
+            if let urlString = downloadedTorrentURL {
+                AddTorrentSheet(initialMagnetURL: urlString)
+            }
         }
     }
 

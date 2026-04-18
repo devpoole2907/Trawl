@@ -229,15 +229,11 @@ struct MoreView: View {
 
     @ViewBuilder
     private var settingsDestination: some View {
-        if let services = appServices {
-            SettingsView(showsDoneButton: false)
-                .environment(services.syncService)
-                .environment(services.torrentService)
-                .environment(arrServiceManager)
-        } else {
-            SettingsView(showsDoneButton: false)
-                .environment(arrServiceManager)
-        }
+        let services = appServices ?? AppServices.disconnected()
+        SettingsView(showsDoneButton: false)
+            .environment(services.syncService)
+            .environment(services.torrentService)
+            .environment(arrServiceManager)
     }
 
     @ViewBuilder

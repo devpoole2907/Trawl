@@ -34,6 +34,7 @@ final class SonarrViewModel {
     var searchText: String = "" { didSet { rebuildFilteredSeries() } }
     private(set) var searchResults: [SonarrSeries] = []
     private(set) var isSearching: Bool = false
+    private var searchRequestToken: UUID?
 
     // Queue state
     private(set) var queue: [ArrQueueItem] = []
@@ -279,20 +280,27 @@ final class SonarrViewModel {
     func searchForNewSeries(term: String) async {
         guard let client, !term.isEmpty else {
             searchResults = []
+            searchRequestToken = nil
             return
         }
+
+        let requestToken = UUID()
+        searchRequestToken = requestToken
         isSearching = true
         searchResults = []
         error = nil
         defer { isSearching = false }
+
         do {
             let results = try await client.lookupSeries(term: term)
             guard !Task.isCancelled else { return }
+            guard searchRequestToken == requestToken else { return }
             searchResults = results
         } catch is CancellationError {
             return
         } catch {
             guard !Task.isCancelled else { return }
+            guard searchRequestToken == requestToken else { return }
             self.error = error.localizedDescription
             searchResults = []
         }
@@ -302,6 +310,7 @@ final class SonarrViewModel {
         searchResults = []
         error = nil
         isSearching = false
+        searchRequestToken = nil
     }
 
     func addSeries(

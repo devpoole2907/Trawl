@@ -409,20 +409,35 @@ struct SSHProfileEditSheet: View {
             // Only delete keychain items after successful save
             do {
                 try await KeychainHelper.shared.delete(key: profile.passwordKey)
+            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
+                // Item not found is acceptable
+            } catch KeychainError.notFound {
+                // Item not found is acceptable
             } catch {
-                // Log but don't fail - keychain item may not exist
+                // Log actual errors but don't fail the deletion
+                print("Warning: Failed to delete password from Keychain: \(error)")
             }
 
             do {
                 try await KeychainHelper.shared.delete(key: profile.privateKeyKey)
+            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
+                // Item not found is acceptable
+            } catch KeychainError.notFound {
+                // Item not found is acceptable
             } catch {
-                // Log but don't fail - keychain item may not exist
+                // Log actual errors but don't fail the deletion
+                print("Warning: Failed to delete private key from Keychain: \(error)")
             }
 
             do {
                 try await KeychainHelper.shared.delete(key: profile.passphraseKey)
+            } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
+                // Item not found is acceptable
+            } catch KeychainError.notFound {
+                // Item not found is acceptable
             } catch {
-                // Log but don't fail - keychain item may not exist
+                // Log actual errors but don't fail the deletion
+                print("Warning: Failed to delete passphrase from Keychain: \(error)")
             }
 
             dismiss()

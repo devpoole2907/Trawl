@@ -166,6 +166,7 @@ struct QBittorrentCategoriesView: View {
             actionErrorAlert = nil
             resetCreateInputs()
         } catch {
+            resetCreateInputs()
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Create Category",
                 message: error.localizedDescription
