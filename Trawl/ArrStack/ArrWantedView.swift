@@ -19,6 +19,11 @@ struct ArrWantedView: View {
         sonarrViewModel?.isLoadingWantedMissing == true || radarrViewModel?.isLoadingWantedMissing == true
     }
 
+    private var hasError: Bool {
+        (sonarrViewModel?.error != nil && !sonarrViewModel!.error!.isEmpty) ||
+        (radarrViewModel?.error != nil && !radarrViewModel!.error!.isEmpty)
+    }
+
     var body: some View {
         Group {
             if !hasConnectedService {
@@ -30,7 +35,7 @@ struct ArrWantedView: View {
             } else if isLoading && isEmpty {
                 ProgressView("Loading wanted items...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if isEmpty {
+            } else if isEmpty && !hasError {
                 ContentUnavailableView(
                     "Nothing Missing",
                     systemImage: "checkmark.circle",

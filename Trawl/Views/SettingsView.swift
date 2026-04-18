@@ -16,6 +16,7 @@ struct SettingsView: View {
     @State private var viewModel = SettingsViewModel()
     @State private var tmdbAPIKey: String = ""
     @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
+    @State private var didLoadTmdbAPIKey = false
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
@@ -43,16 +44,18 @@ struct SettingsView: View {
                 arrServiceManager.syncProfiles(arrProfiles)
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
-                
+
                 // Load TMDb API key from Keychain
                 if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
                     tmdbAPIKey = key
                 }
+                didLoadTmdbAPIKey = true
             }
             .task(id: arrProfilesSyncKey) {
                 arrServiceManager.syncProfiles(arrProfiles)
             }
             .onChange(of: tmdbAPIKey) { _, newValue in
+                guard didLoadTmdbAPIKey else { return }
                 tmdbAPIKeySaveTask?.cancel()
                 tmdbAPIKeySaveTask = Task {
                     try? await Task.sleep(for: .milliseconds(400))
@@ -424,8 +427,11 @@ struct QBittorrentSettingsView: View {
             globalUploadLimit = try await uploadLimit
             alternativeSpeedEnabled = try await altMode
             appPreferences = try await preferences
-            didLoadSpeedLimits = true
             speedLimitErrorAlert = nil
+
+            // Defer setting didLoadSpeedLimits to avoid triggering onChange handlers
+            await Task.yield()
+            didLoadSpeedLimits = true
         } catch {
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Load Speed Limits",

@@ -205,6 +205,10 @@ private actor SshSessionActor {
     // Pending continuations waiting for new bytes to arrive (EAGAIN)
     private var pendingTasks: [CheckedContinuation<Void, Error>] = []
 
+    // Send queue for serializing outbound writes
+    private var sendQueue: [Data] = []
+    private var isSending = false
+
     // MARK: Setup / Teardown
 
     func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) throws {
@@ -367,17 +371,40 @@ private actor SshSessionActor {
     }
 
     func sendToChannel(_ data: Data) async throws {
-        guard let ch = channel else { return }
-        
-        // Check for underlying transport send error
-        if let transportError = contextRef?.takeUnretainedValue().error {
-            throw transportError
+        // Enqueue the data and start the sender if needed
+        sendQueue.append(data)
+        if !isSending {
+            try await drainSendQueue()
         }
+    }
 
+    private func drainSendQueue() async throws {
+        guard !isSending else { return }
+        isSending = true
+        defer { isSending = false }
+
+        while !sendQueue.isEmpty {
+            let data = sendQueue.removeFirst()
+            try await sendDataToChannel(data)
+        }
+    }
+
+    private func sendDataToChannel(_ data: Data) async throws {
         let bytes = [UInt8](data)
         var remaining = bytes.count
         var offset = 0
+
         while remaining > 0 {
+            // Re-validate channel and context after each await
+            guard let ch = channel else {
+                throw SSHConnectionError.notConnected
+            }
+
+            // Check for underlying transport send error
+            if let transportError = contextRef?.takeUnretainedValue().error {
+                throw transportError
+            }
+
             let n = bytes.withUnsafeBufferPointer { ptr -> Int in
                 guard let base = ptr.baseAddress else { return 0 }
                 return libssh2_channel_write_ex(
@@ -396,6 +423,14 @@ private actor SshSessionActor {
                     try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
                 } else {
                     try await waitForRetry()
+                }
+
+                // Re-check channel validity after await
+                guard channel != nil else {
+                    throw SSHConnectionError.notConnected
+                }
+                if let transportError = contextRef?.takeUnretainedValue().error {
+                    throw transportError
                 }
             } else if n < 0 {
                 throw lastErrorDetails()
@@ -488,18 +523,18 @@ final class SSHConnection: @unchecked Sendable {
         auth: SSHAuth,
         knownFingerprint: String?
     ) async throws {
+        // Validate port is within valid range before changing state
+        guard port >= 1 && port <= 65535 else {
+            throw SSHConnectionError.connectionFailed("Invalid SSH port: \(port)")
+        }
+        let validatedPort = UInt16(port)
+
         resetTransportCloseGuard()
         transition(to: .connecting)
 
         // Create a fresh receive buffer for this connection session
         let newBuffer = SshReceiveBuffer()
         self.receiveBuffer = newBuffer
-
-        // Validate port is within valid range before casting to UInt16
-        guard port >= 1 && port <= 65535 else {
-            throw SSHConnectionError.connectionFailed("Invalid SSH port: \(port)")
-        }
-        let validatedPort = UInt16(port)
 
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),

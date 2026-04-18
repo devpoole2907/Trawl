@@ -372,7 +372,7 @@ struct ArrServicesSettingsView: View {
         List {
             Section("Connected Services") {
                 if profiles.isEmpty {
-                    Text("No services configured. Tap + to add Sonarr or Radarr.")
+                    Text("No services configured. Tap + to add Sonarr, Radarr, or Prowlarr.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -429,7 +429,7 @@ struct ArrServicesSettingsView: View {
 
             if !serviceManager.connectionErrors.isEmpty {
                 Section("Errors") {
-                    ForEach(Array(serviceManager.connectionErrors), id: \.key) { _, error in
+                    ForEach(serviceManager.connectionErrors.sorted(by: { $0.key < $1.key }), id: \.key) { _, error in
                         Label(error, systemImage: "exclamationmark.triangle")
                             .font(.caption)
                             .foregroundStyle(.red)

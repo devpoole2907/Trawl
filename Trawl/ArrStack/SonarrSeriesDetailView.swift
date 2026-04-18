@@ -134,15 +134,32 @@ struct SonarrSeriesDetailView: View {
         .alert("Delete Episode File?", isPresented: episodeFileDeleteBinding) {
             Button("Delete", role: .destructive) {
                 if let file = selectedEpisodeFileForDeletion {
-                    Task { await viewModel.deleteEpisodeFile(id: file.id) }
+                    Task {
+                        await viewModel.deleteEpisodeFile(id: file.id)
+                        if viewModel.error == nil || viewModel.error?.isEmpty == true {
+                            selectedEpisodeFileForDeletion = nil
+                        }
+                    }
                 }
-                selectedEpisodeFileForDeletion = nil
             }
             Button("Cancel", role: .cancel) {
                 selectedEpisodeFileForDeletion = nil
             }
         } message: {
             Text("This removes the selected episode file from Sonarr.")
+        }
+        .alert("Error", isPresented: Binding(
+            get: { viewModel.error != nil && !viewModel.error!.isEmpty && selectedEpisodeFileForDeletion != nil },
+            set: { if !$0 { viewModel.error = nil; selectedEpisodeFileForDeletion = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                viewModel.error = nil
+                selectedEpisodeFileForDeletion = nil
+            }
+        } message: {
+            if let error = viewModel.error {
+                Text(error)
+            }
         }
     }
 
@@ -975,12 +992,15 @@ private struct SonarrAddToLibrarySheet: View {
     }
 
     private func addSeries() async {
+        guard !isAdding else { return }
         guard let tvdbId = series.tvdbId,
               let titleSlug = series.titleSlug,
               let qualityProfileId = selectedQualityProfileId,
               let rootFolderPath = selectedRootFolderPath else { return }
 
         isAdding = true
+        defer { isAdding = false }
+
         let success = await viewModel.addSeries(
             tvdbId: tvdbId,
             title: series.title,
@@ -992,7 +1012,6 @@ private struct SonarrAddToLibrarySheet: View {
             monitorOption: "none",
             searchForMissing: searchForMissing
         )
-        isAdding = false
 
         if success {
             await onAdded()

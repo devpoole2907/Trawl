@@ -1021,6 +1021,11 @@ struct SearchView: View {
 
         // Movies: use Radarr's TMDb ID lookup (fast, one call per movie)
         if let radarrClient {
+            // Clear stale entries for items being refreshed
+            for item in movies.prefix(20) {
+                movieMatches.removeValue(forKey: item.id)
+            }
+
             await withTaskGroup(of: (Int, RadarrMovie?).self) { group in
                 for item in movies.prefix(20) {
                     group.addTask {
@@ -1034,10 +1039,20 @@ struct SearchView: View {
                     }
                 }
             }
+        } else {
+            // Clear all movie matches if radarrClient is nil
+            for item in movies.prefix(20) {
+                movieMatches.removeValue(forKey: item.id)
+            }
         }
 
         // TV: use Sonarr term search, prefer year match over first result
         if let sonarrClient {
+            // Clear stale entries for items being refreshed
+            for item in tv.prefix(20) {
+                seriesMatches.removeValue(forKey: item.id)
+            }
+
             await withTaskGroup(of: (Int, SonarrSeries?).self) { group in
                 for item in tv.prefix(20) {
                     group.addTask {
@@ -1057,6 +1072,11 @@ struct SearchView: View {
                         seriesMatches[tmdbId] = match
                     }
                 }
+            }
+        } else {
+            // Clear all series matches if sonarrClient is nil
+            for item in tv.prefix(20) {
+                seriesMatches.removeValue(forKey: item.id)
             }
         }
     }

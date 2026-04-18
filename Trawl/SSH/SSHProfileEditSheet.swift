@@ -254,8 +254,16 @@ struct SSHProfileEditSheet: View {
         isSaving = true
         defer { isSaving = false }
 
+        // Capture immutable snapshot of all form state before any async work
+        let capturedHost = trimmedHost
+        let capturedPort = port ?? 22
+        let capturedUsername = trimmedUsername
+        let capturedAuthType = authType
+        let capturedPassword = password
+        let capturedPrivateKeyPEM = privateKeyPEM.trimmingCharacters(in: .whitespacesAndNewlines)
+        let capturedKeyPassphrase = keyPassphrase
         let resolvedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? trimmedHost
+            ? capturedHost
             : displayName.trimmingCharacters(in: .whitespacesAndNewlines)
 
         if let existing {
@@ -264,18 +272,31 @@ struct SSHProfileEditSheet: View {
             let previousPort = existing.port
             let previousUsername = existing.username
             let previousAuthTypeRaw = existing.authTypeRaw
+            let previousFingerprint = existing.knownHostFingerprint
 
             do {
                 // Snapshot existing credentials; if this fails, abort the save
                 let previousCredentials = try await snapshotCredentials(for: existing)
 
                 do {
-                    try await writeCredentials(for: existing)
+                    try await writeCredentials(
+                        for: existing,
+                        authType: capturedAuthType,
+                        password: capturedPassword,
+                        privateKeyPEM: capturedPrivateKeyPEM,
+                        keyPassphrase: capturedKeyPassphrase
+                    )
                     existing.displayName = resolvedName
-                    existing.host = trimmedHost
-                    existing.port = port ?? 22
-                    existing.username = trimmedUsername
-                    existing.authTypeRaw = authType.rawValue
+                    existing.host = capturedHost
+                    existing.port = capturedPort
+                    existing.username = capturedUsername
+                    existing.authTypeRaw = capturedAuthType.rawValue
+
+                    // Clear fingerprint if SSH endpoint changed
+                    if capturedHost != previousHost || capturedPort != previousPort {
+                        existing.knownHostFingerprint = nil
+                    }
+
                     try modelContext.save()
                     dismiss()
                 } catch {
@@ -285,9 +306,14 @@ struct SSHProfileEditSheet: View {
                     existing.port = previousPort
                     existing.username = previousUsername
                     existing.authTypeRaw = previousAuthTypeRaw
+                    existing.knownHostFingerprint = previousFingerprint
                     modelContext.rollback()
-                    await restoreCredentials(previousCredentials, for: existing)
-                    saveError = error.localizedDescription
+                    do {
+                        try await restoreCredentials(previousCredentials, for: existing)
+                        saveError = error.localizedDescription
+                    } catch let restoreError {
+                        saveError = "Failed to save: \(error.localizedDescription). Additionally, failed to restore credentials: \(restoreError.localizedDescription)"
+                    }
                 }
             } catch {
                 // Keychain snapshot failed; abort without changing anything
@@ -298,14 +324,20 @@ struct SSHProfileEditSheet: View {
 
         let profile = SSHProfile(
                 displayName: resolvedName,
-                host: trimmedHost,
-                port: port ?? 22,
-                username: trimmedUsername,
-                authType: authType
+                host: capturedHost,
+                port: capturedPort,
+                username: capturedUsername,
+                authType: capturedAuthType
         )
 
         do {
-            try await writeCredentials(for: profile)
+            try await writeCredentials(
+                for: profile,
+                authType: capturedAuthType,
+                password: capturedPassword,
+                privateKeyPEM: capturedPrivateKeyPEM,
+                keyPassphrase: capturedKeyPassphrase
+            )
             modelContext.insert(profile)
             try modelContext.save()
             dismiss()
@@ -319,7 +351,13 @@ struct SSHProfileEditSheet: View {
     /// Persists only the credentials relevant to the current auth method and
     /// clears any that no longer apply. `KeychainHelper.save` is an upsert,
     /// so no pre-delete pass is needed for values being written.
-    private func writeCredentials(for profile: SSHProfile) async throws {
+    private func writeCredentials(
+        for profile: SSHProfile,
+        authType: SSHAuthType,
+        password: String,
+        privateKeyPEM: String,
+        keyPassphrase: String
+    ) async throws {
         switch authType {
         case .password:
             if password.isEmpty {
@@ -332,11 +370,10 @@ struct SSHProfileEditSheet: View {
             try await KeychainHelper.shared.delete(key: profile.passphraseKey)
 
         case .privateKey:
-            let trimmedKey = privateKeyPEM.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmedKey.isEmpty {
+            if privateKeyPEM.isEmpty {
                 try await KeychainHelper.shared.delete(key: profile.privateKeyKey)
             } else {
-                try await KeychainHelper.shared.save(key: profile.privateKeyKey, value: trimmedKey)
+                try await KeychainHelper.shared.save(key: profile.privateKeyKey, value: privateKeyPEM)
             }
 
             if keyPassphrase.isEmpty {
@@ -361,28 +398,24 @@ struct SSHProfileEditSheet: View {
         )
     }
 
-    private func restoreCredentials(_ snapshot: SSHCredentialSnapshot, for profile: SSHProfile) async {
+    private func restoreCredentials(_ snapshot: SSHCredentialSnapshot, for profile: SSHProfile) async throws {
         let helper = KeychainHelper.shared
-        do {
-            if let password = snapshot.password {
-                try await helper.save(key: profile.passwordKey, value: password)
-            } else {
-                try await helper.delete(key: profile.passwordKey)
-            }
+        if let password = snapshot.password {
+            try await helper.save(key: profile.passwordKey, value: password)
+        } else {
+            try await helper.delete(key: profile.passwordKey)
+        }
 
-            if let privateKey = snapshot.privateKey {
-                try await helper.save(key: profile.privateKeyKey, value: privateKey)
-            } else {
-                try await helper.delete(key: profile.privateKeyKey)
-            }
+        if let privateKey = snapshot.privateKey {
+            try await helper.save(key: profile.privateKeyKey, value: privateKey)
+        } else {
+            try await helper.delete(key: profile.privateKeyKey)
+        }
 
-            if let passphrase = snapshot.passphrase {
-                try await helper.save(key: profile.passphraseKey, value: passphrase)
-            } else {
-                try await helper.delete(key: profile.passphraseKey)
-            }
-        } catch {
-            saveError = error.localizedDescription
+        if let passphrase = snapshot.passphrase {
+            try await helper.save(key: profile.passphraseKey, value: passphrase)
+        } else {
+            try await helper.delete(key: profile.passphraseKey)
         }
     }
 

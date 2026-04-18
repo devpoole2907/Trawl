@@ -183,11 +183,19 @@ struct ArrActivityView: View {
     private func removeItem(_ activityItem: ActivityItem) async {
         switch activityItem.source {
         case .sonarr:
-            try? await serviceManager.sonarrClient?.deleteQueueItem(id: activityItem.item.id)
-            sonarrQueue.removeAll { $0.id == activityItem.item.id }
+            do {
+                try await serviceManager.sonarrClient?.deleteQueueItem(id: activityItem.item.id)
+                sonarrQueue.removeAll { $0.id == activityItem.item.id }
+            } catch {
+                self.error = "Failed to remove from Sonarr: \(error.localizedDescription)"
+            }
         case .radarr:
-            try? await serviceManager.radarrClient?.deleteQueueItem(id: activityItem.item.id)
-            radarrQueue.removeAll { $0.id == activityItem.item.id }
+            do {
+                try await serviceManager.radarrClient?.deleteQueueItem(id: activityItem.item.id)
+                radarrQueue.removeAll { $0.id == activityItem.item.id }
+            } catch {
+                self.error = "Failed to remove from Radarr: \(error.localizedDescription)"
+            }
         case .prowlarr:
             break
         }

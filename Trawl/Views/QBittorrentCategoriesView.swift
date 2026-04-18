@@ -35,7 +35,9 @@ struct QBittorrentCategoriesView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .navigationTitle("Categories")
