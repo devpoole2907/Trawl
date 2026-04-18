@@ -20,9 +20,9 @@ struct SonarrSeriesDetailView: View {
     @State private var expandedSeasons: Set<Int> = []
     @State private var isFilesExpanded = false
     @State private var isAlternateTitlesExpanded = false
+    @State private var isQueueExpanded = true
     @State private var showEditSheet = false
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
-    @State private var episodeFileDeleteError: String?
     @State private var showAddSheet = false
     @State private var didAdd = false
 
@@ -135,13 +135,13 @@ struct SonarrSeriesDetailView: View {
         .alert("Delete Episode File?", isPresented: episodeFileDeleteBinding) {
             Button("Delete", role: .destructive) {
                 if let file = selectedEpisodeFileForDeletion {
-                    episodeFileDeleteError = nil
+                    selectedEpisodeFileForDeletion = nil
                     Task {
                         await viewModel.deleteEpisodeFile(id: file.id)
-                        if viewModel.error == nil || viewModel.error?.isEmpty == true {
-                            selectedEpisodeFileForDeletion = nil
+                        if let error = viewModel.error, !error.isEmpty {
+                            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
                         } else {
-                            episodeFileDeleteError = viewModel.error
+                            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "The episode file has been removed.")
                         }
                     }
                 }
@@ -151,18 +151,6 @@ struct SonarrSeriesDetailView: View {
             }
         } message: {
             Text("This removes the selected episode file from Sonarr.")
-        }
-        .alert("Error", isPresented: Binding(
-            get: { episodeFileDeleteError != nil && !(episodeFileDeleteError?.isEmpty ?? true) },
-            set: { if !$0 { episodeFileDeleteError = nil } }
-        )) {
-            Button("OK", role: .cancel) {
-                episodeFileDeleteError = nil
-            }
-        } message: {
-            if let error = episodeFileDeleteError {
-                Text(error)
-            }
         }
     }
 
@@ -434,18 +422,41 @@ struct SonarrSeriesDetailView: View {
 
     private func queueCard(_ items: [ArrQueueItem]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            sectionLabel(items.count == 1 ? "Current Download" : "Current Downloads", icon: "arrow.down.circle")
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isQueueExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        sectionLabel(items.count == 1 ? "Current Download" : "Current Downloads", icon: "arrow.down.circle")
+                        Text("\(items.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isQueueExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
                 .padding(.horizontal, 16)
                 .padding(.top, 14)
-                .padding(.bottom, 8)
+                .padding(.bottom, isQueueExpanded ? 8 : 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
 
-            ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
-                queueItemRow(item)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
+            if isQueueExpanded {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    queueItemRow(item)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
 
-                if index < items.count - 1 {
-                    Divider().padding(.leading, 16)
+                    if index < items.count - 1 {
+                        Divider().padding(.leading, 16)
+                    }
                 }
             }
         }
@@ -535,8 +546,10 @@ struct SonarrSeriesDetailView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .contentShape(Rectangle())
                     .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
@@ -707,7 +720,7 @@ struct SonarrSeriesDetailView: View {
 
                 if let id = resolvedSeriesId {
                     Button {
-                        Task { await viewModel.searchSeason(seriesId: id, seasonNumber: seasonNum) }
+                        Task { await searchSeasonWithFeedback(seriesId: id, seasonNumber: seasonNum, episodeCount: seasonEpisodes.count) }
                     } label: {
                         Image(systemName: "magnifyingglass")
                             .font(.caption)
@@ -727,7 +740,7 @@ struct SonarrSeriesDetailView: View {
                     EpisodeRow(episode: episode) {
                         Task { await viewModel.toggleEpisodeMonitored(episode) }
                     } onSearch: {
-                        Task { await viewModel.searchEpisode(episode) }
+                        Task { await searchEpisodeWithFeedback(episode) }
                     }
                     if episode.id != seasonEpisodes.last?.id {
                         Divider().padding(.leading, 38)
@@ -737,6 +750,33 @@ struct SonarrSeriesDetailView: View {
         }
         .frame(maxWidth: .infinity)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Search actions
+
+    private func searchEpisodeWithFeedback(_ episode: SonarrEpisode) async {
+        await viewModel.searchEpisode(episode)
+        if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+        } else {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(episode.title ?? episode.episodeIdentifier) – search sent to indexers."
+            )
+        }
+    }
+
+    private func searchSeasonWithFeedback(seriesId: Int, seasonNumber: Int, episodeCount: Int) async {
+        await viewModel.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
+        if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+        } else {
+            let label = seasonNumber == 0 ? "Specials" : "Season \(seasonNumber)"
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(label) (\(episodeCount) \(episodeCount == 1 ? "episode" : "episodes")) – search sent to indexers."
+            )
+        }
     }
 
     // MARK: - Helpers
@@ -1154,7 +1194,16 @@ private struct EpisodeRow: View {
                 }
             }
             .font(.subheadline)
-            .padding(.trailing, 14)
+
+            Button(action: onSearch) {
+                Image(systemName: "magnifyingglass")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(7)
+                    .glassEffect(.regular.interactive(), in: Circle())
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 8)
         }
         .padding(.vertical, 10)
         .frame(maxWidth: .infinity)

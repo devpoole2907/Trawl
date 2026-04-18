@@ -4,13 +4,16 @@ struct ProwlarrIndexerListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var viewModel: ProwlarrViewModel?
     @State private var indexerToDelete: ProwlarrIndexer?
-    @State private var showTestResultAlert = false
+    @State private var showTestAllConfirm = false
     @State private var showAddSheet = false
+    @State private var searchText = ""
+    @State private var isSearchActive = false
+    @State private var showIndexerFilter = false
 
     var body: some View {
         Group {
             if let vm = viewModel {
-                content(vm: vm)
+                mainContent(vm: vm)
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -31,10 +34,81 @@ struct ProwlarrIndexerListView: View {
                 ProwlarrAddIndexerSheet(viewModel: vm)
             }
         }
+        .searchable(text: $searchText, isPresented: $isSearchActive, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search releases…")
+        .onSubmit(of: .search) {
+            guard let vm = viewModel else { return }
+            vm.searchQuery = searchText
+            Task { await vm.performSearch() }
+        }
+        .onChange(of: isSearchActive) { _, active in
+            if !active {
+                searchText = ""
+                viewModel?.clearSearch()
+            }
+        }
     }
 
+    // MARK: - Main content (hosts alerts so they work in both modes)
+
     @ViewBuilder
-    private func content(vm: ProwlarrViewModel) -> some View {
+    private func mainContent(vm: ProwlarrViewModel) -> some View {
+        @Bindable var vm = vm
+        Group {
+            if isSearchActive {
+                searchContent(vm: vm)
+            } else {
+                indexerList(vm: vm)
+            }
+        }
+        .alert("Delete Indexer?", isPresented: .init(
+            get: { indexerToDelete != nil },
+            set: { if !$0 { indexerToDelete = nil } }
+        )) {
+            Button("Delete", role: .destructive) {
+                guard let indexer = indexerToDelete else { return }
+                let name = indexer.name ?? "Indexer"
+                indexerToDelete = nil
+                Task {
+                    await vm.deleteIndexer(indexer)
+                    if let error = vm.indexerError {
+                        InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
+                        vm.clearIndexerError()
+                    } else {
+                        InAppNotificationCenter.shared.showSuccess(title: "Indexer Deleted", message: "\(name) has been removed.")
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { indexerToDelete = nil }
+        } message: {
+            Text("This removes \"\(indexerToDelete?.name ?? "this indexer")\" from Prowlarr.")
+        }
+        .alert("Test All Indexers?", isPresented: $showTestAllConfirm) {
+            Button("Test All") {
+                Task { await vm.testAllIndexers() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = vm.indexers.count
+            Text("This will send a test request to all \(count) \(count == 1 ? "indexer" : "indexers"). It may take a moment.")
+        }
+        .onChange(of: vm.testResult) { _, result in
+            guard let result else { return }
+            if result.contains("passed") {
+                InAppNotificationCenter.shared.showSuccess(title: "Test Complete", message: result)
+            } else {
+                InAppNotificationCenter.shared.showError(title: "Test Failed", message: result)
+            }
+            vm.clearTestResult()
+        }
+        .sheet(isPresented: $showIndexerFilter) {
+            IndexerFilterSheet(indexers: vm.indexers, selectedIds: $vm.selectedIndexerIds)
+        }
+    }
+
+    // MARK: - Indexer list
+
+    @ViewBuilder
+    private func indexerList(vm: ProwlarrViewModel) -> some View {
         List {
             if vm.isLoadingIndexers && vm.indexers.isEmpty {
                 loadingRows
@@ -52,38 +126,108 @@ struct ProwlarrIndexerListView: View {
         .background(backgroundGradient)
         .refreshable { await vm.loadIndexers() }
         .toolbar { toolbarContent(vm: vm) }
-        .alert("Delete Indexer?", isPresented: .init(
-            get: { indexerToDelete != nil },
-            set: { if !$0 { indexerToDelete = nil } }
-        )) {
-            Button("Delete", role: .destructive) {
-                guard let indexer = indexerToDelete else { return }
-                Task { await vm.deleteIndexer(indexer) }
-                indexerToDelete = nil
+    }
+
+    // MARK: - Search content
+
+    @ViewBuilder
+    private func searchContent(vm: ProwlarrViewModel) -> some View {
+        @Bindable var vm = vm
+        VStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ProwlarrSearchType.allCases) { type in
+                        Button {
+                            vm.searchType = type
+                        } label: {
+                            Label(type.displayName, systemImage: type.systemImage)
+                                .font(.subheadline.weight(.medium))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(vm.searchType == type ? .white : .primary)
+                        .background(
+                            vm.searchType == type ? Color.yellow : Color.secondary.opacity(0.12),
+                            in: Capsule()
+                        )
+                        .animation(.easeInOut(duration: 0.15), value: vm.searchType)
+                    }
+
+                    Divider().frame(height: 20)
+
+                    Button {
+                        showIndexerFilter = true
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "line.3.horizontal.decrease.circle")
+                            Text(vm.selectedIndexerIds.isEmpty
+                                 ? "All Indexers"
+                                 : "\(vm.selectedIndexerIds.count) selected")
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(vm.selectedIndexerIds.isEmpty ? Color.primary : Color.white)
+                    .background(
+                        vm.selectedIndexerIds.isEmpty ? Color.secondary.opacity(0.12) : Color.yellow,
+                        in: Capsule()
+                    )
+                }
+                .padding(.horizontal, 16)
             }
-            Button("Cancel", role: .cancel) { indexerToDelete = nil }
-        } message: {
-            Text("This removes \"\(indexerToDelete?.name ?? "this indexer")\" from Prowlarr.")
+            .padding(.vertical, 10)
+
+            Divider()
+
+            searchResultsContent(vm: vm)
         }
-        .alert("Test Result", isPresented: $showTestResultAlert) {
-            Button("OK", role: .cancel) {}
-        } message: {
-            Text(vm.testResult ?? "")
-        }
-        .onChange(of: vm.testResult) { _, result in
-            if result != nil { showTestResultAlert = true }
-        }
-        .alert("Error", isPresented: .init(
-            get: { vm.indexerError != nil },
-            set: { if !$0 { vm.clearIndexerError() } }
-        )) {
-            Button("OK", role: .cancel) {
-                vm.clearIndexerError()
+        .background(backgroundGradient)
+    }
+
+    @ViewBuilder
+    private func searchResultsContent(vm: ProwlarrViewModel) -> some View {
+        if vm.isSearching {
+            VStack(spacing: 16) {
+                ProgressView().controlSize(.large)
+                Text("Searching…").foregroundStyle(.secondary)
             }
-        } message: {
-            Text(vm.indexerError ?? "")
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = vm.searchError {
+            ContentUnavailableView {
+                Label("Search Failed", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            }
+        } else if vm.searchResults.isEmpty && !vm.searchQuery.isEmpty {
+            ContentUnavailableView.search(text: vm.searchQuery)
+        } else if vm.searchResults.isEmpty {
+            ContentUnavailableView {
+                Label("Search Releases", systemImage: "magnifyingglass")
+            } description: {
+                Text("Enter a term and tap Return to search across your indexers.")
+            }
+        } else {
+            List {
+                Section {
+                    Text("\(vm.searchResults.count) results")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
+
+                ForEach(vm.searchResults) { result in
+                    SearchResultRow(result: result)
+                }
+            }
+            .listStyle(.plain)
         }
     }
+
+    // MARK: - Indexer sections
 
     @ViewBuilder
     private func statsOverviewSection(stats: ProwlarrIndexerStats) -> some View {
@@ -143,6 +287,7 @@ struct ProwlarrIndexerListView: View {
             Button {
                 Task {
                     await vm.testIndexer(indexer)
+                    // result flows through onChange(of: vm.testResult)
                 }
             } label: {
                 Label("Test", systemImage: "checkmark.circle")
@@ -158,7 +303,20 @@ struct ProwlarrIndexerListView: View {
         }
         .contextMenu {
             Button {
-                Task { await vm.toggleIndexer(indexer) }
+                let wasEnabled = indexer.enable
+                let name = indexer.name ?? "Indexer"
+                Task {
+                    await vm.toggleIndexer(indexer)
+                    if let error = vm.indexerError {
+                        InAppNotificationCenter.shared.showError(title: "Update Failed", message: error)
+                        vm.clearIndexerError()
+                    } else {
+                        InAppNotificationCenter.shared.showSuccess(
+                            title: wasEnabled ? "Indexer Disabled" : "Indexer Enabled",
+                            message: "\(name) has been \(wasEnabled ? "disabled" : "enabled")."
+                        )
+                    }
+                }
             } label: {
                 Label(indexer.enable ? "Disable" : "Enable",
                       systemImage: indexer.enable ? "pause.circle" : "play.circle")
@@ -177,6 +335,8 @@ struct ProwlarrIndexerListView: View {
         }
     }
 
+    // MARK: - Toolbar
+
     @ToolbarContentBuilder
     private func toolbarContent(vm: ProwlarrViewModel) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
@@ -188,13 +348,15 @@ struct ProwlarrIndexerListView: View {
         }
         ToolbarItem(placement: .primaryAction) {
             Button {
-                Task { await vm.testAllIndexers() }
+                showTestAllConfirm = true
             } label: {
                 Label("Test All", systemImage: "checkmark.circle.badge.questionmark")
             }
             .disabled(vm.isTesting || vm.indexers.isEmpty)
         }
     }
+
+    // MARK: - Empty / loading states
 
     private var loadingRows: some View {
         ForEach(0..<5, id: \.self) { _ in
@@ -242,7 +404,7 @@ struct ProwlarrIndexerListView: View {
     }
 }
 
-// MARK: - Indexer Row
+// MARK: - Indexer row view
 
 private struct IndexerRowView: View {
     let indexer: ProwlarrIndexer
@@ -251,7 +413,6 @@ private struct IndexerRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // Status indicator bar
             RoundedRectangle(cornerRadius: 3)
                 .fill(statusColor)
                 .frame(width: 4, height: 40)
@@ -274,31 +435,19 @@ private struct IndexerRowView: View {
 
                 HStack(spacing: 6) {
                     if let impl = indexer.implementationName ?? indexer.implementation {
-                        Text(impl)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
+                        Text(impl).font(.footnote).foregroundStyle(.secondary)
                     }
-
                     if let proto = indexer.protocol {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
+                        Text("·").foregroundStyle(.tertiary)
                         Label(proto.displayName, systemImage: proto.systemImage)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .labelStyle(.titleAndIcon)
+                            .font(.caption).foregroundStyle(.tertiary).labelStyle(.titleAndIcon)
                     }
-
                     if let grabs = stats?.numberOfGrabs, grabs > 0 {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
-                        Text("\(grabs) grabs")
-                            .font(.caption)
-                            .foregroundStyle(.green)
+                        Text("·").foregroundStyle(.tertiary)
+                        Text("\(grabs) grabs").font(.caption).foregroundStyle(.green)
                     }
-
                     if let rate = stats?.successRate {
-                        Text("·")
-                            .foregroundStyle(.tertiary)
+                        Text("·").foregroundStyle(.tertiary)
                         Text(String(format: "%.0f%%", rate * 100))
                             .font(.caption)
                             .foregroundStyle(rate > 0.9 ? .green : rate > 0.7 ? .orange : .red)
@@ -309,17 +458,11 @@ private struct IndexerRowView: View {
             Spacer()
 
             if status?.isDisabled == true {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .font(.caption)
-                    .foregroundStyle(.orange)
+                Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
             } else if indexer.enable {
-                Image(systemName: "circle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.green)
+                Image(systemName: "circle.fill").font(.caption2).foregroundStyle(.green)
             } else {
-                Image(systemName: "circle")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Image(systemName: "circle").font(.caption2).foregroundStyle(.secondary)
             }
         }
         .padding(.vertical, 4)
@@ -329,5 +472,177 @@ private struct IndexerRowView: View {
     private var statusColor: Color {
         if status?.isDisabled == true { return .orange }
         return indexer.enable ? .yellow : .secondary.opacity(0.4)
+    }
+}
+
+// MARK: - Search result row
+
+private struct SearchResultRow: View {
+    let result: ProwlarrSearchResult
+    @State private var showActionSheet = false
+    @State private var showAddTorrentSheet = false
+    @State private var downloadedTorrentURL: String?
+
+    var body: some View {
+        Button {
+            showActionSheet = true
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .top, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(result.title ?? "Unknown")
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                            .lineLimit(2)
+
+                        HStack(spacing: 6) {
+                            if let indexer = result.indexer {
+                                Text(indexer).font(.caption).foregroundStyle(.yellow)
+                            }
+                            if let age = result.ageDescription {
+                                Text("·").foregroundStyle(.tertiary)
+                                Text(age).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Spacer(minLength: 8)
+
+                    VStack(alignment: .trailing, spacing: 3) {
+                        if let size = result.size {
+                            Text(ByteFormatter.format(bytes: size))
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                        }
+                        if result.isFreeleech {
+                            Text("FL")
+                                .font(.caption2.weight(.bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 5)
+                                .padding(.vertical, 2)
+                                .background(.green, in: Capsule())
+                        }
+                    }
+                }
+
+                if let seeders = result.seeders, result.isTorrent {
+                    HStack(spacing: 10) {
+                        Label("\(seeders)", systemImage: "arrow.up.circle.fill").foregroundStyle(.green)
+                        if let leechers = result.leechers {
+                            Label("\(leechers)", systemImage: "arrow.down.circle.fill").foregroundStyle(.secondary)
+                        }
+                    }
+                    .font(.caption)
+                }
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog(result.title ?? "Download", isPresented: $showActionSheet, titleVisibility: .visible) {
+            if let url = result.downloadUrl {
+                if result.isMagnet {
+                    Button("Add to qBittorrent") { openMagnet(url) }
+                } else if result.isTorrent {
+                    Button("Add to qBittorrent") {
+                        downloadedTorrentURL = url
+                        showAddTorrentSheet = true
+                    }
+                } else {
+                    Text("Usenet — not supported in Trawl")
+                }
+                Button("Copy Link") { copyToClipboard(url) }
+            }
+            if let infoUrl = result.infoUrl, !infoUrl.isEmpty, let url = URL(string: infoUrl) {
+                Button("Open Info Page") { openURL(url) }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .sheet(isPresented: $showAddTorrentSheet) {
+            if let urlString = downloadedTorrentURL {
+                AddTorrentSheet(initialMagnetURL: urlString)
+            }
+        }
+    }
+
+    private func copyToClipboard(_ urlString: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = urlString
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(urlString, forType: .string)
+        #endif
+        InAppNotificationCenter.shared.showSuccess(title: "Link Copied", message: "The download link has been copied to your clipboard.")
+    }
+
+    private func openURL(_ url: URL) {
+        #if os(iOS)
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
+    private func openMagnet(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        #if os(iOS)
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+}
+
+// MARK: - Indexer filter sheet
+
+private struct IndexerFilterSheet: View {
+    let indexers: [ProwlarrIndexer]
+    @Binding var selectedIds: Set<Int>
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    Button("All Indexers") {
+                        selectedIds = []
+                        dismiss()
+                    }
+                    .foregroundStyle(selectedIds.isEmpty ? .yellow : .primary)
+                }
+
+                Section("Select Indexers") {
+                    ForEach(indexers) { indexer in
+                        Button {
+                            if selectedIds.contains(indexer.id) {
+                                selectedIds.remove(indexer.id)
+                            } else {
+                                selectedIds.insert(indexer.id)
+                            }
+                        } label: {
+                            HStack {
+                                Text(indexer.name ?? "Unknown").foregroundStyle(.primary)
+                                Spacer()
+                                if selectedIds.contains(indexer.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(.yellow)
+                                        .fontWeight(.semibold)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Filter Indexers")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
+        }
     }
 }

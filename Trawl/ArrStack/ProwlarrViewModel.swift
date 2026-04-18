@@ -17,6 +17,7 @@ final class ProwlarrViewModel {
     // MARK: - Schema State
     private(set) var schemaIndexers: [ProwlarrIndexer] = []
     private(set) var isLoadingSchema = false
+    private(set) var schemaError: String?
 
     // MARK: - Search State
     var searchQuery = ""
@@ -113,15 +114,23 @@ final class ProwlarrViewModel {
         indexerError = nil
     }
 
+    func reloadSchema() async {
+        schemaIndexers = []
+        schemaError = nil
+        await loadSchema()
+    }
+
     func loadSchema() async {
         guard let client else { return }
         guard schemaIndexers.isEmpty else { return }
         isLoadingSchema = true
+        schemaError = nil
         do {
             schemaIndexers = try await client.getIndexerSchema()
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
         } catch {
-            indexerError = error.localizedDescription
+            print("[ProwlarrViewModel] loadSchema error: \(error)")
+            schemaError = error.localizedDescription
         }
         isLoadingSchema = false
     }
@@ -140,6 +149,7 @@ final class ProwlarrViewModel {
 
     func clearTestResult() {
         testResult = nil
+        indexerError = nil
     }
 
     func testIndexer(_ indexer: ProwlarrIndexer) async {
@@ -159,11 +169,13 @@ final class ProwlarrViewModel {
         guard let client else { return }
         isTesting = true
         testResult = nil
+        let count = indexers.count
         do {
             try await client.testAllIndexers()
-            testResult = "All indexers tested."
+            let label = count == 1 ? "1 indexer" : "\(count) indexers"
+            testResult = "All \(label) passed their connectivity tests."
         } catch {
-            testResult = "Test failed: \(error.localizedDescription)"
+            testResult = "One or more indexers failed their test. Check Prowlarr for details.\n\n\(error.localizedDescription)"
         }
         isTesting = false
     }

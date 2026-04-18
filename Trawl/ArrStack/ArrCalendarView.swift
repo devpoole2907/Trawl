@@ -18,9 +18,10 @@ struct ArrCalendarView: View {
     @State private var isLoadingMonths: Set<YearMonth> = []
     @State private var scope: CalendarScope = .all
     @State private var isLoadingInitial = true
-    @State private var hasScrolledToToday = false
     @State private var isLoadingMore = false
-    @State private var visibleDay: Date?
+    @State private var scrollPosition = ScrollPosition(idType: Date.self)
+    @State private var savedScrollOffset: CGFloat = 0
+    @State private var hasSavedScrollOffset = false
 
     private let today = Calendar.current.startOfDay(for: .now)
 
@@ -72,22 +73,21 @@ struct ArrCalendarView: View {
             isLoadingInitial = false
             // Give SwiftUI a frame to lay out the VStack with data, then scroll
             try? await Task.sleep(for: .milliseconds(150))
-            visibleDay = today
-            hasScrolledToToday = true
+            scrollToToday()
         }
         .task(id: reloadKey) {
             guard !isLoadingInitial else { return }
             eventsByDay = [:]
             loadedMonths = []
-            hasScrolledToToday = false
+            savedScrollOffset = 0
+            hasSavedScrollOffset = false
             await loadLibraries()
             let start = YearMonth.from(today).advanced(by: -1)
             for offset in 0..<3 {
                 await loadMonth(start.advanced(by: offset))
             }
             try? await Task.sleep(for: .milliseconds(150))
-            visibleDay = today
-            hasScrolledToToday = true
+            scrollToToday()
         }
     }
 
@@ -173,14 +173,22 @@ struct ArrCalendarView: View {
             }
             .scrollTargetLayout()
         }
-        .scrollPosition(id: $visibleDay, anchor: .top)
+        .scrollPosition($scrollPosition)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y
+        } action: { _, newValue in
+            savedScrollOffset = newValue
+            hasSavedScrollOffset = true
+        }
+        .onAppear {
+            guard !isLoadingInitial, !loadedMonths.isEmpty else { return }
+            restoreScrollPosition()
+        }
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .topBarLeading) {
                 Button("Today") {
-                    withAnimation {
-                        visibleDay = today
-                    }
+                    scrollToToday(animated: true)
                 }
             }
             #endif
@@ -311,6 +319,29 @@ struct ArrCalendarView: View {
     private func loadPreviousMonth() async {
         let prev = earliestMonth.advanced(by: -1)
         await loadMonth(prev)
+    }
+
+    private func restoreScrollPosition() {
+        guard hasSavedScrollOffset else {
+            scrollToToday()
+            return
+        }
+
+        scrollPosition.scrollTo(y: savedScrollOffset)
+    }
+
+    private func scrollToToday(animated: Bool = false) {
+        let action = {
+            scrollPosition.scrollTo(id: today, anchor: .top)
+        }
+
+        if animated {
+            withAnimation {
+                action()
+            }
+        } else {
+            action()
+        }
     }
 }
 

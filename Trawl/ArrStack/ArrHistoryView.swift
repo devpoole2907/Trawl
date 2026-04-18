@@ -4,28 +4,22 @@ struct ArrHistoryView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
     let embedded: Bool
+    let serviceFilter: ArrServiceFilter
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
-    @State private var scope: ArrHistoryScope = .all
 
-    init(embedded: Bool = false) {
+    init(embedded: Bool = false, serviceFilter: ArrServiceFilter = .all) {
         self.embedded = embedded
+        self.serviceFilter = serviceFilter
     }
 
     var body: some View {
         Group {
             if embedded {
-                VStack(spacing: 0) {
-                    historyScopePicker
-                    historyContent
-                }
+                historyContent
             } else {
                 historyContent
                     .navigationTitle("History")
-                    .safeAreaInset(edge: .top) {
-                        historyScopePicker
-                            .background(.bar)
-                    }
             }
         }
         .task(id: reloadKey) {
@@ -80,18 +74,8 @@ struct ArrHistoryView: View {
                 }
             }
             .listStyle(.plain)
+            .scrollContentBackground(.hidden)
         }
-    }
-
-    private var historyScopePicker: some View {
-        Picker("Scope", selection: $scope) {
-            ForEach(ArrHistoryScope.allCases, id: \.self) { option in
-                Text(option.title).tag(option)
-            }
-        }
-        .pickerStyle(.segmented)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 8)
     }
 
     private var hasConnectedService: Bool {
@@ -113,11 +97,11 @@ struct ArrHistoryView: View {
     private var historyItems: [HistoryItem] {
         var items: [HistoryItem] = []
 
-        if scope != .radarr, let sonarrViewModel {
+        if serviceFilter == .all || serviceFilter == .sonarr, let sonarrViewModel {
             items.append(contentsOf: sonarrViewModel.history.map { HistoryItem(record: $0, source: .sonarr) })
         }
 
-        if scope != .sonarr, let radarrViewModel {
+        if serviceFilter == .all || serviceFilter == .radarr, let radarrViewModel {
             items.append(contentsOf: radarrViewModel.history.map { HistoryItem(record: $0, source: .radarr) })
         }
 
@@ -132,13 +116,15 @@ struct ArrHistoryView: View {
     }
 
     private var shouldShowLoadMore: Bool {
-        switch scope {
+        switch serviceFilter {
         case .all:
             return (sonarrViewModel?.canLoadMoreHistory == true) || (radarrViewModel?.canLoadMoreHistory == true)
         case .sonarr:
             return sonarrViewModel?.canLoadMoreHistory == true
         case .radarr:
             return radarrViewModel?.canLoadMoreHistory == true
+        case .prowlarr:
+            return false
         }
     }
 
@@ -178,34 +164,16 @@ struct ArrHistoryView: View {
 
     private func loadMoreHistory() async {
         await withTaskGroup(of: Void.self) { group in
-            if scope != .radarr, let sonarrViewModel, sonarrViewModel.canLoadMoreHistory {
-                group.addTask {
-                    await sonarrViewModel.loadNextHistoryPage()
-                }
+            if (serviceFilter == .all || serviceFilter == .sonarr),
+               let sonarrViewModel,
+               sonarrViewModel.canLoadMoreHistory {
+                group.addTask { await sonarrViewModel.loadNextHistoryPage() }
             }
-
-            if scope != .sonarr, let radarrViewModel, radarrViewModel.canLoadMoreHistory {
-                group.addTask {
-                    await radarrViewModel.loadNextHistoryPage()
-                }
+            if (serviceFilter == .all || serviceFilter == .radarr),
+               let radarrViewModel,
+               radarrViewModel.canLoadMoreHistory {
+                group.addTask { await radarrViewModel.loadNextHistoryPage() }
             }
-        }
-    }
-}
-
-private enum ArrHistoryScope: CaseIterable, Hashable {
-    case all
-    case sonarr
-    case radarr
-
-    var title: String {
-        switch self {
-        case .all:
-            "All"
-        case .sonarr:
-            "Sonarr"
-        case .radarr:
-            "Radarr"
         }
     }
 }

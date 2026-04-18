@@ -39,11 +39,6 @@ struct TorrentListView: View {
                 .environment(syncService)
                 .environment(torrentService)
         }
-        .navigationDestination(for: String.self) { hash in
-            TorrentDetailView(torrentHash: hash)
-                .environment(syncService)
-                .environment(torrentService)
-        }
         .alert("Delete Torrent?", isPresented: .init(
             get: { torrentToDelete != nil },
             set: { if !$0 { torrentToDelete = nil } }
@@ -108,71 +103,9 @@ struct TorrentListView: View {
             emptyState(for: vm)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List(selection: editMode.isEditing ? $vm.selectedHashes : .constant(Set<String>())) {
+            List {
                 ForEach(vm.filteredTorrents) { torrent in
-                    NavigationLink(value: torrent.hash) {
-                        TorrentRowView(torrent: torrent)
-                    }
-                    .tag(torrent.hash)
-                    .contextMenu {
-                        let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP
-                        if isPaused {
-                            Button {
-                                Task { await vm.resumeTorrent(torrent) }
-                            } label: {
-                                Label("Resume", systemImage: "play.fill")
-                            }
-                        } else {
-                            Button {
-                                Task { await vm.pauseTorrent(torrent) }
-                            } label: {
-                                Label("Pause", systemImage: "pause.fill")
-                            }
-                        }
-                        Button {
-                            Task { await vm.recheckTorrent(torrent) }
-                        } label: {
-                            Label("Recheck", systemImage: "arrow.clockwise")
-                        }
-                        Divider()
-                        Button(role: .destructive) {
-                            torrentToDelete = torrent
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                    .swipeActions(edge: .leading) {
-                        if torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP {
-                            Button {
-                                Task { await vm.resumeTorrent(torrent) }
-                            } label: {
-                                Label("Resume", systemImage: "play.fill")
-                            }
-                            .tint(.green)
-                        } else {
-                            Button {
-                                Task { await vm.pauseTorrent(torrent) }
-                            } label: {
-                                Label("Pause", systemImage: "pause.fill")
-                            }
-                            .tint(.orange)
-                        }
-                    }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await vm.recheckTorrent(torrent) }
-                        } label: {
-                            Label("Recheck", systemImage: "arrow.clockwise")
-                        }
-                        .tint(.blue)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            torrentToDelete = torrent
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
+                    row(for: torrent, vm: vm)
                 }
             }
             .listStyle(.plain)
@@ -185,6 +118,94 @@ struct TorrentListView: View {
                     vm.clearSelection()
                 }
                 vm.isSelecting = newMode.isEditing
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func row(for torrent: Torrent, vm: TorrentListViewModel) -> some View {
+        if editMode.isEditing {
+            Button {
+                vm.toggleSelection(torrent)
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: vm.selectedHashes.contains(torrent.hash) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(vm.selectedHashes.contains(torrent.hash) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+
+                    TorrentRowView(torrent: torrent)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .contentShape(Rectangle())
+        } else {
+            NavigationLink {
+                TorrentDetailView(torrentHash: torrent.hash)
+                    .environment(syncService)
+                    .environment(torrentService)
+            } label: {
+                TorrentRowView(torrent: torrent)
+            }
+            .contextMenu {
+                let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP
+                if isPaused {
+                    Button {
+                        Task { await vm.resumeTorrent(torrent) }
+                    } label: {
+                        Label("Resume", systemImage: "play.fill")
+                    }
+                } else {
+                    Button {
+                        Task { await vm.pauseTorrent(torrent) }
+                    } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                    }
+                }
+                Button {
+                    Task { await vm.recheckTorrent(torrent) }
+                } label: {
+                    Label("Recheck", systemImage: "arrow.clockwise")
+                }
+                Divider()
+                Button(role: .destructive) {
+                    torrentToDelete = torrent
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+            .swipeActions(edge: .leading) {
+                if torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP {
+                    Button {
+                        Task { await vm.resumeTorrent(torrent) }
+                    } label: {
+                        Label("Resume", systemImage: "play.fill")
+                    }
+                    .tint(.green)
+                } else {
+                    Button {
+                        Task { await vm.pauseTorrent(torrent) }
+                    } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                    }
+                    .tint(.orange)
+                }
+            }
+            .swipeActions(edge: .leading) {
+                Button {
+                    Task { await vm.recheckTorrent(torrent) }
+                } label: {
+                    Label("Recheck", systemImage: "arrow.clockwise")
+                }
+                .tint(.blue)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    torrentToDelete = torrent
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
     }

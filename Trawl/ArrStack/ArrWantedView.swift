@@ -7,6 +7,9 @@ struct ArrWantedView: View {
     @State private var radarrViewModel: RadarrViewModel?
     @State private var scope: ArrWantedScope
 
+    @State private var showSearchAllConfirm = false
+    @State private var isSearchingAll = false
+
     init(initialScope: ArrWantedScope = .all) {
         _scope = State(initialValue: initialScope)
     }
@@ -22,6 +25,23 @@ struct ArrWantedView: View {
     private var hasError: Bool {
         (sonarrViewModel?.error != nil && !sonarrViewModel!.error!.isEmpty) ||
         (radarrViewModel?.error != nil && !radarrViewModel!.error!.isEmpty)
+    }
+
+    /// Count of currently-loaded missing items for the active scope.
+    private var searchAllCount: Int {
+        let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
+        let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
+        return episodes + movies
+    }
+
+    private var searchAllConfirmMessage: String {
+        let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
+        let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
+        var parts: [String] = []
+        if episodes > 0 { parts.append("\(episodes) \(episodes == 1 ? "episode" : "episodes")") }
+        if movies   > 0 { parts.append("\(movies) \(movies == 1 ? "movie" : "movies")") }
+        let itemList = parts.joined(separator: " and ")
+        return "This will trigger a search for \(itemList) across your indexers."
     }
 
     var body: some View {
@@ -47,11 +67,11 @@ struct ArrWantedView: View {
                         Section("Series") {
                             ForEach(sonarrViewModel.wantedEpisodes) { episode in
                                 WantedEpisodeRow(episode: episode) {
-                                    Task { await sonarrViewModel.searchEpisode(episode) }
+                                    await searchEpisode(episode, in: sonarrViewModel)
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button {
-                                        Task { await sonarrViewModel.searchEpisode(episode) }
+                                        Task { await searchEpisode(episode, in: sonarrViewModel) }
                                     } label: {
                                         Label("Search", systemImage: "magnifyingglass")
                                     }
@@ -73,11 +93,11 @@ struct ArrWantedView: View {
                         Section("Movies") {
                             ForEach(radarrViewModel.wantedMovies) { movie in
                                 WantedMovieRow(movie: movie) {
-                                    Task { await radarrViewModel.searchMovie(movieId: movie.id) }
+                                    await searchMovie(movie, in: radarrViewModel)
                                 }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button {
-                                        Task { await radarrViewModel.searchMovie(movieId: movie.id) }
+                                        Task { await searchMovie(movie, in: radarrViewModel) }
                                     } label: {
                                         Label("Search", systemImage: "magnifyingglass")
                                     }
@@ -95,18 +115,30 @@ struct ArrWantedView: View {
                         }
                     }
                 }
-                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                .background(backgroundGradient)
             }
         }
-        .background(backgroundGradient)
         .navigationTitle("Wanted / Missing")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button("Search All Missing") {
-                    Task { await searchAllMissing() }
+                if isSearchingAll {
+                    ProgressView()
+                } else {
+                    Button("Search All Missing") {
+                        showSearchAllConfirm = true
+                    }
+                    .disabled(!hasConnectedService || searchAllCount == 0)
                 }
-                .disabled(!hasConnectedService)
             }
+        }
+        .alert("Search All Missing?", isPresented: $showSearchAllConfirm) {
+            Button("Search") {
+                Task { await searchAllMissing() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text(searchAllConfirmMessage)
         }
         .safeAreaInset(edge: .top) {
             Picker("Scope", selection: $scope) {
@@ -115,11 +147,9 @@ struct ArrWantedView: View {
                 }
             }
             .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
-            .padding(.horizontal, 16)
-            .padding(.top, 4)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .padding(.horizontal, 48)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .task(id: reloadKey) {
             await initializeIfNeeded()
@@ -127,14 +157,125 @@ struct ArrWantedView: View {
         }
     }
 
+    // MARK: - Computed
+
+    private var isEmpty: Bool {
+        let sonarrIsEmpty = sonarrViewModel?.wantedEpisodes.isEmpty ?? true
+        let radarrIsEmpty = radarrViewModel?.wantedMovies.isEmpty ?? true
+
+        switch scope {
+        case .all:    return sonarrIsEmpty && radarrIsEmpty
+        case .series: return sonarrIsEmpty
+        case .movies: return radarrIsEmpty
+        }
+    }
+
+    private var reloadKey: String {
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+    }
+
+    // MARK: - Actions
+
+    private func searchEpisode(_ episode: SonarrEpisode, in vm: SonarrViewModel) async {
+        await vm.searchEpisode(episode)
+        if let error = vm.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+        } else {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(episode.series?.title ?? episode.episodeIdentifier) – search sent to indexers."
+            )
+        }
+    }
+
+    private func searchMovie(_ movie: RadarrMovie, in vm: RadarrViewModel) async {
+        await vm.searchMovie(movieId: movie.id)
+        if let error = vm.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+        } else {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "\(movie.title) – search sent to indexers."
+            )
+        }
+    }
+
+    private func searchAllMissing() async {
+        isSearchingAll = true
+        var errors: [String] = []
+
+        await withTaskGroup(of: Void.self) { group in
+            if let sonarrViewModel {
+                group.addTask {
+                    do {
+                        try await sonarrViewModel.searchAllMissing()
+                    } catch {
+                        errors.append("Sonarr: \(error.localizedDescription)")
+                    }
+                }
+            }
+            if let radarrViewModel {
+                group.addTask {
+                    do {
+                        try await radarrViewModel.searchAllMissing()
+                    } catch {
+                        errors.append("Radarr: \(error.localizedDescription)")
+                    }
+                }
+            }
+        }
+
+        isSearchingAll = false
+
+        if errors.isEmpty {
+            let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
+            let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
+            var parts: [String] = []
+            if episodes > 0 { parts.append("\(episodes) \(episodes == 1 ? "episode" : "episodes")") }
+            if movies   > 0 { parts.append("\(movies) \(movies == 1 ? "movie" : "movies")") }
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: "Searches sent for \(parts.joined(separator: " and "))."
+            )
+        } else {
+            InAppNotificationCenter.shared.showError(
+                title: "Search Failed",
+                message: errors.joined(separator: "\n")
+            )
+        }
+    }
+
+    // MARK: - Data
+
+    private func initializeIfNeeded() async {
+        if serviceManager.sonarrConnected, sonarrViewModel == nil {
+            sonarrViewModel = SonarrViewModel(serviceManager: serviceManager)
+        }
+        if serviceManager.radarrConnected, radarrViewModel == nil {
+            radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
+        }
+        if !serviceManager.sonarrConnected { sonarrViewModel = nil }
+        if !serviceManager.radarrConnected { radarrViewModel = nil }
+    }
+
+    private func reloadWantedMissing() async {
+        await withTaskGroup(of: Void.self) { group in
+            if let sonarrViewModel {
+                group.addTask { await sonarrViewModel.loadWantedMissing() }
+            }
+            if let radarrViewModel {
+                group.addTask { await radarrViewModel.loadWantedMissing() }
+            }
+        }
+    }
+
     private var backgroundGradient: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.orange.opacity(0.18), Color.clear],
+                colors: [Color.orange.opacity(0.15), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
-
             RadialGradient(
                 colors: [Color.orange.opacity(0.12), Color.clear],
                 center: .topTrailing,
@@ -145,81 +286,12 @@ struct ArrWantedView: View {
         .ignoresSafeArea()
     }
 
-    private var isEmpty: Bool {
-        let sonarrIsEmpty = sonarrViewModel?.wantedEpisodes.isEmpty ?? true
-        let radarrIsEmpty = radarrViewModel?.wantedMovies.isEmpty ?? true
-
-        switch scope {
-        case .all:
-            return sonarrIsEmpty && radarrIsEmpty
-        case .series:
-            return sonarrIsEmpty
-        case .movies:
-            return radarrIsEmpty
-        }
-    }
-
-    private var reloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
-    }
-
-    private func initializeIfNeeded() async {
-        if serviceManager.sonarrConnected, sonarrViewModel == nil {
-            sonarrViewModel = SonarrViewModel(serviceManager: serviceManager)
-        }
-
-        if serviceManager.radarrConnected, radarrViewModel == nil {
-            radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
-        }
-
-        if !serviceManager.sonarrConnected {
-            sonarrViewModel = nil
-        }
-
-        if !serviceManager.radarrConnected {
-            radarrViewModel = nil
-        }
-    }
-
-    private func reloadWantedMissing() async {
-        await withTaskGroup(of: Void.self) { group in
-            if let sonarrViewModel {
-                group.addTask {
-                    await sonarrViewModel.loadWantedMissing()
-                }
-            }
-
-            if let radarrViewModel {
-                group.addTask {
-                    await radarrViewModel.loadWantedMissing()
-                }
-            }
-        }
-    }
-
-    private func searchAllMissing() async {
-        await withTaskGroup(of: Void.self) { group in
-            if let sonarrViewModel {
-                group.addTask {
-                    try? await sonarrViewModel.searchAllMissing()
-                }
-            }
-
-            if let radarrViewModel {
-                group.addTask {
-                    try? await radarrViewModel.searchAllMissing()
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private func loadMoreLabel(isLoading: Bool) -> some View {
         HStack {
             Spacer()
             if isLoading {
-                ProgressView()
-                    .controlSize(.small)
+                ProgressView().controlSize(.small)
             } else {
                 Text("Load More")
             }
@@ -228,6 +300,8 @@ struct ArrWantedView: View {
     }
 }
 
+// MARK: - Scope
+
 enum ArrWantedScope: CaseIterable, Hashable {
     case all
     case series
@@ -235,19 +309,20 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
     var title: String {
         switch self {
-        case .all:
-            "All"
-        case .series:
-            "Series"
-        case .movies:
-            "Movies"
+        case .all:    "All"
+        case .series: "Series"
+        case .movies: "Movies"
         }
     }
 }
 
+// MARK: - Row views
+
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
-    let onSearch: () -> Void
+    let onSearch: () async -> Void
+
+    @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -272,8 +347,20 @@ private struct WantedEpisodeRow: View {
 
             Spacer()
 
-            Button("Search", systemImage: "magnifyingglass", action: onSearch)
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Search", systemImage: "magnifyingglass") {
+                    Task {
+                        isSearching = true
+                        async let search: Void = onSearch()
+                        async let minDelay: Void = { try? await Task.sleep(for: .seconds(1.5)) }()
+                        _ = await (search, minDelay)
+                        isSearching = false
+                    }
+                }
                 .labelStyle(.iconOnly)
+            }
         }
         .padding(.vertical, 4)
     }
@@ -290,7 +377,9 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
-    let onSearch: () -> Void
+    let onSearch: () async -> Void
+
+    @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -303,9 +392,7 @@ private struct WantedMovieRow: View {
                     .font(.subheadline.weight(.semibold))
 
                 HStack(spacing: 6) {
-                    if let year = movie.year {
-                        Text(String(year))
-                    }
+                    if let year = movie.year { Text(String(year)) }
                     Text(movie.displayStatus)
                 }
                 .font(.caption)
@@ -314,8 +401,18 @@ private struct WantedMovieRow: View {
 
             Spacer()
 
-            Button("Search", systemImage: "magnifyingglass", action: onSearch)
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Search", systemImage: "magnifyingglass") {
+                    Task {
+                        isSearching = true
+                        await onSearch()
+                        isSearching = false
+                    }
+                }
                 .labelStyle(.iconOnly)
+            }
         }
         .padding(.vertical, 4)
     }

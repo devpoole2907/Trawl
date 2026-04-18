@@ -16,7 +16,9 @@ struct ProwlarrIndexerDetailView: View {
             // MARK: Status Section
             Section("Status") {
                 Toggle("Enabled", isOn: Binding(
-                    get: { indexer.enable },
+                    get: {
+                        viewModel.indexers.first(where: { $0.id == indexer.id })?.enable ?? indexer.enable
+                    },
                     set: { _ in Task { await viewModel.toggleIndexer(indexer) } }
                 ))
 
@@ -124,6 +126,11 @@ struct ProwlarrIndexerDetailView: View {
         .onChange(of: viewModel.indexerError) { _, newValue in
             if newValue != nil {
                 showTestResult = true
+            }
+        }
+        .onChange(of: showTestResult) { _, isPresented in
+            if !isPresented {
+                viewModel.clearTestResult()
             }
         }
         .alert("Test Result", isPresented: $showTestResult) {

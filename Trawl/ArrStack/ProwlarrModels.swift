@@ -18,6 +18,75 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     let supportsSearch: Bool?
     let `protocol`: ProwlarrIndexerProtocol?
     let fields: [ProwlarrIndexerField]?
+
+    init(
+        id: Int,
+        name: String?,
+        enable: Bool,
+        implementation: String?,
+        implementationName: String?,
+        configContract: String?,
+        infoLink: String?,
+        tags: [Int]?,
+        priority: Int?,
+        appProfileId: Int?,
+        shouldSearch: Bool?,
+        supportsRss: Bool?,
+        supportsSearch: Bool?,
+        protocol: ProwlarrIndexerProtocol?,
+        fields: [ProwlarrIndexerField]?
+    ) {
+        self.id = id
+        self.name = name
+        self.enable = enable
+        self.implementation = implementation
+        self.implementationName = implementationName
+        self.configContract = configContract
+        self.infoLink = infoLink
+        self.tags = tags
+        self.priority = priority
+        self.appProfileId = appProfileId
+        self.shouldSearch = shouldSearch
+        self.supportsRss = supportsRss
+        self.supportsSearch = supportsSearch
+        self.protocol = `protocol`
+        self.fields = fields
+    }
+
+    // Schema endpoint omits `id` and `enable` for template entries.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try c.decodeIfPresent(String.self, forKey: .name)
+        enable = try c.decodeIfPresent(Bool.self, forKey: .enable) ?? false
+        implementation = try c.decodeIfPresent(String.self, forKey: .implementation)
+        implementationName = try c.decodeIfPresent(String.self, forKey: .implementationName)
+        configContract = try c.decodeIfPresent(String.self, forKey: .configContract)
+        infoLink = try c.decodeIfPresent(String.self, forKey: .infoLink)
+        tags = try c.decodeIfPresent([Int].self, forKey: .tags)
+        priority = try c.decodeIfPresent(Int.self, forKey: .priority)
+        appProfileId = try c.decodeIfPresent(Int.self, forKey: .appProfileId)
+        shouldSearch = try c.decodeIfPresent(Bool.self, forKey: .shouldSearch)
+        supportsRss = try c.decodeIfPresent(Bool.self, forKey: .supportsRss)
+        supportsSearch = try c.decodeIfPresent(Bool.self, forKey: .supportsSearch)
+        `protocol` = try c.decodeIfPresent(ProwlarrIndexerProtocol.self, forKey: .protocol)
+        fields = try c.decodeIfPresent([ProwlarrIndexerField].self, forKey: .fields)
+    }
+
+    var schemaListID: String {
+        let components = [
+            implementation,
+            configContract,
+            implementationName,
+            name
+        ]
+        .compactMap { value in
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return trimmed.isEmpty ? nil : trimmed
+        }
+
+        return components.isEmpty ? "schema-\(id)" : components.joined(separator: "::")
+    }
 }
 
 enum ProwlarrIndexerProtocol: String, Codable, Sendable {
@@ -94,13 +163,35 @@ enum AnyCodableValue: Codable, Sendable {
 
     var displayString: String? {
         switch self {
-        case .string(let v): return v.isEmpty ? nil : v
+        case .string(let v): return v.isEmpty ? nil : v.strippingHTML
         case .int(let v): return String(v)
         case .double(let v): return String(v)
         case .bool(let v): return v ? "Yes" : "No"
         case .array(let v): return v.isEmpty ? nil : v.compactMap(\.displayString).joined(separator: ", ")
         case .null: return nil
         }
+    }
+}
+
+private extension String {
+    var strippingHTML: String {
+        var s = self
+        // Block elements → newline
+        s = s.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        s = s.replacingOccurrences(of: "</?p>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        s = s.replacingOccurrences(of: "</?div>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        // Strip all remaining tags
+        s = s.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        // Common HTML entities
+        s = s.replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
+        s = s.replacingOccurrences(of: "&lt;", with: "<", options: .caseInsensitive)
+        s = s.replacingOccurrences(of: "&gt;", with: ">", options: .caseInsensitive)
+        s = s.replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
+        s = s.replacingOccurrences(of: "&quot;", with: "\"", options: .caseInsensitive)
+        s = s.replacingOccurrences(of: "&#39;", with: "'", options: .caseInsensitive)
+        // Collapse multiple blank lines
+        s = s.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
@@ -140,6 +231,8 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         return formatter
     }()
 
+    private static let fallbackPublishDateFormatter = ISO8601DateFormatter()
+
     let guid: String?
     let title: String?
     let indexerId: Int?
@@ -161,7 +254,18 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return guid
         }
-        return "search-result-\(indexerId ?? 0)-\(title ?? "unknown")"
+        let components = [
+            Self.normalizedIDComponent(indexerId.map(String.init)),
+            Self.normalizedIDComponent(title),
+            Self.normalizedIDComponent(downloadUrl ?? infoUrl),
+            Self.normalizedIDComponent(publishDate),
+            Self.normalizedIDComponent(size.map(String.init)),
+            Self.normalizedIDComponent(seeders.map(String.init)),
+            Self.normalizedIDComponent(leechers.map(String.init))
+        ]
+        .compactMap { $0 }
+
+        return components.isEmpty ? "search-result-unknown" : "search-result-" + components.joined(separator: "|")
     }
 
     var isFreeleech: Bool { downloadVolumeFactor == 0.0 }
@@ -178,7 +282,7 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
 
         let date =
             Self.publishDateFormatter.date(from: publishDate) ??
-            ISO8601DateFormatter().date(from: publishDate)
+            Self.fallbackPublishDateFormatter.date(from: publishDate)
 
         guard let date else { return nil }
         let components = Calendar.current.dateComponents([.day, .hour, .minute], from: date, to: Date())
@@ -189,6 +293,13 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
             return "\(hours)h ago"
         }
         return "Just now"
+    }
+
+    private static func normalizedIDComponent(_ value: String?) -> String? {
+        guard let value else { return nil }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed.addingPercentEncoding(withAllowedCharacters: .urlHostAllowed) ?? trimmed
     }
 }
 
@@ -238,6 +349,14 @@ struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
 // MARK: - Indexer Status
 
 struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
+    private static let fractionalDisabledTillFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let fallbackDisabledTillFormatter = ISO8601DateFormatter()
+
     let id: Int?
     let indexerId: Int?
     let disabledTill: String?
@@ -245,7 +364,8 @@ struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
 
     var isDisabled: Bool {
         guard let disabledTill,
-              let date = ISO8601DateFormatter().date(from: disabledTill) else { return false }
+              let date = Self.fractionalDisabledTillFormatter.date(from: disabledTill) ??
+                  Self.fallbackDisabledTillFormatter.date(from: disabledTill) else { return false }
         return date > Date()
     }
 }

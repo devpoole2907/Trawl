@@ -93,12 +93,9 @@ private final class SshSessionContext: @unchecked Sendable {
     
     // Tracking for backpressure and error propagation
     private let lock = NSLock()
-    private(set) var pendingSendBytes = 0
-    private(set) var sendError: Error?
+    nonisolated(unsafe) private(set) var pendingSendBytes = 0
+    nonisolated(unsafe) private(set) var sendError: Error?
     
-    // Limits: stop sending when we have ~1MB in flight
-    static let maxPendingBytes = 1024 * 1024
-
     nonisolated
     init(connection: NWConnection, receiveBuffer: SshReceiveBuffer) {
         self.connection = connection
@@ -118,11 +115,13 @@ private final class SshSessionContext: @unchecked Sendable {
         }
     }
 
+    nonisolated
     func isBackpressured() -> Bool {
         lock.lock(); defer { lock.unlock() }
-        return pendingSendBytes >= Self.maxPendingBytes
+        return pendingSendBytes >= 1024 * 1024
     }
 
+    nonisolated
     func transportError() -> Error? {
         lock.lock(); defer { lock.unlock() }
         return sendError
@@ -143,15 +142,22 @@ private final class ContinuationResumeGate: @unchecked Sendable {
     }
 }
 
-private let libssh2RuntimeBootstrap: Void = {
-    _ = libssh2_init(0)
-    atexit {
-        libssh2_exit()
-    }
-}()
+@MainActor
+enum Libssh2RuntimeBootstrap {
+    private static let result: Result<Void, SSHConnectionError> = {
+        let result = libssh2_init(0)
+        guard result == 0 else {
+            return .failure(.connectionFailed("libssh2_init failed with code \(result)"))
+        }
+        atexit {
+            libssh2_exit()
+        }
+        return .success(())
+    }()
 
-func bootstrapLibssh2Runtime() {
-    _ = libssh2RuntimeBootstrap
+    static func bootstrap() throws {
+        try result.get()
+    }
 }
 
 // MARK: - C callbacks  (signatures must match LIBSSH2_SEND_FUNC / LIBSSH2_RECV_FUNC)
@@ -223,8 +229,10 @@ private actor SshSessionActor {
 
     // MARK: Setup / Teardown
 
-    func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) throws {
-        bootstrapLibssh2Runtime()
+    func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) async throws {
+        try await MainActor.run {
+            try Libssh2RuntimeBootstrap.bootstrap()
+        }
         sessionToken += 1
         let ctx = SshSessionContext(connection: connection, receiveBuffer: receiveBuffer)
         let ref = Unmanaged.passRetained(ctx)
@@ -283,6 +291,11 @@ private actor SshSessionActor {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             pendingTasks.append(cont)
         }
+    }
+
+    func waitForBytes() async throws {
+        guard !isChannelClosed else { return }
+        try await waitForRetry()
     }
 
     /// Retries `block` until it stops returning LIBSSH2_ERROR_EAGAIN.
@@ -760,8 +773,7 @@ final class SSHConnection: @unchecked Sendable {
                         await self.handleTransportClosed(for: conn, error: nil)
                         return
                     } else {
-                        // Brief pause to avoid busy-spinning when no data is ready
-                        try? await Task.sleep(nanoseconds: 10_000_000)
+                        try await self.sshActor.waitForBytes()
                     }
                 } catch {
                     await self.handleTransportClosed(for: conn, error: error.localizedDescription)

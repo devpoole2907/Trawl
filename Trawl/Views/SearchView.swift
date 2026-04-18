@@ -144,6 +144,7 @@ struct SearchView: View {
         .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
             await refreshLibrary()
             createLookupViewModels()
+            await reconcileTrendingMatches()
         }
         .alert(item: $actionErrorAlert) { item in
             Alert(
@@ -215,7 +216,7 @@ struct SearchView: View {
                 } header: {
                     HStack {
                         Text("Recently Searched")
-                            .foregroundStyle(.white)
+                            .foregroundStyle(.primary)
                         Spacer()
                         Button("Clear", role: .destructive) {
                             showClearConfirmation = true
@@ -866,6 +867,21 @@ struct SearchView: View {
         }
     }
 
+    private func reconcileTrendingMatches() async {
+        guard !trendingMovies.isEmpty || !trendingTV.isEmpty else {
+            movieMatches.removeAll()
+            seriesMatches.removeAll()
+            return
+        }
+
+        if arrServiceManager.radarrConnected || arrServiceManager.sonarrConnected {
+            await resolveTrendingMatches(movies: trendingMovies, tv: trendingTV)
+        } else {
+            movieMatches.removeAll()
+            seriesMatches.removeAll()
+        }
+    }
+
     private func startArrLookup(immediate: Bool = false) {
         let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else {
@@ -890,6 +906,12 @@ struct SearchView: View {
     }
 
     private func performArrLookup(term: String) async {
+        guard sonarrLookupVM != nil || radarrLookupVM != nil else {
+            hasSearchedArr = false
+            activeArrLookupTerm = ""
+            return
+        }
+
         hasSearchedArr = true
         activeArrLookupTerm = term
         sonarrLookupVM?.clearSearchResults()
@@ -978,14 +1000,24 @@ struct SearchView: View {
         defer { isLoadingLibrary = false }
         let sonarrClient = arrServiceManager.sonarrClient
         let radarrClient = arrServiceManager.radarrClient
+        let existingSonarrSeries = sonarrSeries
+        let existingRadarrMovies = radarrMovies
 
         async let sonarrTask: [SonarrSeries] = {
             guard let client = sonarrClient else { return [] }
-            return (try? await client.getSeries()) ?? []
+            do {
+                return try await client.getSeries()
+            } catch {
+                return existingSonarrSeries
+            }
         }()
         async let radarrTask: [RadarrMovie] = {
             guard let client = radarrClient else { return [] }
-            return (try? await client.getMovies()) ?? []
+            do {
+                return try await client.getMovies()
+            } catch {
+                return existingRadarrMovies
+            }
         }()
 
         let (series, movies) = await (sonarrTask, radarrTask)

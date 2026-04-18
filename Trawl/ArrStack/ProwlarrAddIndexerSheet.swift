@@ -20,15 +20,31 @@ struct ProwlarrAddIndexerSheet: View {
                 if viewModel.isLoadingSchema {
                     ProgressView("Loading indexer types…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if filteredSchema.isEmpty {
+                } else if let error = viewModel.schemaError {
+                    ContentUnavailableView {
+                        Label("Failed to Load", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            Task { await viewModel.reloadSchema() }
+                        }
+                        .buttonStyle(.borderedProminent)
+                    }
+                } else if filteredSchema.isEmpty && !searchText.isEmpty {
                     ContentUnavailableView(
                         "No Results",
                         systemImage: "magnifyingglass",
                         description: Text("No indexers match \"\(searchText)\".")
                     )
+                } else if filteredSchema.isEmpty {
+                    ContentUnavailableView(
+                        "No Indexers",
+                        systemImage: "magnifyingglass",
+                        description: Text("No indexer schemas were returned by Prowlarr.")
+                    )
                 } else {
-                    List {
-                        ForEach(filteredSchema, id: \.name) { schema in
+                    List(filteredSchema, id: \.schemaListID) { schema in
                             NavigationLink {
                                 IndexerConfigView(
                                     schema: schema,
@@ -38,7 +54,6 @@ struct ProwlarrAddIndexerSheet: View {
                             } label: {
                                 schemaRow(schema)
                             }
-                        }
                     }
                     .listStyle(.insetGrouped)
                 }
@@ -306,7 +321,7 @@ private struct IndexerConfigView: View {
             infoLink: schema.infoLink,
             tags: [],
             priority: priority,
-            appProfileId: 1,
+            appProfileId: schema.appProfileId,
             shouldSearch: nil,
             supportsRss: nil,
             supportsSearch: nil,
@@ -318,6 +333,10 @@ private struct IndexerConfigView: View {
         isAdding = false
 
         if viewModel.indexerError == nil {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Indexer Added",
+                message: "\(indexerName.trimmingCharacters(in: .whitespacesAndNewlines)) has been added to Prowlarr."
+            )
             onAdded()
         }
     }

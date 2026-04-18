@@ -10,6 +10,7 @@ struct RadarrMovieDetailView: View {
 
     @Bindable var viewModel: RadarrViewModel
     @Environment(SyncService.self) private var syncService
+    @Environment(\.dismiss) private var dismiss
 
     // Library mode: look up movie by ID from viewModel
     private let movieId: Int?
@@ -24,7 +25,6 @@ struct RadarrMovieDetailView: View {
     @State private var isAlternateTitlesExpanded = false
     @State private var showAddSheet = false
     @State private var didAdd = false
-    @State private var deleteActionError: ErrorAlertItem?
 
     /// Library init — movie lives in the ViewModel's loaded library.
     init(movieId: Int, viewModel: RadarrViewModel) {
@@ -102,13 +102,6 @@ struct RadarrMovieDetailView: View {
         } message: {
             Text("This removes the current movie file from Radarr.")
         }
-        .alert(item: $deleteActionError) { item in
-            Alert(
-                title: Text(item.title),
-                message: Text(item.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
         .sheet(isPresented: $showEditSheet) {
             if let movie, isInLibrary {
                 RadarrEditMovieSheet(viewModel: viewModel, movie: movie)
@@ -142,9 +135,18 @@ struct RadarrMovieDetailView: View {
     }
 
     private func handleDeleteMovie(id: Int) async {
+        let title = movie?.title ?? "Movie"
         let didDelete = await viewModel.deleteMovie(id: id, deleteFiles: deleteFiles)
-        guard !didDelete, let error = viewModel.error else { return }
-        deleteActionError = ErrorAlertItem(
+        if didDelete {
+            dismiss()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Movie Deleted",
+                message: deleteFiles ? "\(title) and its files have been removed." : "\(title) has been removed from Radarr."
+            )
+            return
+        }
+        guard let error = viewModel.error else { return }
+        InAppNotificationCenter.shared.showError(
             title: deleteFiles ? "Couldn't Delete Movie and Files" : "Couldn't Delete Movie",
             message: error
         )
@@ -152,11 +154,12 @@ struct RadarrMovieDetailView: View {
 
     private func handleDeleteMovieFile(id: Int) async {
         let didDelete = await viewModel.deleteMovieFile(id: id)
-        guard !didDelete, let error = viewModel.error else { return }
-        deleteActionError = ErrorAlertItem(
-            title: "Couldn't Delete Movie File",
-            message: error
-        )
+        if didDelete {
+            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "The movie file has been removed.")
+            return
+        }
+        guard let error = viewModel.error else { return }
+        InAppNotificationCenter.shared.showError(title: "Couldn't Delete Movie File", message: error)
     }
     private var queueItems: [ArrQueueItem] {
         guard let id = resolvedLibraryId else { return [] }
@@ -523,8 +526,10 @@ struct RadarrMovieDetailView: View {
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(.tertiary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 10)
+                    .contentShape(Rectangle())
                     .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .buttonStyle(.plain)
