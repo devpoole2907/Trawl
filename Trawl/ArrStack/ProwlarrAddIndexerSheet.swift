@@ -21,17 +21,23 @@ struct ProwlarrAddIndexerSheet: View {
                     ProgressView("Loading indexer types…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if filteredSchema.isEmpty {
-                    ContentUnavailableView.search
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "magnifyingglass",
+                        description: Text("No indexers match \"\(searchText)\".")
+                    )
                 } else {
-                    List(filteredSchema) { schema in
-                        NavigationLink {
-                            IndexerConfigView(
-                                schema: schema,
-                                viewModel: viewModel,
-                                onAdded: { dismiss() }
-                            )
-                        } label: {
-                            schemaRow(schema)
+                    List {
+                        ForEach(filteredSchema, id: \.name) { schema in
+                            NavigationLink {
+                                IndexerConfigView(
+                                    schema: schema,
+                                    viewModel: viewModel,
+                                    onAdded: { dismiss() }
+                                )
+                            } label: {
+                                schemaRow(schema)
+                            }
                         }
                     }
                     .listStyle(.insetGrouped)
