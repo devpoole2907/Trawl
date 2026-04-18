@@ -41,7 +41,6 @@ struct SettingsView: View {
                 }
             }
             .task {
-                arrServiceManager.syncProfiles(arrProfiles)
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
 

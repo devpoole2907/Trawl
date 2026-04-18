@@ -18,6 +18,7 @@ struct TrawlApp: App {
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
 
     init() {
+        bootstrapLibssh2Runtime()
         let schema = Schema([
             ServerProfile.self,
             CachedTorrentState.self,

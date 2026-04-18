@@ -36,7 +36,7 @@ struct ArrActivityView: View {
                     await loadQueues()
                 }
             }
-            .task(id: activityReloadKey) {
+            .task(id: "\(mode.rawValue)-\(activityReloadKey)") {
                 guard mode == .queue else { return }
 
                 guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
@@ -48,21 +48,6 @@ struct ArrActivityView: View {
                 }
 
                 await loadQueues()
-            }
-            .task(id: mode) {
-                guard mode == .queue else { return }
-
-                guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
-                    sonarrQueue = []
-                    radarrQueue = []
-                    error = nil
-                    isLoading = false
-                    return
-                }
-
-                if allItems.isEmpty {
-                    await loadQueues()
-                }
             }
     }
 
@@ -183,15 +168,23 @@ struct ArrActivityView: View {
     private func removeItem(_ activityItem: ActivityItem) async {
         switch activityItem.source {
         case .sonarr:
+            guard let client = serviceManager.sonarrClient else {
+                error = "Sonarr is not connected."
+                return
+            }
             do {
-                try await serviceManager.sonarrClient?.deleteQueueItem(id: activityItem.item.id)
+                try await client.deleteQueueItem(id: activityItem.item.id)
                 sonarrQueue.removeAll { $0.id == activityItem.item.id }
             } catch {
                 self.error = "Failed to remove from Sonarr: \(error.localizedDescription)"
             }
         case .radarr:
+            guard let client = serviceManager.radarrClient else {
+                error = "Radarr is not connected."
+                return
+            }
             do {
-                try await serviceManager.radarrClient?.deleteQueueItem(id: activityItem.item.id)
+                try await client.deleteQueueItem(id: activityItem.item.id)
                 radarrQueue.removeAll { $0.id == activityItem.item.id }
             } catch {
                 self.error = "Failed to remove from Radarr: \(error.localizedDescription)"

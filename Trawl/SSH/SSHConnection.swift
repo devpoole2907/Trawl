@@ -118,12 +118,12 @@ private final class SshSessionContext: @unchecked Sendable {
         }
     }
 
-    var isFull: Bool {
+    func isBackpressured() -> Bool {
         lock.lock(); defer { lock.unlock() }
         return pendingSendBytes >= Self.maxPendingBytes
     }
 
-    var error: Error? {
+    func transportError() -> Error? {
         lock.lock(); defer { lock.unlock() }
         return sendError
     }
@@ -143,6 +143,17 @@ private final class ContinuationResumeGate: @unchecked Sendable {
     }
 }
 
+private let libssh2RuntimeBootstrap: Void = {
+    _ = libssh2_init(0)
+    atexit {
+        libssh2_exit()
+    }
+}()
+
+func bootstrapLibssh2Runtime() {
+    _ = libssh2RuntimeBootstrap
+}
+
 // MARK: - C callbacks  (signatures must match LIBSSH2_SEND_FUNC / LIBSSH2_RECV_FUNC)
 
 // ssize_t send(socket, const void *buffer, size_t length, int flags, void **abstract)
@@ -159,10 +170,10 @@ nonisolated(unsafe) private let libssh2SendCallback: @convention(c) (
         .takeUnretainedValue()
     
     // Check for previous fatal send error
-    if ctx.error != nil { return -1 }
+    if ctx.transportError() != nil { return -1 }
     
     // Backpressure: if we have too much in flight, tell libssh2 to try again later
-    if ctx.isFull {
+    if ctx.isBackpressured() {
         return -Int(EAGAIN)
     }
 
@@ -201,6 +212,7 @@ private actor SshSessionActor {
     private var session: OpaquePointer?
     private var channel: OpaquePointer?
     private var contextRef: Unmanaged<SshSessionContext>?
+    private var sessionToken = 0
 
     // Pending continuations waiting for new bytes to arrive (EAGAIN)
     private var pendingTasks: [CheckedContinuation<Void, Error>] = []
@@ -209,15 +221,11 @@ private actor SshSessionActor {
     private var sendQueue: [Data] = []
     private var isSending = false
 
-    // Global libssh2 initialization state
-    private static let initOnce: Void = {
-        libssh2_init(0)
-    }()
-
     // MARK: Setup / Teardown
 
     func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) throws {
-        _ = Self.initOnce
+        bootstrapLibssh2Runtime()
+        sessionToken += 1
         let ctx = SshSessionContext(connection: connection, receiveBuffer: receiveBuffer)
         let ref = Unmanaged.passRetained(ctx)
         self.contextRef = ref
@@ -240,7 +248,10 @@ private actor SshSessionActor {
 
     func teardown() {
         let waiting = pendingTasks
+        sessionToken += 1
         pendingTasks.removeAll()
+        sendQueue.removeAll()
+        isSending = false
         if let ch = channel {
             libssh2_channel_close(ch)
             libssh2_channel_free(ch)
@@ -278,7 +289,7 @@ private actor SshSessionActor {
     private func callSsh(_ block: () -> Int32) async throws {
         while true {
             // Check for underlying transport send error
-            if let transportError = contextRef?.takeUnretainedValue().error {
+            if let transportError = contextRef?.takeUnretainedValue().transportError() {
                 throw transportError
             }
 
@@ -379,37 +390,44 @@ private actor SshSessionActor {
     }
 
     func sendToChannel(_ data: Data) async throws {
+        guard channel != nil else { throw SSHConnectionError.notConnected }
         // Enqueue the data and start the sender if needed
         sendQueue.append(data)
         if !isSending {
-            try await drainSendQueue()
+            try await drainSendQueue(sessionToken: sessionToken)
         }
     }
 
-    private func drainSendQueue() async throws {
+    private func drainSendQueue(sessionToken expectedToken: Int) async throws {
         guard !isSending else { return }
         isSending = true
         defer { isSending = false }
 
         while !sendQueue.isEmpty {
+            guard sessionToken == expectedToken else {
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
             let data = sendQueue.removeFirst()
-            try await sendDataToChannel(data)
+            try await sendDataToChannel(data, sessionToken: expectedToken)
         }
     }
 
-    private func sendDataToChannel(_ data: Data) async throws {
+    private func sendDataToChannel(_ data: Data, sessionToken expectedToken: Int) async throws {
         let bytes = [UInt8](data)
         var remaining = bytes.count
         var offset = 0
 
         while remaining > 0 {
+            guard sessionToken == expectedToken else {
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
             // Re-validate channel and context after each await
             guard let ch = channel else {
                 throw SSHConnectionError.notConnected
             }
 
             // Check for underlying transport send error
-            if let transportError = contextRef?.takeUnretainedValue().error {
+            if let transportError = contextRef?.takeUnretainedValue().transportError() {
                 throw transportError
             }
 
@@ -427,17 +445,20 @@ private actor SshSessionActor {
                 remaining -= n
             } else if Int32(n) == LIBSSH2_ERROR_EAGAIN {
                 // If the underlying context is full, wait a bit before retrying to allow NWConnection to drain
-                if contextRef?.takeUnretainedValue().isFull == true {
+                if contextRef?.takeUnretainedValue().isBackpressured() == true {
                     try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
                 } else {
                     try await waitForRetry()
                 }
 
                 // Re-check channel validity after await
+                guard sessionToken == expectedToken else {
+                    throw SSHConnectionError.disconnectedOrTeardown
+                }
                 guard channel != nil else {
                     throw SSHConnectionError.notConnected
                 }
-                if let transportError = contextRef?.takeUnretainedValue().error {
+                if let transportError = contextRef?.takeUnretainedValue().transportError() {
                     throw transportError
                 }
             } else if n < 0 {
@@ -521,6 +542,7 @@ final class SSHConnection: @unchecked Sendable {
     private var readLoopTask: Task<Void, Never>?
     private let transportCloseLock = NSLock()
     private var isHandlingTransportClose = false
+    private var connectionAttemptToken = UUID()
 
     // MARK: Connect
 
@@ -539,6 +561,8 @@ final class SSHConnection: @unchecked Sendable {
 
         resetTransportCloseGuard()
         transition(to: .connecting)
+        let attemptToken = UUID()
+        connectionAttemptToken = attemptToken
 
         // Create a fresh receive buffer for this connection session
         let newBuffer = SshReceiveBuffer()
@@ -557,16 +581,25 @@ final class SSHConnection: @unchecked Sendable {
                 let resumeGate = ContinuationResumeGate()
 
                 @Sendable func resumeOnce(with result: Result<Void, Error>) {
-                    guard resumeGate.tryResume() else {
-                        return
-                    }
-                    conn.stateUpdateHandler = nil
+                    Task { @MainActor [weak self] in
+                        guard let self else { return }
+                        guard self.connectionAttemptToken == attemptToken, self.nwConnection === conn else {
+                            conn.stateUpdateHandler = nil
+                            conn.cancel()
+                            if resumeGate.tryResume() {
+                                cont.resume(throwing: SSHConnectionError.disconnectedOrTeardown)
+                            }
+                            return
+                        }
+                        guard resumeGate.tryResume() else { return }
+                        conn.stateUpdateHandler = nil
 
-                    switch result {
-                    case .success:
-                        cont.resume()
-                    case .failure(let error):
-                        cont.resume(throwing: error)
+                        switch result {
+                        case .success:
+                            cont.resume()
+                        case .failure(let error):
+                            cont.resume(throwing: error)
+                        }
                     }
                 }
 
@@ -585,6 +618,10 @@ final class SSHConnection: @unchecked Sendable {
                 conn.start(queue: .global(qos: .userInitiated))
             }
             conn.stateUpdateHandler = nil
+            guard connectionAttemptToken == attemptToken, nwConnection === conn else {
+                conn.cancel()
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
 
             // Start filling the receive buffer from the network
             startReceiving(conn, buffer: newBuffer)
@@ -593,10 +630,13 @@ final class SSHConnection: @unchecked Sendable {
             try await sshActor.setup(connection: conn, receiveBuffer: newBuffer)
         } catch {
             conn.stateUpdateHandler = nil
+            conn.cancel()
+            guard connectionAttemptToken == attemptToken, nwConnection === conn else {
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
             transition(to: .failed(error.localizedDescription))
             nwConnection = nil
             receiveBuffer = nil
-            conn.cancel()
             throw error
         }
 
@@ -629,14 +669,22 @@ final class SSHConnection: @unchecked Sendable {
             try await sshActor.requestPTY(cols: 80, rows: 24)
             try await sshActor.requestShell()
 
+            guard connectionAttemptToken == attemptToken, nwConnection === conn else {
+                await sshActor.teardown()
+                conn.cancel()
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
             transition(to: .connected)
             startReadLoop()
         } catch {
+            conn.cancel()
+            guard connectionAttemptToken == attemptToken, nwConnection === conn else {
+                throw SSHConnectionError.disconnectedOrTeardown
+            }
             transition(to: .failed(error.localizedDescription))
             nwConnection = nil
             receiveBuffer = nil
             await sshActor.teardown()
-            conn.cancel()
             throw error
         }
     }
@@ -652,6 +700,7 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     func disconnect() async {
+        connectionAttemptToken = UUID()
         readLoopTask?.cancel()
         readLoopTask = nil
         let connection = nwConnection

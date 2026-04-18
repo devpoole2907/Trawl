@@ -139,11 +139,11 @@ struct SearchView: View {
             if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
                 tmdbAPIKey = key
             }
+            await loadTrending()
         }
         .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
             await refreshLibrary()
             createLookupViewModels()
-            await loadTrending()
         }
         .alert(item: $actionErrorAlert) { item in
             Alert(
@@ -976,19 +976,22 @@ struct SearchView: View {
     private func refreshLibrary() async {
         isLoadingLibrary = true
         defer { isLoadingLibrary = false }
+        let sonarrClient = arrServiceManager.sonarrClient
+        let radarrClient = arrServiceManager.radarrClient
 
         async let sonarrTask: [SonarrSeries] = {
-            guard let client = arrServiceManager.sonarrClient else { return [] }
+            guard let client = sonarrClient else { return [] }
             return (try? await client.getSeries()) ?? []
         }()
         async let radarrTask: [RadarrMovie] = {
-            guard let client = arrServiceManager.radarrClient else { return [] }
+            guard let client = radarrClient else { return [] }
             return (try? await client.getMovies()) ?? []
         }()
 
         let (series, movies) = await (sonarrTask, radarrTask)
         sonarrSeries = series
         radarrMovies = movies
+        createLookupViewModels()
     }
 
     // MARK: - TMDb trending
@@ -1051,14 +1054,15 @@ struct SearchView: View {
         // TV: use Sonarr term search, prefer year match over first result
         if let sonarrClient {
             // Clear stale entries for items being refreshed
-            for item in tv.prefix(20) {
+            let tvItems = Array(tv.prefix(20).map { (id: $0.id, title: $0.displayTitle, year: $0.year) })
+            for item in tvItems {
                 seriesMatches.removeValue(forKey: item.id)
             }
 
             await withTaskGroup(of: (Int, SonarrSeries?).self) { group in
-                for item in tv.prefix(20) {
+                for item in tvItems {
                     group.addTask {
-                        guard let results = try? await sonarrClient.lookupSeries(term: item.displayTitle),
+                        guard let results = try? await sonarrClient.lookupSeries(term: item.title),
                               !results.isEmpty else { return (item.id, nil) }
                         // Prefer exact year match to avoid e.g. "Euphoria 2019" → "Euphoria 2011"
                         if let yearStr = item.year, let year = Int(yearStr) {

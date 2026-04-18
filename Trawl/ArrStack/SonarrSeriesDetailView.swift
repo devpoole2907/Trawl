@@ -22,6 +22,7 @@ struct SonarrSeriesDetailView: View {
     @State private var isAlternateTitlesExpanded = false
     @State private var showEditSheet = false
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
+    @State private var episodeFileDeleteError: String?
     @State private var showAddSheet = false
     @State private var didAdd = false
 
@@ -134,10 +135,13 @@ struct SonarrSeriesDetailView: View {
         .alert("Delete Episode File?", isPresented: episodeFileDeleteBinding) {
             Button("Delete", role: .destructive) {
                 if let file = selectedEpisodeFileForDeletion {
+                    episodeFileDeleteError = nil
                     Task {
                         await viewModel.deleteEpisodeFile(id: file.id)
                         if viewModel.error == nil || viewModel.error?.isEmpty == true {
                             selectedEpisodeFileForDeletion = nil
+                        } else {
+                            episodeFileDeleteError = viewModel.error
                         }
                     }
                 }
@@ -149,15 +153,14 @@ struct SonarrSeriesDetailView: View {
             Text("This removes the selected episode file from Sonarr.")
         }
         .alert("Error", isPresented: Binding(
-            get: { viewModel.error != nil && !viewModel.error!.isEmpty && selectedEpisodeFileForDeletion != nil },
-            set: { if !$0 { viewModel.error = nil; selectedEpisodeFileForDeletion = nil } }
+            get: { episodeFileDeleteError != nil && !(episodeFileDeleteError?.isEmpty ?? true) },
+            set: { if !$0 { episodeFileDeleteError = nil } }
         )) {
             Button("OK", role: .cancel) {
-                viewModel.error = nil
-                selectedEpisodeFileForDeletion = nil
+                episodeFileDeleteError = nil
             }
         } message: {
-            if let error = viewModel.error {
+            if let error = episodeFileDeleteError {
                 Text(error)
             }
         }

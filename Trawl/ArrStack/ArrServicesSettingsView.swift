@@ -12,7 +12,9 @@ struct ArrServiceSettingsView: View {
     @State private var showAddSheet = false
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
+    @State private var systemStatusError: String?
     @State private var diskSpaces: [ArrDiskSpaceSnapshot] = []
+    @State private var diskSpaceError: String?
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
 
@@ -125,6 +127,12 @@ struct ArrServiceSettingsView: View {
                                 .foregroundStyle(.secondary)
                         }
                     }
+                } else if let systemStatusError {
+                    Section("System Status") {
+                        Label(systemStatusError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
+                    }
                 }
 
                 if supportsDiskSpace && !diskSpaces.isEmpty {
@@ -153,6 +161,12 @@ struct ArrServiceSettingsView: View {
                             }
                             .padding(.vertical, 4)
                         }
+                    }
+                } else if supportsDiskSpace, let diskSpaceError {
+                    Section("Disk Space") {
+                        Label(diskSpaceError, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.orange)
                     }
                 }
 
@@ -219,11 +233,7 @@ struct ArrServiceSettingsView: View {
             })
             .environment(serviceManager)
         }
-        .task(id: profile?.id) {
-            await loadSystemStatus()
-            await loadDiskSpace()
-        }
-        .task(id: isConnected) {
+        .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             await loadSystemStatus()
             await loadDiskSpace()
         }
@@ -235,7 +245,11 @@ struct ArrServiceSettingsView: View {
         case .radarr: serviceManager.radarrClient
         case .prowlarr: nil
         }
-        guard let client else { diskSpaces = []; return }
+        guard let client else {
+            diskSpaces = []
+            diskSpaceError = nil
+            return
+        }
         do {
             let raw = try await client.getDiskSpace()
             diskSpaces = raw.map {
@@ -247,14 +261,17 @@ struct ArrServiceSettingsView: View {
                     totalSpace: $0.totalSpace
                 )
             }
+            diskSpaceError = nil
         } catch {
             diskSpaces = []
+            diskSpaceError = error.localizedDescription
         }
     }
 
     private func loadSystemStatus() async {
         guard profile != nil else {
             systemStatus = nil
+            systemStatusError = nil
             isLoadingStatus = false
             return
         }
@@ -270,6 +287,7 @@ struct ArrServiceSettingsView: View {
 
         guard let client else {
             systemStatus = nil
+            systemStatusError = nil
             isLoadingStatus = false
             return
         }
@@ -277,7 +295,13 @@ struct ArrServiceSettingsView: View {
         isLoadingStatus = true
         defer { isLoadingStatus = false }
 
-        systemStatus = try? await client.getSystemStatus()
+        do {
+            systemStatus = try await client.getSystemStatus()
+            systemStatusError = nil
+        } catch {
+            systemStatus = nil
+            systemStatusError = error.localizedDescription
+        }
     }
 
     private func serviceInfoRow(label: String, value: String) -> some View {

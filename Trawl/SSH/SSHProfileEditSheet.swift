@@ -255,9 +255,13 @@ struct SSHProfileEditSheet: View {
         isSaving = true
         defer { isSaving = false }
 
+        guard let capturedPort = port else {
+            saveError = "Port must be a number between 1 and 65535."
+            return
+        }
+
         // Capture immutable snapshot of all form state before any async work
         let capturedHost = trimmedHost
-        let capturedPort = port ?? 22
         let capturedUsername = trimmedUsername
         let capturedAuthType = authType
         let capturedPassword = password
@@ -342,10 +346,14 @@ struct SSHProfileEditSheet: View {
             modelContext.insert(profile)
             try modelContext.save()
             dismiss()
-        } catch {
+        } catch let saveFailure {
             modelContext.rollback()
-            await clearCredentials(for: profile)
-            saveError = error.localizedDescription
+            do {
+                try await clearCredentials(for: profile)
+                saveError = saveFailure.localizedDescription
+            } catch let cleanupFailure {
+                saveError = "Failed to save profile: \(saveFailure.localizedDescription). Cleanup also failed: \(cleanupFailure.localizedDescription)"
+            }
         }
     }
 
@@ -420,19 +428,20 @@ struct SSHProfileEditSheet: View {
         }
     }
 
-    private func clearCredentials(for profile: SSHProfile) async {
-        await deleteCredential(forKey: profile.passwordKey, label: "password")
-        await deleteCredential(forKey: profile.privateKeyKey, label: "private key")
-        await deleteCredential(forKey: profile.passphraseKey, label: "passphrase")
+    private func clearCredentials(for profile: SSHProfile) async throws {
+        try await deleteCredential(forKey: profile.passwordKey, label: "password")
+        try await deleteCredential(forKey: profile.privateKeyKey, label: "private key")
+        try await deleteCredential(forKey: profile.passphraseKey, label: "passphrase")
     }
 
-    private func deleteCredential(forKey key: String, label: String) async {
+    private func deleteCredential(forKey key: String, label: String) async throws {
         do {
             try await KeychainHelper.shared.delete(key: key)
         } catch let error as KeychainError where isIgnorableDeleteError(error) {
             return
         } catch {
             Self.logger.error("Failed to delete SSH \(label, privacy: .public) from Keychain: \(error.localizedDescription, privacy: .public)")
+            throw error
         }
     }
 
@@ -457,21 +466,29 @@ struct SSHProfileEditSheet: View {
             await sshSessionStore.disconnect()
         }
 
+        let credentialSnapshot: SSHCredentialSnapshot
         do {
-            // Remove from SwiftData context and save
+            credentialSnapshot = try await snapshotCredentials(for: profile)
+        } catch {
+            saveError = "Could not delete profile: \(error.localizedDescription)"
+            return
+        }
+
+        do {
+            try await clearCredentials(for: profile)
             modelContext.delete(profile)
             try modelContext.save()
 
-            // Only delete keychain items after successful save
-            await deleteCredential(forKey: profile.passwordKey, label: "password")
-            await deleteCredential(forKey: profile.privateKeyKey, label: "private key")
-            await deleteCredential(forKey: profile.passphraseKey, label: "passphrase")
-
             dismiss()
-        } catch {
-            // Roll back the context on failure
+        } catch let deleteFailure {
             modelContext.rollback()
-            saveError = "Could not delete profile: \(error.localizedDescription)"
+            do {
+                try await restoreCredentials(credentialSnapshot, for: profile)
+            } catch {
+                saveError = "Could not delete profile: \(deleteFailure.localizedDescription)"
+                return
+            }
+            saveError = "Could not delete profile: \(deleteFailure.localizedDescription)"
         }
     }
 }
