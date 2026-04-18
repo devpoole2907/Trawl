@@ -77,13 +77,15 @@ final class ArrSetupViewModel {
     func loadExisting(_ profile: ArrServiceProfile) async {
         hostURL = profile.hostURL
         displayName = profile.displayName
-        serviceType = profile.resolvedServiceType
+        serviceType = profile.resolvedServiceType ?? .sonarr
         apiKey = (try? await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey)) ?? ""
     }
 
     /// Delete a service profile.
     func deleteProfile(_ profile: ArrServiceProfile, modelContext: ModelContext) async {
-        serviceManager.disconnectService(profile.resolvedServiceType, profileID: profile.id)
+        if let serviceType = profile.resolvedServiceType {
+            serviceManager.disconnectService(serviceType, profileID: profile.id)
+        }
         try? await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
         modelContext.delete(profile)
         try? modelContext.save()

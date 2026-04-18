@@ -259,26 +259,41 @@ private struct SearchResultRow: View {
                     Text("Usenet — not supported in Trawl")
                 }
                 Button("Copy Link") {
-                    #if os(iOS)
-                    UIPasteboard.general.string = url
-                    #endif
+                    copyToClipboard(url)
                 }
             }
             if let infoUrl = result.infoUrl, !infoUrl.isEmpty, let url = URL(string: infoUrl) {
                 Button("Open Info Page") {
-                    #if os(iOS)
-                    UIApplication.shared.open(url)
-                    #endif
+                    openURL(url)
                 }
             }
             Button("Cancel", role: .cancel) {}
         }
     }
 
+    private func copyToClipboard(_ urlString: String) {
+        #if os(iOS)
+        UIPasteboard.general.string = urlString
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(urlString, forType: .string)
+        #endif
+    }
+
+    private func openURL(_ url: URL) {
+        #if os(iOS)
+        UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
+        #endif
+    }
+
     private func openMagnet(_ urlString: String) {
         guard let url = URL(string: urlString) else { return }
         #if os(iOS)
         UIApplication.shared.open(url)
+        #elseif os(macOS)
+        NSWorkspace.shared.open(url)
         #endif
     }
 }

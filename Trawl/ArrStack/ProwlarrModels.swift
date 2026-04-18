@@ -160,7 +160,8 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     let uploadVolumeFactor: Double?
     let `protocol`: ProwlarrIndexerProtocol?
 
-    var id: String { guid ?? UUID().uuidString }
+    private let fallbackId = UUID().uuidString
+    var id: String { guid ?? fallbackId }
 
     var isFreeleech: Bool { downloadVolumeFactor == 0.0 }
 
@@ -209,7 +210,13 @@ struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
     let numberOfFailedRssQueries: Int?
     let numberOfFailedAuthQueries: Int?
 
-    var id: Int { indexerId ?? 0 }
+    var id: String {
+        if let indexerId {
+            return "indexer-\(indexerId)"
+        } else {
+            return "indexer-unknown-\(indexerName ?? "unnamed")"
+        }
+    }
 
     var successRate: Double? {
         guard let total = numberOfQueries, total > 0, let failed = numberOfFailedQueries else { return nil }

@@ -53,7 +53,12 @@ struct SettingsView: View {
             }
             .onChange(of: tmdbAPIKey) { _, newValue in
                 Task {
-                    try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: newValue)
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if trimmed.isEmpty {
+                        try? await KeychainHelper.shared.delete(key: "tmdb.apiKey")
+                    } else {
+                        try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: trimmed)
+                    }
                 }
             }
     }

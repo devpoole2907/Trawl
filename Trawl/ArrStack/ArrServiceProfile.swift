@@ -26,8 +26,8 @@ final class ArrServiceProfile {
     /// Keychain key for the API key
     var apiKeyKeychainKey: String { "arr_\(id.uuidString)_apikey" }
 
-    var resolvedServiceType: ArrServiceType {
-        ArrServiceType(rawValue: serviceType) ?? .sonarr
+    var resolvedServiceType: ArrServiceType? {
+        ArrServiceType(rawValue: serviceType)
     }
 }
 

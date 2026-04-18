@@ -197,10 +197,16 @@ final class SSHSessionStore {
     private func resolveAuth(for profile: SSHProfile) async throws -> SSHAuth {
         switch profile.authType {
         case .password:
-            let password = try await KeychainHelper.shared.read(key: profile.passwordKey) ?? ""
+            guard let password = try await KeychainHelper.shared.read(key: profile.passwordKey),
+                  !password.isEmpty else {
+                throw SSHCredentialError.missingPassword
+            }
             return .password(password)
         case .privateKey:
-            let key = try await KeychainHelper.shared.read(key: profile.privateKeyKey) ?? ""
+            guard let key = try await KeychainHelper.shared.read(key: profile.privateKeyKey),
+                  !key.isEmpty else {
+                throw SSHCredentialError.missingPrivateKey
+            }
             let passphrase = try await KeychainHelper.shared.read(key: profile.passphraseKey)
             return .privateKey(pem: key, passphrase: passphrase)
         }

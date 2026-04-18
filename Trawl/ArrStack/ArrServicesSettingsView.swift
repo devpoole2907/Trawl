@@ -293,48 +293,52 @@ struct ArrServiceSettingsView: View {
         }
     }
 
-    private func runCommand(named name: String, action: @escaping () async -> Void) async {
+    private func runCommand(named name: String, action: @escaping () async throws -> Void) async {
         isRunningCommand = true
         commandStatusMessage = nil
-        await action()
+        do {
+            try await action()
+            commandStatusMessage = "\(name) command sent."
+        } catch {
+            commandStatusMessage = "\(name) failed: \(error.localizedDescription)"
+        }
         isRunningCommand = false
-        commandStatusMessage = "\(name) command sent."
     }
 
-    private func refreshAll() async {
+    private func refreshAll() async throws {
         switch serviceType {
         case .sonarr:
             let viewModel = SonarrViewModel(serviceManager: serviceManager)
-            await viewModel.refreshSeries()
+            try await viewModel.refreshSeries()
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
-            await viewModel.refreshMovies()
+            try await viewModel.refreshMovies()
         case .prowlarr:
             break
         }
     }
 
-    private func rssSync() async {
+    private func rssSync() async throws {
         switch serviceType {
         case .sonarr:
             let viewModel = SonarrViewModel(serviceManager: serviceManager)
-            await viewModel.rssSync()
+            try await viewModel.rssSync()
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
-            await viewModel.rssSync()
+            try await viewModel.rssSync()
         case .prowlarr:
             break
         }
     }
 
-    private func searchAllMissing() async {
+    private func searchAllMissing() async throws {
         switch serviceType {
         case .sonarr:
             let viewModel = SonarrViewModel(serviceManager: serviceManager)
-            await viewModel.searchAllMissing()
+            try await viewModel.searchAllMissing()
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
-            await viewModel.searchAllMissing()
+            try await viewModel.searchAllMissing()
         case .prowlarr:
             break
         }
@@ -443,10 +447,11 @@ struct ArrServicesSettingsView: View {
     }
 
     private func isConnected(_ profile: ArrServiceProfile) -> Bool {
-        switch profile.resolvedServiceType {
-        case .sonarr: serviceManager.sonarrConnected
-        case .radarr: serviceManager.radarrConnected
-        case .prowlarr: serviceManager.prowlarrConnected
+        guard let serviceType = profile.resolvedServiceType else { return false }
+        switch serviceType {
+        case .sonarr: return serviceManager.sonarrConnected
+        case .radarr: return serviceManager.radarrConnected
+        case .prowlarr: return serviceManager.prowlarrConnected
         }
     }
 
@@ -469,9 +474,15 @@ private struct ServiceProfileRow: View {
 
     var body: some View {
         HStack {
-            Image(systemName: profile.resolvedServiceType.systemImage)
-                .foregroundStyle(iconColor)
-                .frame(width: 24)
+            if let serviceType = profile.resolvedServiceType {
+                Image(systemName: serviceType.systemImage)
+                    .foregroundStyle(iconColor)
+                    .frame(width: 24)
+            } else {
+                Image(systemName: "questionmark.circle")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 24)
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(profile.displayName)
@@ -497,10 +508,11 @@ private struct ServiceProfileRow: View {
     }
 
     private var iconColor: Color {
-        switch profile.resolvedServiceType {
-        case .sonarr: .blue
-        case .radarr: .purple
-        case .prowlarr: .yellow
+        guard let serviceType = profile.resolvedServiceType else { return .secondary }
+        switch serviceType {
+        case .sonarr: return .blue
+        case .radarr: return .purple
+        case .prowlarr: return .yellow
         }
     }
 }

@@ -144,6 +144,7 @@ struct QBittorrentTagsView: View {
         guard !name.isEmpty else { return }
 
         isSubmitting = true
+        defer { isSubmitting = false }
         do {
             try await torrentService.createTags(tags: [name])
             syncService.addTagLocally(name: name)
@@ -151,12 +152,12 @@ struct QBittorrentTagsView: View {
             actionErrorAlert = nil
             resetCreateInputs()
         } catch {
+            resetCreateInputs()
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Create Tag",
                 message: error.localizedDescription
             )
         }
-        isSubmitting = false
     }
 
     private func deleteTag(_ tag: String) async {

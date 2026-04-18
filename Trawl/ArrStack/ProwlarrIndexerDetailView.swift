@@ -137,7 +137,9 @@ struct ProwlarrIndexerDetailView: View {
             Button("Remove", role: .destructive) {
                 Task {
                     await viewModel.deleteIndexer(indexer)
-                    dismiss()
+                    if viewModel.indexerError == nil {
+                        dismiss()
+                    }
                 }
             }
             Button("Cancel", role: .cancel) {}

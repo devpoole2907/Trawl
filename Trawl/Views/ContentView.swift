@@ -26,6 +26,7 @@ struct ContentView: View {
     @State private var showSSHSessionSheet = false
     @State private var welcomeStep: WelcomeStep = .intro
     @State private var setupTarget: SetupTarget?
+    @State private var hasAutoSelectedTorrents = false
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -592,7 +593,10 @@ struct ContentView: View {
                     return
                 }
                 appServices = services
-                selectedTab = .torrents
+                if !hasAutoSelectedTorrents {
+                    selectedTab = .torrents
+                    hasAutoSelectedTorrents = true
+                }
                 isConnecting = false
 
                 #if os(macOS)

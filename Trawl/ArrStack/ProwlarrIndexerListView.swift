@@ -69,9 +69,11 @@ struct ProwlarrIndexerListView: View {
         }
         .alert("Error", isPresented: .init(
             get: { vm.indexerError != nil },
-            set: { if !$0 { /* errors clear on next load */ } }
+            set: { if !$0 { vm.clearIndexerError() } }
         )) {
-            Button("OK", role: .cancel) {}
+            Button("OK", role: .cancel) {
+                vm.clearIndexerError()
+            }
         } message: {
             Text(vm.indexerError ?? "")
         }
@@ -80,9 +82,9 @@ struct ProwlarrIndexerListView: View {
     @ViewBuilder
     private func statsOverviewSection(stats: ProwlarrIndexerStats) -> some View {
         let entries = stats.indexers ?? []
-        let totalQueries = entries.compactMap(\.numberOfQueries).reduce(0, +)
-        let totalGrabs = entries.compactMap(\.numberOfGrabs).reduce(0, +)
-        let totalFailed = entries.compactMap(\.numberOfFailedQueries).reduce(0, +)
+        let totalQueries = entries.reduce(0) { $0 + ($1.numberOfQueries ?? 0) }
+        let totalGrabs = entries.reduce(0) { $0 + ($1.numberOfGrabs ?? 0) }
+        let totalFailed = entries.reduce(0) { $0 + ($1.numberOfFailedQueries ?? 0) }
 
         Section("Overview") {
             HStack(spacing: 20) {

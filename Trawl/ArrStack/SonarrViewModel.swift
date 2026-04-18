@@ -2,6 +2,16 @@ import Foundation
 import Observation
 import SwiftData
 
+enum ArrServiceError: Error, LocalizedError {
+    case clientNotAvailable
+
+    var errorDescription: String? {
+        switch self {
+        case .clientNotAvailable: return "Service not connected"
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class SonarrViewModel {
@@ -112,16 +122,12 @@ final class SonarrViewModel {
         isLoading = false
     }
 
-    func refreshSeries() async {
-        guard let client else { return }
-        do {
-            _ = try await client.refreshSeries()
-            // Re-fetch after a brief delay for the refresh command to process
-            try? await Task.sleep(for: .seconds(2))
-            await loadSeries()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func refreshSeries() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.refreshSeries()
+        // Re-fetch after a brief delay for the refresh command to process
+        try? await Task.sleep(for: .seconds(2))
+        await loadSeries()
     }
 
     // MARK: - Episodes
@@ -457,22 +463,14 @@ final class SonarrViewModel {
         }
     }
 
-    func searchAllMissing() async {
-        guard let client else { return }
-        do {
-            _ = try await client.searchAllMissing()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func searchAllMissing() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.searchAllMissing()
     }
 
-    func rssSync() async {
-        guard let client else { return }
-        do {
-            _ = try await client.rssSync()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func rssSync() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.rssSync()
     }
 
     var canLoadMoreWantedMissing: Bool {

@@ -59,45 +59,65 @@ final class ArrServiceManager {
 
     /// Connect a single service profile.
     func connectService(_ profile: ArrServiceProfile) async {
-        setConnectingState(true, for: profile.resolvedServiceType)
-        clearConnectionState(for: profile.resolvedServiceType, preserveError: false)
-        defer { setConnectingState(false, for: profile.resolvedServiceType) }
+        guard let serviceType = profile.resolvedServiceType else {
+            let errorMessage = "Invalid service type: \(profile.serviceType)"
+            connectionErrors[profile.id.uuidString] = errorMessage
+            return
+        }
+        setConnectingState(true, for: serviceType)
+        clearConnectionState(for: serviceType, preserveError: false)
+        defer { setConnectingState(false, for: serviceType) }
 
         do {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
                   !apiKey.isEmpty else {
                 let errorMessage = "API key not found in Keychain."
                 connectionErrors[profile.id.uuidString] = errorMessage
-                setConnectionError(errorMessage, for: profile.resolvedServiceType)
+                setConnectionError(errorMessage, for: serviceType)
                 return
             }
 
-            switch profile.resolvedServiceType {
+            switch serviceType {
             case .sonarr:
                 let client = SonarrAPIClient(baseURL: profile.hostURL, apiKey: apiKey)
                 // Test connection
                 _ = try await client.getSystemStatus()
-                sonarrClient = client
-                sonarrConnected = true
-                sonarrConnectionError = nil
-                connectionErrors.removeValue(forKey: profile.id.uuidString)
 
                 // Cache configuration data
-                sonarrQualityProfiles = (try? await client.getQualityProfiles()) ?? []
-                sonarrRootFolders = (try? await client.getRootFolders()) ?? []
-                sonarrTags = (try? await client.getTags()) ?? []
+                do {
+                    sonarrQualityProfiles = try await client.getQualityProfiles()
+                    sonarrRootFolders = try await client.getRootFolders()
+                    sonarrTags = try await client.getTags()
+
+                    sonarrClient = client
+                    sonarrConnected = true
+                    sonarrConnectionError = nil
+                    connectionErrors.removeValue(forKey: profile.id.uuidString)
+                } catch {
+                    let errorMessage = "Failed to load configuration: \(error.localizedDescription)"
+                    connectionErrors[profile.id.uuidString] = errorMessage
+                    setConnectionError(errorMessage, for: .sonarr)
+                }
 
             case .radarr:
                 let client = RadarrAPIClient(baseURL: profile.hostURL, apiKey: apiKey)
                 _ = try await client.getSystemStatus()
-                radarrClient = client
-                radarrConnected = true
-                radarrConnectionError = nil
-                connectionErrors.removeValue(forKey: profile.id.uuidString)
 
-                radarrQualityProfiles = (try? await client.getQualityProfiles()) ?? []
-                radarrRootFolders = (try? await client.getRootFolders()) ?? []
-                radarrTags = (try? await client.getTags()) ?? []
+                // Cache configuration data
+                do {
+                    radarrQualityProfiles = try await client.getQualityProfiles()
+                    radarrRootFolders = try await client.getRootFolders()
+                    radarrTags = try await client.getTags()
+
+                    radarrClient = client
+                    radarrConnected = true
+                    radarrConnectionError = nil
+                    connectionErrors.removeValue(forKey: profile.id.uuidString)
+                } catch {
+                    let errorMessage = "Failed to load configuration: \(error.localizedDescription)"
+                    connectionErrors[profile.id.uuidString] = errorMessage
+                    setConnectionError(errorMessage, for: .radarr)
+                }
 
             case .prowlarr:
                 let client = ProwlarrAPIClient(baseURL: profile.hostURL, apiKey: apiKey)
@@ -109,7 +129,7 @@ final class ArrServiceManager {
             }
         } catch {
             connectionErrors[profile.id.uuidString] = error.localizedDescription
-            setConnectionError(error.localizedDescription, for: profile.resolvedServiceType)
+            setConnectionError(error.localizedDescription, for: serviceType)
         }
     }
 

@@ -98,15 +98,11 @@ final class RadarrViewModel {
         isLoading = false
     }
 
-    func refreshMovies() async {
-        guard let client else { return }
-        do {
-            _ = try await client.refreshMovie()
-            try? await Task.sleep(for: .seconds(2))
-            await loadMovies()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func refreshMovies() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.refreshMovie()
+        try? await Task.sleep(for: .seconds(2))
+        await loadMovies()
     }
 
     // MARK: - Movie Detail
@@ -325,22 +321,14 @@ final class RadarrViewModel {
         }
     }
 
-    func searchAllMissing() async {
-        guard let client else { return }
-        do {
-            _ = try await client.searchAllMissing()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func searchAllMissing() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.searchAllMissing()
     }
 
-    func rssSync() async {
-        guard let client else { return }
-        do {
-            _ = try await client.rssSync()
-        } catch {
-            self.error = error.localizedDescription
-        }
+    func rssSync() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.rssSync()
     }
 
     func deleteMovieFile(id: Int) async -> Bool {

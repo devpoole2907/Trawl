@@ -9,6 +9,20 @@ enum SSHAuthType: String, Codable, CaseIterable, Identifiable, Sendable {
     var id: String { rawValue }
 }
 
+// MARK: - Credential Error
+
+enum SSHCredentialError: Error, LocalizedError {
+    case missingPassword
+    case missingPrivateKey
+
+    var errorDescription: String? {
+        switch self {
+        case .missingPassword: return "Password not found in Keychain"
+        case .missingPrivateKey: return "Private key not found in Keychain"
+        }
+    }
+}
+
 // MARK: - Profile Model
 
 @Model

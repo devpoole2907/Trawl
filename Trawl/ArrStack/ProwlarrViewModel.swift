@@ -21,6 +21,7 @@ final class ProwlarrViewModel {
     private(set) var searchResults: [ProwlarrSearchResult] = []
     private(set) var isSearching = false
     private(set) var searchError: String?
+    private var currentRequestToken: UUID?
 
     // MARK: - Stats State
     private(set) var indexerStats: ProwlarrIndexerStats?
@@ -42,18 +43,27 @@ final class ProwlarrViewModel {
         }
         isLoadingIndexers = true
         indexerError = nil
+
+        // Load indexers and statuses together
         do {
             async let fetchedIndexers = client.getIndexers()
             async let fetchedStatuses = client.getIndexerStatuses()
-            async let fetchedStats = client.getIndexerStats()
-            let (loaded, statuses, stats) = try await (fetchedIndexers, fetchedStatuses, fetchedStats)
+            let (loaded, statuses) = try await (fetchedIndexers, fetchedStatuses)
             indexers = loaded.sorted { ($0.name ?? "") < ($1.name ?? "") }
             indexerStatuses = statuses
-            indexerStats = stats
         } catch {
             indexerError = error.localizedDescription
         }
+
         isLoadingIndexers = false
+
+        // Load stats separately so failures don't affect indexers/statuses
+        do {
+            indexerStats = try await client.getIndexerStats()
+            statsError = nil
+        } catch {
+            statsError = error.localizedDescription
+        }
     }
 
     func statsForIndexer(id: Int) -> ProwlarrIndexerStatEntry? {
@@ -93,6 +103,10 @@ final class ProwlarrViewModel {
         } catch {
             indexerError = error.localizedDescription
         }
+    }
+
+    func clearIndexerError() {
+        indexerError = nil
     }
 
     func testIndexer(_ indexer: ProwlarrIndexer) async {
@@ -147,15 +161,27 @@ final class ProwlarrViewModel {
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
+        let requestToken = UUID()
+        currentRequestToken = requestToken
+
         isSearching = true
         searchError = nil
         do {
             let ids = selectedIndexerIds.isEmpty ? nil : Array(selectedIndexerIds)
-            searchResults = try await client.search(query: trimmed, indexerIds: ids, type: searchType)
+            let results = try await client.search(query: trimmed, indexerIds: ids, type: searchType)
+
+            // Only apply results if this is still the current request
+            guard currentRequestToken == requestToken else { return }
+            searchResults = results
         } catch {
+            // Only apply error if this is still the current request
+            guard currentRequestToken == requestToken else { return }
             searchError = error.localizedDescription
             searchResults = []
         }
+
+        // Only update isSearching if this is still the current request
+        guard currentRequestToken == requestToken else { return }
         isSearching = false
     }
 
