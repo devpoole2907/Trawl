@@ -160,8 +160,16 @@ final class SSHSessionStore {
             guard let self, self.activeProfile?.id == profile.id else { return false }
             let accepted = await self.presentFingerprintConfirmation(fingerprint)
             if accepted {
+                let previousFingerprint = profile.knownHostFingerprint
                 profile.knownHostFingerprint = fingerprint
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    // Revert fingerprint on save failure
+                    profile.knownHostFingerprint = previousFingerprint
+                    // Treat as rejected since we couldn't persist the trust decision
+                    return false
+                }
             }
             return accepted
         }

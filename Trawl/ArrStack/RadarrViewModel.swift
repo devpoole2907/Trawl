@@ -146,10 +146,13 @@ final class RadarrViewModel {
     }
 
     func loadMoreWantedMissing() async {
-        guard let client, canLoadMoreWantedMissing else { return }
+        guard !isLoadingWantedMissing && canLoadMoreWantedMissing else { return }
+        guard let client else { return }
         isLoadingWantedMissing = true
+        defer { isLoadingWantedMissing = false }
+
+        let nextPage = wantedMissingPage + 1
         do {
-            let nextPage = wantedMissingPage + 1
             let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingPageSize)
             wantedMovies.append(contentsOf: page.records ?? [])
             wantedMissingPage = page.page ?? nextPage
@@ -157,7 +160,6 @@ final class RadarrViewModel {
         } catch {
             self.error = error.localizedDescription
         }
-        isLoadingWantedMissing = false
     }
 
     // MARK: - Search for new movies
@@ -356,7 +358,10 @@ final class RadarrViewModel {
 
     func loadHistory(page: Int = 1) async {
         guard let client else { return }
+        guard !isLoadingHistory else { return }
         isLoadingHistory = true
+        defer { isLoadingHistory = false }
+
         do {
             let historyPageResult = try await client.getHistory(page: page, pageSize: historyPageSize)
             let records = historyPageResult.records ?? []
@@ -372,10 +377,10 @@ final class RadarrViewModel {
         } catch {
             self.error = error.localizedDescription
         }
-        isLoadingHistory = false
     }
 
     func loadNextHistoryPage() async {
+        guard !isLoadingHistory && canLoadMoreHistory else { return }
         await loadHistory(page: historyPage + 1)
     }
 

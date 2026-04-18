@@ -396,7 +396,7 @@ final class SSHConnection: @unchecked Sendable {
 
     private let sshActor = SshSessionActor()
     private var nwConnection: NWConnection?
-    private let receiveBuffer = SshReceiveBuffer()
+    private var receiveBuffer: SshReceiveBuffer?
     private var readLoopTask: Task<Void, Never>?
     private let transportCloseLock = NSLock()
     private var isHandlingTransportClose = false
@@ -412,6 +412,10 @@ final class SSHConnection: @unchecked Sendable {
     ) async throws {
         resetTransportCloseGuard()
         transition(to: .connecting)
+
+        // Create a fresh receive buffer for this connection session
+        let newBuffer = SshReceiveBuffer()
+        self.receiveBuffer = newBuffer
 
         // Validate port is within valid range before casting to UInt16
         let validatedPort: UInt16
@@ -464,15 +468,16 @@ final class SSHConnection: @unchecked Sendable {
             conn.stateUpdateHandler = nil
 
             // Start filling the receive buffer from the network
-            startReceiving(conn)
+            startReceiving(conn, buffer: newBuffer)
 
             // Initialise libssh2 session
-            try await sshActor.setup(connection: conn, receiveBuffer: receiveBuffer)
+            try await sshActor.setup(connection: conn, receiveBuffer: newBuffer)
         } catch {
             conn.stateUpdateHandler = nil
             transition(to: .failed(error.localizedDescription))
             conn.cancel()
             nwConnection = nil
+            receiveBuffer = nil
             throw error
         }
 
@@ -530,6 +535,7 @@ final class SSHConnection: @unchecked Sendable {
         readLoopTask = nil
         nwConnection?.cancel()
         nwConnection = nil
+        receiveBuffer = nil
         Task { await sshActor.teardown() }
         transition(to: .disconnected)
     }
@@ -540,20 +546,29 @@ final class SSHConnection: @unchecked Sendable {
 
     // MARK: Private: NWConnection receive loop
 
-    private nonisolated func startReceiving(_ conn: NWConnection) {
+    private nonisolated func startReceiving(_ conn: NWConnection, buffer: SshReceiveBuffer) {
         func scheduleReceive() {
             conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
                 guard let self else { return }
-                if let data, !data.isEmpty {
-                    self.receiveBuffer.append(data)
-                    Task { await self.sshActor.pingTasks() }
+
+                // Validate this callback is for the current connection
+                Task { @MainActor in
+                    guard self.nwConnection === conn else {
+                        // Stale callback from old connection; ignore
+                        return
+                    }
+
+                    if let data, !data.isEmpty {
+                        buffer.append(data)
+                        await self.sshActor.pingTasks()
+                    }
+                    if isComplete || error != nil {
+                        let message = error?.localizedDescription ?? (isComplete ? "Connection closed" : nil)
+                        await self.handleTransportClosed(for: conn, error: message)
+                        return
+                    }
+                    scheduleReceive()
                 }
-                if isComplete || error != nil {
-                    let message = error?.localizedDescription ?? (isComplete ? "Connection closed" : nil)
-                    Task { await self.handleTransportClosed(for: conn, error: message) }
-                    return
-                }
-                scheduleReceive()
             }
         }
         scheduleReceive()
@@ -616,6 +631,7 @@ final class SSHConnection: @unchecked Sendable {
 
         nwConnection?.cancel()
         nwConnection = nil
+        receiveBuffer = nil
         await sshActor.teardown()
 
         if let failureMessage {

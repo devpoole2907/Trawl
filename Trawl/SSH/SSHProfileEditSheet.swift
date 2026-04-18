@@ -33,8 +33,16 @@ struct SSHProfileEditSheet: View {
         username.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private var port: Int {
-        Int(portString.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 22
+    private var port: Int? {
+        let trimmed = portString.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let value = Int(trimmed), value >= 1 && value <= 65535 else {
+            return nil
+        }
+        return value
+    }
+
+    private var isValidPort: Bool {
+        port != nil
     }
 
     private var credentialMissing: Bool {
@@ -45,7 +53,7 @@ struct SSHProfileEditSheet: View {
     }
 
     private var canSave: Bool {
-        !trimmedHost.isEmpty && !trimmedUsername.isEmpty && !credentialMissing
+        !trimmedHost.isEmpty && !trimmedUsername.isEmpty && !credentialMissing && isValidPort
     }
 
     var body: some View {
@@ -133,6 +141,8 @@ struct SSHProfileEditSheet: View {
                 fieldError("Host is required.")
             } else if hasAttemptedSubmit && trimmedUsername.isEmpty {
                 fieldError("Username is required.")
+            } else if hasAttemptedSubmit && !isValidPort {
+                fieldError("Port must be a number between 1 and 65535.")
             } else {
                 Text("Example: 192.168.1.1 or myserver.local")
             }
@@ -252,26 +262,34 @@ struct SSHProfileEditSheet: View {
             let previousPort = existing.port
             let previousUsername = existing.username
             let previousAuthTypeRaw = existing.authTypeRaw
-            let previousCredentials = await snapshotCredentials(for: existing)
 
             do {
-                try await writeCredentials(for: existing)
-                existing.displayName = resolvedName
-                existing.host = trimmedHost
-                existing.port = port
-                existing.username = trimmedUsername
-                existing.authTypeRaw = authType.rawValue
-                try modelContext.save()
-                dismiss()
+                // Snapshot existing credentials; if this fails, abort the save
+                let previousCredentials = try await snapshotCredentials(for: existing)
+
+                do {
+                    try await writeCredentials(for: existing)
+                    existing.displayName = resolvedName
+                    existing.host = trimmedHost
+                    existing.port = port ?? 22
+                    existing.username = trimmedUsername
+                    existing.authTypeRaw = authType.rawValue
+                    try modelContext.save()
+                    dismiss()
+                } catch {
+                    // Restore credentials on failure
+                    existing.displayName = previousDisplayName
+                    existing.host = previousHost
+                    existing.port = previousPort
+                    existing.username = previousUsername
+                    existing.authTypeRaw = previousAuthTypeRaw
+                    modelContext.rollback()
+                    await restoreCredentials(previousCredentials, for: existing)
+                    saveError = error.localizedDescription
+                }
             } catch {
-                existing.displayName = previousDisplayName
-                existing.host = previousHost
-                existing.port = previousPort
-                existing.username = previousUsername
-                existing.authTypeRaw = previousAuthTypeRaw
-                modelContext.rollback()
-                await restoreCredentials(previousCredentials, for: existing)
-                saveError = error.localizedDescription
+                // Keychain snapshot failed; abort without changing anything
+                saveError = "Could not read existing credentials: \(error.localizedDescription)"
             }
             return
         }
@@ -279,7 +297,7 @@ struct SSHProfileEditSheet: View {
         let profile = SSHProfile(
                 displayName: resolvedName,
                 host: trimmedHost,
-                port: port,
+                port: port ?? 22,
                 username: trimmedUsername,
                 authType: authType
         )
@@ -329,15 +347,15 @@ struct SSHProfileEditSheet: View {
         }
     }
 
-    private func snapshotCredentials(for profile: SSHProfile) async -> SSHCredentialSnapshot {
+    private func snapshotCredentials(for profile: SSHProfile) async throws -> SSHCredentialSnapshot {
         let helper = KeychainHelper.shared
-        async let passwordValue = try? helper.read(key: profile.passwordKey)
-        async let privateKeyValue = try? helper.read(key: profile.privateKeyKey)
-        async let passphraseValue = try? helper.read(key: profile.passphraseKey)
-        return await SSHCredentialSnapshot(
-            password: passwordValue ?? nil,
-            privateKey: privateKeyValue ?? nil,
-            passphrase: passphraseValue ?? nil
+        let passwordValue = try await helper.read(key: profile.passwordKey)
+        let privateKeyValue = try await helper.read(key: profile.privateKeyKey)
+        let passphraseValue = try await helper.read(key: profile.passphraseKey)
+        return SSHCredentialSnapshot(
+            password: passwordValue,
+            privateKey: privateKeyValue,
+            passphrase: passphraseValue
         )
     }
 
