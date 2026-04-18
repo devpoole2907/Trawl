@@ -220,8 +220,8 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
     /// Best available poster URL
     var posterURL: URL? {
         let poster = images?.first(where: { $0.coverType == "poster" })
-        if let remote = poster?.remoteUrl ?? poster?.url, let url = URL(string: remote) {
-            return url
+        if let remote = poster?.remoteUrl ?? poster?.url {
+            return enforceSafeURL(remote)
         }
         return nil
     }
@@ -229,10 +229,19 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
     /// Best available fanart URL
     var fanartURL: URL? {
         let fanart = images?.first(where: { $0.coverType == "fanart" })
-        if let remote = fanart?.remoteUrl ?? fanart?.url, let url = URL(string: remote) {
-            return url
+        if let remote = fanart?.remoteUrl ?? fanart?.url {
+            return enforceSafeURL(remote)
         }
         return nil
+    }
+
+    private func enforceSafeURL(_ string: String) -> URL? {
+        guard let url = URL(string: string),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        return url
     }
 
     nonisolated private static func stableFallbackID(for title: String) -> Int {

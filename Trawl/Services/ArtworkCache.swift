@@ -12,6 +12,9 @@ actor ArtworkCache {
     private let fileManager = FileManager.default
     private let memoryCache: NSCache<NSURL, NSData>
     private let cacheDirectoryURL: URL
+    
+    // Limits: 256MB on disk, 300 items in memory
+    private let diskCacheLimit: Int64 = 256 * 1024 * 1024
 
     init() {
         let fileManager = FileManager.default
@@ -31,6 +34,12 @@ actor ArtworkCache {
     }
 
     func imageData(for url: URL) async throws -> Data {
+        // Security: only allow http/https
+        guard let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else {
+            throw URLError(.unsupportedURL)
+        }
+
         if let cachedData = memoryCache.object(forKey: url as NSURL) {
             return Data(referencing: cachedData)
         }
@@ -38,6 +47,8 @@ actor ArtworkCache {
         let fileURL = cachedFileURL(for: url)
         if let diskData = try? Data(contentsOf: fileURL), !diskData.isEmpty {
             memoryCache.setObject(diskData as NSData, forKey: url as NSURL, cost: diskData.count)
+            // Update modification date for LRU-ish eviction
+            try? updateModificationDate(for: fileURL)
             return diskData
         }
 
@@ -50,8 +61,52 @@ actor ArtworkCache {
 
         let dataToStore = compressedData(from: data) ?? data
         memoryCache.setObject(dataToStore as NSData, forKey: url as NSURL, cost: dataToStore.count)
+        
+        // Evict before writing if we're near the limit
+        await evictIfNecessary(incomingSize: Int64(dataToStore.count))
+        
         try? dataToStore.write(to: fileURL, options: .atomic)
         return dataToStore
+    }
+
+    private func updateModificationDate(for fileURL: URL) throws {
+        try fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
+    }
+
+    private func evictIfNecessary(incomingSize: Int64) async {
+        let currentSize = cacheSizeInBytes()
+        guard currentSize + incomingSize > diskCacheLimit else { return }
+
+        // Fetch all files with modification date and size
+        guard let fileEnumerator = fileManager.enumerator(
+            at: cacheDirectoryURL,
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey],
+            options: [.skipsHiddenFiles]
+        ) else { return }
+
+        struct CacheEntry {
+            let url: URL
+            let date: Date
+            let size: Int64
+        }
+
+        var entries: [CacheEntry] = []
+        for case let fileURL as URL in fileEnumerator {
+            if let values = try? fileURL.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey]),
+               let date = values.contentModificationDate,
+               let size = values.fileSize {
+                entries.append(CacheEntry(url: fileURL, date: date, size: Int64(size)))
+            }
+        }
+
+        // Sort by date (oldest first)
+        entries.sort { $0.date < $1.date }
+
+        var sizeToFree = (currentSize + incomingSize) - (diskCacheLimit / 2) // Aim to clear half
+        for entry in entries where sizeToFree > 0 {
+            try? fileManager.removeItem(at: entry.url)
+            sizeToFree -= entry.size
+        }
     }
 
     func cacheSizeInBytes() -> Int64 {
