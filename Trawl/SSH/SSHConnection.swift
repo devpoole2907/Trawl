@@ -367,6 +367,7 @@ private actor SshSessionActor {
 
 // MARK: - SSHConnection
 
+@MainActor
 @Observable
 final class SSHConnection: @unchecked Sendable {
 
@@ -412,9 +413,17 @@ final class SSHConnection: @unchecked Sendable {
         resetTransportCloseGuard()
         transition(to: .connecting)
 
+        // Validate port is within valid range before casting to UInt16
+        let validatedPort: UInt16
+        if port >= 1 && port <= 65535 {
+            validatedPort = UInt16(port)
+        } else {
+            validatedPort = 22  // Use default port if invalid
+        }
+
         let endpoint = NWEndpoint.hostPort(
             host: NWEndpoint.Host(host),
-            port: NWEndpoint.Port(rawValue: UInt16(port)) ?? 22
+            port: NWEndpoint.Port(rawValue: validatedPort) ?? 22
         )
         let conn = NWConnection(to: endpoint, using: .tcp)
         self.nwConnection = conn
@@ -525,9 +534,13 @@ final class SSHConnection: @unchecked Sendable {
         transition(to: .disconnected)
     }
 
+    func markFailed(_ message: String) {
+        transition(to: .failed(message))
+    }
+
     // MARK: Private: NWConnection receive loop
 
-    private func startReceiving(_ conn: NWConnection) {
+    private nonisolated func startReceiving(_ conn: NWConnection) {
         func scheduleReceive() {
             conn.receive(minimumIncompleteLength: 1, maximumLength: 65536) { [weak self] data, _, isComplete, error in
                 guard let self else { return }
@@ -537,7 +550,7 @@ final class SSHConnection: @unchecked Sendable {
                 }
                 if isComplete || error != nil {
                     let message = error?.localizedDescription ?? (isComplete ? "Connection closed" : nil)
-                    Task { await self.handleTransportClosed(error: message) }
+                    Task { await self.handleTransportClosed(for: conn, error: message) }
                     return
                 }
                 scheduleReceive()
@@ -549,21 +562,22 @@ final class SSHConnection: @unchecked Sendable {
     // MARK: Private: Channel read loop
 
     private func startReadLoop() {
+        guard let conn = nwConnection else { return }
         readLoopTask = Task.detached(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 do {
                     if let bytes = try await self.sshActor.readChannel(), !bytes.isEmpty {
-                        DispatchQueue.main.async { self.onOutput?(bytes) }
+                        await MainActor.run { self.onOutput?(bytes) }
                     } else if await self.sshActor.isChannelClosed {
-                        await self.handleTransportClosed(error: nil)
+                        await self.handleTransportClosed(for: conn, error: nil)
                         return
                     } else {
                         // Brief pause to avoid busy-spinning when no data is ready
                         try? await Task.sleep(nanoseconds: 10_000_000)
                     }
                 } catch {
-                    await self.handleTransportClosed(error: error.localizedDescription)
+                    await self.handleTransportClosed(for: conn, error: error.localizedDescription)
                     return
                 }
             }
@@ -571,7 +585,8 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     private func handleConnectionClose() {
-        Task { await handleTransportClosed(error: nil) }
+        guard let conn = nwConnection else { return }
+        Task { await handleTransportClosed(for: conn, error: nil) }
     }
 
     private func shouldHandleTransportClose() -> Bool {
@@ -588,7 +603,9 @@ final class SSHConnection: @unchecked Sendable {
         transportCloseLock.unlock()
     }
 
-    private func handleTransportClosed(error: String?) async {
+    private func handleTransportClosed(for conn: NWConnection, error: String?) async {
+        // Guard against stale/old connections
+        guard nwConnection === conn else { return }
         guard shouldHandleTransportClose() else { return }
 
         readLoopTask?.cancel()
@@ -607,12 +624,12 @@ final class SSHConnection: @unchecked Sendable {
             transition(to: .disconnected)
         }
 
-        DispatchQueue.main.async { self.onClose?() }
+        onClose?()
     }
 
     private func transition(to newState: State) {
         guard state != newState else { return }
         state = newState
-        DispatchQueue.main.async { self.onStateChange?(newState) }
+        onStateChange?(newState)
     }
 }

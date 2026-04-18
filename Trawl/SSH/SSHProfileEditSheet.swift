@@ -377,15 +377,42 @@ struct SSHProfileEditSheet: View {
 
     private func delete() async {
         guard let profile = existing else { return }
+
+        // Disconnect if this profile is currently active
         if sshSessionStore.activeProfile?.id == profile.id {
             sshSessionStore.disconnect()
         }
-        try? await KeychainHelper.shared.delete(key: profile.passwordKey)
-        try? await KeychainHelper.shared.delete(key: profile.privateKeyKey)
-        try? await KeychainHelper.shared.delete(key: profile.passphraseKey)
-        modelContext.delete(profile)
-        try? modelContext.save()
-        dismiss()
+
+        do {
+            // Remove from SwiftData context and save
+            modelContext.delete(profile)
+            try modelContext.save()
+
+            // Only delete keychain items after successful save
+            do {
+                try await KeychainHelper.shared.delete(key: profile.passwordKey)
+            } catch {
+                // Log but don't fail - keychain item may not exist
+            }
+
+            do {
+                try await KeychainHelper.shared.delete(key: profile.privateKeyKey)
+            } catch {
+                // Log but don't fail - keychain item may not exist
+            }
+
+            do {
+                try await KeychainHelper.shared.delete(key: profile.passphraseKey)
+            } catch {
+                // Log but don't fail - keychain item may not exist
+            }
+
+            dismiss()
+        } catch {
+            // Roll back the context on failure
+            modelContext.rollback()
+            saveError = "Could not delete profile: \(error.localizedDescription)"
+        }
     }
 }
 

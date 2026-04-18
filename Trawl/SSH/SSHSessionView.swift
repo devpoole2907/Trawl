@@ -76,6 +76,8 @@ final class SSHSessionStore {
 
     func prepareSession(for profile: SSHProfile) {
         if activeProfile?.id != profile.id {
+            // Resume any pending fingerprint continuation before switching
+            confirmFingerprint(accepted: false)
             connection.disconnect()
             titleOverride = nil
             wantsKeyboard = false
@@ -103,6 +105,8 @@ final class SSHSessionStore {
 
     func reconnect(modelContext: ModelContext) async {
         guard let activeProfile else { return }
+        // Resume any pending fingerprint continuation before reconnecting
+        confirmFingerprint(accepted: false)
         connection.disconnect()
         titleOverride = nil
         wantsKeyboard = false
@@ -119,6 +123,8 @@ final class SSHSessionStore {
     }
 
     func disconnect() {
+        // Resume any pending fingerprint continuation before disconnecting
+        confirmFingerprint(accepted: false)
         bridge.hideKeyboard()
         connection.disconnect()
         activeProfile = nil
@@ -128,6 +134,11 @@ final class SSHSessionStore {
     }
 
     func presentFingerprintConfirmation(_ fingerprint: String) async -> Bool {
+        // If a continuation already exists, resume it with false before creating a new one
+        if fingerprintContinuation != nil {
+            confirmFingerprint(accepted: false)
+        }
+
         pendingFingerprint = fingerprint
         return await withCheckedContinuation { continuation in
             self.fingerprintContinuation = continuation
@@ -169,6 +180,8 @@ final class SSHSessionStore {
             syncLiveActivity()
         } catch {
             guard activeProfile?.id == profile.id else { return }
+            // Mark connection as failed with the error message
+            connection.markFailed(error.localizedDescription)
             syncLiveActivity()
         }
     }

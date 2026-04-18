@@ -166,7 +166,9 @@ final class SonarrViewModel {
     func toggleSeriesMonitored(_ series: SonarrSeries) async {
         guard let client else { return }
         let newMonitored = !(series.monitored ?? true)
-        let updatedSeries = series.updatingForEdit(
+
+        // Optimistic update — UI responds immediately
+        let optimisticSeries = series.updatingForEdit(
             monitored: newMonitored,
             qualityProfileId: series.qualityProfileId ?? qualityProfiles.first?.id ?? 0,
             seriesType: series.seriesType ?? "standard",
@@ -174,11 +176,34 @@ final class SonarrViewModel {
             rootFolderPath: series.rootFolderPath ?? rootFolders.first?.path ?? "",
             tags: series.tags ?? []
         )
-        // Optimistic update — UI responds immediately
         if let idx = self.series.firstIndex(where: { $0.id == series.id }) {
-            self.series[idx] = updatedSeries
+            self.series[idx] = optimisticSeries
         }
+
         do {
+            // Fetch canonical series from API to ensure we have all required fields
+            let canonicalSeries = try await client.getSeries(id: series.id)
+
+            // Verify canonical series has required fields
+            guard canonicalSeries.qualityProfileId != nil,
+                  canonicalSeries.rootFolderPath != nil,
+                  canonicalSeries.seriesType != nil,
+                  canonicalSeries.seasonFolder != nil else {
+                // Missing required fields, revert optimistic update
+                await loadSeries()
+                return
+            }
+
+            // Merge only the monitored flag into the canonical object
+            let updatedSeries = canonicalSeries.updatingForEdit(
+                monitored: newMonitored,
+                qualityProfileId: canonicalSeries.qualityProfileId!,
+                seriesType: canonicalSeries.seriesType!,
+                seasonFolder: canonicalSeries.seasonFolder!,
+                rootFolderPath: canonicalSeries.rootFolderPath!,
+                tags: canonicalSeries.tags ?? []
+            )
+
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
