@@ -12,6 +12,9 @@ final class SSHSessionStore {
     let bridge = SSHTerminalBridge()
     private let liveActivityManager = SSHLiveActivityManager()
 
+    var pendingFingerprint: String?
+    private var fingerprintContinuation: CheckedContinuation<Bool, Never>?
+
     var sessionTitle: String {
         titleOverride ?? activeProfile?.displayName ?? "SSH"
     }
@@ -124,15 +127,32 @@ final class SSHSessionStore {
         syncLiveActivity()
     }
 
+    func presentFingerprintConfirmation(_ fingerprint: String) async -> Bool {
+        pendingFingerprint = fingerprint
+        return await withCheckedContinuation { continuation in
+            self.fingerprintContinuation = continuation
+        }
+    }
+
+    func confirmFingerprint(accepted: Bool) {
+        fingerprintContinuation?.resume(returning: accepted)
+        fingerprintContinuation = nil
+        pendingFingerprint = nil
+    }
+
     private func connect(to profile: SSHProfile, modelContext: ModelContext) async {
         activeProfile = profile
         titleOverride = nil
         wantsKeyboard = false
 
         connection.onNewFingerprint = { [weak self] fingerprint in
-            guard let self, self.activeProfile?.id == profile.id else { return }
-            profile.knownHostFingerprint = fingerprint
-            try? modelContext.save()
+            guard let self, self.activeProfile?.id == profile.id else { return false }
+            let accepted = await self.presentFingerprintConfirmation(fingerprint)
+            if accepted {
+                profile.knownHostFingerprint = fingerprint
+                try? modelContext.save()
+            }
+            return accepted
         }
 
         do {
@@ -212,6 +232,21 @@ struct SSHSessionView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Your current terminal session will be closed.")
+        }
+        .alert("New Host Fingerprint", isPresented: Binding(
+            get: { sshSessionStore.pendingFingerprint != nil },
+            set: { if !$0 { sshSessionStore.confirmFingerprint(accepted: false) } }
+        )) {
+            Button("Trust & Connect") {
+                sshSessionStore.confirmFingerprint(accepted: true)
+            }
+            Button("Cancel", role: .cancel) {
+                sshSessionStore.confirmFingerprint(accepted: false)
+            }
+        } message: {
+            if let fp = sshSessionStore.pendingFingerprint {
+                Text("The host is providing a fingerprint that hasn't been seen before:\n\n\(fp)\n\nDo you want to trust this host?")
+            }
         }
         .task(id: sshSessionStore.activeProfile?.id) {
             await sshSessionStore.connectIfNeeded(modelContext: modelContext)

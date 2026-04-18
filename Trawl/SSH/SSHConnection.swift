@@ -10,6 +10,7 @@ enum SSHConnectionError: LocalizedError, Sendable {
     case notConnected
     case disconnectedOrTeardown
     case hostKeyMismatch(expected: String, got: String)
+    case hostKeyUnverified
     case keyParseFailure
     case connectionFailed(String)
 
@@ -30,6 +31,8 @@ enum SSHConnectionError: LocalizedError, Sendable {
             Received : \(got)
             Remove the saved fingerprint in the profile settings to reconnect.
             """
+        case .hostKeyUnverified:
+            return "Host key was not trusted."
         case .keyParseFailure:
             return "Could not parse the private key."
         case .connectionFailed(let msg):
@@ -80,6 +83,20 @@ private final class SshSessionContext: @unchecked Sendable {
     init(connection: NWConnection, receiveBuffer: SshReceiveBuffer) {
         self.connection = connection
         self.receiveBuffer = receiveBuffer
+    }
+}
+
+private final class ContinuationResumeGate: @unchecked Sendable {
+    private let lock = NSLock()
+    nonisolated(unsafe) private var didResume = false
+
+    nonisolated
+    func tryResume() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !didResume else { return false }
+        didResume = true
+        return true
     }
 }
 
@@ -373,13 +390,15 @@ final class SSHConnection: @unchecked Sendable {
 
     var onOutput: (([UInt8]) -> Void)?
     var onClose: (() -> Void)?
-    var onNewFingerprint: ((String) -> Void)?
+    var onNewFingerprint: ((String) async -> Bool)?
     var onStateChange: ((State) -> Void)?
 
     private let sshActor = SshSessionActor()
     private var nwConnection: NWConnection?
     private let receiveBuffer = SshReceiveBuffer()
     private var readLoopTask: Task<Void, Never>?
+    private let transportCloseLock = NSLock()
+    private var isHandlingTransportClose = false
 
     // MARK: Connect
 
@@ -390,6 +409,7 @@ final class SSHConnection: @unchecked Sendable {
         auth: SSHAuth,
         knownFingerprint: String?
     ) async throws {
+        resetTransportCloseGuard()
         transition(to: .connecting)
 
         let endpoint = NWEndpoint.hostPort(
@@ -402,14 +422,30 @@ final class SSHConnection: @unchecked Sendable {
         do {
             // Wait for the TCP connection to be ready
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
+                let resumeGate = ContinuationResumeGate()
+
+                @Sendable func resumeOnce(with result: Result<Void, Error>) {
+                    guard resumeGate.tryResume() else {
+                        return
+                    }
+                    conn.stateUpdateHandler = nil
+
+                    switch result {
+                    case .success:
+                        cont.resume()
+                    case .failure(let error):
+                        cont.resume(throwing: error)
+                    }
+                }
+
                 conn.stateUpdateHandler = { newState in
                     switch newState {
                     case .ready:
-                        cont.resume()
+                        resumeOnce(with: .success(()))
                     case .failed(let err):
-                        cont.resume(throwing: SSHConnectionError.connectionFailed(err.localizedDescription))
+                        resumeOnce(with: .failure(SSHConnectionError.connectionFailed(err.localizedDescription)))
                     case .cancelled:
-                        cont.resume(throwing: SSHConnectionError.connectionFailed("Cancelled"))
+                        resumeOnce(with: .failure(SSHConnectionError.connectionFailed("Cancelled")))
                     default:
                         break
                     }
@@ -441,8 +477,10 @@ final class SSHConnection: @unchecked Sendable {
                     throw SSHConnectionError.hostKeyMismatch(expected: expected, got: fp)
                 }
             } else {
-                let captured = fp
-                DispatchQueue.main.async { self.onNewFingerprint?(captured) }
+                let accepted = await onNewFingerprint?(fp) ?? false
+                if !accepted {
+                    throw SSHConnectionError.hostKeyUnverified
+                }
             }
 
             // Authenticate
@@ -498,7 +536,8 @@ final class SSHConnection: @unchecked Sendable {
                     Task { await self.sshActor.pingTasks() }
                 }
                 if isComplete || error != nil {
-                    self.handleConnectionClose()
+                    let message = error?.localizedDescription ?? (isComplete ? "Connection closed" : nil)
+                    Task { await self.handleTransportClosed(error: message) }
                     return
                 }
                 scheduleReceive()
@@ -517,22 +556,14 @@ final class SSHConnection: @unchecked Sendable {
                     if let bytes = try await self.sshActor.readChannel(), !bytes.isEmpty {
                         DispatchQueue.main.async { self.onOutput?(bytes) }
                     } else if await self.sshActor.isChannelClosed {
-                        await MainActor.run {
-                            self.handleConnectionClose()
-                        }
+                        await self.handleTransportClosed(error: nil)
                         return
                     } else {
                         // Brief pause to avoid busy-spinning when no data is ready
                         try? await Task.sleep(nanoseconds: 10_000_000)
                     }
                 } catch {
-                    await self.sshActor.teardown()
-                    await MainActor.run {
-                        self.nwConnection?.cancel()
-                        self.nwConnection = nil
-                        self.transition(to: .failed(error.localizedDescription))
-                        self.onClose?()
-                    }
+                    await self.handleTransportClosed(error: error.localizedDescription)
                     return
                 }
             }
@@ -540,8 +571,42 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     private func handleConnectionClose() {
-        guard state == .connected else { return }
-        transition(to: .disconnected)
+        Task { await handleTransportClosed(error: nil) }
+    }
+
+    private func shouldHandleTransportClose() -> Bool {
+        transportCloseLock.lock()
+        defer { transportCloseLock.unlock() }
+        guard !isHandlingTransportClose else { return false }
+        isHandlingTransportClose = true
+        return true
+    }
+
+    private func resetTransportCloseGuard() {
+        transportCloseLock.lock()
+        isHandlingTransportClose = false
+        transportCloseLock.unlock()
+    }
+
+    private func handleTransportClosed(error: String?) async {
+        guard shouldHandleTransportClose() else { return }
+
+        readLoopTask?.cancel()
+        readLoopTask = nil
+
+        let wasConnected = state == .connected
+        let failureMessage = error ?? (wasConnected ? nil : "Connection closed")
+
+        nwConnection?.cancel()
+        nwConnection = nil
+        await sshActor.teardown()
+
+        if let failureMessage {
+            transition(to: .failed(failureMessage))
+        } else {
+            transition(to: .disconnected)
+        }
+
         DispatchQueue.main.async { self.onClose?() }
     }
 
