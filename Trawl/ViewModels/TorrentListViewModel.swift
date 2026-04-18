@@ -12,6 +12,10 @@ final class TorrentListViewModel {
     private(set) var filteredTorrents: [Torrent] = []
     private(set) var filterCounts: [TorrentFilter: Int] = [:]
 
+    // MARK: - Selection
+    var isSelecting: Bool = false
+    var selectedHashes: Set<String> = []
+
     private let syncService: SyncService
     private let torrentService: TorrentService
     private var filterTask: Task<Void, Never>?
@@ -28,22 +32,113 @@ final class TorrentListViewModel {
     var isPolling: Bool { syncService.isPolling }
     var syncError: QBError? { syncService.lastError }
     var categories: [String] { syncService.sortedCategoryNames }
+    var isAlternativeSpeedEnabled: Bool = false
+
+    // MARK: - Selection Actions
+
+    func toggleSelection(_ torrent: Torrent) {
+        if selectedHashes.contains(torrent.hash) {
+            selectedHashes.remove(torrent.hash)
+        } else {
+            selectedHashes.insert(torrent.hash)
+        }
+    }
+
+    func selectAll() {
+        selectedHashes = Set(filteredTorrents.map(\.hash))
+    }
+
+    func clearSelection() {
+        selectedHashes = []
+        isSelecting = false
+    }
+
+    func pauseSelected() async {
+        let hashes = Array(selectedHashes)
+        do {
+            try await torrentService.pauseTorrents(hashes: hashes)
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(title: "Couldn't Pause Torrents", message: error.localizedDescription)
+        }
+        clearSelection()
+    }
+
+    func resumeSelected() async {
+        let hashes = Array(selectedHashes)
+        do {
+            try await torrentService.resumeTorrents(hashes: hashes)
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(title: "Couldn't Resume Torrents", message: error.localizedDescription)
+        }
+        clearSelection()
+    }
+
+    func recheckSelected() async {
+        let hashes = Array(selectedHashes)
+        do {
+            try await torrentService.recheckTorrents(hashes: hashes)
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(title: "Couldn't Recheck Torrents", message: error.localizedDescription)
+        }
+        clearSelection()
+    }
+
+    func deleteSelected(deleteFiles: Bool) async {
+        let hashes = Array(selectedHashes)
+        do {
+            try await torrentService.deleteTorrents(hashes: hashes, deleteFiles: deleteFiles)
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: deleteFiles ? "Couldn't Delete Torrents and Files" : "Couldn't Delete Torrents",
+                message: error.localizedDescription
+            )
+        }
+        clearSelection()
+    }
 
     // MARK: - Sync
 
     func startSync() {
-        syncService.startPolling()
         scheduleFilterUpdate()
         registerObservation()
     }
 
     func stopSync() {
-        syncService.stopPolling()
         filterTask?.cancel()
     }
 
     func refresh() async {
         await syncService.refreshNow()
+    }
+
+    func loadAlternativeSpeedMode() async {
+        do {
+            isAlternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Load Speed Mode",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func toggleAlternativeSpeed() async {
+        do {
+            try await torrentService.toggleAlternativeSpeed()
+            isAlternativeSpeedEnabled.toggle()
+            await syncService.refreshNow()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Toggle Alternative Speed",
+                message: error.localizedDescription
+            )
+        }
     }
 
     // MARK: - Observation

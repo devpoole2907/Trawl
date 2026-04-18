@@ -22,6 +22,9 @@ struct SearchView: View {
     @State private var radarrLookupVM: RadarrViewModel?
     @State private var arrFilter: ArrResultKind = .all
     @State private var hasSearchedArr = false
+    @State private var arrLookupTask: Task<Void, Never>?
+    @State private var activeArrLookupTerm = ""
+    @State private var lastCompletedArrLookupTerm = ""
 
     // TMDb trending
     @AppStorage("tmdb.apiKey") private var tmdbAPIKey: String = ""
@@ -109,12 +112,23 @@ struct SearchView: View {
         .onSubmit(of: .search) {
             recordRecent(searchText)
             if scope == .arr {
-                Task { await performArrLookup() }
+                startArrLookup(immediate: true)
             }
         }
         .onChange(of: scope) { _, newScope in
-            if newScope == .arr && !searchText.isEmpty && !hasSearchedArr {
-                Task { await performArrLookup() }
+            if newScope == .arr {
+                startArrLookup(immediate: true)
+            } else {
+                arrLookupTask?.cancel()
+            }
+        }
+        .onChange(of: searchText) { _, newValue in
+            guard scope == .arr else { return }
+            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.isEmpty {
+                resetArrLookup()
+            } else {
+                startArrLookup()
             }
         }
         .task {
@@ -179,7 +193,7 @@ struct SearchView: View {
                         Button {
                             searchText = term
                             if scope == .arr {
-                                Task { await performArrLookup() }
+                                startArrLookup(immediate: true)
                             }
                         } label: {
                             HStack(spacing: 12) {
@@ -320,7 +334,7 @@ struct SearchView: View {
                 }
                 isSearchPresented = true
                 scope = .arr
-                Task { await performArrLookup() }
+                startArrLookup(immediate: true)
             } label: {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
             }
@@ -556,7 +570,7 @@ struct SearchView: View {
         VStack(spacing: 0) {
             arrFilterPills(series: seriesResults.count, movies: movieResults.count)
 
-            if isSearching {
+            if totalCount == 0 && isSearching {
                 Spacer()
                 ProgressView("Searching…")
                 Spacer()
@@ -579,6 +593,20 @@ struct SearchView: View {
                 }
             } else {
                 List {
+                    if isSearching {
+                        Section {
+                            HStack(spacing: 10) {
+                                ProgressView()
+                                    .controlSize(.small)
+                                Text("Updating results as Sonarr and Radarr respond…")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .listRowBackground(Color.clear)
+                    }
+
                     if !lookupErrors.isEmpty {
                         Section {
                             lookupErrorsCard(lookupErrors)
@@ -823,18 +851,63 @@ struct SearchView: View {
         }
     }
 
-    private func performArrLookup() async {
+    private func startArrLookup(immediate: Bool = false) {
         let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else { return }
-        hasSearchedArr = true
+        guard !term.isEmpty else {
+            resetArrLookup()
+            return
+        }
 
-        async let sonarrTask: Void = {
-            await sonarrLookupVM?.searchForNewSeries(term: term)
-        }()
-        async let radarrTask: Void = {
-            await radarrLookupVM?.searchForNewMovies(term: term)
-        }()
-        _ = await (sonarrTask, radarrTask)
+        let isCurrentlySearchingTerm = activeArrLookupTerm == term
+            && ((sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false))
+        if isCurrentlySearchingTerm || lastCompletedArrLookupTerm == term {
+            return
+        }
+
+        arrLookupTask?.cancel()
+        arrLookupTask = Task {
+            if !immediate {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            guard !Task.isCancelled else { return }
+            await performArrLookup(term: term)
+        }
+    }
+
+    private func performArrLookup(term: String) async {
+        hasSearchedArr = true
+        activeArrLookupTerm = term
+        sonarrLookupVM?.clearSearchResults()
+        radarrLookupVM?.clearSearchResults()
+
+        defer {
+            if activeArrLookupTerm == term {
+                activeArrLookupTerm = ""
+                lastCompletedArrLookupTerm = term
+            }
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            if let sonarrLookupVM {
+                group.addTask {
+                    await sonarrLookupVM.searchForNewSeries(term: term)
+                }
+            }
+            if let radarrLookupVM {
+                group.addTask {
+                    await radarrLookupVM.searchForNewMovies(term: term)
+                }
+            }
+        }
+    }
+
+    private func resetArrLookup() {
+        arrLookupTask?.cancel()
+        activeArrLookupTerm = ""
+        lastCompletedArrLookupTerm = ""
+        hasSearchedArr = false
+        sonarrLookupVM?.clearSearchResults()
+        radarrLookupVM?.clearSearchResults()
     }
 
 

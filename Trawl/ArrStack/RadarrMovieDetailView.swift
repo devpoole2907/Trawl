@@ -119,8 +119,10 @@ struct RadarrMovieDetailView: View {
             }
         }
         .task(id: resolvedLibraryId) {
-            if resolvedLibraryId != nil {
+            guard resolvedLibraryId != nil else { return }
+            while !Task.isCancelled {
                 await viewModel.loadQueue()
+                try? await Task.sleep(for: .seconds(2))
             }
         }
     }
@@ -414,18 +416,21 @@ struct RadarrMovieDetailView: View {
     }
 
     private func queueItemRow(_ item: ArrQueueItem) -> some View {
-        let linkedTorrent = item.downloadId.flatMap { syncService.torrents[$0] }
-        let percent = Int(item.progress * 100)
-        let downloadedBytes = item.size.map { total in
+        let linkedTorrent = linkedTorrent(for: item.downloadId)
+        let progress = linkedTorrent?.progress ?? item.progress
+        let percent = Int(progress * 100)
+        let downloadedBytes = linkedTorrent.map { max(0, $0.totalSize - $0.amountLeft) } ?? item.size.map { total in
             Int64(max(0, total - (item.sizeleft ?? total)))
         }
-        let totalBytes = item.size.map { Int64($0) }
-        let primaryStatus = item.trackedDownloadState ?? item.status ?? "queued"
+        let totalBytes = linkedTorrent.map(\.totalSize).flatMap { $0 > 0 ? $0 : nil } ?? item.size.map { Int64($0) }
+        let primaryStatus = linkedTorrent?.state.displayName ?? item.trackedDownloadState ?? item.status ?? "queued"
+        let title = linkedTorrent?.name ?? item.title ?? "Download"
+        let etaText = linkedTorrent.flatMap(formattedETA(for:)) ?? item.timeleft
 
         return VStack(alignment: .leading, spacing: 12) {
             HStack(alignment: .top, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(item.title ?? "Download")
+                    Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
                         .fixedSize(horizontal: false, vertical: true)
@@ -446,7 +451,7 @@ struct RadarrMovieDetailView: View {
                 }
             }
 
-            ProgressView(value: item.progress)
+            ProgressView(value: progress)
                 .tint(linkedTorrent == nil ? .orange : .blue)
 
             HStack(spacing: 12) {
@@ -455,9 +460,9 @@ struct RadarrMovieDetailView: View {
                     Text("·")
                     Text("\(ByteFormatter.format(bytes: downloadedBytes)) / \(ByteFormatter.format(bytes: totalBytes))")
                 }
-                if let timeleft = item.timeleft, !timeleft.isEmpty {
+                if let etaText, !etaText.isEmpty {
                     Text("·")
-                    Text("ETA \(timeleft)")
+                    Text("ETA \(etaText)")
                 }
             }
             .font(.caption)
@@ -472,7 +477,7 @@ struct RadarrMovieDetailView: View {
                             .foregroundStyle(.blue)
 
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Open In qBittorrent")
+                            Text("View Live Torrent")
                                 .font(.subheadline.weight(.semibold))
                                 .foregroundStyle(.white)
                             Text(torrent.state.displayName)
@@ -519,6 +524,26 @@ struct RadarrMovieDetailView: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
+        }
+    }
+
+    private func linkedTorrent(for downloadId: String?) -> Torrent? {
+        guard let downloadId, !downloadId.isEmpty else { return nil }
+        let normalized = downloadId.lowercased()
+        if let direct = syncService.torrents[downloadId] { return direct }
+        if let normalizedMatch = syncService.torrents[normalized] { return normalizedMatch }
+        return syncService.torrents.first { $0.key.caseInsensitiveCompare(downloadId) == .orderedSame }?.value
+    }
+
+    private func formattedETA(for torrent: Torrent) -> String? {
+        guard torrent.eta > 0, torrent.eta < 8_640_000 else { return nil }
+        let hours = torrent.eta / 3600
+        let minutes = (torrent.eta % 3600) / 60
+        let seconds = torrent.eta % 60
+        if hours > 0 {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            return String(format: "%02d:%02d", minutes, seconds)
         }
     }
 

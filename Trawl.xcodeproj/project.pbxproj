@@ -141,6 +141,8 @@
 				Views/OnboardingSheet.swift,
 				Views/QBittorrentCategoriesView.swift,
 				Views/SearchView.swift,
+				Views/ServerListView.swift,
+				Views/QBittorrentTagsView.swift,
 				Views/SettingsView.swift,
 				Views/TorrentDetailView.swift,
 				Views/TorrentListView.swift,

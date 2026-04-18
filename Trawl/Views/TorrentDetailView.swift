@@ -11,6 +11,9 @@ struct TorrentDetailView: View {
     @State private var renameText = ""
     @State private var showLocationAlert = false
     @State private var locationText = ""
+    @State private var showTagsSheet = false
+    @State private var selectedDownloadLimit: Int64 = 0
+    @State private var selectedUploadLimit: Int64 = 0
 
     let torrentHash: String
 
@@ -44,6 +47,10 @@ struct TorrentDetailView: View {
                 async let files: Void = vm.loadFiles()
                 async let trackers: Void = vm.loadTrackers()
                 _ = await (properties, files, trackers)
+                if let properties = vm.properties {
+                    selectedDownloadLimit = max(0, properties.dlLimit)
+                    selectedUploadLimit = max(0, properties.upLimit)
+                }
             }
         }
     }
@@ -52,8 +59,9 @@ struct TorrentDetailView: View {
     private func detailContent(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                headerSection(torrent: torrent)
+                headerSection(torrent: torrent, vm: vm)
                 infoSection(torrent: torrent, vm: vm)
+                speedLimitsSection(vm: vm)
                 navigationSection(vm: vm)
                 if let error = vm.error {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -105,12 +113,15 @@ struct TorrentDetailView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .sheet(isPresented: $showTagsSheet) {
+            TorrentTagsSheet(viewModel: vm)
+        }
     }
 
     // MARK: - Sections
 
     @ViewBuilder
-    private func headerSection(torrent: Torrent) -> some View {
+    private func headerSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(torrent.name)
                 .font(.headline)
@@ -129,6 +140,25 @@ struct TorrentDetailView: View {
 
             ProgressView(value: torrent.progress)
                 .tint(torrent.progress >= 1.0 ? .green : .blue)
+
+            if !vm.currentTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(vm.currentTags, id: \.self) { tag in
+                            DetailTagChip(title: tag)
+                        }
+                    }
+                }
+            } else if !vm.availableTags.isEmpty {
+                Button {
+                    showTagsSheet = true
+                } label: {
+                    Label("Add Tags", systemImage: "number")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.cyan)
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack {
                 Text("\(Int(torrent.progress * 100))% complete")
@@ -196,6 +226,46 @@ struct TorrentDetailView: View {
     }
 
     @ViewBuilder
+    private func speedLimitsSection(vm: TorrentDetailViewModel) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Speed Limits")
+                .font(.subheadline)
+                .bold()
+
+            if let properties = vm.properties {
+                Picker("Download Limit", selection: $selectedDownloadLimit) {
+                    ForEach(limitOptions(including: max(0, properties.dlLimit)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
+                    }
+                }
+
+                Button("Save Download Limit") {
+                    Task { await vm.setTorrentDownloadLimit(selectedDownloadLimit) }
+                }
+
+                Picker("Upload Limit", selection: $selectedUploadLimit) {
+                    ForEach(limitOptions(including: max(0, properties.upLimit)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
+                    }
+                }
+
+                Button("Save Upload Limit") {
+                    Task { await vm.setTorrentUploadLimit(selectedUploadLimit) }
+                }
+
+                Text("Use 0 to inherit the current global qBittorrent speed limit.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else {
+                ProgressView("Loading speed limits…")
+                    .font(.subheadline)
+            }
+        }
+        .padding()
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+    }
+
+    @ViewBuilder
     private func actionsMenu(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
         let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP
             || torrent.state == .stoppedDL || torrent.state == .stoppedUP
@@ -244,6 +314,12 @@ struct TorrentDetailView: View {
                 }
             } label: {
                 Label("Category", systemImage: "tag")
+            }
+
+            Button {
+                showTagsSheet = true
+            } label: {
+                Label("Tags", systemImage: "number")
             }
 
             Divider()
@@ -320,6 +396,32 @@ struct TorrentDetailView: View {
     private func normalizedCategory(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
+
+    private func limitOptions(including currentLimit: Int64) -> [Int64] {
+        let megabyte = Int64(1_048_576)
+        var options: [Int64] = [
+            0,
+            megabyte,
+            5 * megabyte,
+            10 * megabyte,
+            25 * megabyte,
+            50 * megabyte,
+            100 * megabyte
+        ]
+        if currentLimit > 0, !options.contains(currentLimit) {
+            options.append(currentLimit)
+            options.sort()
+        }
+        return options
+    }
+
+    private func torrentLimitLabel(_ limit: Int64, globalFallback: Int64?) -> String {
+        if limit == 0 {
+            let fallback = globalFallback ?? 0
+            return fallback == 0 ? "Use Global (Unlimited)" : "Use Global (\(ByteFormatter.formatSpeed(bytesPerSecond: fallback)))"
+        }
+        return ByteFormatter.formatSpeed(bytesPerSecond: limit)
+    }
 }
 
 // MARK: - Supporting Views
@@ -368,5 +470,71 @@ private struct DetailBadgeLabel: View {
             .padding(.vertical, 4)
             .background(.tertiary)
             .clipShape(Capsule())
+    }
+}
+
+private struct DetailTagChip: View {
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: "number")
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.cyan.opacity(0.12))
+            .foregroundStyle(.cyan)
+            .clipShape(Capsule())
+    }
+}
+
+private struct TorrentTagsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var viewModel: TorrentDetailViewModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if viewModel.availableTags.isEmpty {
+                    ContentUnavailableView(
+                        "No Tags",
+                        systemImage: "number",
+                        description: Text("Create tags in More before assigning them to this torrent.")
+                    )
+                    .listRowBackground(Color.clear)
+                } else {
+                    Section("Assigned Tags") {
+                        ForEach(viewModel.availableTags, id: \.self) { tag in
+                            Button {
+                                Task { await viewModel.toggleTag(tag) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: isSelected(tag) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isSelected(tag) ? .cyan : .secondary)
+                                    Text(tag)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Tags")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func isSelected(_ tag: String) -> Bool {
+        viewModel.currentTags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
     }
 }

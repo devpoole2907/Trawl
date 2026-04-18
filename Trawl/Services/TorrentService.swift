@@ -99,6 +99,36 @@ final class TorrentService {
         try await apiClient.removeCategories(names: names)
     }
 
+    func getTags() async throws -> [String] {
+        try await apiClient.getTags()
+    }
+
+    func createTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        try await apiClient.createTags(tags: filteredTags)
+    }
+
+    func deleteTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        try await apiClient.deleteTags(tags: filteredTags)
+    }
+
+    func addTorrentTags(hashes: [String], tags: [String]) async throws {
+        guard !hashes.isEmpty else { return }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        try await apiClient.addTorrentTags(hashes: hashes, tags: filteredTags)
+    }
+
+    func removeTorrentTags(hashes: [String], tags: [String]) async throws {
+        guard !hashes.isEmpty else { return }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        try await apiClient.removeTorrentTags(hashes: hashes, tags: filteredTags)
+    }
+
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
         try await apiClient.getTrackers(hash: hash)
     }
@@ -107,5 +137,39 @@ final class TorrentService {
 
     func getTransferInfo() async throws -> TransferInfo {
         try await apiClient.getTransferInfo()
+    }
+
+    func getGlobalDownloadLimit() async throws -> Int64 {
+        try await apiClient.getGlobalDownloadLimit()
+    }
+
+    func getGlobalUploadLimit() async throws -> Int64 {
+        try await apiClient.getGlobalUploadLimit()
+    }
+
+    func setGlobalDownloadLimit(limit: Int64) async throws {
+        try await apiClient.setGlobalDownloadLimit(limit: max(0, limit))
+    }
+
+    func setGlobalUploadLimit(limit: Int64) async throws {
+        try await apiClient.setGlobalUploadLimit(limit: max(0, limit))
+    }
+
+    func isAlternativeSpeedEnabled() async throws -> Bool {
+        try await apiClient.isAlternativeSpeedEnabled()
+    }
+
+    func toggleAlternativeSpeed() async throws {
+        try await apiClient.toggleAlternativeSpeed()
+    }
+
+    func setTorrentDownloadLimit(hashes: [String], limit: Int64) async throws {
+        guard !hashes.isEmpty else { return }
+        try await apiClient.setTorrentDownloadLimit(hashes: hashes, limit: max(0, limit))
+    }
+
+    func setTorrentUploadLimit(hashes: [String], limit: Int64) async throws {
+        guard !hashes.isEmpty else { return }
+        try await apiClient.setTorrentUploadLimit(hashes: hashes, limit: max(0, limit))
     }
 }

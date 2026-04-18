@@ -110,6 +110,19 @@ struct ContentView: View {
             }
             await arrServiceManager.initialize(from: arrProfiles)
         }
+        .onChange(of: activeServerID) { _, newValue in
+            appServices?.syncService.stopPolling()
+            if newValue == nil {
+                appServices = nil
+                connectionError = nil
+                isConnecting = false
+            } else {
+                initializeServices()
+            }
+        }
+        .onDisappear {
+            appServices?.syncService.stopPolling()
+        }
     }
 
     private var welcomeScreen: some View {
@@ -470,6 +483,10 @@ struct ContentView: View {
         servers.first(where: { $0.isActive }) ?? servers.first
     }
 
+    private var activeServerID: UUID? {
+        activeServer?.id
+    }
+
     private var sonarrProfile: ArrServiceProfile? {
         arrProfiles.first(where: { $0.resolvedServiceType == .sonarr })
     }
@@ -504,6 +521,7 @@ struct ContentView: View {
 
         Task {
             do {
+                let previousServices = appServices
                 let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
@@ -514,6 +532,9 @@ struct ContentView: View {
                 }
 
                 let services = try await AppServices.build(from: server, username: username, password: password)
+                previousServices?.syncService.stopPolling()
+                await services.syncService.refreshNow()
+                services.syncService.startPolling()
 
                 // Update last connected
                 server.lastConnected = .now

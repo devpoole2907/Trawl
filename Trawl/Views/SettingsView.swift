@@ -214,54 +214,48 @@ struct QBittorrentSettingsView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @State private var viewModel = SettingsViewModel()
-    @State private var showOnboarding = false
+    @State private var globalDownloadLimit: Int64 = 0
+    @State private var globalUploadLimit: Int64 = 0
+    @State private var alternativeSpeedEnabled = false
+    @State private var appPreferences: AppPreferences?
+    @State private var didLoadSpeedLimits = false
+    @State private var speedLimitErrorAlert: ErrorAlertItem?
 
     var body: some View {
         Form {
             Section {
-                if let server = viewModel.serverProfile {
+                NavigationLink {
+                    ServerListView()
+                        .environment(syncService)
+                } label: {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(server.displayName)
+                            Text("Servers")
                                 .font(.subheadline)
                                 .fontWeight(.medium)
-                            Text(server.hostURL)
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
+                            if let server = viewModel.serverProfile {
+                                Text(server.displayName)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("No qBittorrent servers configured")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Spacer()
-                        if syncService.isPolling {
-                            Label("Connected", systemImage: "circle.fill")
+                        if viewModel.serverProfile != nil {
+                            Label(syncService.isPolling ? "Connected" : "Disconnected", systemImage: syncService.isPolling ? "circle.fill" : "circle")
                                 .font(.caption)
-                                .foregroundStyle(.green)
-                                .labelStyle(.titleAndIcon)
-                        } else {
-                            Label("Disconnected", systemImage: "circle")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(syncService.isPolling ? .green : .secondary)
                                 .labelStyle(.titleAndIcon)
                         }
                     }
-                    if let lastConnected = server.lastConnected {
-                        LabeledContent("Last Connected") {
-                            Text(lastConnected.formatted(date: .abbreviated, time: .shortened))
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    Button("Edit Server", systemImage: "pencil") {
-                        showOnboarding = true
-                    }
-                } else {
-                    Button("Add qBittorrent Server", systemImage: "plus") {
-                        showOnboarding = true
-                    }
-                    .buttonStyle(.borderedProminent)
                 }
             } header: {
                 Text("Server")
             } footer: {
-                Text("Enter the full Web UI address including port. Example: http://192.168.1.100:8080")
+                Text("Manage multiple qBittorrent servers and switch the active one here.")
             }
 
             Section("Downloads") {
@@ -274,6 +268,54 @@ struct QBittorrentSettingsView: View {
                 }
                 .onChange(of: viewModel.pollingInterval) {
                     viewModel.updatePollingInterval()
+                }
+            }
+
+            Section {
+                LabeledContent("Current Download") {
+                    Text(formattedLimit(syncService.serverState?.dlRateLimit ?? globalDownloadLimit))
+                        .foregroundStyle(.secondary)
+                }
+
+                Picker("Download Limit", selection: $globalDownloadLimit) {
+                    ForEach(limitOptions(including: globalDownloadLimit), id: \.self) { limit in
+                        Text(formattedLimit(limit)).tag(limit)
+                    }
+                }
+                .onChange(of: globalDownloadLimit) {
+                    guard didLoadSpeedLimits else { return }
+                    Task { await updateGlobalDownloadLimit(globalDownloadLimit) }
+                }
+
+                LabeledContent("Current Upload") {
+                    Text(formattedLimit(syncService.serverState?.upRateLimit ?? globalUploadLimit))
+                        .foregroundStyle(.secondary)
+                }
+
+                Picker("Upload Limit", selection: $globalUploadLimit) {
+                    ForEach(limitOptions(including: globalUploadLimit), id: \.self) { limit in
+                        Text(formattedLimit(limit)).tag(limit)
+                    }
+                }
+                .onChange(of: globalUploadLimit) {
+                    guard didLoadSpeedLimits else { return }
+                    Task { await updateGlobalUploadLimit(globalUploadLimit) }
+                }
+
+                Toggle("Alternative Speed Mode", isOn: $alternativeSpeedEnabled)
+                    .onChange(of: alternativeSpeedEnabled) {
+                        guard didLoadSpeedLimits else { return }
+                        Task { await updateAlternativeSpeedMode(alternativeSpeedEnabled) }
+                    }
+            } header: {
+                Text("Speed Limits")
+            } footer: {
+                if let appPreferences {
+                    let down = formattedLimit(appPreferences.altDownloadLimit ?? 0)
+                    let up = formattedLimit(appPreferences.altUploadLimit ?? 0)
+                    Text("Alternative mode uses \(down) down and \(up) up.")
+                } else {
+                    Text("Set global download and upload caps, or toggle qBittorrent's alternative speed mode.")
                 }
             }
 
@@ -304,15 +346,105 @@ struct QBittorrentSettingsView: View {
         .frame(maxWidth: 720, maxHeight: .infinity, alignment: .top)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingSheet(serverProfile: viewModel.serverProfile, onComplete: {
-                Task { await viewModel.loadSettings(modelContext: modelContext) }
-            })
-        }
         .task {
             viewModel.configure(torrentService: torrentService, syncService: syncService)
             await viewModel.loadSettings(modelContext: modelContext)
+            await loadSpeedLimitSettings()
         }
+        .alert(item: $speedLimitErrorAlert) { alert in
+            Alert(
+                title: Text(alert.title),
+                message: Text(alert.message),
+                dismissButton: .default(Text("OK"))
+            )
+        }
+    }
+
+    private func loadSpeedLimitSettings() async {
+        do {
+            async let downloadLimit = torrentService.getGlobalDownloadLimit()
+            async let uploadLimit = torrentService.getGlobalUploadLimit()
+            async let altMode = torrentService.isAlternativeSpeedEnabled()
+            async let preferences = torrentService.getPreferences()
+
+            globalDownloadLimit = try await downloadLimit
+            globalUploadLimit = try await uploadLimit
+            alternativeSpeedEnabled = try await altMode
+            appPreferences = try await preferences
+            didLoadSpeedLimits = true
+            speedLimitErrorAlert = nil
+        } catch {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Couldn't Load Speed Limits",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func updateGlobalDownloadLimit(_ limit: Int64) async {
+        do {
+            try await torrentService.setGlobalDownloadLimit(limit: limit)
+            await syncService.refreshNow()
+            speedLimitErrorAlert = nil
+        } catch {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Couldn't Set Download Limit",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func updateGlobalUploadLimit(_ limit: Int64) async {
+        do {
+            try await torrentService.setGlobalUploadLimit(limit: limit)
+            await syncService.refreshNow()
+            speedLimitErrorAlert = nil
+        } catch {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Couldn't Set Upload Limit",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func updateAlternativeSpeedMode(_ enabled: Bool) async {
+        do {
+            let currentValue = try await torrentService.isAlternativeSpeedEnabled()
+            if currentValue != enabled {
+                try await torrentService.toggleAlternativeSpeed()
+            }
+            alternativeSpeedEnabled = enabled
+            await syncService.refreshNow()
+            speedLimitErrorAlert = nil
+        } catch {
+            alternativeSpeedEnabled.toggle()
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Couldn't Toggle Alternative Speed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func limitOptions(including currentLimit: Int64) -> [Int64] {
+        let megabyte = Int64(1_048_576)
+        var options: [Int64] = [
+            0,
+            megabyte,
+            5 * megabyte,
+            10 * megabyte,
+            25 * megabyte,
+            50 * megabyte,
+            100 * megabyte
+        ]
+        if currentLimit > 0, !options.contains(currentLimit) {
+            options.append(currentLimit)
+            options.sort()
+        }
+        return options
+    }
+
+    private func formattedLimit(_ limit: Int64) -> String {
+        limit == 0 ? "Unlimited" : ByteFormatter.formatSpeed(bytesPerSecond: limit)
     }
 }
 

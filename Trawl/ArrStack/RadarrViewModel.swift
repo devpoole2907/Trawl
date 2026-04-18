@@ -170,13 +170,25 @@ final class RadarrViewModel {
             return
         }
         isSearching = true
+        searchResults = []
         error = nil
+        defer { isSearching = false }
         do {
-            searchResults = try await client.lookupMovie(term: term)
+            let results = try await client.lookupMovie(term: term)
+            guard !Task.isCancelled else { return }
+            searchResults = results
+        } catch is CancellationError {
+            return
         } catch {
+            guard !Task.isCancelled else { return }
             self.error = error.localizedDescription
             searchResults = []
         }
+    }
+
+    func clearSearchResults() {
+        searchResults = []
+        error = nil
         isSearching = false
     }
 

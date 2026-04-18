@@ -3,10 +3,12 @@ import SwiftUI
 enum MoreDestination: Hashable {
     case activity
     case categories
+    case tags
     case diskSpace
     case health
     case history
     case wanted
+    case serverList
     case ssh
     case sshSession
     case settings
@@ -52,6 +54,11 @@ struct MoreView: View {
                                 title: "Categories", subtitle: "Create and remove qBittorrent categories")
                     }
 
+                    NavigationLink(value: MoreDestination.tags) {
+                        moreRow(icon: "number", color: .cyan,
+                                title: "Tags", subtitle: "Create and manage qBittorrent tags")
+                    }
+
                     NavigationLink(value: MoreDestination.ssh) {
                         sshRow
                     }
@@ -87,6 +94,8 @@ struct MoreView: View {
                     ArrActivityView()
                 case .categories:
                     qbittorrentCategoriesDestination
+                case .tags:
+                    qbittorrentTagsDestination
                 case .diskSpace:
                     ArrDiskSpaceView()
                         .environment(arrServiceManager)
@@ -100,6 +109,8 @@ struct MoreView: View {
                 case .wanted:
                     ArrWantedView()
                         .environment(arrServiceManager)
+                case .serverList:
+                    qbittorrentServerListDestination
                 case .ssh:
                     SSHProfileListView { profile in
                         selectSSHProfile(profile)
@@ -207,6 +218,35 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
             } description: {
                 Text("Add a qBittorrent server in Settings before managing categories.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var qbittorrentTagsDestination: some View {
+        if let services = appServices {
+            QBittorrentTagsView()
+                .environment(services.syncService)
+                .environment(services.torrentService)
+        } else {
+            ContentUnavailableView {
+                Label("qBittorrent Not Set Up", systemImage: "number")
+            } description: {
+                Text("Add a qBittorrent server before managing tags.")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var qbittorrentServerListDestination: some View {
+        if let services = appServices {
+            ServerListView()
+                .environment(services.syncService)
+        } else {
+            ContentUnavailableView {
+                Label("qBittorrent Not Set Up", systemImage: "server.rack")
+            } description: {
+                Text("Add a qBittorrent server before managing server switching.")
             }
         }
     }

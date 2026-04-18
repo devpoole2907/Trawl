@@ -129,12 +129,16 @@ struct AppPreferences: Codable, Sendable {
     let maxRatio: Double?
     let maxSeedingTime: Int?
     let webUiPort: Int?
+    let altDownloadLimit: Int64?
+    let altUploadLimit: Int64?
 
     enum CodingKeys: String, CodingKey {
         case savePath = "save_path"
         case maxRatio = "max_ratio"
         case maxSeedingTime = "max_seeding_time"
         case webUiPort = "web_ui_port"
+        case altDownloadLimit = "alt_dl_limit"
+        case altUploadLimit = "alt_up_limit"
     }
 
     nonisolated init(from decoder: any Decoder) throws {
@@ -143,6 +147,8 @@ struct AppPreferences: Codable, Sendable {
         maxRatio = try c.decodeIfPresent(Double.self, forKey: .maxRatio)
         maxSeedingTime = try c.decodeIfPresent(Int.self, forKey: .maxSeedingTime)
         webUiPort = try c.decodeIfPresent(Int.self, forKey: .webUiPort)
+        altDownloadLimit = try c.decodeIfPresent(Int64.self, forKey: .altDownloadLimit)
+        altUploadLimit = try c.decodeIfPresent(Int64.self, forKey: .altUploadLimit)
     }
 }
 

@@ -224,6 +224,60 @@ actor QBittorrentAPIClient {
         _ = try await performRequest(request)
     }
 
+    func getTags() async throws -> [String] {
+        let request = try buildRequest(path: "/api/v2/torrents/tags")
+        let (data, _) = try await performRequest(request)
+        return try decode([String].self, from: data)
+    }
+
+    func createTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/createTags",
+            params: ["tags": filteredTags.joined(separator: ",")]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func deleteTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/deleteTags",
+            params: ["tags": filteredTags.joined(separator: ",")]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func addTorrentTags(hashes: [String], tags: [String]) async throws {
+        let filteredHashes = hashes.filter { !$0.isEmpty }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredHashes.isEmpty, !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/addTags",
+            params: [
+                "hashes": filteredHashes.joined(separator: "|"),
+                "tags": filteredTags.joined(separator: ",")
+            ]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func removeTorrentTags(hashes: [String], tags: [String]) async throws {
+        let filteredHashes = hashes.filter { !$0.isEmpty }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredHashes.isEmpty, !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/removeTags",
+            params: [
+                "hashes": filteredHashes.joined(separator: "|"),
+                "tags": filteredTags.joined(separator: ",")
+            ]
+        )
+        _ = try await performRequest(request)
+    }
+
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
         let request = try buildRequest(path: "/api/v2/torrents/trackers", queryItems: [.init(name: "hash", value: hash)])
         let (data, _) = try await performRequest(request)
@@ -236,6 +290,67 @@ actor QBittorrentAPIClient {
         let request = try buildRequest(path: "/api/v2/transfer/info")
         let (data, _) = try await performRequest(request)
         return try decode(TransferInfo.self, from: data)
+    }
+
+    func getGlobalDownloadLimit() async throws -> Int64 {
+        let request = try buildRequest(path: "/api/v2/transfer/downloadLimit")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data)
+    }
+
+    func getGlobalUploadLimit() async throws -> Int64 {
+        let request = try buildRequest(path: "/api/v2/transfer/uploadLimit")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data)
+    }
+
+    func setGlobalDownloadLimit(limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/transfer/setDownloadLimit",
+            params: ["limit": String(limit)]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func setGlobalUploadLimit(limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/transfer/setUploadLimit",
+            params: ["limit": String(limit)]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func isAlternativeSpeedEnabled() async throws -> Bool {
+        let request = try buildRequest(path: "/api/v2/transfer/speedLimitsMode")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data) == 1
+    }
+
+    func toggleAlternativeSpeed() async throws {
+        let request = try buildRequest(path: "/api/v2/transfer/toggleSpeedLimitsMode", method: "POST")
+        _ = try await performRequest(request)
+    }
+
+    func setTorrentDownloadLimit(hashes: [String], limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/setDownloadLimit",
+            params: [
+                "hashes": hashes.joined(separator: "|"),
+                "limit": String(limit)
+            ]
+        )
+        _ = try await performRequest(request)
+    }
+
+    func setTorrentUploadLimit(hashes: [String], limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/setUploadLimit",
+            params: [
+                "hashes": hashes.joined(separator: "|"),
+                "limit": String(limit)
+            ]
+        )
+        _ = try await performRequest(request)
     }
 
     // MARK: - Sync
@@ -326,6 +441,15 @@ actor QBittorrentAPIClient {
         } catch {
             throw QBError.decodingError(error)
         }
+    }
+
+    private func decodeNumericResponse(_ data: Data) throws -> Int64 {
+        guard let stringValue = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let value = Int64(stringValue) else {
+            throw QBError.invalidResponse
+        }
+        return value
     }
 }
 

@@ -31,7 +31,7 @@ enum TorrentState: String, Codable, CaseIterable {
     }
 
     /// Human-readable display name
-    var displayName: String {
+    nonisolated var displayName: String {
         switch self {
         case .error: "Error"
         case .missingFiles: "Missing Files"
@@ -58,7 +58,7 @@ enum TorrentState: String, Codable, CaseIterable {
     }
 
     /// Semantic color for UI badges
-    var color: Color {
+    nonisolated var color: Color {
         switch self {
         case .downloading, .forcedDL, .metaDL: .blue
         case .uploading, .forcedUP: .green
@@ -73,7 +73,7 @@ enum TorrentState: String, Codable, CaseIterable {
     }
 
     /// Filter category mapping
-    var filterCategory: TorrentFilter {
+    nonisolated var filterCategory: TorrentFilter {
         switch self {
         case .downloading, .forcedDL, .metaDL, .stalledDL, .queuedDL, .checkingDL, .allocating:
             .downloading
@@ -89,7 +89,7 @@ enum TorrentState: String, Codable, CaseIterable {
     }
 
     /// Whether this torrent is fully downloaded (seeding-side states)
-    var isCompleted: Bool {
+    nonisolated var isCompleted: Bool {
         switch self {
         case .uploading, .pausedUP, .stoppedUP, .queuedUP, .stalledUP, .checkingUP, .forcedUP:
             true
@@ -99,7 +99,7 @@ enum TorrentState: String, Codable, CaseIterable {
     }
 
     /// SF Symbol name for state representation
-    var systemImage: String {
+    nonisolated var systemImage: String {
         switch self {
         case .downloading, .forcedDL, .metaDL: "arrow.down.circle.fill"
         case .uploading, .forcedUP: "arrow.up.circle.fill"
