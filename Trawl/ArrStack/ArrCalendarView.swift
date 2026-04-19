@@ -12,8 +12,8 @@ final class ArrCalendarViewModel {
     fileprivate var loadedMonths: [YearMonth] = []
     fileprivate var eventsByDay: [Date: [CalendarEvent]] = [:]
     fileprivate var monthLoadErrors: [YearMonth: String] = [:]
-    fileprivate var sonarrSeries: [SonarrSeries] = []
-    fileprivate var radarrMovies: [RadarrMovie] = []
+    var sonarrSeries: [SonarrSeries] = []
+    var radarrMovies: [RadarrMovie] = []
     
     // State
     var isLoadingInitial = true
@@ -328,12 +328,12 @@ struct ArrCalendarView: View {
             await serviceManager.calendarViewModel.initialize()
             await revealCalendarIfNeeded(forceScrollToToday: !didInitialScroll)
         }
-        .navigationDestination(for: CalendarSeriesDestination.self) { dest in
-            SonarrSeriesDetailView(seriesId: dest.id, viewModel: SonarrViewModel(serviceManager: serviceManager, preloadedSeries: serviceManager.calendarViewModel!.sonarrSeries))
+        .navigationDestination(for: Int.self) { seriesId in
+            SonarrSeriesDetailView(seriesId: seriesId, viewModel: SonarrViewModel(serviceManager: serviceManager, preloadedSeries: serviceManager.calendarViewModel!.sonarrSeries))
                 .environment(syncService)
         }
-        .navigationDestination(for: CalendarMovieDestination.self) { dest in
-            RadarrMovieDetailView(movieId: dest.id, viewModel: RadarrViewModel(serviceManager: serviceManager, preloadedMovies: serviceManager.calendarViewModel!.radarrMovies))
+        .navigationDestination(for: Int64.self) { movieId in
+            RadarrMovieDetailView(movieId: Int(movieId), viewModel: RadarrViewModel(serviceManager: serviceManager, preloadedMovies: serviceManager.calendarViewModel!.radarrMovies))
                 .environment(syncService)
         }
     }
@@ -601,7 +601,7 @@ private func calendarEventLink(for event: CalendarEvent) -> some View {
     switch event {
     case .episode(let episode, _, _):
         if let seriesID = episode.seriesId {
-            NavigationLink(value: CalendarSeriesDestination(id: seriesID)) {
+            NavigationLink(value: seriesID) {
                 EventRow(event: event)
             }
             .buttonStyle(.plain)
@@ -609,7 +609,7 @@ private func calendarEventLink(for event: CalendarEvent) -> some View {
             EventRow(event: event)
         }
     case .movie(let movie, _, _):
-        NavigationLink(value: CalendarMovieDestination(id: movie.id)) {
+        NavigationLink(value: Int64(movie.id)) {
             EventRow(event: event)
         }
         .buttonStyle(.plain)
@@ -697,9 +697,6 @@ fileprivate enum CalendarEvent: Identifiable {
         }
     }
 }
-
-struct CalendarSeriesDestination: Hashable { let id: Int }
-struct CalendarMovieDestination: Hashable { let id: Int }
 
 fileprivate enum CalendarScope: CaseIterable {
     case all, series, movies
