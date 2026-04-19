@@ -229,11 +229,29 @@ private struct CalendarMonthLoadError: LocalizedError {
     }
 }
 
-// MARK: - Main View
+extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
+    init() {
+        self.init(
+            seriesNavigationValue: { $0 },
+            movieNavigationValue: { Int64($0) }
+        )
+    }
+}
 
-struct ArrCalendarView: View {
+struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    
+    let seriesNavigationValue: (Int) -> SeriesDest
+    let movieNavigationValue: (Int) -> MovieDest
+
+    init(
+        seriesNavigationValue: @escaping (Int) -> SeriesDest,
+        movieNavigationValue: @escaping (Int) -> MovieDest
+    ) {
+        self.seriesNavigationValue = seriesNavigationValue
+        self.movieNavigationValue = movieNavigationValue
+    }
     
     @State private var scope: CalendarScope = .all
     @State private var scrollView: ScrollViewProxy?
@@ -351,7 +369,8 @@ struct ArrCalendarView: View {
                         CalendarDayRow(
                             date: day,
                             events: filteredEvents(for: day),
-                            isToday: day == today
+                            isToday: day == today,
+                            eventLink: { calendarEventLink(for: $0) }
                         )
                         .id(day)
                     }
@@ -447,14 +466,35 @@ struct ArrCalendarView: View {
         }
         .ignoresSafeArea()
     }
+
+    @ViewBuilder
+    private func calendarEventLink(for event: CalendarEvent) -> some View {
+        switch event {
+        case .episode(let episode, _, _):
+            if let seriesID = episode.seriesId {
+                NavigationLink(value: seriesNavigationValue(seriesID)) {
+                    EventRow(event: event)
+                }
+                .buttonStyle(.plain)
+            } else {
+                EventRow(event: event)
+            }
+        case .movie(let movie, _, _):
+            NavigationLink(value: movieNavigationValue(movie.id)) {
+                EventRow(event: event)
+            }
+            .buttonStyle(.plain)
+        }
+    }
 }
 
 // MARK: - Supporting Subviews
 
-private struct CalendarDayRow: View {
+private struct CalendarDayRow<Link: View>: View {
     let date: Date
     let events: [CalendarEvent]
     let isToday: Bool
+    let eventLink: (CalendarEvent) -> Link
     
     private var isPast: Bool { date < Calendar.current.startOfDay(for: .now) }
     
@@ -488,7 +528,7 @@ private struct CalendarDayRow: View {
                         .frame(height: 50)
                 } else {
                     ForEach(events) { event in
-                        calendarEventLink(for: event)
+                        eventLink(event)
                         if event.id != events.last?.id {
                             Divider()
                         }
@@ -593,26 +633,6 @@ private struct EventRow: View {
             }
         }
         .padding(.vertical, 10)
-    }
-}
-
-@ViewBuilder
-private func calendarEventLink(for event: CalendarEvent) -> some View {
-    switch event {
-    case .episode(let episode, _, _):
-        if let seriesID = episode.seriesId {
-            NavigationLink(value: seriesID) {
-                EventRow(event: event)
-            }
-            .buttonStyle(.plain)
-        } else {
-            EventRow(event: event)
-        }
-    case .movie(let movie, _, _):
-        NavigationLink(value: Int64(movie.id)) {
-            EventRow(event: event)
-        }
-        .buttonStyle(.plain)
     }
 }
 

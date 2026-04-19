@@ -19,6 +19,8 @@ enum MoreDestination: Hashable {
     case transferStats
     case blocklist
     case calendar
+    case calendarSeries(id: Int)
+    case calendarMovie(id: Int)
 }
 
 struct MoreView: View {
@@ -178,21 +180,22 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendar:
-                    ArrCalendarView()
+                    ArrCalendarView(
+                        seriesNavigationValue: { MoreDestination.calendarSeries(id: $0) },
+                        movieNavigationValue: { MoreDestination.calendarMovie(id: $0) }
+                    )
                         .environment(arrServiceManager)
                         .injectSyncService(appServices)
                         .moreDestinationTitleStyle()
+                case .calendarSeries(let id):
+                    SonarrSeriesDetailView(seriesId: id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
+                        .injectSyncService(appServices)
+                        .moreDestinationTitleStyle()
+                case .calendarMovie(let id):
+                    RadarrMovieDetailView(movieId: id, viewModel: RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []))
+                        .injectSyncService(appServices)
+                        .moreDestinationTitleStyle()
                 }
-            }
-            .navigationDestination(for: Int.self) { id in
-                SonarrSeriesDetailView(seriesId: id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
-                    .injectSyncService(appServices)
-                    .moreDestinationTitleStyle()
-            }
-            .navigationDestination(for: Int64.self) { id in
-                RadarrMovieDetailView(movieId: Int(id), viewModel: RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []))
-                    .injectSyncService(appServices)
-                    .moreDestinationTitleStyle()
             }
         }
     }
