@@ -3,6 +3,7 @@ import Observation
 import SwiftData
 import UserNotifications
 
+@MainActor
 @Observable
 final class SettingsViewModel {
     var pollingInterval: Double = 2.0
@@ -11,11 +12,13 @@ final class SettingsViewModel {
     var serverProfile: ServerProfile?
     var appVersion: String?
     var qbVersion: String?
+    var artworkCacheSizeDescription = "Empty"
+    var isClearingArtworkCache = false
 
     private var torrentService: TorrentService?
     private var syncService: SyncService?
 
-    func configure(torrentService: TorrentService, syncService: SyncService) {
+    func configure(torrentService: TorrentService, syncService: SyncService, arrServiceManager: ArrServiceManager? = nil) {
         self.torrentService = torrentService
         self.syncService = syncService
         self.pollingInterval = syncService.pollingInterval
@@ -36,6 +39,7 @@ final class SettingsViewModel {
 
         // App version
         appVersion = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        await refreshArtworkCacheUsage()
     }
 
     func updatePollingInterval() {
@@ -60,4 +64,17 @@ final class SettingsViewModel {
         notificationPermissionGranted = settings.authorizationStatus == .authorized
         notificationsEnabled = notificationPermissionGranted
     }
+
+    func refreshArtworkCacheUsage() async {
+        let bytes = await ArtworkCache.shared.cacheSizeInBytes()
+        artworkCacheSizeDescription = bytes > 0 ? ByteFormatter.format(bytes: bytes) : "Empty"
+    }
+
+    func clearArtworkCache() async {
+        isClearingArtworkCache = true
+        await ArtworkCache.shared.clear()
+        await refreshArtworkCacheUsage()
+        isClearingArtworkCache = false
+    }
+
 }

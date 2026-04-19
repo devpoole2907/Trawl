@@ -120,8 +120,12 @@ struct ShareAddTorrentView: View {
                 let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
-                let authService = AuthService(serverProfileID: server.id)
-                let apiClient = QBittorrentAPIClient(baseURL: server.hostURL, authService: authService)
+                let authService = AuthService(serverProfileID: server.id, allowsUntrustedTLS: server.allowsUntrustedTLS)
+                let apiClient = QBittorrentAPIClient(
+                    baseURL: server.hostURL,
+                    authService: authService,
+                    allowsUntrustedTLS: server.allowsUntrustedTLS
+                )
                 try await apiClient.login(username: username, password: password)
 
                 let path = savePath.isEmpty ? nil : savePath
@@ -173,8 +177,12 @@ struct ShareAddTorrentView: View {
             let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
             let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
-            let authService = AuthService(serverProfileID: server.id)
-            let apiClient = QBittorrentAPIClient(baseURL: server.hostURL, authService: authService)
+            let authService = AuthService(serverProfileID: server.id, allowsUntrustedTLS: server.allowsUntrustedTLS)
+            let apiClient = QBittorrentAPIClient(
+                baseURL: server.hostURL,
+                authService: authService,
+                allowsUntrustedTLS: server.allowsUntrustedTLS
+            )
             try await apiClient.login(username: username, password: password)
 
             let cats = try await apiClient.getCategories()

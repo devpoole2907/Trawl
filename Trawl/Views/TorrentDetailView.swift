@@ -11,7 +11,9 @@ struct TorrentDetailView: View {
     @State private var renameText = ""
     @State private var showLocationAlert = false
     @State private var locationText = ""
-    @State private var showCategoryPicker = false
+    @State private var showTagsSheet = false
+    @State private var selectedDownloadLimit: Int64 = 0
+    @State private var selectedUploadLimit: Int64 = 0
 
     let torrentHash: String
 
@@ -45,6 +47,10 @@ struct TorrentDetailView: View {
                 async let files: Void = vm.loadFiles()
                 async let trackers: Void = vm.loadTrackers()
                 _ = await (properties, files, trackers)
+                if let properties = vm.properties {
+                    selectedDownloadLimit = max(0, properties.dlLimit)
+                    selectedUploadLimit = max(0, properties.upLimit)
+                }
             }
         }
     }
@@ -53,7 +59,7 @@ struct TorrentDetailView: View {
     private func detailContent(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                headerSection(torrent: torrent)
+                headerSection(torrent: torrent, vm: vm)
                 infoSection(torrent: torrent, vm: vm)
                 navigationSection(vm: vm)
                 if let error = vm.error {
@@ -62,8 +68,7 @@ struct TorrentDetailView: View {
                         .font(.subheadline)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding()
-                        .background(.thinMaterial)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
+                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
                 }
             }
             .padding()
@@ -107,12 +112,15 @@ struct TorrentDetailView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
+        .sheet(isPresented: $showTagsSheet) {
+            TorrentTagsSheet(viewModel: vm)
+        }
     }
 
     // MARK: - Sections
 
     @ViewBuilder
-    private func headerSection(torrent: Torrent) -> some View {
+    private func headerSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(torrent.name)
                 .font(.headline)
@@ -131,6 +139,25 @@ struct TorrentDetailView: View {
 
             ProgressView(value: torrent.progress)
                 .tint(torrent.progress >= 1.0 ? .green : .blue)
+
+            if !vm.currentTags.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(vm.currentTags, id: \.self) { tag in
+                            DetailTagChip(title: tag)
+                        }
+                    }
+                }
+            } else if !vm.availableTags.isEmpty {
+                Button {
+                    showTagsSheet = true
+                } label: {
+                    Label("Add Tags", systemImage: "number")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.cyan)
+                }
+                .buttonStyle(.plain)
+            }
 
             HStack {
                 Text("\(Int(torrent.progress * 100))% complete")
@@ -164,8 +191,7 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -195,8 +221,7 @@ struct TorrentDetailView: View {
             }
         }
         .padding()
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
@@ -241,20 +266,59 @@ struct TorrentDetailView: View {
                 Label("Move", systemImage: "folder")
             }
 
-            Button {
-                showCategoryPicker = true
+            Menu {
+                categoryMenuButton(title: "None", category: "", currentCategory: torrent.category)
+                ForEach(vm.availableCategories, id: \.self) { category in
+                    categoryMenuButton(title: category, category: category, currentCategory: torrent.category)
+                }
             } label: {
                 Label("Category", systemImage: "tag")
             }
-            .confirmationDialog("Set Category", isPresented: $showCategoryPicker) {
-                Button("None") {
-                    Task { await vm.setCategory("") }
-                }
-                ForEach(vm.availableCategories, id: \.self) { cat in
-                    Button(cat) {
-                        Task { await vm.setCategory(cat) }
+
+            Button {
+                showTagsSheet = true
+            } label: {
+                Label("Tags", systemImage: "number")
+            }
+
+            Divider()
+
+            Menu {
+                Picker(
+                    "Download Limit",
+                    selection: Binding(
+                        get: { selectedDownloadLimit },
+                        set: { newVal in
+                            selectedDownloadLimit = newVal
+                            Task { await vm.setTorrentDownloadLimit(newVal) }
+                        }
+                    )
+                ) {
+                    ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
                     }
                 }
+            } label: {
+                Label("Download Limit", systemImage: "arrow.down.circle")
+            }
+
+            Menu {
+                Picker(
+                    "Upload Limit",
+                    selection: Binding(
+                        get: { selectedUploadLimit },
+                        set: { newVal in
+                            selectedUploadLimit = newVal
+                            Task { await vm.setTorrentUploadLimit(newVal) }
+                        }
+                    )
+                ) {
+                    ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
+                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
+                    }
+                }
+            } label: {
+                Label("Upload Limit", systemImage: "arrow.up.circle")
             }
 
             Divider()
@@ -304,8 +368,7 @@ struct TorrentDetailView: View {
                 .padding()
             }
         }
-        .background(.thinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 20))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     // MARK: - Helpers
@@ -314,6 +377,49 @@ struct TorrentDetailView: View {
         guard timestamp > 0 else { return "—" }
         let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
         return date.formatted(date: .abbreviated, time: .shortened)
+    }
+
+    @ViewBuilder
+    private func categoryMenuButton(title: String, category: String, currentCategory: String?) -> some View {
+        Button {
+            Task { await viewModel?.setCategory(category) }
+        } label: {
+            if normalizedCategory(currentCategory) == normalizedCategory(category) {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    private func normalizedCategory(_ value: String?) -> String {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private func limitOptions(including currentLimit: Int64) -> [Int64] {
+        let megabyte = Int64(1_048_576)
+        var options: [Int64] = [
+            0,
+            megabyte,
+            5 * megabyte,
+            10 * megabyte,
+            25 * megabyte,
+            50 * megabyte,
+            100 * megabyte
+        ]
+        if currentLimit > 0, !options.contains(currentLimit) {
+            options.append(currentLimit)
+            options.sort()
+        }
+        return options
+    }
+
+    private func torrentLimitLabel(_ limit: Int64, globalFallback: Int64?) -> String {
+        if limit == 0 {
+            let fallback = globalFallback ?? 0
+            return fallback == 0 ? "Use Global (Unlimited)" : "Use Global (\(ByteFormatter.formatSpeed(bytesPerSecond: fallback)))"
+        }
+        return ByteFormatter.formatSpeed(bytesPerSecond: limit)
     }
 }
 
@@ -363,5 +469,71 @@ private struct DetailBadgeLabel: View {
             .padding(.vertical, 4)
             .background(.tertiary)
             .clipShape(Capsule())
+    }
+}
+
+private struct DetailTagChip: View {
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: "number")
+            .font(.caption)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(Color.cyan.opacity(0.12))
+            .foregroundStyle(.cyan)
+            .clipShape(Capsule())
+    }
+}
+
+private struct TorrentTagsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var viewModel: TorrentDetailViewModel
+
+    var body: some View {
+        NavigationStack {
+            List {
+                if viewModel.availableTags.isEmpty {
+                    ContentUnavailableView(
+                        "No Tags",
+                        systemImage: "number",
+                        description: Text("Create tags in More before assigning them to this torrent.")
+                    )
+                    .listRowBackground(Color.clear)
+                } else {
+                    Section("Assigned Tags") {
+                        ForEach(viewModel.availableTags, id: \.self) { tag in
+                            Button {
+                                Task { await viewModel.toggleTag(tag) }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: isSelected(tag) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundStyle(isSelected(tag) ? .cyan : .secondary)
+                                    Text(tag)
+                                        .foregroundStyle(.primary)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Tags")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        dismiss()
+                    }
+                }
+            }
+        }
+    }
+
+    private func isSelected(_ tag: String) -> Bool {
+        viewModel.currentTags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
     }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import UserNotifications
 #if os(iOS)
 import BackgroundTasks
@@ -7,6 +8,7 @@ import SwiftData
 
 final class NotificationService: Sendable {
     static let shared = NotificationService()
+    private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "NotificationService")
     private let backgroundTaskIdentifier = "com.poole.james.Trawl.torrentCheck"
 
     /// Request notification permission from the user. Returns true if granted.
@@ -27,7 +29,7 @@ final class NotificationService: Sendable {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            print("Failed to schedule background task: \(error)")
+            logger.error("Failed to schedule background task: \(error.localizedDescription, privacy: .private)")
         }
         #endif
     }
@@ -57,8 +59,12 @@ final class NotificationService: Sendable {
                   let password = try await KeychainHelper.shared.read(key: server.passwordKey) else { return }
 
             // Create a temporary API client and authenticate
-            let authService = AuthService(serverProfileID: server.id)
-            let apiClient = QBittorrentAPIClient(baseURL: server.hostURL, authService: authService)
+            let authService = AuthService(serverProfileID: server.id, allowsUntrustedTLS: server.allowsUntrustedTLS)
+            let apiClient = QBittorrentAPIClient(
+                baseURL: server.hostURL,
+                authService: authService,
+                allowsUntrustedTLS: server.allowsUntrustedTLS
+            )
             try await apiClient.login(username: username, password: password)
 
             // Fetch current torrent list
@@ -121,7 +127,7 @@ final class NotificationService: Sendable {
             try context.save()
 
         } catch {
-            print("Background refresh failed: \(error)")
+            logger.error("Background refresh failed: \(error.localizedDescription, privacy: .private)")
         }
 
         // Schedule the next background refresh
@@ -138,6 +144,10 @@ final class NotificationService: Sendable {
         content.interruptionLevel = .timeSensitive
 
         let request = UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
-        try? await UNUserNotificationCenter.current().add(request)
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            logger.error("Failed to enqueue local notification \(identifier, privacy: .public): \(error.localizedDescription, privacy: .private)")
+        }
     }
 }

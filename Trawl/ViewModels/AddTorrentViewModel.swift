@@ -53,7 +53,17 @@ final class AddTorrentViewModel {
 
         // Load recent save paths, sorted by most recently used
         let descriptor = FetchDescriptor<RecentSavePath>(sortBy: [SortDescriptor(\.lastUsed, order: .reverse)])
-        recentSavePaths = (try? modelContext.fetch(descriptor)) ?? []
+        do {
+            recentSavePaths = try modelContext.fetch(descriptor)
+        } catch {
+            recentSavePaths = []
+            await MainActor.run {
+                InAppNotificationCenter.shared.showError(
+                    title: "Couldn't Load Recent Paths",
+                    message: error.localizedDescription
+                )
+            }
+        }
 
         // Pre-fill save path from the most recent path
         if savePath.isEmpty, let recent = recentSavePaths.first {
@@ -73,8 +83,8 @@ final class AddTorrentViewModel {
 
             switch inputMode {
             case .magnet:
-                try await torrentService.addTorrentMagnet(
-                    magnetURL: magnetLink,
+                try await torrentService.addTorrentURL(
+                    url: magnetLink,
                     savePath: path,
                     category: category,
                     paused: startPaused,
@@ -120,13 +130,22 @@ final class AddTorrentViewModel {
 
     private func persistSavePath(_ path: String, modelContext: ModelContext) async {
         let descriptor = FetchDescriptor<RecentSavePath>(predicate: #Predicate { $0.path == path })
-        if let existing = try? modelContext.fetch(descriptor).first {
-            existing.lastUsed = .now
-            existing.useCount += 1
-        } else {
-            modelContext.insert(RecentSavePath(path: path))
+        do {
+            if let existing = try modelContext.fetch(descriptor).first {
+                existing.lastUsed = .now
+                existing.useCount += 1
+            } else {
+                modelContext.insert(RecentSavePath(path: path))
+            }
+            try modelContext.save()
+        } catch {
+            await MainActor.run {
+                InAppNotificationCenter.shared.showError(
+                    title: "Torrent Added",
+                    message: "The torrent was added, but the recent save path couldn't be stored. \(error.localizedDescription)"
+                )
+            }
         }
-        try? modelContext.save()
     }
 }
 

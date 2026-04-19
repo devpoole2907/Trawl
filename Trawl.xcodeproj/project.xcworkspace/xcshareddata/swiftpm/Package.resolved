@@ -1,0 +1,33 @@
+{
+  "originHash" : "abae6ee28e6d7aba77c7ef37f4bf748db2e5b2370485a72d42f6a5460e10ecab",
+  "pins" : [
+    {
+      "identity" : "libssh2prebuild",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/migueldeicaza/Libssh2Prebuild",
+      "state" : {
+        "branch" : "master",
+        "revision" : "2b9a34880aa7906a76872ac03077ea5aa313c72b"
+      }
+    },
+    {
+      "identity" : "swift-argument-parser",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/apple/swift-argument-parser",
+      "state" : {
+        "revision" : "626b5b7b2f45e1b0b1c6f4a309296d1d21d7311b",
+        "version" : "1.7.1"
+      }
+    },
+    {
+      "identity" : "swiftterm",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/migueldeicaza/SwiftTerm",
+      "state" : {
+        "revision" : "8e7a1e154f470e19c709a00a8768df348ba5fc43",
+        "version" : "1.13.0"
+      }
+    }
+  ],
+  "version" : 3
+}

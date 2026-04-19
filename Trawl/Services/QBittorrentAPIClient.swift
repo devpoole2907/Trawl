@@ -3,18 +3,24 @@ import Foundation
 actor QBittorrentAPIClient {
     private let authService: AuthService
     private let session: URLSession
+    private let trustPolicy: ServerTrustPolicy
     private let baseURL: String
     private let serverProfileID: UUID
 
-    init(baseURL: String, authService: AuthService) {
+    init(baseURL: String, authService: AuthService, allowsUntrustedTLS: Bool = false) {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.authService = authService
         self.serverProfileID = authService.serverProfileID
+        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+    }
+
+    deinit {
+        session.invalidateAndCancel()
     }
 
     // MARK: - Auth
@@ -118,7 +124,7 @@ actor QBittorrentAPIClient {
             "deleteFiles": deleteFiles ? "true" : "false"
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/delete", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to delete torrents")
     }
 
     func pauseTorrents(hashes: [String]) async throws {
@@ -148,7 +154,7 @@ actor QBittorrentAPIClient {
     func recheckTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.joined(separator: "|")]
         let request = try buildFormRequest(path: "/api/v2/torrents/recheck", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to recheck torrents")
     }
 
     func getTorrentFiles(hash: String) async throws -> [TorrentFile] {
@@ -166,7 +172,7 @@ actor QBittorrentAPIClient {
             "priority": String(priority.rawValue)
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/filePrio", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update file priority")
     }
 
     func getTorrentProperties(hash: String) async throws -> TorrentProperties {
@@ -181,7 +187,7 @@ actor QBittorrentAPIClient {
             "location": location
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setLocation", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent location")
     }
 
     func setTorrentCategory(hashes: [String], category: String) async throws {
@@ -190,19 +196,92 @@ actor QBittorrentAPIClient {
             "category": category
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setCategory", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent category")
     }
 
     func renameTorrent(hash: String, name: String) async throws {
         let params: [String: String] = ["hash": hash, "name": name]
         let request = try buildFormRequest(path: "/api/v2/torrents/rename", params: params)
-        _ = try await performRequest(request)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to rename torrent")
     }
 
     func getCategories() async throws -> [String: SyncCategory] {
         let request = try buildRequest(path: "/api/v2/torrents/categories")
         let (data, _) = try await performRequest(request)
         return try decode([String: SyncCategory].self, from: data)
+    }
+
+    func createCategory(name: String, savePath: String?) async throws {
+        var params: [String: String] = ["category": name]
+        if let savePath, !savePath.isEmpty {
+            params["savePath"] = savePath
+        }
+        let request = try buildFormRequest(path: "/api/v2/torrents/createCategory", params: params)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to create category")
+    }
+
+    func removeCategories(names: [String]) async throws {
+        let filteredNames = names.filter { !$0.isEmpty }
+        guard !filteredNames.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/removeCategories",
+            params: ["categories": filteredNames.joined(separator: "\n")]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove categories")
+    }
+
+    func getTags() async throws -> [String] {
+        let request = try buildRequest(path: "/api/v2/torrents/tags")
+        let (data, _) = try await performRequest(request)
+        return try decode([String].self, from: data)
+    }
+
+    func createTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/createTags",
+            params: ["tags": filteredTags.joined(separator: ",")]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to create tags")
+    }
+
+    func deleteTags(tags: [String]) async throws {
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/deleteTags",
+            params: ["tags": filteredTags.joined(separator: ",")]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to delete tags")
+    }
+
+    func addTorrentTags(hashes: [String], tags: [String]) async throws {
+        let filteredHashes = hashes.filter { !$0.isEmpty }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredHashes.isEmpty, !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/addTags",
+            params: [
+                "hashes": filteredHashes.joined(separator: "|"),
+                "tags": filteredTags.joined(separator: ",")
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add torrent tags")
+    }
+
+    func removeTorrentTags(hashes: [String], tags: [String]) async throws {
+        let filteredHashes = hashes.filter { !$0.isEmpty }
+        let filteredTags = tags.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !filteredHashes.isEmpty, !filteredTags.isEmpty else { return }
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/removeTags",
+            params: [
+                "hashes": filteredHashes.joined(separator: "|"),
+                "tags": filteredTags.joined(separator: ",")
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove torrent tags")
     }
 
     func getTrackers(hash: String) async throws -> [TorrentTracker] {
@@ -217,6 +296,67 @@ actor QBittorrentAPIClient {
         let request = try buildRequest(path: "/api/v2/transfer/info")
         let (data, _) = try await performRequest(request)
         return try decode(TransferInfo.self, from: data)
+    }
+
+    func getGlobalDownloadLimit() async throws -> Int64 {
+        let request = try buildRequest(path: "/api/v2/transfer/downloadLimit")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data)
+    }
+
+    func getGlobalUploadLimit() async throws -> Int64 {
+        let request = try buildRequest(path: "/api/v2/transfer/uploadLimit")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data)
+    }
+
+    func setGlobalDownloadLimit(limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/transfer/setDownloadLimit",
+            params: ["limit": String(limit)]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update download limit")
+    }
+
+    func setGlobalUploadLimit(limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/transfer/setUploadLimit",
+            params: ["limit": String(limit)]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update upload limit")
+    }
+
+    func isAlternativeSpeedEnabled() async throws -> Bool {
+        let request = try buildRequest(path: "/api/v2/transfer/speedLimitsMode")
+        let (data, _) = try await performRequest(request)
+        return try decodeNumericResponse(data) == 1
+    }
+
+    func toggleAlternativeSpeed() async throws {
+        let request = try buildRequest(path: "/api/v2/transfer/toggleSpeedLimitsMode", method: "POST")
+        try await performSuccessfulMutation(request, failureMessage: "Failed to toggle alternative speed mode")
+    }
+
+    func setTorrentDownloadLimit(hashes: [String], limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/setDownloadLimit",
+            params: [
+                "hashes": hashes.joined(separator: "|"),
+                "limit": String(limit)
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent download limit")
+    }
+
+    func setTorrentUploadLimit(hashes: [String], limit: Int64) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/setUploadLimit",
+            params: [
+                "hashes": hashes.joined(separator: "|"),
+                "limit": String(limit)
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent upload limit")
     }
 
     // MARK: - Sync
@@ -261,6 +401,101 @@ actor QBittorrentAPIClient {
         }
     }
 
+    // MARK: - RSS Feeds
+    
+    /// Get all RSS feeds and folders. Returns a dictionary where keys are folder names (or empty string for root) and values are feed URLs or nested folders.
+    func getRSSItems(withData: Bool = false) async throws -> [String: Any] {
+        let request = try buildRequest(
+            path: "/api/v2/rss/items",
+            queryItems: [URLQueryItem(name: "withData", value: String(withData))]
+        )
+        let (data, _) = try await performRequest(request)
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS items"]))
+        }
+        return json
+    }
+    
+    /// Add a new RSS feed or folder
+    func addRSSFolder(path: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/addFolder",
+            params: ["path": path]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add RSS folder")
+    }
+    
+    func addRSSFeed(url: String, path: String? = nil) async throws {
+        var params: [String: String] = ["url": url]
+        if let path { params["path"] = path }
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/addFeed",
+            params: params
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add RSS feed")
+    }
+    
+    /// Remove an RSS feed or folder
+    func removeRSSItem(path: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/removeItem",
+            params: ["path": path]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove RSS item")
+    }
+    
+    /// Move an RSS feed or folder
+    func moveRSSItem(itemPath: String, destPath: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/moveItem",
+            params: [
+                "itemPath": itemPath,
+                "destPath": destPath
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to move RSS item")
+    }
+    
+    /// Refresh an RSS feed
+    func refreshRSSItem(itemPath: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/refreshItem",
+            params: ["itemPath": itemPath]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to refresh RSS item")
+    }
+    
+    /// Set an auto-downloading rule
+    func setRSSRule(ruleName: String, ruleDef: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/setRule",
+            params: [
+                "ruleName": ruleName,
+                "ruleDef": ruleDef // Expects JSON-encoded string of the rule object
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to set RSS rule")
+    }
+    
+    /// Get all auto-downloading rules
+    func getRSSRules() async throws -> [String: Any] {
+        let request = try buildRequest(path: "/api/v2/rss/rules")
+        let (data, _) = try await performRequest(request)
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS rules"]))
+        }
+        return json
+    }
+    
+    /// Remove an auto-downloading rule
+    func removeRSSRule(ruleName: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/removeRule",
+            params: ["ruleName": ruleName]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove RSS rule")
+    }
+
     private func reAuthenticate() async throws {
         let keychain = KeychainHelper.shared
         guard let username = try await keychain.read(key: "server_\(serverProfileID.uuidString)_username"),
@@ -301,12 +536,32 @@ actor QBittorrentAPIClient {
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
+    private func performSuccessfulMutation(
+        _ request: URLRequest,
+        successCodes: Set<Int> = [200],
+        failureMessage: String
+    ) async throws {
+        let (_, response) = try await performRequest(request)
+        guard successCodes.contains(response.statusCode) else {
+            throw QBError.serverError(statusCode: response.statusCode, message: failureMessage)
+        }
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
             throw QBError.decodingError(error)
         }
+    }
+
+    private func decodeNumericResponse(_ data: Data) throws -> Int64 {
+        guard let stringValue = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+              let value = Int64(stringValue) else {
+            throw QBError.invalidResponse
+        }
+        return value
     }
 }
 

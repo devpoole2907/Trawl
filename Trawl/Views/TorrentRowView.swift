@@ -26,21 +26,27 @@ struct TorrentRowView: View {
 
             HStack(spacing: 12) {
                 if torrent.dlspeed > 0 {
-                    Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
+                    MetricLabel(
+                        systemImage: "arrow.down",
+                        text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed),
+                        tint: .blue
+                    )
                 }
 
                 if torrent.upspeed > 0 {
-                    Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
-                        .font(.caption)
-                        .foregroundStyle(.green)
+                    MetricLabel(
+                        systemImage: "arrow.up",
+                        text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed),
+                        tint: .green
+                    )
                 }
 
                 if !torrent.state.isCompleted && torrent.eta > 0 && torrent.eta < 8_640_000 {
-                    Label(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    MetricLabel(
+                        systemImage: "clock",
+                        text: ByteFormatter.formatETA(seconds: torrent.eta),
+                        tint: .secondary
+                    )
                 }
 
                 Spacer()
@@ -76,8 +82,11 @@ private struct StatusBadge: View {
     let tint: Color
 
     var body: some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption)
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(title)
+        }
+        .font(.caption)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(tint.opacity(0.12))
@@ -96,5 +105,20 @@ private struct BadgeLabel: View {
             .padding(.vertical, 4)
             .background(.tertiary)
             .clipShape(Capsule())
+    }
+}
+
+private struct MetricLabel: View {
+    let systemImage: String
+    let text: String
+    let tint: Color
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(tint)
     }
 }

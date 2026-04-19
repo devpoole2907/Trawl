@@ -69,8 +69,7 @@ private struct FileRow: View {
                         .font(.subheadline)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(.thinMaterial)
-                        .clipShape(Capsule())
+                        .glassEffect(.regular.interactive(), in: Capsule())
                 }
             }
         }

@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class SyncService {
     // MARK: - Published State (read by ViewModels)
@@ -11,6 +12,15 @@ final class SyncService {
     private(set) var isPolling: Bool = false
     private(set) var lastError: QBError?
     var defaultSavePath: String?
+
+    // MARK: - Speed History
+    struct SpeedSample: Sendable {
+        let timestamp: Date
+        let dlSpeed: Int64
+        let upSpeed: Int64
+    }
+    private(set) var speedHistory: [SpeedSample] = []
+    private let maxSpeedHistoryCount = 150 // ~5 minutes at 2 s intervals
 
     // MARK: - Internal State
     private var rid: Int = 0
@@ -24,14 +34,107 @@ final class SyncService {
 
     // MARK: - Sorted accessors
 
-    /// All torrents as a sorted array (by name)
-    var sortedTorrents: [Torrent] {
-        torrents.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
-
     /// Category names sorted alphabetically
     var sortedCategoryNames: [String] {
         categories.keys.sorted()
+    }
+
+    var sortedTags: [String] {
+        tags.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func setTorrentCategoryLocally(hash: String, category: String) {
+        guard var torrent = torrents[hash] else { return }
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
+        torrent.category = normalizedCategory.isEmpty ? nil : normalizedCategory
+        torrents[hash] = torrent
+    }
+
+    func addCategoryLocally(name: String, savePath: String?) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        let trimmedSavePath = savePath?.trimmingCharacters(in: .whitespacesAndNewlines)
+        categories[trimmedName] = SyncCategory(
+            name: trimmedName,
+            savePath: trimmedSavePath?.isEmpty == true ? nil : trimmedSavePath
+        )
+    }
+
+    func removeCategoriesLocally(names: [String]) {
+        let removedNames = Set(names)
+        guard !removedNames.isEmpty else { return }
+
+        for name in removedNames {
+            categories.removeValue(forKey: name)
+        }
+
+        var updatedTorrents = torrents
+        for (hash, var torrent) in updatedTorrents where torrent.category.map(removedNames.contains) == true {
+            torrent.category = nil
+            updatedTorrents[hash] = torrent
+        }
+        torrents = updatedTorrents
+    }
+
+    func addTagLocally(name: String) {
+        let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else { return }
+        guard !tags.contains(where: { $0.caseInsensitiveCompare(trimmedName) == .orderedSame }) else { return }
+        tags.append(trimmedName)
+        tags.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    func removeTagsLocally(names: [String]) {
+        let removedNames = Set(
+            names
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        guard !removedNames.isEmpty else { return }
+
+        tags.removeAll { removedNames.contains($0.lowercased()) }
+
+        var updatedTorrents = torrents
+        for (hash, torrent) in updatedTorrents {
+            let currentTags = parsedTags(from: torrent.tags)
+            let filteredTags = currentTags.filter { !removedNames.contains($0.lowercased()) }
+            guard filteredTags != currentTags else { continue }
+            var updatedTorrent = torrent
+            updatedTorrent.tags = joinedTags(filteredTags)
+            updatedTorrents[hash] = updatedTorrent
+        }
+        torrents = updatedTorrents
+    }
+
+    func addTagsToTorrentLocally(hash: String, tags names: [String]) {
+        guard var torrent = torrents[hash] else { return }
+        let existingTags = parsedTags(from: torrent.tags)
+        let additions = names
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        guard !additions.isEmpty else { return }
+
+        var merged = existingTags
+        for tag in additions where !merged.contains(where: { $0.caseInsensitiveCompare(tag) == .orderedSame }) {
+            merged.append(tag)
+        }
+        torrent.tags = joinedTags(merged)
+        torrents[hash] = torrent
+    }
+
+    func removeTagsFromTorrentLocally(hash: String, tags names: [String]) {
+        guard var torrent = torrents[hash] else { return }
+        let removals = Set(
+            names
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
+        guard !removals.isEmpty else { return }
+
+        let filteredTags = parsedTags(from: torrent.tags).filter { !removals.contains($0.lowercased()) }
+        torrent.tags = joinedTags(filteredTags)
+        torrents[hash] = torrent
     }
 
     // MARK: - Polling Control
@@ -80,6 +183,7 @@ final class SyncService {
 
     private func applyDelta(_ data: SyncMainData) {
         let isFullUpdate = data.fullUpdate == true
+        var completedTorrentNames: [String] = []
 
         // --- Torrents ---
         if isFullUpdate {
@@ -87,7 +191,11 @@ final class SyncService {
             var fresh: [String: Torrent] = [:]
             if let newTorrents = data.torrents {
                 for (hash, syncData) in newTorrents {
-                    fresh[hash] = Torrent.fromDelta(hash: hash, delta: syncData)
+                    let nextTorrent = Torrent.fromDelta(hash: hash, delta: syncData)
+                    if let existing = torrents[hash], !existing.state.isCompleted, nextTorrent.state.isCompleted {
+                        completedTorrentNames.append(nextTorrent.name)
+                    }
+                    fresh[hash] = nextTorrent
                 }
             }
             if let removed = data.torrentsRemoved {
@@ -101,7 +209,11 @@ final class SyncService {
             if let updatedTorrents = data.torrents {
                 for (hash, delta) in updatedTorrents {
                     if let existing = updated[hash] {
-                        updated[hash] = existing.applying(delta: delta)
+                        let nextTorrent = existing.applying(delta: delta)
+                        if !existing.state.isCompleted, nextTorrent.state.isCompleted {
+                            completedTorrentNames.append(nextTorrent.name)
+                        }
+                        updated[hash] = nextTorrent
                     } else {
                         updated[hash] = Torrent.fromDelta(hash: hash, delta: delta)
                     }
@@ -152,5 +264,39 @@ final class SyncService {
                 serverState = newState
             }
         }
+
+        // --- Speed History ---
+        if let state = serverState {
+            let sample = SpeedSample(
+                timestamp: .now,
+                dlSpeed: state.dlInfoSpeed ?? 0,
+                upSpeed: state.upInfoSpeed ?? 0
+            )
+            speedHistory.append(sample)
+            if speedHistory.count > maxSpeedHistoryCount {
+                speedHistory.removeFirst(speedHistory.count - maxSpeedHistoryCount)
+            }
+        }
+
+        if !completedTorrentNames.isEmpty {
+            for name in completedTorrentNames {
+                InAppNotificationCenter.shared.showDownloadCompleted(name: name)
+            }
+        }
+    }
+
+    private func parsedTags(from rawValue: String?) -> [String] {
+        guard let rawValue else { return [] }
+        return rawValue
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
+
+    private func joinedTags(_ tags: [String]) -> String? {
+        let normalizedTags = tags
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        return normalizedTags.isEmpty ? nil : normalizedTags.joined(separator: ", ")
     }
 }

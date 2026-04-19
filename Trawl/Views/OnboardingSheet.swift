@@ -44,9 +44,7 @@ struct OnboardingSheet: View {
             #endif
             .task {
                 guard let serverProfile else { return }
-                let username = try? await KeychainHelper.shared.read(key: serverProfile.usernameKey)
-                let password = try? await KeychainHelper.shared.read(key: serverProfile.passwordKey)
-                viewModel.loadExistingServer(serverProfile, username: username ?? "", password: password ?? "")
+                await viewModel.loadExistingServer(serverProfile)
             }
         }
     }
@@ -69,6 +67,8 @@ struct OnboardingSheet: View {
                     .autocorrectionDisabled()
 
                 TextField("Display Name (optional)", text: $viewModel.displayName)
+
+                Toggle("Allow Self-Signed Certificates", isOn: $viewModel.allowsUntrustedTLS)
             } header: {
                 Text("Server")
             } footer: {
@@ -77,7 +77,7 @@ struct OnboardingSheet: View {
                         .foregroundStyle(.red)
                         .font(.footnote)
                 } else {
-                    Text("Enter the full Web UI address, including port if needed. Example: http://192.168.1.100:8080")
+                    Text("Enter the full Web UI address, including port if needed. Example: http://192.168.1.100:8080. Enable self-signed certificates only for servers you control.")
                 }
             }
 
