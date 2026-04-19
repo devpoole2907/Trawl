@@ -18,6 +18,7 @@ enum MoreDestination: Hashable {
     case prowlarrIndexers
     case transferStats
     case blocklist
+    case calendar
 }
 
 struct MoreView: View {
@@ -45,6 +46,11 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.wanted) {
                         moreRow(icon: "exclamationmark.triangle.fill", color: .orange,
                                 title: "Wanted / Missing", subtitle: "Monitored items without files")
+                    }
+
+                    NavigationLink(value: MoreDestination.calendar) {
+                        moreRow(icon: "calendar", color: .purple,
+                                title: "Calendar", subtitle: "Upcoming releases and air dates")
                     }
 
                     NavigationLink(value: MoreDestination.blocklist) {
@@ -170,6 +176,11 @@ struct MoreView: View {
                 case .blocklist:
                     ArrBlocklistView()
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .calendar:
+                    ArrCalendarView()
+                        .environment(arrServiceManager)
+                        .injectSyncService(appServices)
                         .moreDestinationTitleStyle()
                 }
             }
@@ -337,5 +348,14 @@ private extension View {
         #else
         self
         #endif
+    }
+
+    @ViewBuilder
+    func injectSyncService(_ appServices: AppServices?) -> some View {
+        if let syncService = appServices?.syncService {
+            self.environment(syncService)
+        } else {
+            self
+        }
     }
 }

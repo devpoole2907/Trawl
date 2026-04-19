@@ -29,7 +29,7 @@ final class NotificationService: Sendable {
         do {
             try BGTaskScheduler.shared.submit(request)
         } catch {
-            logger.error("Failed to schedule background task: \(error.localizedDescription, privacy: .public)")
+            logger.error("Failed to schedule background task: \(error.localizedDescription, privacy: .private)")
         }
         #endif
     }
@@ -127,7 +127,7 @@ final class NotificationService: Sendable {
             try context.save()
 
         } catch {
-            logger.error("Background refresh failed: \(error.localizedDescription, privacy: .public)")
+            logger.error("Background refresh failed: \(error.localizedDescription, privacy: .private)")
         }
 
         // Schedule the next background refresh
@@ -147,7 +147,7 @@ final class NotificationService: Sendable {
         do {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
-            logger.error("Failed to enqueue local notification \(identifier, privacy: .public): \(error.localizedDescription, privacy: .public)")
+            logger.error("Failed to enqueue local notification \(identifier, privacy: .public): \(error.localizedDescription, privacy: .private)")
         }
     }
 }

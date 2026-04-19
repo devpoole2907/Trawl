@@ -11,6 +11,7 @@ final class ArrCalendarViewModel {
     // Core Data
     fileprivate var loadedMonths: [YearMonth] = []
     fileprivate var eventsByDay: [Date: [CalendarEvent]] = [:]
+    fileprivate var monthLoadErrors: [YearMonth: String] = [:]
     fileprivate var sonarrSeries: [SonarrSeries] = []
     fileprivate var radarrMovies: [RadarrMovie] = []
     
@@ -47,20 +48,20 @@ final class ArrCalendarViewModel {
             monthsToLoad.append(startMonth.advanced(by: i))
         }
         
-        await withTaskGroup(of: (YearMonth, [Date: [CalendarEvent]])?.self) { group in
+        await withTaskGroup(of: Result<(YearMonth, [Date: [CalendarEvent]]), Error>.self) { group in
             for month in monthsToLoad {
                 let lookup = self.seriesLookup
                 group.addTask { await self.fetchMonthData(month, lookup: lookup) }
             }
             
             for await result in group {
-                if let (month, data) = result {
-                    if !self.loadedMonths.contains(month) {
-                        self.loadedMonths.append(month)
-                    }
-                    for (day, events) in data {
-                        self.eventsByDay[day, default: []].append(contentsOf: events)
-                        self.eventsByDay[day]?.sort { $0.date < $1.date }
+                switch result {
+                case let .success((month, data)):
+                    self.monthLoadErrors[month] = nil
+                    self.mergeMonth(month, data: data)
+                case let .failure(error):
+                    if let monthError = error as? CalendarMonthLoadError {
+                        self.monthLoadErrors[monthError.month] = monthError.localizedDescription
                     }
                 }
             }
@@ -77,11 +78,13 @@ final class ArrCalendarViewModel {
         isLoadingMore = true
         let next = latest.advanced(by: 1)
         let lookup = seriesLookup
-        if let (month, data) = await fetchMonthData(next, lookup: lookup) {
-            loadedMonths.append(month)
-            for (day, events) in data {
-                eventsByDay[day, default: []].append(contentsOf: events)
-                eventsByDay[day]?.sort { $0.date < $1.date }
+        switch await fetchMonthData(next, lookup: lookup) {
+        case let .success((month, data)):
+            monthLoadErrors[month] = nil
+            mergeMonth(month, data: data)
+        case let .failure(error):
+            if let monthError = error as? CalendarMonthLoadError {
+                monthLoadErrors[monthError.month] = monthError.localizedDescription
             }
         }
         isLoadingMore = false
@@ -92,11 +95,13 @@ final class ArrCalendarViewModel {
         isLoadingEarlier = true
         let prev = earliest.advanced(by: -1)
         let lookup = seriesLookup
-        if let (month, data) = await fetchMonthData(prev, lookup: lookup) {
-            loadedMonths.insert(month, at: 0)
-            for (day, events) in data {
-                eventsByDay[day, default: []].append(contentsOf: events)
-                eventsByDay[day]?.sort { $0.date < $1.date }
+        switch await fetchMonthData(prev, lookup: lookup) {
+        case let .success((month, data)):
+            monthLoadErrors[month] = nil
+            mergeMonth(month, data: data, insertAtStart: true)
+        case let .failure(error):
+            if let monthError = error as? CalendarMonthLoadError {
+                monthLoadErrors[monthError.month] = monthError.localizedDescription
             }
         }
         isLoadingEarlier = false
@@ -109,30 +114,34 @@ final class ArrCalendarViewModel {
         seriesLookup = Dictionary(uniqueKeysWithValues: sonarrSeries.map { ($0.id, $0) })
     }
     
-    private func fetchMonthData(_ month: YearMonth, lookup: [Int: SonarrSeries]) async -> (YearMonth, [Date: [CalendarEvent]])? {
+    private func fetchMonthData(_ month: YearMonth, lookup: [Int: SonarrSeries]) async -> Result<(YearMonth, [Date: [CalendarEvent]]), Error> {
         let start = month.startDate
         let end = month.endDate
         
-        let results = await withTaskGroup(of: [Date: [CalendarEvent]].self) { group in
+        let results: Result<[Date: [CalendarEvent]], Error> = await withTaskGroup(of: Result<[Date: [CalendarEvent]], Error>.self) { group in
             if let client = serviceManager.sonarrClient {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
-                    if let episodes = try? await client.getCalendar(start: start, end: end, unmonitored: false, includeSeries: true) {
+                    do {
+                        let episodes = try await client.getCalendar(start: start, end: end, unmonitored: false, includeSeries: true)
                         for ep in episodes {
                             guard let seriesId = ep.seriesId,
                                   let date = ArrDateParser.parse(ep.airDateUtc) ?? ArrDateParser.parseDay(ep.airDate) else { continue }
                             let day = Calendar.current.startOfDay(for: date)
                             dict[day, default: []].append(.episode(ep, series: lookup[seriesId], date: date))
                         }
+                        return .success(dict)
+                    } catch {
+                        return .failure(error)
                     }
-                    return dict
                 }
             }
             
             if let client = serviceManager.radarrClient {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
-                    if let movies = try? await client.getCalendar(start: start, end: end, unmonitored: false) {
+                    do {
+                        let movies = try await client.getCalendar(start: start, end: end, unmonitored: false)
                         for movie in movies {
                             let releases = [
                                 (movie.digitalRelease, MovieReleaseKind.digital),
@@ -146,26 +155,77 @@ final class ArrCalendarViewModel {
                                 }
                             }
                         }
+                        return .success(dict)
+                    } catch {
+                        return .failure(error)
                     }
-                    return dict
                 }
             }
             
             var combined: [Date: [CalendarEvent]] = [:]
-            for await dict in group {
-                for (day, events) in dict {
-                    combined[day, default: []].append(contentsOf: events)
+            var errors: [String] = []
+            for await result in group {
+                switch result {
+                case let .success(dict):
+                    for (day, events) in dict {
+                        combined[day, default: []].append(contentsOf: events)
+                    }
+                case let .failure(error):
+                    errors.append(error.localizedDescription)
                 }
             }
-            return combined
+
+            if errors.isEmpty {
+                return Result.success(combined)
+            } else {
+                return Result.failure(CalendarMonthLoadError(month: month, messages: errors))
+            }
         }
         
-        var finalEvents = results
-        for day in finalEvents.keys {
-            finalEvents[day]?.sort { $0.date < $1.date }
+        switch results {
+        case let .success(events):
+            var finalEvents = events
+            for day in finalEvents.keys {
+                finalEvents[day]?.sort { $0.date < $1.date }
+            }
+            return .success((month, finalEvents))
+        case let .failure(error):
+            return .failure(error)
         }
-        
-        return (month, finalEvents)
+    }
+
+    fileprivate var initialLoadErrorMessage: String? {
+        guard loadedMonths.isEmpty else { return nil }
+        return monthLoadErrors.values.sorted().first
+    }
+
+    fileprivate var nextMonthErrorMessage: String? {
+        guard let latest = loadedMonths.last else { return nil }
+        return monthLoadErrors[latest.advanced(by: 1)]
+    }
+
+    private func mergeMonth(_ month: YearMonth, data: [Date: [CalendarEvent]], insertAtStart: Bool = false) {
+        if !loadedMonths.contains(month) {
+            if insertAtStart {
+                loadedMonths.insert(month, at: 0)
+            } else {
+                loadedMonths.append(month)
+            }
+        }
+
+        for (day, events) in data {
+            eventsByDay[day, default: []].append(contentsOf: events)
+            eventsByDay[day]?.sort { $0.date < $1.date }
+        }
+    }
+}
+
+private struct CalendarMonthLoadError: LocalizedError {
+    let month: YearMonth
+    let messages: [String]
+
+    var errorDescription: String? {
+        messages.joined(separator: "\n")
     }
 }
 
@@ -218,6 +278,16 @@ struct ArrCalendarView: View {
             } else if viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty {
                 ProgressView("Loading calendar...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if let loadError = viewModel.initialLoadErrorMessage {
+                ContentUnavailableView {
+                    Label("Calendar Unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Retry") {
+                        Task { await serviceManager.calendarViewModel.refresh() }
+                    }
+                }
             } else if totalVisibleEventCount == 0 {
                 ContentUnavailableView(
                     "No Upcoming Releases",
@@ -290,6 +360,18 @@ struct ArrCalendarView: View {
                         if viewModel.isLoadingMore {
                             ProgressView()
                                 .tint(.secondary)
+                        } else if let loadMoreError = viewModel.nextMonthErrorMessage {
+                            VStack(spacing: 8) {
+                                Text(loadMoreError)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                Button("Retry Load More") {
+                                    Task { await viewModel.loadNextMonth() }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.secondary)
+                            }
                         } else if !visibleDays.isEmpty {
                             Button("Load More") {
                                 Task { await viewModel.loadNextMonth() }

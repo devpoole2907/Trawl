@@ -27,14 +27,14 @@ actor KeychainHelper {
     private let service = Bundle.main.bundleIdentifier ?? "com.poole.james.Trawl"
     private let accessGroup = KeychainAccessGroup.currentValue()
 
-    func save(key: String, value: String) throws {
+    func save(key: String, value: String) async throws {
         guard let data = value.data(using: .utf8) else {
             throw KeychainError.encodingFailed
         }
 
         // Delete existing item first (upsert pattern)
         do {
-            try delete(key: key)
+            try await delete(key: key)
         } catch KeychainError.deleteFailed(let status) where status == errSecItemNotFound {
             // No existing item to replace.
         } catch {
@@ -55,7 +55,7 @@ actor KeychainHelper {
         }
     }
 
-    func read(key: String) throws -> String? {
+    func read(key: String) async throws -> String? {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -82,7 +82,7 @@ actor KeychainHelper {
         return value
     }
 
-    func delete(key: String) throws {
+    func delete(key: String) async throws {
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,

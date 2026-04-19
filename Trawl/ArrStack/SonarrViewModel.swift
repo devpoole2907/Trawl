@@ -193,10 +193,11 @@ final class SonarrViewModel {
             let canonicalSeries = try await client.getSeries(id: series.id)
 
             // Verify canonical series has required fields
-            guard canonicalSeries.qualityProfileId != nil,
-                  canonicalSeries.rootFolderPath != nil,
-                  canonicalSeries.seriesType != nil,
-                  canonicalSeries.seasonFolder != nil else {
+            guard let qualityProfileId = canonicalSeries.qualityProfileId,
+                  let rootFolderPath = canonicalSeries.rootFolderPath,
+                  !rootFolderPath.isEmpty,
+                  let seriesType = canonicalSeries.seriesType,
+                  let seasonFolder = canonicalSeries.seasonFolder else {
                 // Missing required fields
                 await loadSeries()
                 return
@@ -205,10 +206,10 @@ final class SonarrViewModel {
             // Build the update from canonical fields
             let updatedSeries = canonicalSeries.updatingForEdit(
                 monitored: newMonitored,
-                qualityProfileId: canonicalSeries.qualityProfileId!,
-                seriesType: canonicalSeries.seriesType!,
-                seasonFolder: canonicalSeries.seasonFolder!,
-                rootFolderPath: canonicalSeries.rootFolderPath!,
+                qualityProfileId: qualityProfileId,
+                seriesType: seriesType,
+                seasonFolder: seasonFolder,
+                rootFolderPath: rootFolderPath,
                 tags: canonicalSeries.tags ?? []
             )
 
@@ -321,20 +322,28 @@ final class SonarrViewModel {
         isSearching = true
         searchResults = []
         error = nil
-        defer { isSearching = false }
 
         do {
             let results = try await client.lookupSeries(term: term)
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else { return }
+            guard searchRequestToken == requestToken else {
+                return
+            }
             searchResults = results
+            isSearching = false
         } catch is CancellationError {
+            if searchRequestToken == requestToken {
+                isSearching = false
+            }
             return
         } catch {
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else { return }
+            guard searchRequestToken == requestToken else {
+                return
+            }
             self.error = error.localizedDescription
             searchResults = []
+            isSearching = false
         }
     }
 

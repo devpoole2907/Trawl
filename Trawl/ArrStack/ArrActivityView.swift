@@ -414,7 +414,7 @@ private struct QueueDetailSheet: View {
             if let messages = item.item.statusMessages?.compactMap(\.messages).flatMap({ $0 }),
                !messages.isEmpty {
                 VStack(alignment: .leading, spacing: 4) {
-                    ForEach(messages, id: \.self) { msg in
+                    ForEach(Array(messages.enumerated()), id: \.offset) { index, msg in
                         Label(msg, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
                             .foregroundStyle(.orange)

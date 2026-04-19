@@ -157,8 +157,7 @@ struct ArrBlocklistView: View {
     }
 
     private func blockDate(for item: ArrBlocklistItem) -> Date? {
-        guard let dateString = item.date else { return nil }
-        return ISO8601DateFormatter().date(from: dateString)
+        BlocklistDateParser.parse(item.date)
     }
 
     // MARK: - Actions
@@ -201,11 +200,13 @@ private struct BlocklistRow: View {
                 }
 
                 HStack(spacing: 4) {
-                    if let indexer = entry.item.indexer, !indexer.isEmpty {
+                    let hasIndexer = entry.item.indexer?.isEmpty == false
+
+                    if let indexer = entry.item.indexer, hasIndexer {
                         Label(indexer, systemImage: "magnifyingglass")
                     }
                     if let quality = entry.item.quality?.quality?.name, !quality.isEmpty {
-                        if entry.item.indexer != nil {
+                        if hasIndexer {
                             Text("·")
                         }
                         Text(quality)
@@ -233,7 +234,21 @@ private struct BlocklistRow: View {
     }
 
     private func blockDate(for item: ArrBlocklistItem) -> Date? {
-        guard let dateString = item.date else { return nil }
-        return ISO8601DateFormatter().date(from: dateString)
+        BlocklistDateParser.parse(item.date)
+    }
+}
+
+private enum BlocklistDateParser {
+    static func parse(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+
+        let fractionalISO = ISO8601DateFormatter()
+        fractionalISO.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalISO.date(from: value) {
+            return date
+        }
+
+        let iso = ISO8601DateFormatter()
+        return iso.date(from: value)
     }
 }

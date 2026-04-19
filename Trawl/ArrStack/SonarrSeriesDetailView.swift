@@ -1576,7 +1576,9 @@ struct SonarrInteractiveSearchSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search releases…")
             .navigationTitle(titleString)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -1830,7 +1832,9 @@ struct SonarrReleaseActionView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .navigationTitle("Release")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var detailsCard: some View {
@@ -2145,9 +2149,12 @@ struct SonarrEpisodeSearchView: View {
     @Bindable var viewModel: SonarrViewModel
     let series: SonarrSeries?
     let episode: SonarrEpisode
+    @Environment(\.dismiss) private var dismiss
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
+    @State private var episodeFileToDelete: SonarrEpisodeFile?
+    @State private var showDeleteFileAlert = false
 
     private var episodeHistory: [ArrHistoryRecord] {
         viewModel.history
@@ -2156,6 +2163,20 @@ struct SonarrEpisodeSearchView: View {
                 SonarrEpisodeHistoryDateParser.parse($0.date) ?? .distantPast >
                 SonarrEpisodeHistoryDateParser.parse($1.date) ?? .distantPast
             }
+    }
+
+    private var episodeFiles: [SonarrEpisodeFile] {
+        guard let seriesId = series?.id else { return [] }
+        return viewModel.episodeFiles[seriesId]?.filter { $0.id == episode.episodeFileId } ?? []
+    }
+
+    private func handleDeleteEpisodeFile(file: SonarrEpisodeFile) async {
+        let success = await viewModel.deleteEpisodeFile(id: file.id)
+        if success {
+            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Episode file has been removed.")
+        } else if let error = viewModel.error {
+            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
+        }
     }
 
     var body: some View {
@@ -2183,6 +2204,20 @@ struct SonarrEpisodeSearchView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if !episodeFiles.isEmpty {
+                    episodeSearchInfoCard(title: "Files", icon: "doc.fill") {
+                        VStack(spacing: 0) {
+                            ForEach(Array(episodeFiles.enumerated()), id: \.element.id) { index, file in
+                                episodeFileRow(file)
+
+                                if index < episodeFiles.count - 1 {
+                                    Divider().padding(.leading, 14)
+                                }
+                            }
+                        }
+                    }
                 }
 
                 if viewModel.isLoadingHistory || !episodeHistory.isEmpty {
@@ -2230,6 +2265,18 @@ struct SonarrEpisodeSearchView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
+        .alert("Delete Episode File?", isPresented: $showDeleteFileAlert) {
+            Button("Delete", role: .destructive) {
+                if let file = episodeFileToDelete {
+                    Task { await handleDeleteEpisodeFile(file: file) }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                episodeFileToDelete = nil
+            }
+        } message: {
+            Text("This removes the selected episode file from Sonarr.")
+        }
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
@@ -2373,6 +2420,55 @@ struct SonarrEpisodeSearchView: View {
             .padding(.vertical, 6)
             .background(tint.opacity(0.14))
             .clipShape(Capsule())
+    }
+
+    @ViewBuilder
+    private func episodeFileRow(_ file: SonarrEpisodeFile) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(file.quality?.quality?.name ?? "Unknown Quality")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                    Text(ByteFormatter.format(bytes: file.size ?? 0))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                
+                Menu {
+                    Button(role: .destructive) {
+                        episodeFileToDelete = file
+                        showDeleteFileAlert = true
+                    } label: {
+                        Label("Delete File", systemImage: "trash")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                        .font(.title3)
+                        .foregroundStyle(.secondary)
+                        .padding(4)
+                }
+            }
+
+            if let path = file.path {
+                Text(path)
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+        }
+        .padding(.vertical, 10)
+        .contentShape(Rectangle())
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                episodeFileToDelete = file
+                showDeleteFileAlert = true
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 

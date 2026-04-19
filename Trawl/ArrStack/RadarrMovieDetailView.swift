@@ -421,10 +421,6 @@ struct RadarrMovieDetailView: View {
                 statCell(value: ByteFormatter.format(bytes: size), label: "On Disk")
                 cardDivider
             }
-            if let popularity = movie.popularity {
-                statCell(value: String(format: "%.1f", popularity), label: "Popularity")
-                cardDivider
-            }
             statCell(value: movie.displayStatus, label: "Status")
         }
         .frame(maxWidth: .infinity)
@@ -558,11 +554,31 @@ struct RadarrMovieDetailView: View {
         if !items.isEmpty {
             HStack(spacing: 0) {
                 ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                    VStack(spacing: 2) {
-                        Text(item.1).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
-                        Text(item.0).font(.caption2).foregroundStyle(.secondary)
+                    Group {
+                        if item.0 == "IMDb", let imdbId = movie?.imdbId, !imdbId.isEmpty,
+                           let url = URL(string: "https://www.imdb.com/title/\(imdbId)/") {
+                            Link(destination: url) {
+                                VStack(spacing: 2) {
+                                    Text(item.1).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                                    HStack(spacing: 3) {
+                                        Text(item.0)
+                                        Image(systemName: "arrow.up.right.square")
+                                            .font(.system(size: 8))
+                                    }
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                }
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            VStack(spacing: 2) {
+                                Text(item.1).font(.subheadline.weight(.semibold)).lineLimit(1).minimumScaleFactor(0.7)
+                                Text(item.0).font(.caption2).foregroundStyle(.secondary)
+                            }
+                        }
                     }
                     .frame(maxWidth: .infinity)
+                    
                     if index < items.count - 1 {
                         Rectangle().fill(.separator).frame(width: 0.5, height: 26)
                     }
@@ -1768,7 +1784,9 @@ struct RadarrInteractiveSearchSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search releases…")
             .navigationTitle(movie.title)
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -2013,7 +2031,9 @@ struct RadarrReleaseActionView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .navigationTitle("Release")
+        #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var detailsCard: some View {

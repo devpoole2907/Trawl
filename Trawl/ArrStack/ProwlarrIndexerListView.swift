@@ -69,11 +69,11 @@ struct ProwlarrIndexerListView: View {
                 let name = indexer.name ?? "Indexer"
                 indexerToDelete = nil
                 Task {
-                    await vm.deleteIndexer(indexer)
+                    let deleted = await vm.deleteIndexer(indexer)
                     if let error = vm.indexerError {
                         InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
                         vm.clearIndexerError()
-                    } else {
+                    } else if deleted && !vm.containsIndexer(id: indexer.id) {
                         InAppNotificationCenter.shared.showSuccess(title: "Indexer Deleted", message: "\(name) has been removed.")
                     }
                 }
@@ -101,7 +101,14 @@ struct ProwlarrIndexerListView: View {
             vm.clearTestResult()
         }
         .sheet(isPresented: $showIndexerFilter) {
-            IndexerFilterSheet(indexers: vm.indexers, selectedIds: $vm.selectedIndexerIds)
+            IndexerFilterSheet(
+                indexers: vm.indexers,
+                selectedIds: $vm.selectedIndexerIds,
+                onSelectionChanged: {
+                    guard !vm.searchQuery.isEmpty else { return }
+                    Task { await vm.performSearch() }
+                }
+            )
         }
     }
 
@@ -139,6 +146,9 @@ struct ProwlarrIndexerListView: View {
                     ForEach(ProwlarrSearchType.allCases) { type in
                         Button {
                             vm.searchType = type
+                            if !vm.searchQuery.isEmpty {
+                                Task { await vm.performSearch() }
+                            }
                         } label: {
                             Label(type.displayName, systemImage: type.systemImage)
                                 .font(.subheadline.weight(.medium))
@@ -599,6 +609,7 @@ private struct SearchResultRow: View {
 private struct IndexerFilterSheet: View {
     let indexers: [ProwlarrIndexer]
     @Binding var selectedIds: Set<Int>
+    let onSelectionChanged: () -> Void
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -607,6 +618,7 @@ private struct IndexerFilterSheet: View {
                 Section {
                     Button("All Indexers") {
                         selectedIds = []
+                        onSelectionChanged()
                         dismiss()
                     }
                     .foregroundStyle(selectedIds.isEmpty ? .yellow : .primary)
@@ -620,6 +632,7 @@ private struct IndexerFilterSheet: View {
                             } else {
                                 selectedIds.insert(indexer.id)
                             }
+                            onSelectionChanged()
                         } label: {
                             HStack {
                                 Text(indexer.name ?? "Unknown").foregroundStyle(.primary)

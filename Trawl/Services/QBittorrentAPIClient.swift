@@ -19,6 +19,10 @@ actor QBittorrentAPIClient {
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
+    deinit {
+        session.invalidateAndCancel()
+    }
+
     // MARK: - Auth
 
     func login(username: String, password: String) async throws {

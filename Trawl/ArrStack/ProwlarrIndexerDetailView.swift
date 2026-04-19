@@ -5,6 +5,7 @@ struct ProwlarrIndexerDetailView: View {
     let viewModel: ProwlarrViewModel
     @State private var showDeleteConfirm = false
     @State private var showTestResult = false
+    @State private var testActionError: String?
     @Environment(\.dismiss) private var dismiss
 
     private var status: ProwlarrIndexerStatus? {
@@ -96,6 +97,9 @@ struct ProwlarrIndexerDetailView: View {
                 Button {
                     Task {
                         await viewModel.testIndexer(indexer)
+                        if viewModel.testSucceeded == false, viewModel.testResult == nil {
+                            testActionError = "Test failed."
+                        }
                     }
                 } label: {
                     Label("Test Indexer", systemImage: "checkmark.circle")
@@ -125,10 +129,11 @@ struct ProwlarrIndexerDetailView: View {
         #endif
         .onChange(of: viewModel.testResult) { _, newValue in
             if newValue != nil {
+                testActionError = nil
                 showTestResult = true
             }
         }
-        .onChange(of: viewModel.indexerError) { _, newValue in
+        .onChange(of: testActionError) { _, newValue in
             if newValue != nil {
                 showTestResult = true
             }
@@ -136,21 +141,26 @@ struct ProwlarrIndexerDetailView: View {
         .onChange(of: showTestResult) { _, isPresented in
             if !isPresented {
                 viewModel.clearTestOutcome()
+                testActionError = nil
             }
         }
         .alert("Test Result", isPresented: $showTestResult) {
             Button("OK", role: .cancel) {
                 viewModel.clearTestOutcome()
+                testActionError = nil
             }
         } message: {
-            Text(viewModel.testResult ?? viewModel.indexerError ?? "No result available")
+            Text(viewModel.testResult ?? testActionError ?? "No result available")
         }
         .alert("Remove Indexer?", isPresented: $showDeleteConfirm) {
             Button("Remove", role: .destructive) {
                 Task {
-                    await viewModel.deleteIndexer(indexer)
-                    if viewModel.indexerError == nil {
+                    let success = await viewModel.deleteIndexer(indexer)
+                    if success {
                         dismiss()
+                    } else if let error = viewModel.indexerError, !error.isEmpty {
+                        InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
+                        viewModel.clearIndexerError()
                     }
                 }
             }

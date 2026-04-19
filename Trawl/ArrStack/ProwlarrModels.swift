@@ -75,6 +75,7 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     }
 
     var schemaListID: String {
+        if id != 0 { return "indexer-\(id)" }
         let components = [
             implementation,
             configContract,
@@ -86,7 +87,7 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
             return trimmed.isEmpty ? nil : trimmed
         }
 
-        return components.isEmpty ? "schema-\(id)" : components.joined(separator: "::")
+        return components.isEmpty ? "template-unknown-\(UUID().uuidString)" : "template-" + components.joined(separator: "::")
     }
 }
 
@@ -123,11 +124,14 @@ struct ProwlarrIndexerField: Codable, Sendable {
 
 struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
     let name: String?
-    let value: Int?
+    let value: AnyCodableValue?
     let order: Int?
     let hint: String?
 
-    var id: Int { value ?? 0 }
+    var id: String {
+        if let value, let display = value.displayString { return "val-\(display)" }
+        return "opt-\(name ?? "")-\(order ?? 0)"
+    }
 }
 
 /// Type-erased JSON value for indexer config fields
@@ -170,6 +174,15 @@ enum AnyCodableValue: Codable, Sendable {
         case .bool(let v): return v ? "Yes" : "No"
         case .array(let v): return v.isEmpty ? nil : v.compactMap(\.displayString).joined(separator: ", ")
         case .null: return nil
+        }
+    }
+
+    var intValue: Int? {
+        switch self {
+        case .int(let v): return v
+        case .double(let v): return Int(v)
+        case .string(let v): return Int(v)
+        default: return nil
         }
     }
 }
@@ -226,14 +239,6 @@ enum ProwlarrSearchType: String, CaseIterable, Identifiable, Sendable {
 }
 
 struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
-    private static let publishDateFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let fallbackPublishDateFormatter = ISO8601DateFormatter()
-
     let guid: String?
     let title: String?
     let indexerId: Int?
@@ -294,7 +299,7 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         ]
         .compactMap { $0 }
 
-        return components.isEmpty ? "search-result-unknown" : "search-result-" + components.joined(separator: "|")
+        return components.isEmpty ? "search-result-unknown-\(UUID().uuidString)" : "search-result-" + components.joined(separator: "|")
     }
 
     var isFreeleech: Bool { downloadVolumeFactor == 0.0 }
@@ -309,9 +314,14 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     var ageDescription: String? {
         guard let publishDate else { return nil }
 
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let fallbackFormatter = ISO8601DateFormatter()
+
         let date =
-            Self.publishDateFormatter.date(from: publishDate) ??
-            Self.fallbackPublishDateFormatter.date(from: publishDate)
+            fractionalFormatter.date(from: publishDate) ??
+            fallbackFormatter.date(from: publishDate)
 
         guard let date else { return nil }
         let components = Calendar.current.dateComponents([.day, .hour, .minute], from: date, to: Date())
@@ -320,6 +330,9 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         }
         if let hours = components.hour, hours > 0 {
             return "\(hours)h ago"
+        }
+        if let minutes = components.minute, minutes > 0 {
+            return minutes == 1 ? "1m ago" : "\(minutes)m ago"
         }
         return "Just now"
     }
@@ -378,23 +391,33 @@ struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
 // MARK: - Indexer Status
 
 struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
-    private static let fractionalDisabledTillFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let fallbackDisabledTillFormatter = ISO8601DateFormatter()
-
-    let id: Int?
+    let id: Int
     let indexerId: Int?
     let disabledTill: String?
     let lastRssSyncReleaseDate: String?
 
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        indexerId = try c.decodeIfPresent(Int.self, forKey: .indexerId)
+        disabledTill = try c.decodeIfPresent(String.self, forKey: .disabledTill)
+        lastRssSyncReleaseDate = try c.decodeIfPresent(String.self, forKey: .lastRssSyncReleaseDate)
+    }
+
+    var stableID: String {
+        if id != 0 { return "status-\(id)" }
+        return "status-indexer-\(indexerId ?? 0)"
+    }
+
     var isDisabled: Bool {
+        let fractionalFormatter = ISO8601DateFormatter()
+        fractionalFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        let fallbackFormatter = ISO8601DateFormatter()
+
         guard let disabledTill,
-              let date = Self.fractionalDisabledTillFormatter.date(from: disabledTill) ??
-                  Self.fallbackDisabledTillFormatter.date(from: disabledTill) else { return false }
+              let date = fractionalFormatter.date(from: disabledTill) ??
+                  fallbackFormatter.date(from: disabledTill) else { return false }
         return date > Date()
     }
 }

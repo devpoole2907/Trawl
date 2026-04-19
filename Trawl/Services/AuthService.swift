@@ -16,6 +16,10 @@ actor AuthService {
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
+    deinit {
+        session.invalidateAndCancel()
+    }
+
     var isAuthenticated: Bool { sid != nil }
 
     /// Authenticate against qBittorrent and store the SID cookie.

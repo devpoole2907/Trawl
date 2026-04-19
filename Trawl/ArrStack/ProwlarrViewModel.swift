@@ -102,19 +102,25 @@ final class ProwlarrViewModel {
         }
     }
 
-    func deleteIndexer(_ indexer: ProwlarrIndexer) async {
-        guard let client else { return }
+    func deleteIndexer(_ indexer: ProwlarrIndexer) async -> Bool {
+        guard let client else { return false }
         do {
             try await client.deleteIndexer(id: indexer.id)
             indexers.removeAll { $0.id == indexer.id }
             indexerError = nil
+            return true
         } catch {
             indexerError = error.localizedDescription
+            return false
         }
     }
 
     func clearIndexerError() {
         indexerError = nil
+    }
+
+    func containsIndexer(id: Int) -> Bool {
+        indexers.contains { $0.id == id }
     }
 
     func reloadSchema() async {

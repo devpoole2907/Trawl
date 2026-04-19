@@ -27,21 +27,26 @@ struct ArrWantedView: View {
         (radarrViewModel?.error != nil && !radarrViewModel!.error!.isEmpty)
     }
 
-    /// Count of currently-loaded missing items for the active scope.
-    private var searchAllCount: Int {
-        let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
-        let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
-        return episodes + movies
+    private var canSearchAllMissing: Bool {
+        switch scope {
+        case .all:
+            return sonarrViewModel?.isConnected == true || radarrViewModel?.isConnected == true
+        case .series:
+            return sonarrViewModel?.isConnected == true
+        case .movies:
+            return radarrViewModel?.isConnected == true
+        }
     }
 
     private var searchAllConfirmMessage: String {
-        let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
-        let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
-        var parts: [String] = []
-        if episodes > 0 { parts.append("\(episodes) \(episodes == 1 ? "episode" : "episodes")") }
-        if movies   > 0 { parts.append("\(movies) \(movies == 1 ? "movie" : "movies")") }
-        let itemList = parts.joined(separator: " and ")
-        return "This will trigger a search for \(itemList) across your indexers."
+        switch scope {
+        case .all:
+            return "This will trigger a search for all missing items across your connected Arr services."
+        case .series:
+            return "This will trigger a search for all missing series items."
+        case .movies:
+            return "This will trigger a search for all missing movies."
+        }
     }
 
     var body: some View {
@@ -128,7 +133,7 @@ struct ArrWantedView: View {
                     Button("Search All Missing") {
                         showSearchAllConfirm = true
                     }
-                    .disabled(!hasConnectedService || searchAllCount == 0)
+                    .disabled(!canSearchAllMissing)
                 }
             }
         }

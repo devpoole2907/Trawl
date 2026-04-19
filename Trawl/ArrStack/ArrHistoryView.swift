@@ -129,11 +129,15 @@ struct ArrHistoryView: View {
     }
 
     private func initializeIfNeeded() async {
-        if serviceManager.sonarrConnected, sonarrViewModel == nil {
+        if (serviceFilter == .all || serviceFilter == .sonarr),
+           serviceManager.sonarrConnected,
+           sonarrViewModel == nil {
             sonarrViewModel = SonarrViewModel(serviceManager: serviceManager)
         }
 
-        if serviceManager.radarrConnected, radarrViewModel == nil {
+        if (serviceFilter == .all || serviceFilter == .radarr),
+           serviceManager.radarrConnected,
+           radarrViewModel == nil {
             radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
         }
 
@@ -148,13 +152,17 @@ struct ArrHistoryView: View {
 
     private func reloadHistory() async {
         await withTaskGroup(of: Void.self) { group in
-            if let sonarrViewModel {
+            if (serviceFilter == .all || serviceFilter == .sonarr),
+               serviceManager.sonarrConnected,
+               let sonarrViewModel {
                 group.addTask {
                     await sonarrViewModel.loadHistory(page: 1)
                 }
             }
 
-            if let radarrViewModel {
+            if (serviceFilter == .all || serviceFilter == .radarr),
+               serviceManager.radarrConnected,
+               let radarrViewModel {
                 group.addTask {
                     await radarrViewModel.loadHistory(page: 1)
                 }

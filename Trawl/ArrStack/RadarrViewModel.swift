@@ -198,20 +198,28 @@ final class RadarrViewModel {
         isSearching = true
         searchResults = []
         error = nil
-        defer { isSearching = false }
 
         do {
             let results = try await client.lookupMovie(term: term)
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else { return }
+            guard searchRequestToken == requestToken else {
+                return
+            }
             searchResults = results
+            isSearching = false
         } catch is CancellationError {
+            if searchRequestToken == requestToken {
+                isSearching = false
+            }
             return
         } catch {
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else { return }
+            guard searchRequestToken == requestToken else {
+                return
+            }
             self.error = error.localizedDescription
             searchResults = []
+            isSearching = false
         }
     }
 
@@ -348,8 +356,10 @@ final class RadarrViewModel {
 
     func searchMovie(movieId: Int) async {
         guard let client else { return }
+        error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])
+            error = nil
         } catch {
             self.error = error.localizedDescription
         }

@@ -225,7 +225,7 @@ private struct IndexerConfigView: View {
             if let options = field.selectOptions, !options.isEmpty {
                 Picker(label, selection: intBinding(for: key)) {
                     ForEach(options) { option in
-                        Text(option.name ?? "").tag(option.value ?? 0)
+                        Text(option.name ?? "").tag(option.value?.intValue ?? 0)
                     }
                 }
             }

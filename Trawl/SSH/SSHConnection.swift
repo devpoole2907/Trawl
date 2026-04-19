@@ -479,7 +479,7 @@ private actor SshSessionActor {
             } else if Int32(n) == LIBSSH2_ERROR_EAGAIN {
                 // If the underlying context is full, wait a bit before retrying to allow NWConnection to drain
                 if contextRef?.takeUnretainedValue().isBackpressured() == true {
-                    try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
+                    try await Task.sleep(nanoseconds: 50_000_000) // 50ms
                 } else {
                     try await waitForRetry()
                 }
@@ -810,11 +810,6 @@ final class SSHConnection: @unchecked Sendable {
                 }
             }
         }
-    }
-
-    private func handleConnectionClose() {
-        guard let conn = nwConnection else { return }
-        Task { await handleTransportClosed(for: conn, error: nil) }
     }
 
     private func shouldHandleTransportClose() -> Bool {
