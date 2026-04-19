@@ -3,6 +3,7 @@ import SwiftData
 
 struct SearchView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SyncService.self) private var syncService
     let appServices: AppServices?
 
     @State private var searchText = ""
@@ -76,11 +77,13 @@ struct SearchView: View {
             .navigationDestination(for: SeriesDestination.self) { dest in
                 if let vm = makeSonarrViewModel() {
                     SonarrSeriesDetailView(seriesId: dest.id, viewModel: vm)
+                        .environment(syncService)
                 }
             }
             .navigationDestination(for: MovieDestination.self) { dest in
                 if let vm = makeRadarrViewModel() {
                     RadarrMovieDetailView(movieId: dest.id, viewModel: vm)
+                        .environment(syncService)
                 }
             }
             .navigationDestination(for: ArrSeriesLookupDestination.self) { dest in
@@ -92,6 +95,7 @@ struct SearchView: View {
                             await refreshLibrary()
                         }
                     )
+                    .environment(syncService)
                 }
             }
             .navigationDestination(for: ArrMovieLookupDestination.self) { dest in
@@ -103,6 +107,7 @@ struct SearchView: View {
                             await refreshLibrary()
                         }
                     )
+                    .environment(syncService)
                 }
             }
         }
@@ -146,13 +151,7 @@ struct SearchView: View {
             createLookupViewModels()
             await reconcileTrendingMatches()
         }
-        .alert(item: $actionErrorAlert) { item in
-            Alert(
-                title: Text(item.title),
-                message: Text(item.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
+        .errorAlert(item: $actionErrorAlert)
     }
 
     // MARK: - Content routing
@@ -436,7 +435,7 @@ struct SearchView: View {
                             ForEach(seriesHits) { series in
                                 let isMonitored = series.monitored ?? true
                                 NavigationLink(value: SeriesDestination(id: series.id)) {
-                                    SonarrSeriesRow(series: series)
+                                    SonarrSeriesRow(series: series, hasIssue: false)
                                 }
                                 .contextMenu {
                                     Button {
@@ -468,7 +467,7 @@ struct SearchView: View {
                             ForEach(movieHits) { movie in
                                 let isMonitored = movie.monitored ?? true
                                 NavigationLink(value: MovieDestination(id: movie.id)) {
-                                    RadarrMovieRow(movie: movie)
+                                    RadarrMovieRow(movie: movie, hasIssue: false)
                                 }
                                 .contextMenu {
                                     Button {
@@ -949,12 +948,40 @@ struct SearchView: View {
 
     private func sonarrLookupKey(isConnected: Bool, series: [SonarrSeries]) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(series.map(\.id).sorted().map(String.init).joined(separator: ","))"
+        let fingerprint = series
+            .sorted { $0.id < $1.id }
+            .map {
+                [
+                    String($0.id),
+                    $0.title,
+                    $0.status ?? "",
+                    $0.monitored.map(String.init) ?? "",
+                    $0.qualityProfileId.map(String.init) ?? "",
+                    $0.rootFolderPath ?? "",
+                    $0.path ?? ""
+                ].joined(separator: "|")
+            }
+            .joined(separator: ",")
+        return "connected:\(fingerprint)"
     }
 
     private func radarrLookupKey(isConnected: Bool, movies: [RadarrMovie]) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(movies.map(\.id).sorted().map(String.init).joined(separator: ","))"
+        let fingerprint = movies
+            .sorted { $0.id < $1.id }
+            .map {
+                [
+                    String($0.id),
+                    $0.title,
+                    $0.status ?? "",
+                    $0.monitored.map(String.init) ?? "",
+                    $0.qualityProfileId.map(String.init) ?? "",
+                    $0.rootFolderPath ?? "",
+                    $0.path ?? ""
+                ].joined(separator: "|")
+            }
+            .joined(separator: ",")
+        return "connected:\(fingerprint)"
     }
 
 

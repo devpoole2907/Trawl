@@ -15,7 +15,7 @@ struct ProwlarrAddIndexerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        ArrSheetShell(title: "Add Indexer") {
             Group {
                 if viewModel.isLoadingSchema {
                     ProgressView("Loading indexer types…")
@@ -45,29 +45,20 @@ struct ProwlarrAddIndexerSheet: View {
                     )
                 } else {
                     List(filteredSchema, id: \.schemaListID) { schema in
-                            NavigationLink {
-                                IndexerConfigView(
-                                    schema: schema,
-                                    viewModel: viewModel,
-                                    onAdded: { dismiss() }
-                                )
-                            } label: {
-                                schemaRow(schema)
-                            }
+                        NavigationLink {
+                            IndexerConfigView(
+                                schema: schema,
+                                viewModel: viewModel,
+                                onAdded: { dismiss() }
+                            )
+                        } label: {
+                            schemaRow(schema)
+                        }
                     }
                     .listStyle(.insetGrouped)
                 }
             }
             .searchable(text: $searchText, prompt: "Search indexers")
-            .navigationTitle("Add Indexer")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
             .task {
                 await viewModel.loadSchema()
             }
@@ -295,7 +286,9 @@ private struct IndexerConfigView: View {
     // MARK: - Save
 
     private func save() async {
+        guard !isAdding else { return }
         isAdding = true
+        defer { isAdding = false }
         viewModel.clearIndexerError()
 
         let updatedFields = (schema.fields ?? []).map { field -> ProwlarrIndexerField in
@@ -329,10 +322,9 @@ private struct IndexerConfigView: View {
             fields: updatedFields
         )
 
-        await viewModel.addIndexer(newIndexer)
-        isAdding = false
+        let didAdd = await viewModel.addIndexer(newIndexer)
 
-        if viewModel.indexerError == nil {
+        if didAdd {
             InAppNotificationCenter.shared.showSuccess(
                 title: "Indexer Added",
                 message: "\(indexerName.trimmingCharacters(in: .whitespacesAndNewlines)) has been added to Prowlarr."

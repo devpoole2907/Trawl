@@ -1,9 +1,11 @@
 import Foundation
+import OSLog
 import Observation
 
 @MainActor
 @Observable
 final class ProwlarrViewModel {
+    private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "ProwlarrViewModel")
     private let serviceManager: ArrServiceManager
 
     // MARK: - Indexer State
@@ -12,6 +14,7 @@ final class ProwlarrViewModel {
     private(set) var isLoadingIndexers = false
     private(set) var indexerError: String?
     private(set) var testResult: String?
+    private(set) var testSucceeded: Bool?
     private(set) var isTesting = false
 
     // MARK: - Schema State
@@ -129,26 +132,33 @@ final class ProwlarrViewModel {
             schemaIndexers = try await client.getIndexerSchema()
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
         } catch {
-            print("[ProwlarrViewModel] loadSchema error: \(error)")
+            logger.error("Failed to load Prowlarr schema: \(error.localizedDescription, privacy: .public)")
             schemaError = error.localizedDescription
         }
         isLoadingSchema = false
     }
 
-    func addIndexer(_ indexer: ProwlarrIndexer) async {
-        guard let client else { return }
+    func addIndexer(_ indexer: ProwlarrIndexer) async -> Bool {
+        guard let client else { return false }
         indexerError = nil
         do {
             let created = try await client.createIndexer(indexer)
             indexers.append(created)
             indexers.sort { ($0.name ?? "") < ($1.name ?? "") }
+            return true
         } catch {
             indexerError = error.localizedDescription
+            return false
         }
     }
 
     func clearTestResult() {
         testResult = nil
+        testSucceeded = nil
+    }
+
+    func clearTestOutcome() {
+        clearTestResult()
         indexerError = nil
     }
 
@@ -156,11 +166,14 @@ final class ProwlarrViewModel {
         guard let client else { return }
         isTesting = true
         testResult = nil
+        testSucceeded = nil
         do {
             try await client.testIndexer(indexer)
             testResult = "\(indexer.name ?? "Indexer") passed."
+            testSucceeded = true
         } catch {
             testResult = "\(indexer.name ?? "Indexer") failed: \(error.localizedDescription)"
+            testSucceeded = false
         }
         isTesting = false
     }
@@ -169,13 +182,16 @@ final class ProwlarrViewModel {
         guard let client else { return }
         isTesting = true
         testResult = nil
+        testSucceeded = nil
         let count = indexers.count
         do {
             try await client.testAllIndexers()
             let label = count == 1 ? "1 indexer" : "\(count) indexers"
             testResult = "All \(label) passed their connectivity tests."
+            testSucceeded = true
         } catch {
             testResult = "One or more indexers failed their test. Check Prowlarr for details.\n\n\(error.localizedDescription)"
+            testSucceeded = false
         }
         isTesting = false
     }

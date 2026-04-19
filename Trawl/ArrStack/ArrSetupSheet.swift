@@ -79,10 +79,12 @@ struct ArrSetupSheet: View {
                     .textInputAutocapitalization(.never)
 
                 TextField("Display Name (optional)", text: $vm.displayName)
+
+                Toggle("Allow Self-Signed Certificates", isOn: $vm.allowsUntrustedTLS)
             }
 
             Section {
-                Text("Find your API key in \(vm.serviceType.displayName) under Settings → General → Security.")
+                Text("Find your API key in \(vm.serviceType.displayName) under Settings → General → Security. Enable self-signed certificates only for services you manage yourself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

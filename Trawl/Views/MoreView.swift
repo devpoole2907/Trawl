@@ -2,13 +2,12 @@ import SwiftUI
 
 enum MoreDestination: Hashable {
     case activity
-    case categories
-    case tags
+    case categoriesAndTags
+    case rssFeeds
     case diskSpace
     case health
     case history
     case wanted
-    case serverList
     case ssh
     case sshSession
     case settings
@@ -17,6 +16,8 @@ enum MoreDestination: Hashable {
     case radarrSettings
     case prowlarrSettings
     case prowlarrIndexers
+    case transferStats
+    case blocklist
 }
 
 struct MoreView: View {
@@ -41,24 +42,14 @@ struct MoreView: View {
                                 title: "Health", subtitle: "Service health checks")
                     }
 
-                    NavigationLink(value: MoreDestination.diskSpace) {
-                        moreRow(icon: "internaldrive.fill", color: .teal,
-                                title: "Disk Space", subtitle: "Storage usage across Sonarr and Radarr")
-                    }
-
                     NavigationLink(value: MoreDestination.wanted) {
                         moreRow(icon: "exclamationmark.triangle.fill", color: .orange,
                                 title: "Wanted / Missing", subtitle: "Monitored items without files")
                     }
 
-                    NavigationLink(value: MoreDestination.categories) {
-                        moreRow(icon: "tag.fill", color: .blue,
-                                title: "Categories", subtitle: "Create and remove qBittorrent categories")
-                    }
-
-                    NavigationLink(value: MoreDestination.tags) {
-                        moreRow(icon: "number", color: .cyan,
-                                title: "Tags", subtitle: "Create and manage qBittorrent tags")
+                    NavigationLink(value: MoreDestination.blocklist) {
+                        moreRow(icon: "nosign", color: .red,
+                                title: "Blocklist", subtitle: "Releases blocked from being grabbed")
                     }
 
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
@@ -66,6 +57,30 @@ struct MoreView: View {
                                 title: "Indexers", subtitle: "Manage Prowlarr indexers")
                     }
 
+                    NavigationLink(value: MoreDestination.diskSpace) {
+                        moreRow(icon: "internaldrive.fill", color: .teal,
+                                title: "Disk Space", subtitle: "Storage usage across Sonarr and Radarr")
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.categoriesAndTags) {
+                        moreRow(icon: "tag.fill", color: .blue,
+                                title: "Categories & Tags", subtitle: "Manage your torrent organization")
+                    }
+                    
+                    NavigationLink(value: MoreDestination.rssFeeds) {
+                        moreRow(icon: "dot.radiowaves.left.and.right", color: .cyan,
+                                title: "RSS Feeds", subtitle: "Automatically download from feed rules")
+                    }
+
+                    NavigationLink(value: MoreDestination.transferStats) {
+                        moreRow(icon: "chart.line.uptrend.xyaxis", color: .blue,
+                                title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
+                    }
+                }
+
+                Section {
                     NavigationLink(value: MoreDestination.ssh) {
                         sshRow
                     }
@@ -99,47 +114,78 @@ struct MoreView: View {
                 switch destination {
                 case .activity:
                     ArrActivityView()
-                case .categories:
-                    qbittorrentCategoriesDestination
-                case .tags:
-                    qbittorrentTagsDestination
+                        .moreDestinationTitleStyle()
+                case .categoriesAndTags:
+                    qbittorrentCategoriesAndTagsDestination
+                        .moreDestinationTitleStyle()
+                case .rssFeeds:
+                    qbittorrentRSSDestination
+                        .moreDestinationTitleStyle()
                 case .diskSpace:
                     ArrDiskSpaceView()
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .health:
                     ArrHealthView()
-                        #if os(iOS)
-                        .navigationBarTitleDisplayMode(.large)
-                        #endif
+                        .moreDestinationTitleStyle()
                 case .history:
                     ArrActivityView()
+                        .moreDestinationTitleStyle()
                 case .wanted:
                     ArrWantedView()
                         .environment(arrServiceManager)
-                case .serverList:
-                    qbittorrentServerListDestination
+                        .moreDestinationTitleStyle()
                 case .ssh:
                     SSHProfileListView { profile in
                         selectSSHProfile(profile)
                     }
+                    .moreDestinationTitleStyle()
                 case .sshSession:
                     SSHSessionView()
+                        .moreDestinationTitleStyle()
                 case .settings:
                     settingsDestination
+                        .moreDestinationTitleStyle()
                 case .qbittorrentSettings:
                     qbittorrentSettingsDestination
+                        .moreDestinationTitleStyle()
                 case .sonarrSettings:
                     ArrServiceSettingsView(serviceType: .sonarr)
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .radarrSettings:
                     ArrServiceSettingsView(serviceType: .radarr)
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .prowlarrSettings:
                     ArrServiceSettingsView(serviceType: .prowlarr)
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .prowlarrIndexers:
                     prowlarrIndexersDestination
+                        .moreDestinationTitleStyle()
+                case .transferStats:
+                    transferStatsDestination
+                        .moreDestinationTitleStyle()
+                case .blocklist:
+                    ArrBlocklistView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var transferStatsDestination: some View {
+        if let services = appServices {
+            TorrentStatsView()
+                .environment(services.syncService)
+        } else {
+            ContentUnavailableView {
+                Label("qBittorrent Not Connected", systemImage: "chart.line.uptrend.xyaxis")
+            } description: {
+                Text("Connect a qBittorrent server to view transfer statistics.")
             }
         }
     }
@@ -230,45 +276,31 @@ struct MoreView: View {
     }
 
     @ViewBuilder
-    private var qbittorrentCategoriesDestination: some View {
+    private var qbittorrentCategoriesAndTagsDestination: some View {
         if let services = appServices {
-            QBittorrentCategoriesView()
+            QBittorrentCategoriesAndTagsView()
                 .environment(services.syncService)
                 .environment(services.torrentService)
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
             } description: {
-                Text("Add a qBittorrent server in Settings before managing categories.")
+                Text("Add a qBittorrent server in Settings before managing categories and tags.")
             }
         }
     }
 
     @ViewBuilder
-    private var qbittorrentTagsDestination: some View {
+    private var qbittorrentRSSDestination: some View {
         if let services = appServices {
-            QBittorrentTagsView()
-                .environment(services.syncService)
+            QBittorrentRSSView()
                 .environment(services.torrentService)
+                .environment(services)
         } else {
             ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "number")
+                Label("qBittorrent Not Set Up", systemImage: "dot.radiowaves.left.and.right")
             } description: {
-                Text("Add a qBittorrent server before managing tags.")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var qbittorrentServerListDestination: some View {
-        if let services = appServices {
-            ServerListView()
-                .environment(services.syncService)
-        } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "server.rack")
-            } description: {
-                Text("Add a qBittorrent server before managing server switching.")
+                Text("Add a qBittorrent server before managing RSS feeds.")
             }
         }
     }
@@ -294,5 +326,16 @@ struct MoreView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+private extension View {
+    @ViewBuilder
+    func moreDestinationTitleStyle() -> some View {
+        #if os(iOS)
+        self.navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
     }
 }

@@ -8,6 +8,14 @@ struct SonarrSeriesDetailView: View {
         let color: Color
     }
 
+    private struct PendingQueueAction: Identifiable {
+        let itemID: Int
+        let title: String
+        let blocklist: Bool
+
+        var id: String { "\(itemID)-\(blocklist)" }
+    }
+
     @Bindable var viewModel: SonarrViewModel
     @Environment(SyncService.self) private var syncService
 
@@ -17,14 +25,16 @@ struct SonarrSeriesDetailView: View {
     private let discoverSeries: SonarrSeries?
     private let onAdded: (() async -> Void)?
 
-    @State private var expandedSeasons: Set<Int> = []
     @State private var isFilesExpanded = false
     @State private var isAlternateTitlesExpanded = false
-    @State private var isQueueExpanded = true
+    @State private var isQueueExpanded = false
+    @State private var isImportIssuesExpanded = false
     @State private var showEditSheet = false
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
     @State private var showAddSheet = false
     @State private var didAdd = false
+    @State private var queueActionInFlightIDs: Set<Int> = []
+    @State private var pendingQueueAction: PendingQueueAction?
 
     /// Library init — series lives in the ViewModel's loaded library.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -87,6 +97,14 @@ struct SonarrSeriesDetailView: View {
             .sorted { $0.progress > $1.progress }
     }
 
+    private var activeQueueItems: [ArrQueueItem] {
+        queueItems.filter(isActiveQueueItem)
+    }
+
+    private var importIssueQueueItems: [ArrQueueItem] {
+        queueItems.filter { !isActiveQueueItem($0) && $0.isImportIssueQueueItem }
+    }
+
     var body: some View {
         Group {
             if let series {
@@ -118,6 +136,8 @@ struct SonarrSeriesDetailView: View {
         .sheet(isPresented: $showEditSheet) {
             if let series, isInLibrary {
                 SonarrEditSeriesSheet(viewModel: viewModel, series: series)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -137,11 +157,11 @@ struct SonarrSeriesDetailView: View {
                 if let file = selectedEpisodeFileForDeletion {
                     selectedEpisodeFileForDeletion = nil
                     Task {
-                        await viewModel.deleteEpisodeFile(id: file.id)
-                        if let error = viewModel.error, !error.isEmpty {
-                            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
-                        } else {
+                        let didDelete = await viewModel.deleteEpisodeFile(id: file.id)
+                        if didDelete {
                             InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "The episode file has been removed.")
+                        } else if let error = viewModel.error, !error.isEmpty {
+                            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
                         }
                     }
                 }
@@ -151,6 +171,30 @@ struct SonarrSeriesDetailView: View {
             }
         } message: {
             Text("This removes the selected episode file from Sonarr.")
+        }
+        .alert(
+            pendingQueueAction?.blocklist == true ? "Blocklist Queue Item?" : "Remove Queue Item?",
+            isPresented: pendingQueueActionPresented
+        ) {
+            Button(pendingQueueAction?.blocklist == true ? "Blocklist" : "Remove", role: .destructive) {
+                guard let pendingQueueAction else { return }
+                let action = pendingQueueAction
+                self.pendingQueueAction = nil
+                Task {
+                    if let item = viewModel.queue.first(where: { $0.id == action.itemID }) {
+                        await handleQueueIssueAction(for: item, blocklist: action.blocklist)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingQueueAction = nil
+            }
+        } message: {
+            Text(
+                pendingQueueAction?.blocklist == true
+                    ? "This will remove \"\(pendingQueueAction?.title ?? "this item")\" from the queue and add it to Sonarr's blocklist."
+                    : "This will remove \"\(pendingQueueAction?.title ?? "this item")\" from the Sonarr queue."
+            )
         }
     }
 
@@ -288,8 +332,12 @@ struct SonarrSeriesDetailView: View {
             statsCard(series)
         }
 
-        if !queueItems.isEmpty {
-            queueCard(queueItems)
+        if !activeQueueItems.isEmpty {
+            queueCard(activeQueueItems)
+        }
+
+        if !importIssueQueueItems.isEmpty {
+            importIssuesCard(importIssueQueueItems)
         }
 
         if let genres = series.genres, !genres.isEmpty {
@@ -298,10 +346,6 @@ struct SonarrSeriesDetailView: View {
 
         if let ratings = series.ratings {
             ratingsCard(ratings)
-        }
-
-        if let alternateTitles = series.alternateTitles, !alternateTitles.isEmpty {
-            alternateTitlesCard(alternateTitles)
         }
 
         // Library-only: episodes and files
@@ -317,6 +361,10 @@ struct SonarrSeriesDetailView: View {
             if !episodeFiles.isEmpty {
                 episodeFilesCard
             }
+        }
+        
+        if let alternateTitles = series.alternateTitles, !alternateTitles.isEmpty {
+            alternateTitlesCard(alternateTitles)
         }
     }
 
@@ -464,6 +512,50 @@ struct SonarrSeriesDetailView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    private func importIssuesCard(_ items: [ArrQueueItem]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                    isImportIssuesExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    HStack(spacing: 8) {
+                        sectionLabel(items.count == 1 ? "Import Issue" : "Import Issues", icon: "exclamationmark.triangle")
+                        Text("\(items.count)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: isImportIssuesExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, isImportIssuesExpanded ? 8 : 14)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isImportIssuesExpanded {
+                ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
+                    queueIssueRow(item)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+
+                    if index < items.count - 1 {
+                        Divider().padding(.leading, 16)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
     private func queueItemRow(_ item: ArrQueueItem) -> some View {
         let linkedTorrent = linkedTorrent(for: item.downloadId)
         let progress = linkedTorrent?.progress ?? item.progress
@@ -578,12 +670,132 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
+    private func queueIssueRow(_ item: ArrQueueItem) -> some View {
+        let linkedTorrent = linkedTorrent(for: item.downloadId)
+        let primaryStatus = linkedTorrent?.state.displayName ?? item.trackedDownloadState ?? item.status ?? "Issue"
+        let message = item.primaryStatusMessage ?? "This item is blocked before import completes."
+        let isRemoving = queueActionInFlightIDs.contains(item.id)
+
+        return VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(linkedTorrent?.name ?? item.title ?? "Queue Item")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Text(primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                Spacer(minLength: 8)
+
+                Text(item.trackedDownloadStatus?.capitalized ?? "Issue")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.16))
+                    .clipShape(Capsule())
+            }
+
+            Text(message)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 10) {
+                Button {
+                    showEditSheet = true
+                } label: {
+                    importIssueActionIcon(systemName: "slider.horizontal.3", tint: .blue)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Edit Series")
+                .disabled(isRemoving || !isInLibrary)
+
+                Button {
+                    pendingQueueAction = PendingQueueAction(
+                        itemID: item.id,
+                        title: linkedTorrent?.name ?? item.title ?? "Queue Item",
+                        blocklist: false
+                    )
+                } label: {
+                    importIssueActionIcon(systemName: "trash", tint: .red)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Remove from Queue")
+                .disabled(isRemoving)
+
+                Button {
+                    pendingQueueAction = PendingQueueAction(
+                        itemID: item.id,
+                        title: linkedTorrent?.name ?? item.title ?? "Queue Item",
+                        blocklist: true
+                    )
+                } label: {
+                    importIssueActionIcon(systemName: "hand.raised.fill", tint: .orange)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Blocklist")
+                .disabled(isRemoving)
+            }
+
+            Text("Use Edit Series to change the root folder or other import-related settings before retrying.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            if let torrent = linkedTorrent {
+                NavigationLink {
+                    TorrentDetailView(torrentHash: torrent.hash)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundStyle(.blue)
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("View Torrent")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                            Text(torrent.state.displayName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .contentShape(Rectangle())
+                    .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 12))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     private func linkedTorrent(for downloadId: String?) -> Torrent? {
         guard let downloadId, !downloadId.isEmpty else { return nil }
         let normalized = downloadId.lowercased()
         if let direct = syncService.torrents[downloadId] { return direct }
         if let normalizedMatch = syncService.torrents[normalized] { return normalizedMatch }
         return syncService.torrents.first { $0.key.caseInsensitiveCompare(downloadId) == .orderedSame }?.value
+    }
+
+    @ViewBuilder
+    private func importIssueActionIcon(systemName: String, tint: Color) -> some View {
+        Image(systemName: systemName)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(8)
+            .glassEffect(.regular.interactive(), in: Circle())
     }
 
     private func formattedETA(for torrent: Torrent) -> String? {
@@ -596,6 +808,40 @@ struct SonarrSeriesDetailView: View {
         } else {
             return String(format: "%02d:%02d", minutes, seconds)
         }
+    }
+
+    private func isActiveQueueItem(_ item: ArrQueueItem) -> Bool {
+        if let torrent = linkedTorrent(for: item.downloadId) {
+            return torrent.state.filterCategory == .downloading
+        }
+
+        return item.isDownloadingQueueItem
+    }
+
+    private func handleQueueIssueAction(for item: ArrQueueItem, blocklist: Bool) async {
+        queueActionInFlightIDs.insert(item.id)
+        defer { queueActionInFlightIDs.remove(item.id) }
+
+        await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
+        let wasRemoved = !viewModel.queue.contains(where: { $0.id == item.id })
+
+        if wasRemoved {
+            InAppNotificationCenter.shared.showSuccess(
+                title: blocklist ? "Blocked" : "Removed",
+                message: blocklist
+                    ? "The queue item was removed and blocklisted."
+                    : "The queue item was removed from Sonarr."
+            )
+        } else if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Queue Action Failed", message: error)
+        }
+    }
+
+    private var pendingQueueActionPresented: Binding<Bool> {
+        Binding(
+            get: { pendingQueueAction != nil },
+            set: { if !$0 { pendingQueueAction = nil } }
+        )
     }
 
     private func alternateTitlesCard(_ alternateTitles: [SonarrAlternateTitle]) -> some View {
@@ -673,83 +919,49 @@ struct SonarrSeriesDetailView: View {
             .filter { $0.seasonNumber == seasonNum }
             .sorted { $0.episodeNumber < $1.episodeNumber }
         let filesCount = seasonEpisodes.filter { $0.hasFile == true }.count
-        let isExpanded = expandedSeasons.contains(seasonNum)
-
-        return VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                Button {
-                    withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                        if isExpanded { expandedSeasons.remove(seasonNum) }
-                        else { expandedSeasons.insert(seasonNum) }
-                    }
-                } label: {
-                    HStack(spacing: 10) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
-                                .font(.subheadline.weight(.semibold))
-                            Text("\(filesCount) of \(seasonEpisodes.count) episodes")
-                                .font(.caption).foregroundStyle(.secondary)
-                        }
-
-                        Spacer(minLength: 8)
-
-                        ZStack(alignment: .leading) {
-                            Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
-                            if seasonEpisodes.count > 0 {
-                                Capsule()
-                                    .fill(filesCount == seasonEpisodes.count ? Color.green : Color.purple)
-                                    .frame(
-                                        width: 48 * CGFloat(filesCount) / CGFloat(seasonEpisodes.count),
-                                        height: 4
-                                    )
-                            }
-                        }
-
-                        Image(systemName: "chevron.right")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.tertiary)
-                            .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+        return NavigationLink {
+            SonarrSeasonSearchView(
+                viewModel: viewModel,
+                series: series ?? discoverSeries,
+                seasonNumber: seasonNum,
+                episodes: seasonEpisodes
+            )
+        } label: {
+            HStack(spacing: 10) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
+                        .font(.subheadline.weight(.semibold))
+                    Text("\(filesCount) of \(seasonEpisodes.count) episodes")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(seasonNum == 0 ? "Expand Specials" : "Expand Season \(seasonNum)")
 
-                if let id = resolvedSeriesId {
-                    Button {
-                        Task { await searchSeasonWithFeedback(seriesId: id, seasonNumber: seasonNum, episodeCount: seasonEpisodes.count) }
-                    } label: {
-                        Image(systemName: "magnifyingglass")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .padding(7)
-                            .glassEffect(.regular.interactive(), in: Circle())
+                Spacer(minLength: 8)
+
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
+                    if seasonEpisodes.count > 0 {
+                        Capsule()
+                            .fill(filesCount == seasonEpisodes.count ? Color.green : Color.purple)
+                            .frame(
+                                width: 48 * CGFloat(filesCount) / CGFloat(seasonEpisodes.count),
+                                height: 4
+                            )
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Search for season \(seasonNum)")
-                    .padding(.trailing, 14)
                 }
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-
-            if isExpanded {
-                Divider()
-                ForEach(seasonEpisodes) { episode in
-                    EpisodeRow(episode: episode) {
-                        Task { await viewModel.toggleEpisodeMonitored(episode) }
-                    } onSearch: {
-                        Task { await searchEpisodeWithFeedback(episode) }
-                    }
-                    if episode.id != seasonEpisodes.last?.id {
-                        Divider().padding(.leading, 38)
-                    }
-                }
-            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
-        .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        .buttonStyle(.plain)
+        .disabled((series ?? discoverSeries) == nil)
     }
 
     // MARK: - Search actions
@@ -868,6 +1080,7 @@ struct SonarrSeriesDetailView: View {
                                 )
                             }
                         }
+
                         Divider()
                     }
                     Button {
@@ -1235,5 +1448,1013 @@ private struct EpisodeRow: View {
         guard let date = f.date(from: string) else { return string }
         f.dateStyle = .medium; f.dateFormat = nil
         return f.string(from: date)
+    }
+}
+
+struct SonarrInteractiveSearchSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Bindable var viewModel: SonarrViewModel
+    let series: SonarrSeries
+    let episode: SonarrEpisode?
+    let seasonNumber: Int?
+
+    @State private var releases: [ArrRelease] = []
+    @State private var isLoading = false
+    @State private var grabbingReleaseID: String?
+    @State private var hasLoaded = false
+    @State private var searchText = ""
+    @State private var releaseSort = ArrReleaseSort()
+
+    init(viewModel: SonarrViewModel, series: SonarrSeries, episode: SonarrEpisode? = nil, seasonNumber: Int? = nil) {
+        self.viewModel = viewModel
+        self.series = series
+        self.episode = episode
+        self.seasonNumber = seasonNumber
+    }
+
+    private var availableIndexers: [String] {
+        Array(Set(releases.compactMap(\.indexer))).sorted()
+    }
+    private var availableQualities: [String] {
+        Array(Set(releases.map(\.qualityName))).sorted()
+    }
+
+    /// Releases after applying sort/filter (no search text). Used for "N hidden" count.
+    private var sortedFilteredReleases: [ArrRelease] {
+        let filtered = releases.filter { release in
+            let matchesIndexer = releaseSort.indexer.isEmpty || releaseSort.indexer == release.indexer
+            let matchesQuality = releaseSort.quality.isEmpty || releaseSort.quality == release.qualityName
+            let matchesApproved = !releaseSort.approvedOnly || release.approved == true
+            return matchesIndexer && matchesQuality && matchesApproved
+        }
+        guard releaseSort.option != .default else { return filtered }
+        return filtered.sorted { lhs, rhs in
+            let asc = releaseSort.isAscending
+            switch releaseSort.option {
+            case .default: return false
+            case .age:
+                let l = lhs.ageHours ?? Double(lhs.age ?? 0) * 24
+                let r = rhs.ageHours ?? Double(rhs.age ?? 0) * 24
+                return asc ? l < r : l > r
+            case .quality:
+                return asc ? lhs.qualityName < rhs.qualityName : lhs.qualityName > rhs.qualityName
+            case .size:
+                return asc ? (lhs.size ?? 0) < (rhs.size ?? 0) : (lhs.size ?? 0) > (rhs.size ?? 0)
+            case .seeders:
+                return asc ? (lhs.seeders ?? 0) < (rhs.seeders ?? 0) : (lhs.seeders ?? 0) > (rhs.seeders ?? 0)
+            }
+        }
+    }
+
+    /// Releases shown in the list (after search text applied on top of sort/filter).
+    private var displayedReleases: [ArrRelease] {
+        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return sortedFilteredReleases }
+        return sortedFilteredReleases.filter { release in
+            release.title?.localizedCaseInsensitiveContains(text) == true ||
+            release.indexer?.localizedCaseInsensitiveContains(text) == true
+        }
+    }
+
+    private var hiddenByFiltersCount: Int {
+        releases.count - sortedFilteredReleases.count
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Searching indexers…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = viewModel.error, !error.isEmpty {
+                    ContentUnavailableView(error, systemImage: "exclamationmark.triangle.fill")
+                } else if releases.isEmpty && hasLoaded {
+                    ContentUnavailableView(
+                        "No Releases Found",
+                        systemImage: "magnifyingglass",
+                        description: Text("Sonarr didn't return any manual search results.")
+                    )
+                } else if !releases.isEmpty && displayedReleases.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Some releases are hidden by the selected filters.")
+                    } actions: {
+                        Button("Clear Filters") { clearFilters() }
+                    }
+                } else if !releases.isEmpty {
+                    List {
+                        ForEach(displayedReleases) { release in
+                            NavigationLink {
+                                SonarrReleaseActionView(
+                                    release: release,
+                                    artURL: series.posterURL ?? series.fanartURL,
+                                    isGrabbing: grabbingReleaseID == release.id,
+                                    onGrab: { await grab(release: release) }
+                                )
+                            } label: {
+                                SonarrReleaseRowView(release: release)
+                            }
+                        }
+
+                        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
+                            Section {
+                                EmptyView()
+                            } footer: {
+                                Label(
+                                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
+                                    systemImage: "line.3.horizontal.decrease.circle"
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search releases…")
+            .navigationTitle(titleString)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItem(placement: .status) {
+                    if !releases.isEmpty {
+                        let shown = displayedReleases.count
+                        let total = releases.count
+                        Text(shown == total ? "\(total) releases" : "\(shown) of \(total)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    sortMenu
+                    filterMenu
+                }
+            }
+            .task {
+                await loadReleases()
+            }
+            .onChange(of: releaseSort.option) { _, _ in
+                releaseSort.isAscending = false
+            }
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort By", selection: $releaseSort.option) {
+                ForEach(ArrReleaseSortKey.allCases) { key in
+                    Label(key.rawValue, systemImage: key.systemImage).tag(key)
+                }
+            }
+            .pickerStyle(.inline)
+            .menuIndicator(.hidden)
+
+            if releaseSort.option != .default {
+                Picker("Direction", selection: $releaseSort.isAscending) {
+                    Label("Descending", systemImage: "arrow.down").tag(false)
+                    Label("Ascending", systemImage: "arrow.up").tag(true)
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+        } label: {
+            Image(systemName: releaseSort.option != .default
+                  ? "arrow.up.arrow.down.circle.fill"
+                  : "arrow.up.arrow.down")
+        }
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            if !availableIndexers.isEmpty {
+                Picker("Indexer", selection: $releaseSort.indexer) {
+                    Text("All Indexers").tag("")
+                    ForEach(availableIndexers, id: \.self) { indexer in
+                        Text(indexer).tag(indexer)
+                    }
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+
+            if !availableQualities.isEmpty {
+                Picker("Quality", selection: $releaseSort.quality) {
+                    Text("All Qualities").tag("")
+                    ForEach(availableQualities, id: \.self) { quality in
+                        Text(quality).tag(quality)
+                    }
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+
+            Toggle("Approved Only", isOn: $releaseSort.approvedOnly)
+        } label: {
+            Image(systemName: releaseSort.isFiltered
+                  ? "line.3.horizontal.decrease.circle.fill"
+                  : "line.3.horizontal.decrease.circle")
+        }
+    }
+
+    private func clearFilters() {
+        releaseSort.indexer = ""
+        releaseSort.quality = ""
+        releaseSort.approvedOnly = false
+    }
+
+    private var titleString: String {
+        if let episode {
+            return "\(series.title ?? "Series") · \(episode.episodeIdentifier)"
+        } else if let seasonNumber {
+            return "\(series.title ?? "Series") · Season \(seasonNumber)"
+        } else {
+            return series.title ?? "Interactive Search"
+        }
+    }
+
+    private func loadReleases() async {
+        guard !hasLoaded else { return }
+        isLoading = true
+        releases = []
+        releases = await viewModel.interactiveSearch(episodeId: episode?.id, seriesId: series.id, seasonNumber: seasonNumber)
+        isLoading = false
+        hasLoaded = true
+    }
+
+    private func grab(release: ArrRelease) async {
+        grabbingReleaseID = release.id
+        let didGrab = await viewModel.grabRelease(release)
+        grabbingReleaseID = nil
+
+        if didGrab {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Release Sent",
+                message: release.title ?? "The selected release was sent to the download client."
+            )
+            dismiss()
+        } else if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error)
+        }
+    }
+}
+
+struct SonarrReleaseRowView: View {
+    let release: ArrRelease
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(release.title ?? "Unknown Release")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Text(release.indexer ?? "Unknown Indexer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let age = release.ageDescription {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text(age)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if release.approved != true {
+                        releaseChip(release.rejected == true ? "Rejected" : "Not Approved", color: .orange)
+                    }
+                    releaseChip(release.qualityName, color: .primary)
+                    if let size = release.size, size > 0 {
+                        releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
+                    }
+                    releaseChip(release.protocolName, color: .secondary)
+                    if let seeders = release.seeders, seeders > 0 {
+                        let leechers = release.leechers ?? 0
+                        releaseChip("S:\(seeders) L:\(leechers)", color: .secondary)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func releaseChip(_ label: String, color: Color) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(0.1))
+            .clipShape(Capsule())
+    }
+}
+
+struct SonarrReleaseActionView: View {
+    let release: ArrRelease
+    let artURL: URL?
+    let isGrabbing: Bool
+    let onGrab: () async -> Void
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .center, spacing: 20) {
+                // Header
+                VStack(spacing: 6) {
+                    Text(release.title ?? "Unknown Release")
+                        .font(.title3.bold())
+                        .foregroundStyle(.white)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(release.indexer ?? "Unknown Indexer")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 16)
+
+                // Details card
+                detailsCard
+
+                // Rejections card
+                if let rejections = release.rejections, !rejections.isEmpty {
+                    rejectionsCard(rejections)
+                }
+
+                // Download button
+                Button {
+                    Task { await onGrab() }
+                } label: {
+                    if isGrabbing {
+                        ProgressView()
+                            .tint(.white)
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Label("Download Release", systemImage: "arrow.down.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .controlSize(.large)
+                .disabled(isGrabbing || release.downloadAllowed == false)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 44)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background {
+            ArrArtworkView(url: artURL, contentMode: .fill) {
+                Rectangle().fill(Color.purple.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(1.4)
+            .blur(radius: 60)
+            .saturation(1.6)
+            .overlay(Color.black.opacity(0.55))
+            .ignoresSafeArea()
+        }
+        .environment(\.colorScheme, .dark)
+        #if os(iOS)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        #endif
+        .navigationTitle("Release")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var detailsCard: some View {
+        let rows: [(String, String, String)] = [
+            ("sparkles", "Quality", release.qualityName),
+            release.size.map { ("externaldrive", "Size", ByteFormatter.format(bytes: $0)) },
+            ("antenna.radiowaves.left.and.right", "Protocol", release.protocolName),
+            release.ageDescription.map { ("clock", "Age", $0) },
+            release.seeders.map { s in ("arrow.up.circle", "Seeders", "\(s)") },
+            release.leechers.map { l in ("arrow.down.circle", "Leechers", "\(l)") },
+            release.customFormatScore.map { ("star", "Custom Score", "\($0)") }
+        ].compactMap { $0 }.filter { !$0.2.isEmpty }
+
+        return VStack(alignment: .leading, spacing: 0) {
+            Label("Details", systemImage: "shippingbox")
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+                .padding(.bottom, 8)
+
+            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
+                HStack(spacing: 10) {
+                    Image(systemName: row.0)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 16, alignment: .center)
+                    Text(row.1)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 8)
+                    Text(row.2)
+                        .font(.subheadline)
+                        .lineLimit(1)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 11)
+
+                if index < rows.count - 1 {
+                    Divider().padding(.leading, 42)
+                }
+            }
+
+            Color.clear.frame(height: 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func rejectionsCard(_ rejections: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label("Alerts", systemImage: "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(.orange)
+
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(rejections, id: \.self) { reason in
+                    HStack(alignment: .top, spacing: 8) {
+                        Image(systemName: "circle.fill")
+                            .font(.system(size: 5))
+                            .foregroundStyle(.orange.opacity(0.8))
+                            .padding(.top, 5)
+                        Text(reason)
+                            .font(.subheadline)
+                            .foregroundStyle(.white.opacity(0.85))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct SonarrSeasonSearchView: View {
+    @Bindable var viewModel: SonarrViewModel
+    let series: SonarrSeries?
+    let seasonNumber: Int
+    let episodes: [SonarrEpisode]
+
+    @State private var isDispatchingAutomaticSearch = false
+    @State private var showInteractiveSearchSheet = false
+
+    private var title: String {
+        seasonNumber == 0 ? "Specials" : "Season \(seasonNumber)"
+    }
+
+    private var sortedEpisodes: [SonarrEpisode] {
+        episodes.sorted { $0.episodeNumber < $1.episodeNumber }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .center, spacing: 20) {
+                seasonSearchHero
+
+                VStack(spacing: 14) {
+                    automaticSearchButton
+                    interactiveSearchButton
+                }
+
+                seasonSearchInfoCard(title: "Episodes", icon: "list.bullet") {
+                    if sortedEpisodes.isEmpty {
+                        ContentUnavailableView(
+                            "No Episodes",
+                            systemImage: "tv.slash",
+                            description: Text("This season does not have any loaded episodes yet.")
+                        )
+                        .frame(maxWidth: .infinity)
+                    } else {
+                        VStack(spacing: 0) {
+                            ForEach(sortedEpisodes) { episode in
+                                NavigationLink {
+                                    SonarrEpisodeSearchView(viewModel: viewModel, series: series, episode: episode)
+                                } label: {
+                                    HStack(spacing: 12) {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text(episode.episodeIdentifier)
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.secondary)
+
+                                            Text(episode.title ?? "Untitled Episode")
+                                                .font(.subheadline.weight(.semibold))
+                                                .foregroundStyle(.white)
+                                                .fixedSize(horizontal: false, vertical: true)
+                                        }
+
+                                        Spacer()
+
+                                        if episode.hasFile == true {
+                                            Image(systemName: "checkmark.circle.fill")
+                                                .foregroundStyle(.green)
+                                        }
+
+                                        Image(systemName: "chevron.right")
+                                            .font(.caption.weight(.semibold))
+                                            .foregroundStyle(.tertiary)
+                                    }
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 12)
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+
+                                if episode.id != sortedEpisodes.last?.id {
+                                    Divider().padding(.leading, 14)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 44)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background {
+            ArrArtworkView(url: series?.posterURL ?? series?.fanartURL, contentMode: .fill) {
+                Rectangle().fill(Color.purple.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(1.4)
+            .blur(radius: 60)
+            .saturation(1.6)
+            .overlay(Color.black.opacity(0.55))
+            .ignoresSafeArea()
+        }
+        .navigationTitle(title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        #endif
+        .environment(\.colorScheme, .dark)
+        .sheet(isPresented: $showInteractiveSearchSheet) {
+            if let series {
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, seasonNumber: seasonNumber)
+            }
+        }
+    }
+
+    private var seasonSearchHero: some View {
+        VStack(spacing: 14) {
+            ArrArtworkView(url: series?.posterURL, contentMode: .fill) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.purple.opacity(0.3))
+                    Image(systemName: "tv").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(width: 160, height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
+
+            VStack(spacing: 6) {
+                Text(title)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text(series?.title ?? "Series")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 16)
+    }
+
+    private var automaticSearchButton: some View {
+        Button {
+            guard !isDispatchingAutomaticSearch, let seriesId = series?.id else { return }
+            isDispatchingAutomaticSearch = true
+            Task {
+                await viewModel.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
+                isDispatchingAutomaticSearch = false
+
+                if let error = viewModel.error, !error.isEmpty {
+                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                } else {
+                    InAppNotificationCenter.shared.showSuccess(
+                        title: "Search Queued",
+                        message: "\(title) was sent to Sonarr for automatic search."
+                    )
+                }
+            }
+        } label: {
+            seasonSearchActionRow(
+                title: "Automatic Search",
+                subtitle: "Let Sonarr search indexers for every monitored episode in this season.",
+                systemImage: "magnifyingglass",
+                isLoading: isDispatchingAutomaticSearch
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var interactiveSearchButton: some View {
+        Button {
+            showInteractiveSearchSheet = true
+        } label: {
+            seasonSearchActionRow(
+                title: "Interactive Search",
+                subtitle: "Browse releases episode-by-episode in a manual search sheet.",
+                systemImage: "person.fill",
+                trailingSystemImage: "arrow.up.forward.square"
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(series == nil || sortedEpisodes.isEmpty)
+    }
+
+    private func seasonSearchActionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isLoading: Bool = false,
+        trailingSystemImage: String = "arrow.right"
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.purple)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+            } else {
+                Image(systemName: trailingSystemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .contentShape(Rectangle())
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func seasonSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+struct SonarrEpisodeSearchView: View {
+    @Bindable var viewModel: SonarrViewModel
+    let series: SonarrSeries?
+    let episode: SonarrEpisode
+
+    @State private var isDispatchingAutomaticSearch = false
+    @State private var showInteractiveSearchSheet = false
+
+    private var episodeHistory: [ArrHistoryRecord] {
+        viewModel.history
+            .filter { $0.episodeId == episode.id }
+            .sorted {
+                SonarrEpisodeHistoryDateParser.parse($0.date) ?? .distantPast >
+                SonarrEpisodeHistoryDateParser.parse($1.date) ?? .distantPast
+            }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .center, spacing: 20) {
+                episodeSearchHero
+
+                VStack(spacing: 14) {
+                    episodeAutomaticSearchButton
+                    episodeInteractiveSearchButton
+                }
+
+                episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if let overview = episode.overview, !overview.isEmpty {
+                            Text(overview)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.92))
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        HStack(spacing: 12) {
+                            episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange)
+                            episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if viewModel.isLoadingHistory || !episodeHistory.isEmpty {
+                    episodeSearchInfoCard(title: "History", icon: "clock.arrow.circlepath") {
+                        if viewModel.isLoadingHistory && episodeHistory.isEmpty {
+                            HStack {
+                                Spacer()
+                                ProgressView("Loading history...")
+                                Spacer()
+                            }
+                        } else {
+                            VStack(spacing: 0) {
+                                ForEach(episodeHistory) { record in
+                                    SonarrEpisodeHistoryRow(record: record)
+
+                                    if record.id != episodeHistory.last?.id {
+                                        Divider().padding(.leading, 14)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 44)
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
+        }
+        .background {
+            ArrArtworkView(url: series?.posterURL ?? series?.fanartURL, contentMode: .fill) {
+                Rectangle().fill(Color.purple.opacity(0.5))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .scaleEffect(1.4)
+            .blur(radius: 60)
+            .saturation(1.6)
+            .overlay(Color.black.opacity(0.55))
+            .ignoresSafeArea()
+        }
+        .navigationTitle(episode.episodeIdentifier)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        #endif
+        .environment(\.colorScheme, .dark)
+        .sheet(isPresented: $showInteractiveSearchSheet) {
+            if let series {
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
+            }
+        }
+        .task {
+            await viewModel.loadHistory(page: 1)
+        }
+    }
+
+    private var episodeSearchHero: some View {
+        VStack(spacing: 14) {
+            ArrArtworkView(url: series?.posterURL, contentMode: .fill) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16).fill(Color.purple.opacity(0.3))
+                    Image(systemName: "tv").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
+                }
+            }
+            .frame(width: 160, height: 240)
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
+
+            VStack(spacing: 6) {
+                Text(episode.title ?? episode.episodeIdentifier)
+                    .font(.title2.bold())
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                Text("\(series?.title ?? "Series") · \(episode.episodeIdentifier)")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 16)
+    }
+
+    private var episodeAutomaticSearchButton: some View {
+        Button {
+            guard !isDispatchingAutomaticSearch else { return }
+            isDispatchingAutomaticSearch = true
+            Task {
+                await viewModel.searchEpisode(episode)
+                isDispatchingAutomaticSearch = false
+
+                if let error = viewModel.error, !error.isEmpty {
+                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                } else {
+                    InAppNotificationCenter.shared.showSuccess(
+                        title: "Search Queued",
+                        message: "\(episode.title ?? episode.episodeIdentifier) was sent to Sonarr for automatic search."
+                    )
+                }
+            }
+        } label: {
+            episodeSearchActionRow(
+                title: "Automatic Search",
+                subtitle: "Ask Sonarr to search indexers for this single episode.",
+                systemImage: "magnifyingglass",
+                isLoading: isDispatchingAutomaticSearch
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var episodeInteractiveSearchButton: some View {
+        Button {
+            showInteractiveSearchSheet = true
+        } label: {
+            episodeSearchActionRow(
+                title: "Interactive Search",
+                subtitle: "Open the manual release picker for this episode.",
+                systemImage: "person.fill",
+                trailingSystemImage: "arrow.up.forward.square"
+            )
+        }
+        .buttonStyle(.plain)
+        .disabled(series == nil)
+    }
+
+    private func episodeSearchActionRow(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isLoading: Bool = false,
+        trailingSystemImage: String = "arrow.right"
+    ) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: systemImage)
+                .font(.title3)
+                .foregroundStyle(.purple)
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer()
+
+            if isLoading {
+                ProgressView()
+                    .tint(.white)
+            } else {
+                Image(systemName: trailingSystemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .contentShape(Rectangle())
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func episodeSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Label(title, systemImage: icon)
+                .font(.headline)
+                .foregroundStyle(.white)
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func episodeStatusBadge(_ text: String, tint: Color) -> some View {
+        Text(text)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(tint.opacity(0.14))
+            .clipShape(Capsule())
+    }
+}
+
+private struct SonarrEpisodeHistoryRow: View {
+    let record: ArrHistoryRecord
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(record.sourceTitle ?? "Unknown")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(2)
+
+                HStack(spacing: 6) {
+                    if let quality = record.quality?.quality?.name, !quality.isEmpty {
+                        Text(quality)
+                    }
+                    Text(timeLabel)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(eventLabel)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(iconColor)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(iconColor.opacity(0.14))
+                .clipShape(Capsule())
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+    }
+
+    private var eventType: String {
+        record.eventType?.lowercased() ?? ""
+    }
+
+    private var eventLabel: String {
+        if eventType.contains("grabbed") { return "Grabbed" }
+        if eventType.contains("import") { return "Imported" }
+        if eventType.contains("upgrade") { return "Upgraded" }
+        if eventType.contains("delete") { return "Deleted" }
+        if eventType.contains("download") { return "Downloaded" }
+        return "Event"
+    }
+
+    private var iconColor: Color {
+        if eventType.contains("delete") { return .red }
+        if eventType.contains("upgrade") { return .blue }
+        if eventType.contains("import") { return .green }
+        if eventType.contains("grabbed") { return .orange }
+        return .secondary
+    }
+
+    private var timeLabel: String {
+        let date = SonarrEpisodeHistoryDateParser.parse(record.date) ?? .distantPast
+        return date == .distantPast ? "Unknown Time" : date.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+private enum SonarrEpisodeHistoryDateParser {
+    static func parse(_ value: String?) -> Date? {
+        guard let value, !value.isEmpty else { return nil }
+
+        let fractionalISO = ISO8601DateFormatter()
+        fractionalISO.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractionalISO.date(from: value) {
+            return date
+        }
+
+        let iso = ISO8601DateFormatter()
+        if let date = iso.date(from: value) {
+            return date
+        }
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.date(from: value)
     }
 }

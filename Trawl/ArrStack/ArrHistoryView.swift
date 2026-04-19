@@ -73,7 +73,7 @@ struct ArrHistoryView: View {
                     .disabled(isLoadingMore)
                 }
             }
-            .listStyle(.plain)
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }
     }
@@ -206,18 +206,24 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: iconName)
-                .foregroundStyle(iconColor)
-                .frame(width: 18)
-
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.record.sourceTitle ?? "Unknown")
-                    .font(.subheadline.weight(.semibold))
+                HStack(spacing: 8) {
+                    Text(item.record.sourceTitle ?? "Unknown")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(2)
+
+                    Text(item.source.displayName)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(serviceColor)
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(serviceColor.opacity(0.14))
+                        .clipShape(Capsule())
+                }
 
                 HStack(spacing: 6) {
-                    Text(item.source.displayName)
                     if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
-                        Text("• \(quality)")
+                        Text(quality)
                     }
                 }
                 .font(.caption)
@@ -254,15 +260,6 @@ private struct HistoryRow: View {
         return "Event"
     }
 
-    private var iconName: String {
-        if eventType.contains("grabbed") { return "magnifyingglass" }
-        if eventType.contains("import") { return "checkmark" }
-        if eventType.contains("upgrade") { return "arrow.up.circle" }
-        if eventType.contains("delete") { return "trash" }
-        if eventType.contains("download") { return "arrow.down" }
-        return "clock"
-    }
-
     private var iconColor: Color {
         if eventType.contains("delete") { return .red }
         if eventType.contains("upgrade") { return .blue }
@@ -273,6 +270,14 @@ private struct HistoryRow: View {
 
     private var timeLabel: String {
         item.sortDate.formatted(date: .omitted, time: .shortened)
+    }
+
+    private var serviceColor: Color {
+        switch item.source {
+        case .sonarr: .purple
+        case .radarr: .orange
+        case .prowlarr: .yellow
+        }
     }
 }
 

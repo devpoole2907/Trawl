@@ -69,7 +69,8 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
         shouldSearch = try c.decodeIfPresent(Bool.self, forKey: .shouldSearch)
         supportsRss = try c.decodeIfPresent(Bool.self, forKey: .supportsRss)
         supportsSearch = try c.decodeIfPresent(Bool.self, forKey: .supportsSearch)
-        `protocol` = try c.decodeIfPresent(ProwlarrIndexerProtocol.self, forKey: .protocol)
+        let protocolValue = try c.decodeIfPresent(String.self, forKey: .protocol)
+        `protocol` = protocolValue.flatMap(ProwlarrIndexerProtocol.init(rawValue:))
         fields = try c.decodeIfPresent([ProwlarrIndexerField].self, forKey: .fields)
     }
 
@@ -249,6 +250,34 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     let downloadVolumeFactor: Double?
     let uploadVolumeFactor: Double?
     let `protocol`: ProwlarrIndexerProtocol?
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guid = try c.decodeIfPresent(String.self, forKey: .guid)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
+        indexerId = try c.decodeIfPresent(Int.self, forKey: .indexerId)
+        indexer = try c.decodeIfPresent(String.self, forKey: .indexer)
+        size = try c.decodeIfPresent(Int64.self, forKey: .size)
+        seeders = try c.decodeIfPresent(Int.self, forKey: .seeders)
+        leechers = try c.decodeIfPresent(Int.self, forKey: .leechers)
+        categories = try c.decodeIfPresent([ProwlarrCategory].self, forKey: .categories)
+        downloadUrl = try c.decodeIfPresent(String.self, forKey: .downloadUrl)
+        infoUrl = try c.decodeIfPresent(String.self, forKey: .infoUrl)
+        publishDate = try c.decodeIfPresent(String.self, forKey: .publishDate)
+        grabs = try c.decodeIfPresent(Int.self, forKey: .grabs)
+        files = try c.decodeIfPresent(Int.self, forKey: .files)
+        downloadVolumeFactor = try c.decodeIfPresent(Double.self, forKey: .downloadVolumeFactor)
+        uploadVolumeFactor = try c.decodeIfPresent(Double.self, forKey: .uploadVolumeFactor)
+        let protocolValue = try c.decodeIfPresent(String.self, forKey: .protocol)
+        `protocol` = protocolValue.flatMap(ProwlarrIndexerProtocol.init(rawValue:))
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case guid, title, indexerId, indexer, size, seeders, leechers, categories
+        case downloadUrl, infoUrl, publishDate, grabs, files
+        case downloadVolumeFactor, uploadVolumeFactor
+        case `protocol`
+    }
 
     var id: String {
         if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {

@@ -1,8 +1,11 @@
 import SwiftUI
+import SwiftData
 
 struct TorrentListView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
+    @Environment(\.modelContext) private var modelContext
+    @Query(sort: \ServerProfile.dateAdded) private var servers: [ServerProfile]
     @State private var viewModel: TorrentListViewModel?
     @State private var showAddSheet = false
     @State private var torrentToDelete: Torrent?
@@ -24,13 +27,30 @@ struct TorrentListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle(title)
+        .navigationTitle(activeServerName)
         .navigationSubtitle(navigationSubtitleText)
+        .toolbarTitleMenu {
+            if !editMode.isEditing, servers.count > 1 {
+                ForEach(servers) { server in
+                    Button {
+                        switchToServer(server)
+                    } label: {
+                        if server.isActive {
+                            Label(server.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(server.displayName)
+                        }
+                    }
+                }
+            }
+        }
         #if os(iOS)
-        .toolbarTitleDisplayMode(.large)
+        .toolbarTitleDisplayMode(.inline)
         #endif
         .environment(\.editMode, $editMode)
+        .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         .toolbar { toolbarContent }
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
         .refreshable {
             await viewModel?.refresh()
         }
@@ -220,7 +240,7 @@ struct TorrentListView: View {
                 }
             }
 
-            ToolbarItemGroup(placement: .automatic) {
+            ToolbarItemGroup(placement: .bottomBar) {
                 Button(vm.selectedHashes.count == vm.filteredTorrents.count ? "Deselect All" : "Select All") {
                     if vm.selectedHashes.count == vm.filteredTorrents.count {
                         vm.selectedHashes = []
@@ -255,6 +275,7 @@ struct TorrentListView: View {
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
+                .tint(.red)
                 .disabled(vm.selectedHashes.isEmpty)
             }
         } else {
@@ -306,6 +327,24 @@ struct TorrentListView: View {
                 }
                 .labelStyle(.iconOnly)
             }
+        }
+    }
+
+    private var activeServerName: String {
+        servers.first(where: { $0.isActive })?.displayName
+            ?? servers.first?.displayName
+            ?? title
+    }
+
+    private func switchToServer(_ server: ServerProfile) {
+        for s in servers { s.isActive = (s.id == server.id) }
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Switch Server",
+                message: error.localizedDescription
+            )
         }
     }
 

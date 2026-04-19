@@ -201,35 +201,36 @@ final class TorrentListViewModel {
             if torrent.state.isCompleted { counts[.completed]! += 1 }
         }
 
-        // Filter
-        var result = all
-        switch filter {
-        case .all:         break
-        case .downloading: result = result.filter { $0.state.filterCategory == .downloading }
-        case .seeding:     result = result.filter { $0.state.filterCategory == .seeding }
-        case .paused:      result = result.filter { $0.state.filterCategory == .paused }
-        case .completed:   result = result.filter { $0.state.isCompleted }
-        case .errored:     result = result.filter { $0.state.filterCategory == .errored }
-        }
-
-        // Search
-        if !searchText.isEmpty {
-            let query = searchText.lowercased()
-            result = result.filter { $0.name.lowercased().contains(query) }
-        }
-
-        // Sort
-        result.sort { a, b in
-            switch sortOrder {
-            case .name:          a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
-            case .addedDate:     a.addedOn > b.addedOn
-            case .size:          a.size > b.size
-            case .progress:      a.progress > b.progress
-            case .downloadSpeed: a.dlspeed > b.dlspeed
-            case .uploadSpeed:   a.upspeed > b.upspeed
-            case .eta:           a.eta < b.eta
+        let result = FilterSortPipeline.apply(
+            items: all,
+            filter: filter,
+            searchText: searchText,
+            sort: sortOrder,
+            matchesSearch: { torrent, query in
+                torrent.name.localizedCaseInsensitiveContains(query)
+            },
+            matchesFilter: { torrent, selectedFilter in
+                switch selectedFilter {
+                case .all:         true
+                case .downloading: torrent.state.filterCategory == .downloading
+                case .seeding:     torrent.state.filterCategory == .seeding
+                case .paused:      torrent.state.filterCategory == .paused
+                case .completed:   torrent.state.isCompleted
+                case .errored:     torrent.state.filterCategory == .errored
+                }
+            },
+            areInIncreasingOrder: { a, b, selectedSort in
+                switch selectedSort {
+                case .name:          a.name.localizedCaseInsensitiveCompare(b.name) == .orderedAscending
+                case .addedDate:     a.addedOn > b.addedOn
+                case .size:          a.size > b.size
+                case .progress:      a.progress > b.progress
+                case .downloadSpeed: a.dlspeed > b.dlspeed
+                case .uploadSpeed:   a.upspeed > b.upspeed
+                case .eta:           a.eta < b.eta
+                }
             }
-        }
+        )
 
         return (result, counts)
     }

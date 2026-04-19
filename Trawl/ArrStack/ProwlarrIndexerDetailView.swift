@@ -19,7 +19,12 @@ struct ProwlarrIndexerDetailView: View {
                     get: {
                         viewModel.indexers.first(where: { $0.id == indexer.id })?.enable ?? indexer.enable
                     },
-                    set: { _ in Task { await viewModel.toggleIndexer(indexer) } }
+                    set: { _ in
+                        guard let currentIndexer = viewModel.indexers.first(where: { $0.id == indexer.id }) else {
+                            return
+                        }
+                        Task { await viewModel.toggleIndexer(currentIndexer) }
+                    }
                 ))
 
                 if let proto = indexer.protocol {
@@ -130,12 +135,12 @@ struct ProwlarrIndexerDetailView: View {
         }
         .onChange(of: showTestResult) { _, isPresented in
             if !isPresented {
-                viewModel.clearTestResult()
+                viewModel.clearTestOutcome()
             }
         }
         .alert("Test Result", isPresented: $showTestResult) {
             Button("OK", role: .cancel) {
-                viewModel.clearTestResult()
+                viewModel.clearTestOutcome()
             }
         } message: {
             Text(viewModel.testResult ?? viewModel.indexerError ?? "No result available")

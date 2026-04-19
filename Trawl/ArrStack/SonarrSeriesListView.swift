@@ -3,6 +3,7 @@ import SwiftData
 
 struct SonarrSeriesListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: SonarrViewModel?
     @State private var showSettings = false
@@ -76,7 +77,11 @@ struct SonarrSeriesListView: View {
             Text("Choose whether to remove only \(show.title) from Sonarr or also delete its files.")
         }
         .refreshable {
-            await viewModel?.loadSeries()
+            if let viewModel {
+                async let loadSeries = viewModel.loadSeries()
+                async let loadQueue = viewModel.loadQueue()
+                _ = await (loadSeries, loadQueue)
+            }
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -93,6 +98,7 @@ struct SonarrSeriesListView: View {
             NavigationStack {
                 ArrCalendarView()
                     .environment(serviceManager)
+                    .environment(syncService)
             }
         }
         .sheet(isPresented: $showWantedMissing) {
@@ -104,18 +110,19 @@ struct SonarrSeriesListView: View {
         .navigationDestination(for: Int.self) { seriesId in
             if let vm = viewModel {
                 SonarrSeriesDetailView(seriesId: seriesId, viewModel: vm)
+                    .environment(syncService)
             }
         }
-        .task(id: serviceManager.sonarrConnected) {
-            if serviceManager.sonarrConnected {
-                if viewModel == nil {
-                    let vm = SonarrViewModel(serviceManager: serviceManager)
-                    viewModel = vm
-                }
-                await viewModel?.loadSeries()
-            } else {
+        .task(id: serviceManager.activeSonarrInstanceID) {
+            guard serviceManager.sonarrConnected else {
                 viewModel = nil
+                return
             }
+            let vm = SonarrViewModel(serviceManager: serviceManager)
+            viewModel = vm
+            async let loadSeries = vm.loadSeries()
+            async let loadQueue = vm.loadQueue()
+            _ = await (loadSeries, loadQueue)
         }
     }
 
@@ -135,7 +142,12 @@ struct SonarrSeriesListView: View {
             List {
                 ForEach(vm.filteredSeries) { show in
                     NavigationLink(value: show.id) {
-                        SonarrSeriesRow(series: show)
+                        SonarrSeriesRow(
+                            series: show,
+                            hasIssue: vm.queue.contains {
+                                $0.seriesId == show.id && $0.isImportIssueQueueItem
+                            }
+                        )
                     }
                     .swipeActions(edge: .leading, allowsFullSwipe: false) {
                         Button {
@@ -162,18 +174,7 @@ struct SonarrSeriesListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            HStack {
-                Button("Calendar", systemImage: "calendar") {
-                    showCalendar = true
-                }
-                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                    showWantedMissing = true
-                }
-            }
-        }
-
-        ToolbarItemGroup(placement: .automatic) {
+        ToolbarItemGroup(placement: .topBarLeading) {
             if let vm = viewModel {
                 Menu {
                     ForEach(SonarrFilter.allCases) { filter in
@@ -209,7 +210,34 @@ struct SonarrSeriesListView: View {
             }
         }
 
-        ToolbarSpacer(.fixed, placement: .automatic)
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button("Calendar", systemImage: "calendar") {
+                showCalendar = true
+            }
+            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                showWantedMissing = true
+            }
+
+            if serviceManager.sonarrInstances.count > 1 {
+                Menu {
+                    ForEach(serviceManager.sonarrInstances) { entry in
+                        Button {
+                            serviceManager.setActiveSonarr(entry.id)
+                        } label: {
+                            if entry.id == serviceManager.activeSonarrEntry?.id {
+                                Label(entry.displayName, systemImage: "checkmark")
+                            } else {
+                                Label(entry.displayName,
+                                      systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
+                            }
+                        }
+                        .disabled(!entry.isConnected)
+                    }
+                } label: {
+                    Label("Instance", systemImage: "server.rack")
+                }
+            }
+        }
     }
 
     private var navigationSubtitleText: String {
@@ -265,6 +293,7 @@ struct SonarrSeriesListView: View {
 
 struct SonarrSeriesRow: View {
     let series: SonarrSeries
+    let hasIssue: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -310,10 +339,18 @@ struct SonarrSeriesRow: View {
 
             Spacer()
 
-            if series.monitored == true {
-                Image(systemName: "bookmark.fill")
-                    .font(.caption)
-                    .foregroundStyle(.blue)
+            HStack(spacing: 8) {
+                if hasIssue {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                if series.monitored == true {
+                    Image(systemName: "bookmark.fill")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
             }
         }
         .padding(.vertical, 2)

@@ -27,7 +27,8 @@ final class InAppNotificationCenter {
             InAppBannerItem(
                 title: trimmedTitle,
                 message: trimmedMessage,
-                systemImage: "checkmark.circle.fill"
+                systemImage: "checkmark.circle.fill",
+                style: .success
             )
         )
     }
@@ -41,7 +42,8 @@ final class InAppNotificationCenter {
             InAppBannerItem(
                 title: trimmedTitle,
                 message: trimmedMessage,
-                systemImage: "exclamationmark.triangle.fill"
+                systemImage: "exclamationmark.triangle.fill",
+                style: .error
             )
         )
     }
@@ -69,10 +71,21 @@ final class InAppNotificationCenter {
     }
 
     private func enqueue(_ banner: InAppBannerItem) {
-        if currentBanner == nil {
-            present(banner)
+        queuedBanners.removeAll() // Clear any queued ones since we want immediate
+        
+        if currentBanner != nil {
+            // Dismiss current one immediately
+            dismissTask?.cancel()
+            currentBanner = nil
+            
+            // Wait briefly for the exit animation to start, then present new
+            Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                self.present(banner)
+            }
         } else {
-            queuedBanners.append(banner)
+            present(banner)
         }
     }
 
@@ -87,9 +100,15 @@ final class InAppNotificationCenter {
     }
 }
 
+enum InAppBannerStyle: Sendable {
+    case success
+    case error
+}
+
 struct InAppBannerItem: Identifiable, Equatable, Sendable {
     let id = UUID()
     let title: String
     let message: String
     let systemImage: String
+    let style: InAppBannerStyle
 }

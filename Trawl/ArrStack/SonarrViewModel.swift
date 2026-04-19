@@ -68,40 +68,54 @@ final class SonarrViewModel {
     private(set) var filteredSeries: [SonarrSeries] = []
 
     private func rebuildFilteredSeries() {
-        var result = series
-
-        switch selectedFilter {
-        case .all: break
-        case .monitored: result = result.filter { $0.monitored == true }
-        case .unmonitored: result = result.filter { $0.monitored == false }
-        case .continuing: result = result.filter { $0.status == "continuing" }
-        case .ended: result = result.filter { $0.status == "ended" }
-        case .missing: result = result.filter {
-            guard let stats = $0.statistics else { return false }
-            return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
-        }
-        }
-
-        if !searchText.isEmpty {
-            let query = searchText.lowercased()
-            result = result.filter { $0.title.lowercased().contains(query) }
-        }
-
-        result.sort { a, b in
-            switch sortOrder {
-            case .title:
-                return (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
-            case .status:
-                return (a.status ?? "") < (b.status ?? "")
-            case .progress:
-                let aFrac = { guard let s = a.statistics, let t = s.episodeCount, t > 0 else { return 0.0 }; return Double(s.episodeFileCount ?? 0) / Double(t) }()
-                let bFrac = { guard let s = b.statistics, let t = s.episodeCount, t > 0 else { return 0.0 }; return Double(s.episodeFileCount ?? 0) / Double(t) }()
-                return aFrac > bFrac
-            case .network:
-                return (a.network ?? "") < (b.network ?? "")
+        filteredSeries = FilterSortPipeline.apply(
+            items: series,
+            filter: selectedFilter,
+            searchText: searchText,
+            sort: sortOrder,
+            matchesSearch: { series, query in
+                series.title.localizedCaseInsensitiveContains(query)
+            },
+            matchesFilter: { series, filter in
+                switch filter {
+                case .all:
+                    return true
+                case .monitored:
+                    return series.monitored == true
+                case .unmonitored:
+                    return series.monitored == false
+                case .continuing:
+                    return series.status == "continuing"
+                case .ended:
+                    return series.status == "ended"
+                case .missing:
+                    guard let stats = series.statistics else { return false }
+                    return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
+                }
+            },
+            areInIncreasingOrder: { a, b, sort in
+                switch sort {
+                case .title:
+                    return (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
+                case .status:
+                    return (a.status ?? "") < (b.status ?? "")
+                case .progress:
+                    return progressFraction(for: a) > progressFraction(for: b)
+                case .network:
+                    return (a.network ?? "") < (b.network ?? "")
+                }
             }
+        )
+    }
+
+    private func progressFraction(for series: SonarrSeries) -> Double {
+        guard let statistics = series.statistics,
+              let episodeCount = statistics.episodeCount,
+              episodeCount > 0 else {
+            return 0
         }
-        filteredSeries = result
+
+        return Double(statistics.episodeFileCount ?? 0) / Double(episodeCount)
     }
 
     var qualityProfiles: [ArrQualityProfile] { serviceManager.sonarrQualityProfiles }
@@ -232,6 +246,32 @@ final class SonarrViewModel {
             _ = try await client.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
         } catch {
             self.error = error.localizedDescription
+        }
+    }
+
+    func interactiveSearch(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async -> [ArrRelease] {
+        guard let client else { return [] }
+        error = nil
+        do {
+            return try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+        } catch is CancellationError {
+            return []
+        } catch {
+            self.error = error.localizedDescription
+            return []
+        }
+    }
+
+    func grabRelease(_ release: ArrRelease) async -> Bool {
+        guard let client else { return false }
+        error = nil
+        do {
+            try await client.grabRelease(release)
+            await loadQueue()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
         }
     }
 
@@ -397,11 +437,12 @@ final class SonarrViewModel {
         }
     }
 
-    func deleteEpisodeFile(id: Int) async {
-        guard let client else { return }
+    func deleteEpisodeFile(id: Int) async -> Bool {
+        guard let client else { return false }
         let seriesId = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
 
         do {
+            error = nil
             try await client.deleteEpisodeFile(id: id)
 
             if let seriesId {
@@ -409,8 +450,10 @@ final class SonarrViewModel {
                 await loadEpisodes(for: seriesId)
                 await loadSeries()
             }
+            return true
         } catch {
             self.error = error.localizedDescription
+            return false
         }
     }
 

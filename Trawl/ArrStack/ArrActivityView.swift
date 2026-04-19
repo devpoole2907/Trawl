@@ -108,7 +108,7 @@ struct ArrActivityView: View {
                         Button(role: .destructive) {
                             Task { await removeItem(activityItem) }
                         } label: {
-                            Label("Remove", systemImage: "trash")
+                            Label("Unblock", systemImage: "arrow.uturn.backward")
                         }
                     }
                 }
@@ -246,10 +246,11 @@ enum ArrServiceFilter: CaseIterable, Hashable {
 // MARK: - Friendly title helper
 
 private extension ArrQueueItem {
-    /// Prefer the status message title (e.g. "Breaking Bad – S01E01") over the raw release name.
+    /// Prefer the actual queue item title; some status message titles are warning prose.
     var friendlyTitle: String {
-        if let title = statusMessages?.first?.title, !title.isEmpty { return title }
-        return title ?? "Unknown"
+        if let title, !title.isEmpty { return title }
+        if let statusTitle = statusMessages?.first?.title, !statusTitle.isEmpty { return statusTitle }
+        return "Unknown"
     }
 
     /// Compact ETA string, nil when unknown or zero.
@@ -443,18 +444,14 @@ private struct QueueDetailSheet: View {
 
 struct ArrHealthView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
-    @State private var sonarrHealth: [ArrHealthCheck] = []
-    @State private var radarrHealth: [ArrHealthCheck] = []
-    @State private var prowlarrHealth: [ArrHealthCheck] = []
-    @State private var isLoading = false
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var selectedItem: HealthItem?
 
     private var allChecks: [HealthItem] {
         (
-            sonarrHealth.enumerated().map { HealthItem(check: $0.element, source: .sonarr, index: $0.offset) } +
-            radarrHealth.enumerated().map { HealthItem(check: $0.element, source: .radarr, index: $0.offset) } +
-            prowlarrHealth.enumerated().map { HealthItem(check: $0.element, source: .prowlarr, index: $0.offset) }
+            serviceManager.sonarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .sonarr, index: $0.offset) } +
+            serviceManager.radarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .radarr, index: $0.offset) } +
+            serviceManager.prowlarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .prowlarr, index: $0.offset) }
         )
         .sorted { $0.severityRank > $1.severityRank }
     }
@@ -497,16 +494,12 @@ struct ArrHealthView: View {
                 }
             }
         }
-        .refreshable { await loadHealth() }
+        .refreshable { await serviceManager.loadHealth() }
         .task(id: healthReloadKey) {
             guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected else {
-                sonarrHealth = []
-                radarrHealth = []
-                prowlarrHealth = []
-                isLoading = false
                 return
             }
-            await loadHealth()
+            await serviceManager.loadHealth()
         }
         .sheet(item: $selectedItem) { item in
             HealthDetailSheet(item: item)
@@ -517,7 +510,7 @@ struct ArrHealthView: View {
 
     @ViewBuilder
     private var contentView: some View {
-        if isLoading && allChecks.isEmpty {
+        if serviceManager.isLoadingHealth && allChecks.isEmpty {
             ProgressView("Loading health checks...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.prowlarrConnected {
@@ -573,42 +566,6 @@ struct ArrHealthView: View {
         "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)"
     }
 
-    private func loadHealth() async {
-        isLoading = true
-
-        async let sonarrResult = loadHealthChecks(from: serviceManager.sonarrClient, source: .sonarr)
-        async let radarrResult = loadHealthChecks(from: serviceManager.radarrClient, source: .radarr)
-        async let prowlarrResult = loadHealthChecks(from: serviceManager.prowlarrClient, source: .prowlarr)
-
-        let s = await sonarrResult
-        let r = await radarrResult
-        let p = await prowlarrResult
-
-        sonarrHealth = s.checks
-        radarrHealth = r.checks
-        prowlarrHealth = p.checks
-
-        let errors = [s.errorMessage, r.errorMessage, p.errorMessage].compactMap { $0 }
-        if !errors.isEmpty {
-            InAppNotificationCenter.shared.showError(title: "Health Check Failed", message: errors.joined(separator: "\n"))
-        }
-
-        isLoading = false
-    }
-
-    private func loadHealthChecks(from client: ArrAPIClientProviding?, source: ArrServiceType) async -> HealthLoadResult {
-        guard let client else { return HealthLoadResult(checks: [], errorMessage: nil) }
-        do {
-            return HealthLoadResult(checks: try await client.getHealth(), errorMessage: nil)
-        } catch {
-            return HealthLoadResult(checks: [], errorMessage: "\(source.displayName): \(error.localizedDescription)")
-        }
-    }
-}
-
-private struct HealthLoadResult {
-    let checks: [ArrHealthCheck]
-    let errorMessage: String?
 }
 
 private struct HealthItem: Identifiable {
@@ -770,10 +727,3 @@ private struct HealthDetailSheet: View {
     }
 }
 
-private protocol ArrAPIClientProviding: Sendable {
-    func getHealth() async throws -> [ArrHealthCheck]
-}
-
-extension SonarrAPIClient: ArrAPIClientProviding {}
-extension RadarrAPIClient: ArrAPIClientProviding {}
-extension ProwlarrAPIClient: ArrAPIClientProviding {}

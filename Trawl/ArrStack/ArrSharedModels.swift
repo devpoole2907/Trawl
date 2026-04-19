@@ -27,7 +27,7 @@ struct ArrSystemStatus: Codable, Sendable {
 // MARK: - Health Check
 
 struct ArrHealthCheck: Codable, Identifiable, Sendable {
-    var id: String { "\(source ?? "")_\(type ?? "")" }
+    var id: String { [source, type, message, wikiUrl].map { $0 ?? "" }.joined(separator: "|") }
     let source: String?
     let type: String?       // "ok", "notice", "warning", "error"
     let message: String?
@@ -72,6 +72,178 @@ struct ArrRootFolder: Codable, Identifiable, Sendable {
 struct ArrTag: Codable, Identifiable, Sendable {
     let id: Int
     let label: String
+}
+
+// MARK: - Release Sort
+
+enum ArrReleaseSortKey: String, CaseIterable, Identifiable, Codable {
+    case `default` = "Default"
+    case age = "Age"
+    case quality = "Quality"
+    case size = "Size"
+    case seeders = "Seeders"
+
+    var id: String { rawValue }
+
+    var systemImage: String {
+        switch self {
+        case .default:  "square.stack"
+        case .age:      "clock"
+        case .quality:  "sparkles"
+        case .size:     "externaldrive"
+        case .seeders:  "arrow.up.circle"
+        }
+    }
+}
+
+// MARK: - Release Sort State
+
+struct ArrReleaseSort: RawRepresentable, Codable {
+    var option: ArrReleaseSortKey = .default
+    var isAscending: Bool = false
+    var indexer: String = ""   // "" = all indexers
+    var quality: String = ""   // "" = all qualities
+    var approvedOnly: Bool = false
+
+    var isFiltered: Bool {
+        !indexer.isEmpty || !quality.isEmpty || approvedOnly
+    }
+
+    var isActive: Bool {
+        option != .default || isFiltered
+    }
+
+    init() {}
+
+    var rawValue: String {
+        (try? JSONEncoder().encode(self)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+    }
+
+    init?(rawValue: String) {
+        if let data = rawValue.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode(ArrReleaseSort.self, from: data) {
+            self = decoded
+        } else {
+            self = ArrReleaseSort()
+        }
+    }
+}
+
+// MARK: - Releases
+
+struct ArrRelease: Codable, Identifiable, Sendable {
+    let guid: String?
+    let indexerId: Int?
+    let title: String?
+    let indexer: String?
+    let protocol_: String?
+    let size: Int64?
+    let age: Int?
+    let ageHours: Double?
+    let ageMinutes: Double?
+    let approved: Bool?
+    let rejected: Bool?
+    let temporarilyRejected: Bool?
+    let downloadAllowed: Bool?
+    let rejections: [String]?
+    let seeders: Int?
+    let leechers: Int?
+    let customFormatScore: Int?
+    let quality: ArrReleaseQuality?
+    let infoUrl: String?
+    let downloadUrl: String?
+    let magnetUrl: String?
+
+    enum CodingKeys: String, CodingKey {
+        case guid, indexerId, title, indexer, size, age, ageHours, ageMinutes
+        case approved, rejected, temporarilyRejected, downloadAllowed, rejections
+        case seeders, leechers, customFormatScore, quality, infoUrl, downloadUrl, magnetUrl
+        case protocol_ = "protocol"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        guid = try container.decodeIfPresent(String.self, forKey: .guid)
+        indexerId = try container.decodeIfPresent(Int.self, forKey: .indexerId)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        indexer = try container.decodeIfPresent(String.self, forKey: .indexer)
+        protocol_ = try container.decodeIfPresent(String.self, forKey: .protocol_)
+        size = try container.decodeIfPresent(Int64.self, forKey: .size)
+        age = try container.decodeIfPresent(Int.self, forKey: .age)
+        ageHours = try container.decodeFlexibleDoubleIfPresent(forKey: .ageHours)
+        ageMinutes = try container.decodeFlexibleDoubleIfPresent(forKey: .ageMinutes)
+        approved = try container.decodeIfPresent(Bool.self, forKey: .approved)
+        rejected = try container.decodeIfPresent(Bool.self, forKey: .rejected)
+        temporarilyRejected = try container.decodeIfPresent(Bool.self, forKey: .temporarilyRejected)
+        downloadAllowed = try container.decodeIfPresent(Bool.self, forKey: .downloadAllowed)
+        rejections = try container.decodeIfPresent([String].self, forKey: .rejections)
+        seeders = try container.decodeIfPresent(Int.self, forKey: .seeders)
+        leechers = try container.decodeIfPresent(Int.self, forKey: .leechers)
+        customFormatScore = try container.decodeIfPresent(Int.self, forKey: .customFormatScore)
+        quality = try container.decodeIfPresent(ArrReleaseQuality.self, forKey: .quality)
+        infoUrl = try container.decodeIfPresent(String.self, forKey: .infoUrl)
+        downloadUrl = try container.decodeIfPresent(String.self, forKey: .downloadUrl)
+        magnetUrl = try container.decodeIfPresent(String.self, forKey: .magnetUrl)
+    }
+
+    var id: String {
+        let guidPart = guid ?? title ?? "release"
+        return "\(guidPart)|\(indexerId ?? -1)"
+    }
+
+    var canGrab: Bool {
+        if downloadAllowed == false { return false }
+        if rejected == true || temporarilyRejected == true { return false }
+        return approved ?? true
+    }
+
+    var qualityName: String {
+        quality?.quality?.name ?? "Unknown Quality"
+    }
+
+    var protocolName: String {
+        protocol_?.uppercased() ?? "UNKNOWN"
+    }
+
+    var ageDescription: String? {
+        if let ageHours, ageHours > 0 {
+            let roundedHours = Int(ageHours.rounded())
+            return roundedHours >= 24 ? "\(roundedHours / 24)d" : "\(roundedHours)h"
+        }
+        if let age, age > 0 {
+            return "\(age)d"
+        }
+        if let ageMinutes, ageMinutes > 0 {
+            let roundedMinutes = Int(ageMinutes.rounded())
+            return "\(roundedMinutes)m"
+        }
+        return nil
+    }
+}
+
+struct ArrReleaseQuality: Codable, Sendable {
+    let quality: ArrQuality?
+}
+
+struct ArrReleaseGrabRequest: Codable, Sendable {
+    let guid: String
+    let indexerId: Int
+}
+
+private extension KeyedDecodingContainer where K == ArrRelease.CodingKeys {
+    func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
+        if let value = try decodeIfPresent(Double.self, forKey: key) {
+            return value
+        }
+        if let value = try decodeIfPresent(Int.self, forKey: key) {
+            return Double(value)
+        }
+        if let value = try decodeIfPresent(String.self, forKey: key) {
+            return Double(value)
+        }
+        return nil
+    }
 }
 
 // MARK: - Queue
@@ -123,6 +295,32 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
     var progress: Double {
         guard let size, size > 0, let sizeleft else { return 0 }
         return max(0, min(1, (size - sizeleft) / size))
+    }
+
+    var normalizedState: String {
+        (trackedDownloadState ?? status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+
+    var isDownloadingQueueItem: Bool {
+        normalizedState == "downloading"
+    }
+
+    var isImportIssueQueueItem: Bool {
+        if normalizedState == "importpending" || normalizedState == "failedpending" {
+            return true
+        }
+
+        let normalizedStatus = trackedDownloadStatus?.lowercased()
+        return normalizedStatus == "warning" || normalizedStatus == "error"
+    }
+
+    var primaryStatusMessage: String? {
+        statusMessages?
+            .compactMap(\.messages)
+            .flatMap { $0 }
+            .first { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
     }
 }
 
@@ -190,6 +388,35 @@ struct ArrCommand: Codable, Identifiable, Sendable {
     let stateChangeTime: String?
     let lastExecutionTime: String?
     let trigger: String?
+}
+
+// MARK: - Blocklist
+
+struct ArrBlocklistPage: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+    let totalRecords: Int?
+    let records: [ArrBlocklistItem]?
+}
+
+struct ArrBlocklistItem: Codable, Identifiable, Sendable {
+    let id: Int
+    let seriesId: Int?
+    let movieId: Int?
+    let episodeIds: [Int]?
+    let sourceTitle: String?
+    let indexer: String?
+    let message: String?
+    let date: String?
+    let quality: ArrBlocklistQuality?
+
+    enum CodingKeys: String, CodingKey {
+        case id, seriesId, movieId, episodeIds, sourceTitle, indexer, message, date, quality
+    }
+}
+
+struct ArrBlocklistQuality: Codable, Sendable {
+    let quality: ArrQuality?
 }
 
 // MARK: - Disk Space

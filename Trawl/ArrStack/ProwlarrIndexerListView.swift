@@ -93,7 +93,7 @@ struct ProwlarrIndexerListView: View {
         }
         .onChange(of: vm.testResult) { _, result in
             guard let result else { return }
-            if result.contains("passed") {
+            if vm.testSucceeded == true {
                 InAppNotificationCenter.shared.showSuccess(title: "Test Complete", message: result)
             } else {
                 InAppNotificationCenter.shared.showError(title: "Test Failed", message: result)

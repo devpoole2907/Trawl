@@ -13,6 +13,15 @@ final class SyncService {
     private(set) var lastError: QBError?
     var defaultSavePath: String?
 
+    // MARK: - Speed History
+    struct SpeedSample: Sendable {
+        let timestamp: Date
+        let dlSpeed: Int64
+        let upSpeed: Int64
+    }
+    private(set) var speedHistory: [SpeedSample] = []
+    private let maxSpeedHistoryCount = 150 // ~5 minutes at 2 s intervals
+
     // MARK: - Internal State
     private var rid: Int = 0
     private var pollingTask: Task<Void, Never>?
@@ -24,11 +33,6 @@ final class SyncService {
     }
 
     // MARK: - Sorted accessors
-
-    /// All torrents as a sorted array (by name)
-    var sortedTorrents: [Torrent] {
-        torrents.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
 
     /// Category names sorted alphabetically
     var sortedCategoryNames: [String] {
@@ -258,6 +262,19 @@ final class SyncService {
                 serverState = existing.merging(newState)
             } else {
                 serverState = newState
+            }
+        }
+
+        // --- Speed History ---
+        if let state = serverState {
+            let sample = SpeedSample(
+                timestamp: .now,
+                dlSpeed: state.dlInfoSpeed ?? 0,
+                upSpeed: state.upInfoSpeed ?? 0
+            )
+            speedHistory.append(sample)
+            if speedHistory.count > maxSpeedHistoryCount {
+                speedHistory.removeFirst(speedHistory.count - maxSpeedHistoryCount)
             }
         }
 

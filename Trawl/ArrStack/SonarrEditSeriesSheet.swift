@@ -13,6 +13,14 @@ struct SonarrEditSeriesSheet: View {
     @State private var selectedTags: Set<Int>
     @State private var isSaving = false
 
+    private var rootFolderOptions: [String] {
+        let availablePaths = viewModel.rootFolders.map(\.path)
+        guard !rootFolderPath.isEmpty, !availablePaths.contains(rootFolderPath) else {
+            return availablePaths
+        }
+        return [rootFolderPath] + availablePaths
+    }
+
     init(viewModel: SonarrViewModel, series: SonarrSeries) {
         self.viewModel = viewModel
         self.series = series
@@ -25,7 +33,15 @@ struct SonarrEditSeriesSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        ArrSheetShell(
+            title: "Edit Series",
+            confirmTitle: "Save",
+            isConfirmDisabled: isSaving || qualityProfileId == 0 || rootFolderPath.isEmpty,
+            isConfirmLoading: isSaving,
+            onConfirm: {
+                Task { await saveChanges() }
+            }
+        ) {
             Form {
                 Section("Library") {
                     Toggle("Monitored", isOn: $monitored)
@@ -44,8 +60,8 @@ struct SonarrEditSeriesSheet: View {
                     }
 
                     Picker("Root Folder", selection: $rootFolderPath) {
-                        ForEach(viewModel.rootFolders) { folder in
-                            Text(folder.path).tag(folder.path)
+                        ForEach(rootFolderOptions, id: \.self) { path in
+                            Text(path).tag(path)
                         }
                     }
                 }
@@ -61,20 +77,6 @@ struct SonarrEditSeriesSheet: View {
                             }
                         }
                     }
-                }
-            }
-            .navigationTitle("Edit Series")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        Task { await saveChanges() }
-                    }
-                    .disabled(isSaving || qualityProfileId == 0 || rootFolderPath.isEmpty)
                 }
             }
         }

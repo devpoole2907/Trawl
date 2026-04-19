@@ -7,7 +7,9 @@ import SwiftData
 final class RadarrViewModel {
     // Library state
     private(set) var movies: [RadarrMovie] = [] { didSet { rebuildFilteredMovies() } }
+    private(set) var movieFiles: [RadarrMovieFile] = []
     private(set) var isLoading: Bool = false
+    private(set) var isLoadingFiles: Bool = false
     private(set) var error: String?
 
     // Search state
@@ -53,31 +55,43 @@ final class RadarrViewModel {
     private(set) var filteredMovies: [RadarrMovie] = []
 
     private func rebuildFilteredMovies() {
-        var result = movies
-
-        switch selectedFilter {
-        case .all: break
-        case .monitored: result = result.filter { $0.monitored == true }
-        case .unmonitored: result = result.filter { $0.monitored == false }
-        case .missing: result = result.filter { $0.hasFile != true && $0.monitored == true }
-        case .downloaded: result = result.filter { $0.hasFile == true }
-        case .wanted: result = result.filter { $0.hasFile != true && $0.monitored == true && $0.isAvailable == true }
-        }
-
-        if !searchText.isEmpty {
-            let query = searchText.lowercased()
-            result = result.filter { $0.title.lowercased().contains(query) }
-        }
-
-        result.sort { a, b in
-            switch sortOrder {
-            case .title:  (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
-            case .year:   (a.year ?? 0) > (b.year ?? 0)
-            case .size:   (a.sizeOnDisk ?? 0) > (b.sizeOnDisk ?? 0)
-            case .status: a.displayStatus < b.displayStatus
+        filteredMovies = FilterSortPipeline.apply(
+            items: movies,
+            filter: selectedFilter,
+            searchText: searchText,
+            sort: sortOrder,
+            matchesSearch: { movie, query in
+                movie.title.localizedCaseInsensitiveContains(query)
+            },
+            matchesFilter: { movie, filter in
+                switch filter {
+                case .all:
+                    true
+                case .monitored:
+                    movie.monitored == true
+                case .unmonitored:
+                    movie.monitored == false
+                case .missing:
+                    movie.hasFile != true && movie.monitored == true
+                case .downloaded:
+                    movie.hasFile == true
+                case .wanted:
+                    movie.hasFile != true && movie.monitored == true && movie.isAvailable == true
+                }
+            },
+            areInIncreasingOrder: { a, b, sort in
+                switch sort {
+                case .title:
+                    (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
+                case .year:
+                    (a.year ?? 0) > (b.year ?? 0)
+                case .size:
+                    (a.sizeOnDisk ?? 0) > (b.sizeOnDisk ?? 0)
+                case .status:
+                    a.displayStatus < b.displayStatus
+                }
             }
-        }
-        filteredMovies = result
+        )
     }
 
     var qualityProfiles: [ArrQualityProfile] { serviceManager.radarrQualityProfiles }
@@ -97,6 +111,17 @@ final class RadarrViewModel {
             self.error = error.localizedDescription
         }
         isLoading = false
+    }
+
+    func loadMovieFiles(movieId: Int) async {
+        guard let client else { return }
+        isLoadingFiles = true
+        do {
+            movieFiles = try await client.getMovieFiles(movieId: movieId)
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoadingFiles = false
     }
 
     func refreshMovies() async throws {
@@ -330,6 +355,32 @@ final class RadarrViewModel {
         }
     }
 
+    func interactiveSearchMovie(movieId: Int) async -> [ArrRelease] {
+        guard let client else { return [] }
+        error = nil
+        do {
+            return try await client.getReleases(movieId: movieId)
+        } catch is CancellationError {
+            return []
+        } catch {
+            self.error = error.localizedDescription
+            return []
+        }
+    }
+
+    func grabRelease(_ release: ArrRelease) async -> Bool {
+        guard let client else { return false }
+        error = nil
+        do {
+            try await client.grabRelease(release)
+            await loadQueue()
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            return false
+        }
+    }
+
     func searchAllMissing() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.searchAllMissing()
@@ -342,12 +393,13 @@ final class RadarrViewModel {
 
     func deleteMovieFile(id: Int) async -> Bool {
         guard let client else { return false }
-        let movieId = movies.first(where: { $0.movieFile?.id == id })?.id
+        let movieId = movies.first(where: { $0.movieFile?.id == id })?.id ?? movieFiles.first(where: { $0.id == id })?.movieId
 
         do {
             try await client.deleteMovieFile(id: id)
             if let movieId {
                 await refreshMovieInLibrary(id: movieId)
+                await loadMovieFiles(movieId: movieId)
                 await loadMovies()
             }
             return true

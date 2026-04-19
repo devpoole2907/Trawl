@@ -1,21 +1,68 @@
 import Foundation
+import OSLog
+
+protocol SharedArrClient: Actor {
+    var base: ArrAPIClient { get }
+}
+
+extension SharedArrClient {
+    func getSystemStatus() async throws -> ArrSystemStatus { try await base.getSystemStatus() }
+    func getHealth() async throws -> [ArrHealthCheck] { try await base.getHealth() }
+    func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.getQualityProfiles() }
+    func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
+    func getTags() async throws -> [ArrTag] { try await base.getTags() }
+
+    func getQueue(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize,
+        includeUnknownMovieItems: Bool = true
+    ) async throws -> ArrQueuePage {
+        try await base.getQueue(
+            page: page,
+            pageSize: pageSize,
+            includeUnknownMovieItems: includeUnknownMovieItems
+        )
+    }
+
+    func deleteQueueItem(id: Int, removeFromClient: Bool = true, blocklist: Bool = false) async throws {
+        try await base.deleteQueueItem(
+            id: id,
+            removeFromClient: removeFromClient,
+            blocklist: blocklist
+        )
+    }
+
+    func getHistory(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize
+    ) async throws -> ArrHistoryPage {
+        try await base.getHistory(page: page, pageSize: pageSize)
+    }
+
+    func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.getDiskSpace() }
+}
 
 /// Base actor handling shared HTTP infrastructure for all *arr services.
 /// Both SonarrAPIClient and RadarrAPIClient build on this.
 actor ArrAPIClient {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "ArrAPIClient")
+    static let defaultPageSize = 20
+
     let baseURL: String
     private let apiKey: String
     private let session: URLSession
+    private let trustPolicy: ServerTrustPolicy
 
-    init(baseURL: String, apiKey: String) {
+    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
         var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if url.hasSuffix("/") { url = String(url.dropLast()) }
         self.baseURL = url
         self.apiKey = apiKey
+        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
     // MARK: - Shared Endpoints
@@ -40,7 +87,11 @@ actor ArrAPIClient {
         try await get("/api/v3/tag")
     }
 
-    func getQueue(page: Int = 1, pageSize: Int = 20, includeUnknownMovieItems: Bool = true) async throws -> ArrQueuePage {
+    func getQueue(
+        page: Int = 1,
+        pageSize: Int = defaultPageSize,
+        includeUnknownMovieItems: Bool = true
+    ) async throws -> ArrQueuePage {
         let params = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
@@ -58,7 +109,12 @@ actor ArrAPIClient {
         try await delete("/api/v3/queue/\(id)", queryItems: params)
     }
 
-    func getHistory(page: Int = 1, pageSize: Int = 20, sortKey: String = "date", sortDirection: String = "descending") async throws -> ArrHistoryPage {
+    func getHistory(
+        page: Int = 1,
+        pageSize: Int = defaultPageSize,
+        sortKey: String = "date",
+        sortDirection: String = "descending"
+    ) async throws -> ArrHistoryPage {
         let params = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
@@ -110,12 +166,17 @@ actor ArrAPIClient {
 
     func delete(_ path: String, queryItems: [URLQueryItem] = []) async throws {
         let request = try buildRequest(path: path, method: "DELETE", queryItems: queryItems)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ArrError.invalidResponse }
-        if http.statusCode == 401 { throw ArrError.invalidAPIKey }
-        guard (200..<400).contains(http.statusCode) else {
-            throw ArrError.serverError(statusCode: http.statusCode, message: nil)
-        }
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
+    }
+
+    /// DELETE with a JSON body (e.g. bulk blocklist delete)
+    func deleteWithBody(_ path: String, jsonBody: Any) async throws {
+        var request = try buildRequest(path: path, method: "DELETE")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
     }
 
     /// Fire-and-forget POST (for commands that return empty body)
@@ -123,29 +184,17 @@ actor ArrAPIClient {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ArrError.invalidResponse }
-        if http.statusCode == 401 { throw ArrError.invalidAPIKey }
-        guard (200..<400).contains(http.statusCode) else {
-            throw ArrError.serverError(statusCode: http.statusCode, message: nil)
-        }
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
     }
 
     /// Fire-and-forget POST with a Codable body (for commands that return empty body)
     func postVoidCodable<B: Encodable>(_ path: String, body: B) async throws {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        let encoded = try JSONEncoder().encode(body)
-        request.httpBody = encoded
-        print("[ArrAPIClient] POST \(path) body: \(String(data: encoded, encoding: .utf8) ?? "<unreadable>")")
+        request.httpBody = try JSONEncoder().encode(body)
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw ArrError.invalidResponse }
-        if http.statusCode == 401 { throw ArrError.invalidAPIKey }
-        guard (200..<400).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8)
-            print("[ArrAPIClient] POST \(path) \(http.statusCode) response: \(body ?? "<empty>")")
-            throw ArrError.serverError(statusCode: http.statusCode, message: body)
-        }
+        try validateResponse(response, data: data, path: path)
     }
 
     // MARK: - Private
@@ -167,27 +216,93 @@ actor ArrAPIClient {
     private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
         let data: Data
         let response: URLResponse
+        let path = request.url?.path ?? "<unknown>"
         do {
             (data, response) = try await session.data(for: request)
         } catch {
+            if isRequestCancellation(error) {
+                throw CancellationError()
+            }
+            
+            logReleaseDiagnostics(
+                message: "Network error",
+                path: path,
+                request: request,
+                responseData: nil,
+                error: error
+            )
             throw ArrError.networkError(error)
         }
+        
+        try validateResponse(response, data: data, path: path)
+        
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            logReleaseDiagnostics(
+                message: "Decoding error",
+                path: path,
+                request: request,
+                responseData: data,
+                error: error
+            )
+            throw ArrError.decodingError(error)
+        }
+    }
 
+    private func validateResponse(_ response: URLResponse, data: Data, path: String) throws {
         guard let http = response as? HTTPURLResponse else {
             throw ArrError.invalidResponse
         }
 
-        if http.statusCode == 401 { throw ArrError.invalidAPIKey }
+        if http.statusCode == 401 {
+            throw ArrError.invalidAPIKey
+        }
 
         guard (200..<400).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8)
+            Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(http.statusCode)")
+            logReleaseDiagnostics(
+                message: "HTTP error \(http.statusCode)",
+                path: path,
+                request: nil,
+                responseData: data,
+                error: nil
+            )
             throw ArrError.serverError(statusCode: http.statusCode, message: body)
         }
+    }
 
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw ArrError.decodingError(error)
+    private func logReleaseDiagnostics(
+        message: String,
+        path: String,
+        request: URLRequest?,
+        responseData: Data?,
+        error: Error?
+    ) {
+        guard path.contains("/api/v3/release") else { return }
+
+        let urlString = request?.url?.absoluteString ?? "\(baseURL)\(path)"
+        Self.logger.error("Interactive search diagnostic: \(message, privacy: .public)")
+        Self.logger.error("Interactive search URL: \(urlString, privacy: .public)")
+
+        if let error {
+            Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .public)")
         }
+
+        if let responseData,
+           let body = String(data: responseData, encoding: .utf8),
+           !body.isEmpty {
+            Self.logger.error("Interactive search response body: \(body, privacy: .public)")
+        }
+    }
+    
+    private func isRequestCancellation(_ error: Error) -> Bool {
+        if error is CancellationError {
+            return true
+        }
+        
+        let nsError = error as NSError
+        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }

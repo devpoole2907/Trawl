@@ -126,7 +126,14 @@ struct ServerListView: View {
         for existing in servers {
             existing.isActive = (existing.id == server.id)
         }
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Switch Server",
+                message: error.localizedDescription
+            )
+        }
     }
 
     @MainActor
@@ -153,6 +160,13 @@ struct ServerListView: View {
             replacement?.isActive = true
         }
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Delete Server",
+                message: error.localizedDescription
+            )
+        }
     }
 }

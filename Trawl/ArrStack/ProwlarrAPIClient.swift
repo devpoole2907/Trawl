@@ -5,8 +5,8 @@ import Foundation
 actor ProwlarrAPIClient {
     let base: ArrAPIClient
 
-    init(baseURL: String, apiKey: String) {
-        self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey)
+    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
+        self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
     }
 
     // MARK: - System
@@ -17,6 +17,47 @@ actor ProwlarrAPIClient {
 
     func getHealth() async throws -> [ArrHealthCheck] {
         try await base.get("/api/v1/health")
+    }
+
+    func getQualityProfiles() async throws -> [ArrQualityProfile] {
+        try await base.get("/api/v1/qualityprofile")
+    }
+
+    func getRootFolders() async throws -> [ArrRootFolder] {
+        try await base.get("/api/v1/rootfolder")
+    }
+
+    func getQueue(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize,
+        includeUnknownMovieItems: Bool = true
+    ) async throws -> ArrQueuePage {
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "includeUnknownMovieItems", value: String(includeUnknownMovieItems)),
+            URLQueryItem(name: "includeUnknownSeriesItems", value: "true")
+        ]
+        return try await base.get("/api/v1/queue", queryItems: params)
+    }
+
+    func getHistory(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize,
+        sortKey: String = "date",
+        sortDirection: String = "descending"
+    ) async throws -> ArrHistoryPage {
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: sortKey),
+            URLQueryItem(name: "sortDirection", value: sortDirection)
+        ]
+        return try await base.get("/api/v1/history", queryItems: params)
+    }
+
+    func getDiskSpace() async throws -> [ArrDiskSpace] {
+        try await base.get("/api/v1/diskspace")
     }
 
     // MARK: - Indexers

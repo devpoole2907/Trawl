@@ -52,13 +52,23 @@ enum SSHAuth: Sendable {
 
 /// NWConnection fills this; libssh2's recv callback drains it synchronously.
 private final class SshReceiveBuffer: @unchecked Sendable {
+    private static let maxBufferedBytes = 1_048_576
+    private static let compactionThreshold = 8_192
+
     private var buffer = Data()
     private var readIndex = 0
     private let lock = NSLock()
 
     func append(_ data: Data) {
         lock.lock(); defer { lock.unlock() }
+        compactBufferIfNeeded()
         buffer.append(data)
+    }
+
+    func shouldPauseReceiving() -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        compactBufferIfNeeded()
+        return unreadByteCount >= Self.maxBufferedBytes
     }
 
     /// Copy up to `maxLength` bytes into `ptr`. Returns bytes copied, or -EAGAIN when empty.
@@ -74,14 +84,24 @@ private final class SshReceiveBuffer: @unchecked Sendable {
             ptr.copyMemory(from: base, byteCount: n)
         }
         readIndex += n
-        
-        // Compact the buffer if we've read at least half and it's substantial
-        if readIndex > 32768 && readIndex > buffer.count / 2 {
-            buffer.removeFirst(readIndex)
-            readIndex = 0
-        }
+        compactBufferIfNeeded()
         
         return n
+    }
+
+    private var unreadByteCount: Int {
+        buffer.count - readIndex
+    }
+
+    private func compactBufferIfNeeded() {
+        guard readIndex > 0 else { return }
+        let shouldCompact =
+            readIndex >= Self.compactionThreshold ||
+            readIndex >= buffer.count / 2 ||
+            unreadByteCount >= Self.maxBufferedBytes / 2
+        guard shouldCompact else { return }
+        buffer.removeFirst(readIndex)
+        readIndex = 0
     }
 }
 
@@ -752,7 +772,16 @@ final class SSHConnection: @unchecked Sendable {
                         await self.handleTransportClosed(for: conn, error: message)
                         return
                     }
-                    scheduleReceive()
+                    if buffer.shouldPauseReceiving() {
+                        Task.detached(priority: .utility) {
+                            try? await Task.sleep(for: .milliseconds(25))
+                            await MainActor.run {
+                                scheduleReceive()
+                            }
+                        }
+                    } else {
+                        scheduleReceive()
+                    }
                 }
             }
         }

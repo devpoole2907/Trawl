@@ -14,7 +14,14 @@ struct RadarrAddMovieSheet: View {
     @State private var isAdding = false
 
     var body: some View {
-        NavigationStack {
+        ArrSheetShell(
+            title: "Add Movie",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canAddSelectedMovie,
+            onConfirm: {
+                Task { await addSelectedMovie() }
+            }
+        ) {
             List {
                 Section {
                     HStack {
@@ -88,19 +95,6 @@ struct RadarrAddMovieSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Add Movie")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        Task { await addSelectedMovie() }
-                    }
-                    .disabled(!canAddSelectedMovie)
-                }
-            }
-            .presentationDetents([.large])
             .task {
                 selectedQualityProfileId = viewModel.qualityProfiles.first?.id
                 selectedRootFolderPath = viewModel.rootFolders.first?.path

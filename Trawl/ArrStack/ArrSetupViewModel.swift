@@ -8,6 +8,7 @@ final class ArrSetupViewModel {
     var apiKey: String = ""
     var displayName: String = ""
     var serviceType: ArrServiceType = .sonarr
+    var allowsUntrustedTLS: Bool = false
     var isValidating: Bool = false
     var validationError: String?
     var validatedStatus: ArrSystemStatus?
@@ -20,17 +21,23 @@ final class ArrSetupViewModel {
 
     /// Validate the connection and save the profile.
     func validateAndSave(modelContext: ModelContext) async -> Bool {
-        let trimmedURL = hostURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let trimmedURLInput = hostURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
-        guard !trimmedURL.isEmpty else {
+        guard !trimmedURLInput.isEmpty else {
             validationError = "Server URL is required."
             return false
         }
         guard !trimmedKey.isEmpty else {
             validationError = "API key is required."
+            return false
+        }
+
+        let trimmedURL: String
+        do {
+            trimmedURL = try ServerURLValidator.normalizedURLString(from: trimmedURLInput)
+        } catch {
+            validationError = error.localizedDescription
             return false
         }
 
@@ -41,13 +48,19 @@ final class ArrSetupViewModel {
             let status = try await serviceManager.testConnection(
                 hostURL: trimmedURL,
                 apiKey: trimmedKey,
-                serviceType: serviceType
+                serviceType: serviceType,
+                allowsUntrustedTLS: allowsUntrustedTLS
             )
             validatedStatus = status
 
             // Save profile
             let name = displayName.isEmpty ? (status.instanceName ?? serviceType.displayName) : displayName
-            let profile = ArrServiceProfile(displayName: name, hostURL: trimmedURL, serviceType: serviceType)
+            let profile = ArrServiceProfile(
+                displayName: name,
+                hostURL: trimmedURL,
+                serviceType: serviceType,
+                allowsUntrustedTLS: allowsUntrustedTLS
+            )
             profile.apiVersion = status.version
 
             modelContext.insert(profile)
@@ -78,16 +91,41 @@ final class ArrSetupViewModel {
         hostURL = profile.hostURL
         displayName = profile.displayName
         serviceType = profile.resolvedServiceType ?? .sonarr
-        apiKey = (try? await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey)) ?? ""
+        allowsUntrustedTLS = profile.allowsUntrustedTLS
+        do {
+            apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey) ?? ""
+        } catch {
+            apiKey = ""
+            validationError = "Couldn't load the saved API key: \(error.localizedDescription)"
+        }
     }
 
     /// Delete a service profile.
     func deleteProfile(_ profile: ArrServiceProfile, modelContext: ModelContext) async {
-        if let serviceType = profile.resolvedServiceType {
-            serviceManager.disconnectService(serviceType, profileID: profile.id)
+        do {
+            try await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
+        } catch {
+            await MainActor.run {
+                InAppNotificationCenter.shared.showError(
+                    title: "Couldn't Remove Service",
+                    message: "Failed to delete the saved API key. \(error.localizedDescription)"
+                )
+            }
+            return
         }
-        try? await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
         modelContext.delete(profile)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+            if let serviceType = profile.resolvedServiceType {
+                serviceManager.disconnectService(serviceType, profileID: profile.id)
+            }
+        } catch {
+            await MainActor.run {
+                InAppNotificationCenter.shared.showError(
+                    title: "Couldn't Remove Service",
+                    message: "Failed to save the updated service list. \(error.localizedDescription)"
+                )
+            }
+        }
     }
 }

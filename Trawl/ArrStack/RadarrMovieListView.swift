@@ -3,6 +3,7 @@ import SwiftData
 
 struct RadarrMovieListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: RadarrViewModel?
     @State private var showSettings = false
@@ -75,7 +76,13 @@ struct RadarrMovieListView: View {
         } message: { movie in
             Text("Choose whether to remove only \(movie.title) from Radarr or also delete its files.")
         }
-        .refreshable { await viewModel?.loadMovies() }
+        .refreshable {
+            if let viewModel {
+                async let loadMovies = viewModel.loadMovies()
+                async let loadQueue = viewModel.loadQueue()
+                _ = await (loadMovies, loadQueue)
+            }
+        }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: .radarr)
@@ -91,6 +98,7 @@ struct RadarrMovieListView: View {
             NavigationStack {
                 ArrCalendarView()
                     .environment(serviceManager)
+                    .environment(syncService)
             }
         }
         .sheet(isPresented: $showWantedMissing) {
@@ -102,18 +110,19 @@ struct RadarrMovieListView: View {
         .navigationDestination(for: Int.self) { movieId in
             if let vm = viewModel {
                 RadarrMovieDetailView(movieId: movieId, viewModel: vm)
+                    .environment(syncService)
             }
         }
-        .task(id: serviceManager.radarrConnected) {
-            if serviceManager.radarrConnected {
-                if viewModel == nil {
-                    let vm = RadarrViewModel(serviceManager: serviceManager)
-                    viewModel = vm
-                }
-                await viewModel?.loadMovies()
-            } else {
+        .task(id: serviceManager.activeRadarrInstanceID) {
+            guard serviceManager.radarrConnected else {
                 viewModel = nil
+                return
             }
+            let vm = RadarrViewModel(serviceManager: serviceManager)
+            viewModel = vm
+            async let loadMovies = vm.loadMovies()
+            async let loadQueue = vm.loadQueue()
+            _ = await (loadMovies, loadQueue)
         }
     }
 
@@ -133,7 +142,12 @@ struct RadarrMovieListView: View {
             List {
                 ForEach(vm.filteredMovies) { movie in
                     NavigationLink(value: movie.id) {
-                        RadarrMovieRow(movie: movie)
+                        RadarrMovieRow(
+                            movie: movie,
+                            hasIssue: vm.queue.contains {
+                                $0.movieId == movie.id && $0.isImportIssueQueueItem
+                            }
+                        )
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
@@ -169,18 +183,7 @@ struct RadarrMovieListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .topBarLeading) {
-            HStack {
-                Button("Calendar", systemImage: "calendar") {
-                    showCalendar = true
-                }
-                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                    showWantedMissing = true
-                }
-            }
-        }
-
-        ToolbarItemGroup(placement: .automatic) {
+        ToolbarItemGroup(placement: .topBarLeading) {
             if let vm = viewModel {
                 Menu {
                     ForEach(RadarrFilter.allCases) { filter in
@@ -216,7 +219,34 @@ struct RadarrMovieListView: View {
             }
         }
 
-        ToolbarSpacer(.fixed, placement: .automatic)
+        ToolbarItemGroup(placement: .topBarTrailing) {
+            Button("Calendar", systemImage: "calendar") {
+                showCalendar = true
+            }
+            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                showWantedMissing = true
+            }
+
+            if serviceManager.radarrInstances.count > 1 {
+                Menu {
+                    ForEach(serviceManager.radarrInstances) { entry in
+                        Button {
+                            serviceManager.setActiveRadarr(entry.id)
+                        } label: {
+                            if entry.id == serviceManager.activeRadarrEntry?.id {
+                                Label(entry.displayName, systemImage: "checkmark")
+                            } else {
+                                Label(entry.displayName,
+                                      systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
+                            }
+                        }
+                        .disabled(!entry.isConnected)
+                    }
+                } label: {
+                    Label("Instance", systemImage: "server.rack")
+                }
+            }
+        }
     }
 
     private var navigationSubtitleText: String {
@@ -272,6 +302,7 @@ struct RadarrMovieListView: View {
 
 struct RadarrMovieRow: View {
     let movie: RadarrMovie
+    let hasIssue: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -317,10 +348,18 @@ struct RadarrMovieRow: View {
 
             Spacer()
 
-            if movie.monitored == true {
-                Image(systemName: "bookmark.fill")
-                    .font(.caption)
-                    .foregroundStyle(.blue)
+            HStack(spacing: 8) {
+                if hasIssue {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+
+                if movie.monitored == true {
+                    Image(systemName: "bookmark.fill")
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                }
             }
         }
         .padding(.vertical, 2)

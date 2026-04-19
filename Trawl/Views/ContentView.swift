@@ -24,7 +24,7 @@ struct ContentView: View {
     @State private var showArrSetup = false
     @State private var showSSHDisconnectConfirm = false
     @State private var showSSHSessionSheet = false
-    @State private var welcomeStep: WelcomeStep = .intro
+    @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
     #if os(macOS)
@@ -53,6 +53,10 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: inAppNotificationCenter.currentBanner)
+        .sensoryFeedback(trigger: inAppNotificationCenter.currentBanner) { _, newValue in
+            guard let newBanner = newValue else { return nil }
+            return newBanner.style == .error ? .error : .success
+        }
         .sheet(isPresented: $showOnboarding) {
             OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
         }
@@ -114,6 +118,12 @@ struct ContentView: View {
             }
             await arrServiceManager.initialize(from: arrProfiles)
         }
+        .onChange(of: servers.count) { _, _ in
+            syncWelcomeFlowState()
+        }
+        .onChange(of: arrProfiles.count) { _, _ in
+            syncWelcomeFlowState()
+        }
         .onChange(of: activeServerID) { _, newValue in
             appServices?.syncService.stopPolling()
             if newValue == nil {
@@ -130,17 +140,15 @@ struct ContentView: View {
     }
 
     private var welcomeScreen: some View {
-        Group {
-            switch welcomeStep {
-            case .intro:
-                welcomeIntroScreen
-            case .services:
-                serviceSelectionScreen
-            }
+        NavigationStack(path: $welcomePath) {
+            welcomeIntroScreen
+                .navigationDestination(for: WelcomeStep.self) { step in
+                    switch step {
+                    case .services:
+                        serviceSelectionScreen
+                    }
+                }
         }
-        .padding(32)
-        .frame(maxWidth: 440)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func featureRow(icon: String, color: Color, title: String, description: String) -> some View {
@@ -194,13 +202,16 @@ struct ContentView: View {
             }
             .padding(.horizontal, 8)
 
-            Button("Get Started") {
-                welcomeStep = .services
+            NavigationLink(value: WelcomeStep.services) {
+                Text("Get Started")
+                    .frame(maxWidth: .infinity)
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
-            .frame(maxWidth: .infinity)
         }
+        .padding(32)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var serviceSelectionScreen: some View {
@@ -272,12 +283,19 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity)
 
                 Button("Back") {
-                    welcomeStep = .intro
+                    welcomePath.removeAll()
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
             }
         }
+        .padding(32)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Choose Services")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private func setupRow(
@@ -323,7 +341,7 @@ struct ContentView: View {
     @ViewBuilder
     private var tabContent: some View {
         let services = appServices ?? disconnectedServices
-        let activeTorrentCount = services.syncService.sortedTorrents.filter(\.isRunningInTabBadge).count
+        let activeTorrentCount = services.syncService.torrents.values.filter(\.isRunningInTabBadge).count
         TabView(selection: $selectedTab) {
             Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
                 NavigationStack {
@@ -532,7 +550,7 @@ struct ContentView: View {
     }
 
     private var shouldShowWelcomeScreen: Bool {
-        isInWelcomeFlow || (servers.isEmpty && arrProfiles.isEmpty)
+        isInWelcomeFlow && !hasConfiguredAnyService
     }
 
     private var isShowingSSHSession: Bool {
@@ -541,6 +559,12 @@ struct ContentView: View {
 
     private var isAccessoryVisible: Bool {
         sshSessionStore.hasSession && !isShowingSSHSession
+    }
+
+    private func syncWelcomeFlowState() {
+        if hasConfiguredAnyService {
+            isInWelcomeFlow = false
+        }
     }
 
     private func initializeServices() {
@@ -586,7 +610,14 @@ struct ContentView: View {
 
                 // Update last connected
                 server.lastConnected = .now
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Save Server State",
+                        message: error.localizedDescription
+                    )
+                }
 
                 guard activeServerID == initiatingServerID else {
                     services.syncService.stopPolling()
@@ -661,12 +692,14 @@ private extension Torrent {
 private struct InAppNotificationBanner: View {
     let item: InAppBannerItem
     let onDismiss: () -> Void
+    
+    @State private var dragOffset: CGFloat = 0
 
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: item.systemImage)
                 .font(.title3.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(item.style == .error ? .red : .green)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(item.title)
@@ -678,23 +711,32 @@ private struct InAppNotificationBanner: View {
                     .lineLimit(2)
             }
 
-            Spacer(minLength: 8)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.plain)
-            .glassEffect(.regular.interactive(), in: Circle())
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
+        .glassEffect(.regular.tint((item.style == .error ? Color.red : Color.green).opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: 560)
-        .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
-        .glassEffect(.regular.tint(.green.opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
+        .contentShape(Rectangle())
+        .offset(y: dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if value.translation.height < 0 {
+                        dragOffset = value.translation.height
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height < -40 {
+                        onDismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
     }
 }
 
@@ -711,8 +753,7 @@ private enum RootTab: Hashable {
     case more
 }
 
-private enum WelcomeStep {
-    case intro
+private enum WelcomeStep: Hashable {
     case services
 }
 

@@ -13,7 +13,14 @@ struct SonarrAddSeriesSheet: View {
     @State private var isAdding = false
 
     var body: some View {
-        NavigationStack {
+        ArrSheetShell(
+            title: "Add Series",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canAddSelectedSeries,
+            onConfirm: {
+                Task { await addSelectedSeries() }
+            }
+        ) {
             List {
                 Section {
                     HStack {
@@ -81,19 +88,6 @@ struct SonarrAddSeriesSheet: View {
                 }
             }
             .listStyle(.insetGrouped)
-            .navigationTitle("Add Series")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        Task { await addSelectedSeries() }
-                    }
-                    .disabled(!canAddSelectedSeries)
-                }
-            }
-            .presentationDetents([.large])
             .task {
                 selectedQualityProfileId = viewModel.qualityProfiles.first?.id
                 selectedRootFolderPath = viewModel.rootFolders.first?.path

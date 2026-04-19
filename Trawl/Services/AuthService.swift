@@ -2,16 +2,18 @@ import Foundation
 
 actor AuthService {
     private let session: URLSession
+    private let trustPolicy: ServerTrustPolicy
     private var sid: String?
     private var isAuthenticating = false
     let serverProfileID: UUID
 
-    init(serverProfileID: UUID) {
+    init(serverProfileID: UUID, allowsUntrustedTLS: Bool = false) {
         self.serverProfileID = serverProfileID
+        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
     var isAuthenticated: Bool { sid != nil }
@@ -62,8 +64,9 @@ actor AuthService {
     }
 
     /// Clear the active session.
-    func logout() {
+    func logout() async {
         sid = nil
+        await session.reset()
     }
 
     // MARK: - Private

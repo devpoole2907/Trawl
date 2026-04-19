@@ -162,12 +162,18 @@ struct AddTorrentSheet: View {
             allowedContentTypes: [UTType(filenameExtension: "torrent") ?? .data]
         ) { result in
             if case .success(let url) = result {
-                guard url.startAccessingSecurityScopedResource() else { return }
-                defer { url.stopAccessingSecurityScopedResource() }
-                if let data = try? Data(contentsOf: url) {
-                    vm.torrentFileData = data
-                    vm.torrentFileName = url.lastPathComponent
-                    inputTab = .file
+                Task {
+                    guard url.startAccessingSecurityScopedResource() else { return }
+                    defer { url.stopAccessingSecurityScopedResource() }
+                    
+                    if let data = try? Data(contentsOf: url) {
+                        let fileName = url.lastPathComponent
+                        await MainActor.run {
+                            vm.torrentFileData = data
+                            vm.torrentFileName = fileName
+                            inputTab = .file
+                        }
+                    }
                 }
             }
         }

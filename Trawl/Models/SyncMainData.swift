@@ -96,6 +96,11 @@ struct ServerState: Codable, Sendable {
     var upRateLimit: Int64?
     var dhtNodes: Int?
     var connectionStatus: String?
+    var alltimeDl: Int64?
+    var alltimeUl: Int64?
+    var totalPeerConnections: Int?
+    var freeSpaceOnDisk: Int64?
+    var globalRatio: String?
 
     enum CodingKeys: String, CodingKey {
         case dlInfoSpeed = "dl_info_speed"
@@ -106,6 +111,11 @@ struct ServerState: Codable, Sendable {
         case upRateLimit = "up_rate_limit"
         case dhtNodes = "dht_nodes"
         case connectionStatus = "connection_status"
+        case alltimeDl = "alltime_dl"
+        case alltimeUl = "alltime_ul"
+        case totalPeerConnections = "total_peer_connections"
+        case freeSpaceOnDisk = "free_space_on_disk"
+        case globalRatio = "global_ratio"
     }
 
     /// Merge non-nil fields from another ServerState into this one
@@ -119,6 +129,11 @@ struct ServerState: Codable, Sendable {
         if let v = other.upRateLimit { merged.upRateLimit = v }
         if let v = other.dhtNodes { merged.dhtNodes = v }
         if let v = other.connectionStatus { merged.connectionStatus = v }
+        if let v = other.alltimeDl { merged.alltimeDl = v }
+        if let v = other.alltimeUl { merged.alltimeUl = v }
+        if let v = other.totalPeerConnections { merged.totalPeerConnections = v }
+        if let v = other.freeSpaceOnDisk { merged.freeSpaceOnDisk = v }
+        if let v = other.globalRatio { merged.globalRatio = v }
         return merged
     }
 }

@@ -44,11 +44,19 @@ class ShareViewController: UIViewController {
                 if provider.hasItemConformingToTypeIdentifier(torrentType.identifier) {
                     provider.loadItem(forTypeIdentifier: torrentType.identifier) { [weak self] item, _ in
                         if let url = item as? URL {
-                            _ = url.startAccessingSecurityScopedResource()
-                            defer { url.stopAccessingSecurityScopedResource() }
-                            self?.torrentFileData = try? Data(contentsOf: url)
-                            self?.torrentFileName = url.lastPathComponent
-                            DispatchQueue.main.async { self?.presentShareUI() }
+                            Task {
+                                guard url.startAccessingSecurityScopedResource() else { return }
+                                defer { url.stopAccessingSecurityScopedResource() }
+                                
+                                if let data = try? Data(contentsOf: url) {
+                                    let fileName = url.lastPathComponent
+                                    DispatchQueue.main.async {
+                                        self?.torrentFileData = data
+                                        self?.torrentFileName = fileName
+                                        self?.presentShareUI()
+                                    }
+                                }
+                            }
                         }
                     }
                     return

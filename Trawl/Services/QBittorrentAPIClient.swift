@@ -3,18 +3,20 @@ import Foundation
 actor QBittorrentAPIClient {
     private let authService: AuthService
     private let session: URLSession
+    private let trustPolicy: ServerTrustPolicy
     private let baseURL: String
     private let serverProfileID: UUID
 
-    init(baseURL: String, authService: AuthService) {
+    init(baseURL: String, authService: AuthService, allowsUntrustedTLS: Bool = false) {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.authService = authService
         self.serverProfileID = authService.serverProfileID
+        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
     // MARK: - Auth
@@ -393,6 +395,101 @@ actor QBittorrentAPIClient {
         } catch {
             throw QBError.networkError(error)
         }
+    }
+
+    // MARK: - RSS Feeds
+    
+    /// Get all RSS feeds and folders. Returns a dictionary where keys are folder names (or empty string for root) and values are feed URLs or nested folders.
+    func getRSSItems(withData: Bool = false) async throws -> [String: Any] {
+        let request = try buildRequest(
+            path: "/api/v2/rss/items",
+            queryItems: [URLQueryItem(name: "withData", value: String(withData))]
+        )
+        let (data, _) = try await performRequest(request)
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS items"]))
+        }
+        return json
+    }
+    
+    /// Add a new RSS feed or folder
+    func addRSSFolder(path: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/addFolder",
+            params: ["path": path]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add RSS folder")
+    }
+    
+    func addRSSFeed(url: String, path: String? = nil) async throws {
+        var params: [String: String] = ["url": url]
+        if let path { params["path"] = path }
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/addFeed",
+            params: params
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add RSS feed")
+    }
+    
+    /// Remove an RSS feed or folder
+    func removeRSSItem(path: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/removeItem",
+            params: ["path": path]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove RSS item")
+    }
+    
+    /// Move an RSS feed or folder
+    func moveRSSItem(itemPath: String, destPath: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/moveItem",
+            params: [
+                "itemPath": itemPath,
+                "destPath": destPath
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to move RSS item")
+    }
+    
+    /// Refresh an RSS feed
+    func refreshRSSItem(itemPath: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/refreshItem",
+            params: ["itemPath": itemPath]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to refresh RSS item")
+    }
+    
+    /// Set an auto-downloading rule
+    func setRSSRule(ruleName: String, ruleDef: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/setRule",
+            params: [
+                "ruleName": ruleName,
+                "ruleDef": ruleDef // Expects JSON-encoded string of the rule object
+            ]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to set RSS rule")
+    }
+    
+    /// Get all auto-downloading rules
+    func getRSSRules() async throws -> [String: Any] {
+        let request = try buildRequest(path: "/api/v2/rss/rules")
+        let (data, _) = try await performRequest(request)
+        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
+            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS rules"]))
+        }
+        return json
+    }
+    
+    /// Remove an auto-downloading rule
+    func removeRSSRule(ruleName: String) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/rss/removeRule",
+            params: ["ruleName": ruleName]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove RSS rule")
     }
 
     private func reAuthenticate() async throws {

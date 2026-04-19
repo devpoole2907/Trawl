@@ -140,7 +140,11 @@ struct TrawlApp: App {
     private static func copyModels(from sourceContext: ModelContext, to destinationContext: ModelContext) throws {
         do {
             for profile in try sourceContext.fetch(FetchDescriptor<ServerProfile>()) {
-                let copy = ServerProfile(displayName: profile.displayName, hostURL: profile.hostURL)
+                let copy = ServerProfile(
+                    displayName: profile.displayName,
+                    hostURL: profile.hostURL,
+                    allowsUntrustedTLS: profile.allowsUntrustedTLS
+                )
                 copy.id = profile.id
                 copy.isActive = profile.isActive
                 copy.dateAdded = profile.dateAdded
@@ -172,7 +176,8 @@ struct TrawlApp: App {
                 let copy = ArrServiceProfile(
                     displayName: arrProfile.displayName,
                     hostURL: arrProfile.hostURL,
-                    serviceType: serviceType
+                    serviceType: serviceType,
+                    allowsUntrustedTLS: arrProfile.allowsUntrustedTLS
                 )
                 copy.id = arrProfile.id
                 copy.isEnabled = arrProfile.isEnabled

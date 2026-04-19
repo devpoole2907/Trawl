@@ -1,11 +1,11 @@
 import Foundation
 
 /// Sonarr-specific API methods. Wraps ArrAPIClient for type-safe Sonarr operations.
-actor SonarrAPIClient {
+actor SonarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
 
-    init(baseURL: String, apiKey: String) {
-        self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey)
+    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
+        self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
     }
 
     // MARK: - Series
@@ -91,10 +91,36 @@ actor SonarrAPIClient {
         return try await base.get("/api/v3/calendar", queryItems: params)
     }
 
+    func getReleases(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async throws -> [ArrRelease] {
+        var params: [URLQueryItem] = []
+        if let episodeId {
+            params.append(URLQueryItem(name: "episodeId", value: String(episodeId)))
+        }
+        if let seriesId {
+            params.append(URLQueryItem(name: "seriesId", value: String(seriesId)))
+        }
+        if let seasonNumber {
+            params.append(URLQueryItem(name: "seasonNumber", value: String(seasonNumber)))
+        }
+        return try await base.get("/api/v3/release", queryItems: params)
+    }
+
+    func grabRelease(_ release: ArrRelease) async throws {
+        guard let guid = release.guid, let indexerId = release.indexerId else {
+            throw ArrError.invalidResponse
+        }
+        try await base.postVoidCodable("/api/v3/release", body: ArrReleaseGrabRequest(guid: guid, indexerId: indexerId))
+    }
+
     // MARK: - Wanted / Missing
 
     /// Get missing episodes (wanted but not downloaded)
-    func getWantedMissing(page: Int = 1, pageSize: Int = 20, sortKey: String = "airDateUtc", sortDirection: String = "descending") async throws -> SonarrWantedPage {
+    func getWantedMissing(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize,
+        sortKey: String = "airDateUtc",
+        sortDirection: String = "descending"
+    ) async throws -> SonarrWantedPage {
         let params = [
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "pageSize", value: String(pageSize)),
@@ -103,6 +129,26 @@ actor SonarrAPIClient {
             URLQueryItem(name: "includeSeries", value: "true")
         ]
         return try await base.get("/api/v3/wanted/missing", queryItems: params)
+    }
+
+    // MARK: - Blocklist
+
+    func getBlocklist(page: Int = 1, pageSize: Int = ArrAPIClient.defaultPageSize) async throws -> ArrBlocklistPage {
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: "date"),
+            URLQueryItem(name: "sortDirection", value: "descending")
+        ]
+        return try await base.get("/api/v3/blocklist", queryItems: params)
+    }
+
+    func deleteBlocklistItem(id: Int) async throws {
+        try await base.delete("/api/v3/blocklist/\(id)")
+    }
+
+    func deleteBlocklistItems(ids: [Int]) async throws {
+        try await base.deleteWithBody("/api/v3/blocklist/bulk", jsonBody: ["ids": ids])
     }
 
     // MARK: - Commands
@@ -137,18 +183,6 @@ actor SonarrAPIClient {
     func rssSync() async throws -> ArrCommand {
         try await base.postCommand(name: SonarrCommand.rssSync.rawValue)
     }
-
-    // MARK: - Shared (delegate to base)
-
-    func getSystemStatus() async throws -> ArrSystemStatus { try await base.getSystemStatus() }
-    func getHealth() async throws -> [ArrHealthCheck] { try await base.getHealth() }
-    func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.getQualityProfiles() }
-    func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
-    func getTags() async throws -> [ArrTag] { try await base.getTags() }
-    func getQueue(page: Int = 1, pageSize: Int = 20) async throws -> ArrQueuePage { try await base.getQueue(page: page, pageSize: pageSize) }
-    func deleteQueueItem(id: Int, removeFromClient: Bool = true, blocklist: Bool = false) async throws { try await base.deleteQueueItem(id: id, removeFromClient: removeFromClient, blocklist: blocklist) }
-    func getHistory(page: Int = 1, pageSize: Int = 20) async throws -> ArrHistoryPage { try await base.getHistory(page: page, pageSize: pageSize) }
-    func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.getDiskSpace() }
 }
 
 // MARK: - Wanted Page (Sonarr-specific paged response)

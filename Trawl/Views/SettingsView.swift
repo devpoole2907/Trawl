@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
@@ -201,6 +202,16 @@ struct SettingsView: View {
                     LabeledContent("Trawl") {
                         Text(appVersion).foregroundStyle(.secondary)
                     }
+                }
+            }
+            
+            // TODO: Remove before release
+            Section("Debug") {
+                Button("Test Success Notification") {
+                    inAppNotificationCenter.showSuccess(title: "Test Success", message: "This is a test success notification.")
+                }
+                Button("Test Error Notification") {
+                    inAppNotificationCenter.showError(title: "Test Error", message: "This is a test error notification.")
                 }
             }
         }
@@ -406,13 +417,7 @@ struct QBittorrentSettingsView: View {
             await viewModel.loadSettings(modelContext: modelContext)
             await loadSpeedLimitSettings()
         }
-        .alert(item: $speedLimitErrorAlert) { alert in
-            Alert(
-                title: Text(alert.title),
-                message: Text(alert.message),
-                dismissButton: .default(Text("OK"))
-            )
-        }
+        .errorAlert(item: $speedLimitErrorAlert)
     }
 
     private func loadSpeedLimitSettings() async {

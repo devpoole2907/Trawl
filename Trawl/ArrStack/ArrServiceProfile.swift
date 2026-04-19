@@ -8,19 +8,26 @@ final class ArrServiceProfile {
     @Attribute(.unique) var id: UUID
     var displayName: String
     var hostURL: String              // e.g. "http://192.168.1.100:8989"
+    private var allowsUntrustedTLSValue: Bool?
     var serviceType: String          // "sonarr", "radarr", or "prowlarr"
     var isEnabled: Bool
     var dateAdded: Date
     var lastSynced: Date?
     var apiVersion: String?          // Populated from /api/v3/system/status
 
-    init(displayName: String, hostURL: String, serviceType: ArrServiceType) {
+    init(displayName: String, hostURL: String, serviceType: ArrServiceType, allowsUntrustedTLS: Bool = false) {
         self.id = UUID()
         self.displayName = displayName
         self.hostURL = hostURL
+        self.allowsUntrustedTLSValue = allowsUntrustedTLS
         self.serviceType = serviceType.rawValue
         self.isEnabled = true
         self.dateAdded = .now
+    }
+
+    var allowsUntrustedTLS: Bool {
+        get { allowsUntrustedTLSValue ?? false }
+        set { allowsUntrustedTLSValue = newValue }
     }
 
     /// Keychain key for the API key

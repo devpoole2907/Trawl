@@ -204,13 +204,14 @@ struct ArrWantedView: View {
         isSearchingAll = true
         var errors: [String] = []
 
-        await withTaskGroup(of: Void.self) { group in
+        await withTaskGroup(of: String?.self) { group in
             if let sonarrViewModel {
                 group.addTask {
                     do {
                         try await sonarrViewModel.searchAllMissing()
+                        return nil
                     } catch {
-                        errors.append("Sonarr: \(error.localizedDescription)")
+                        return "Sonarr: \(error.localizedDescription)"
                     }
                 }
             }
@@ -218,9 +219,16 @@ struct ArrWantedView: View {
                 group.addTask {
                     do {
                         try await radarrViewModel.searchAllMissing()
+                        return nil
                     } catch {
-                        errors.append("Radarr: \(error.localizedDescription)")
+                        return "Radarr: \(error.localizedDescription)"
                     }
+                }
+            }
+
+            for await result in group {
+                if let result {
+                    errors.append(result)
                 }
             }
         }
@@ -228,14 +236,9 @@ struct ArrWantedView: View {
         isSearchingAll = false
 
         if errors.isEmpty {
-            let episodes = (scope != .movies) ? (sonarrViewModel?.wantedEpisodes.count ?? 0) : 0
-            let movies   = (scope != .series) ? (radarrViewModel?.wantedMovies.count ?? 0) : 0
-            var parts: [String] = []
-            if episodes > 0 { parts.append("\(episodes) \(episodes == 1 ? "episode" : "episodes")") }
-            if movies   > 0 { parts.append("\(movies) \(movies == 1 ? "movie" : "movies")") }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Search Queued",
-                message: "Searches sent for \(parts.joined(separator: " and "))."
+                message: successMessageForAllMissingSearch
             )
         } else {
             InAppNotificationCenter.shared.showError(
@@ -266,6 +269,17 @@ struct ArrWantedView: View {
             if let radarrViewModel {
                 group.addTask { await radarrViewModel.loadWantedMissing() }
             }
+        }
+    }
+
+    private var successMessageForAllMissingSearch: String {
+        switch scope {
+        case .all:
+            return "Searches sent for all missing series and movies."
+        case .series:
+            return "Searches sent for all missing series."
+        case .movies:
+            return "Searches sent for all missing movies."
         }
     }
 
