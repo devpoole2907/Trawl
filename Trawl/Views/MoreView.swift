@@ -184,6 +184,16 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 }
             }
+            .navigationDestination(for: CalendarSeriesDestination.self) { dest in
+                SonarrSeriesDetailView(seriesId: dest.id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
+                    .injectSyncService(appServices)
+                    .moreDestinationTitleStyle()
+            }
+            .navigationDestination(for: CalendarMovieDestination.self) { dest in
+                RadarrMovieDetailView(movieId: dest.id, viewModel: RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []))
+                    .injectSyncService(appServices)
+                    .moreDestinationTitleStyle()
+            }
         }
     }
 

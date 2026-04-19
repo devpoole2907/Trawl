@@ -698,8 +698,8 @@ fileprivate enum CalendarEvent: Identifiable {
     }
 }
 
-fileprivate struct CalendarSeriesDestination: Hashable { let id: Int }
-fileprivate struct CalendarMovieDestination: Hashable { let id: Int }
+struct CalendarSeriesDestination: Hashable { let id: Int }
+struct CalendarMovieDestination: Hashable { let id: Int }
 
 fileprivate enum CalendarScope: CaseIterable {
     case all, series, movies
