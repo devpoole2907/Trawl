@@ -70,6 +70,10 @@ struct ArrActivityView: View {
         }
     }
 
+    private var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+    }
+
     @ViewBuilder
     private var contentView: some View {
         switch mode {
@@ -83,11 +87,17 @@ struct ArrActivityView: View {
         if isLoading && allItems.isEmpty {
             ProgressView("Loading activity...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !hasConfiguredService {
+            ContentUnavailableView(
+                "No Services Configured",
+                systemImage: "server.rack",
+                description: Text("Connect Sonarr or Radarr to view your activity queue.")
+            )
         } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected {
             ContentUnavailableView(
-                "No Arr Services Connected",
-                systemImage: "server.rack",
-                description: Text("This screen shows the current Sonarr and Radarr queue.")
+                "Services Unreachable",
+                systemImage: "network.slash",
+                description: Text("Unable to reach your configured Sonarr or Radarr servers.")
             )
         } else if allItems.isEmpty {
             ContentUnavailableView(
@@ -508,16 +518,30 @@ struct ArrHealthView: View {
         }
     }
 
+    private var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasProwlarrInstance
+    }
+
+    private var hasConnectedService: Bool {
+        serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected
+    }
+
     @ViewBuilder
     private var contentView: some View {
         if serviceManager.isLoadingHealth && allChecks.isEmpty {
             ProgressView("Loading health checks...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.prowlarrConnected {
+        } else if !hasConfiguredService {
             ContentUnavailableView(
-                "No Arr Services Connected",
+                "No Services Configured",
                 systemImage: "heart.text.square",
-                description: Text("This screen shows Sonarr, Radarr, and Prowlarr health warnings and errors.")
+                description: Text("Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.")
+            )
+        } else if !hasConnectedService {
+            ContentUnavailableView(
+                "Services Unreachable",
+                systemImage: "network.slash",
+                description: Text("Unable to reach your configured servers.")
             )
         } else if filteredChecks.isEmpty {
             ContentUnavailableView(

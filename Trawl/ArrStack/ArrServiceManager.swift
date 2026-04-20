@@ -97,6 +97,10 @@ final class ArrServiceManager {
         return radarrInstances.first { $0.isConnected } ?? radarrInstances.first
     }
 
+    var hasProwlarrInstance: Bool { storedProfiles.contains { $0.resolvedServiceType == .prowlarr && $0.isEnabled } }
+    var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
+    var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
+
     // MARK: - Backward-compatible Sonarr computed properties
 
     var sonarrClient: SonarrAPIClient? { activeSonarrEntry?.client }

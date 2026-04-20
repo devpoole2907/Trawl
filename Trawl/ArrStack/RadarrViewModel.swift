@@ -257,6 +257,7 @@ final class RadarrViewModel {
         do {
             _ = try await client.addMovie(body)
             await loadMovies()
+            await serviceManager.calendarViewModel.refresh()
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
                     itemName: title,
@@ -292,6 +293,7 @@ final class RadarrViewModel {
             )
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
             await loadMovies()
+            await serviceManager.calendarViewModel.refresh()
             return true
         } catch {
             self.error = error.localizedDescription
@@ -327,6 +329,8 @@ final class RadarrViewModel {
                 self.movies[idx] = updatedMovie
             }
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
+            await loadMovies()
+            await serviceManager.calendarViewModel.refresh()
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
                     itemName: movie.title,
@@ -345,6 +349,7 @@ final class RadarrViewModel {
         do {
             try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
             movies.removeAll { $0.id == id }
+            await serviceManager.calendarViewModel.refresh()
             return true
         } catch {
             self.error = error.localizedDescription

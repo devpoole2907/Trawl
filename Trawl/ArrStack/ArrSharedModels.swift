@@ -96,6 +96,14 @@ enum ArrReleaseSortKey: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+enum ArrSeasonPackFilter: String, CaseIterable, Identifiable, Codable {
+    case any = "Any"
+    case season = "Season Pack"
+    case episode = "Single Episode"
+
+    var id: String { rawValue }
+}
+
 // MARK: - Release Sort State
 
 struct ArrReleaseSort: RawRepresentable, Codable {
@@ -104,9 +112,10 @@ struct ArrReleaseSort: RawRepresentable, Codable {
     var indexer: String = ""   // "" = all indexers
     var quality: String = ""   // "" = all qualities
     var approvedOnly: Bool = false
+    var seasonPack: ArrSeasonPackFilter = .any
 
     var isFiltered: Bool {
-        !indexer.isEmpty || !quality.isEmpty || approvedOnly
+        !indexer.isEmpty || !quality.isEmpty || approvedOnly || seasonPack != .any
     }
 
     var isActive: Bool {
@@ -153,11 +162,12 @@ struct ArrRelease: Codable, Identifiable, Sendable {
     let infoUrl: String?
     let downloadUrl: String?
     let magnetUrl: String?
+    let fullSeason: Bool?
 
     enum CodingKeys: String, CodingKey {
         case guid, indexerId, title, indexer, size, age, ageHours, ageMinutes
         case approved, rejected, temporarilyRejected, downloadAllowed, rejections
-        case seeders, leechers, customFormatScore, quality, infoUrl, downloadUrl, magnetUrl
+        case seeders, leechers, customFormatScore, quality, infoUrl, downloadUrl, magnetUrl, fullSeason
         case protocol_ = "protocol"
     }
 
@@ -185,6 +195,7 @@ struct ArrRelease: Codable, Identifiable, Sendable {
         infoUrl = try container.decodeIfPresent(String.self, forKey: .infoUrl)
         downloadUrl = try container.decodeIfPresent(String.self, forKey: .downloadUrl)
         magnetUrl = try container.decodeIfPresent(String.self, forKey: .magnetUrl)
+        fullSeason = try container.decodeIfPresent(Bool.self, forKey: .fullSeason)
     }
 
     var id: String {
@@ -233,13 +244,13 @@ struct ArrReleaseGrabRequest: Codable, Sendable {
 
 private extension KeyedDecodingContainer where K == ArrRelease.CodingKeys {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
-        if let value = try decodeIfPresent(Double.self, forKey: key) {
+        if let value = try? decodeIfPresent(Double.self, forKey: key) {
             return value
         }
-        if let value = try decodeIfPresent(Int.self, forKey: key) {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
             return Double(value)
         }
-        if let value = try decodeIfPresent(String.self, forKey: key) {
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
             return Double(value)
         }
         return nil

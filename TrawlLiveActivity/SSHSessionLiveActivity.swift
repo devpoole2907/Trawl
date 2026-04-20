@@ -7,6 +7,7 @@ struct SSHSessionActivityAttributes: ActivityAttributes {
         var title: String
         var subtitle: String
         var statusText: String
+        var sessionCount: Int
     }
 
     var profileID: String
@@ -22,21 +23,35 @@ struct SSHLiveActivityWidget: Widget {
                     .foregroundStyle(.green)
                     .frame(width: 28, height: 28)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(context.state.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    Text(context.state.subtitle)
-                        .font(.caption)
+                if context.state.sessionCount > 1 {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(context.state.sessionCount) Active Sessions")
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(context.state.statusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                    
+                    Spacer(minLength: 8)
+                } else {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(context.state.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        Text(context.state.subtitle)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 8)
+
+                    Text(context.state.statusText)
+                        .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
-                        .lineLimit(1)
                 }
-
-                Spacer(minLength: 8)
-
-                Text(context.state.statusText)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.secondary)
             }
             .padding(.horizontal, 16)
             .activityBackgroundTint(.clear)
@@ -51,30 +66,48 @@ struct SSHLiveActivityWidget: Widget {
                 }
 
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(context.state.statusText)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .padding(.trailing, 8)
+                    if context.state.sessionCount > 1 {
+                        Text("\(context.state.sessionCount) sessions")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                            .padding(.trailing, 8)
+                    } else {
+                        Text(context.state.statusText)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.trailing, 8)
+                    }
                 }
 
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(context.state.title)
+                    if context.state.sessionCount > 1 {
+                        Text("\(context.state.sessionCount) active SSH sessions")
                             .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        Text(context.state.subtitle)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                    } else {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(context.state.title)
+                                .font(.subheadline.weight(.semibold))
+                                .lineLimit(1)
+                            Text(context.state.subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 8)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 8)
                 }
             } compactLeading: {
                 Image(systemName: "terminal")
                     .foregroundStyle(.green)
             } compactTrailing: {
-                EmptyView()
+                if context.state.sessionCount > 1 {
+                    Text("\(context.state.sessionCount)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(.green)
+                }
             } minimal: {
                 Image(systemName: "terminal")
                     .foregroundStyle(.green)

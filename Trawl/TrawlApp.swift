@@ -72,6 +72,19 @@ struct TrawlApp: App {
                 task.setTaskCompleted(success: true)
             }
         }
+
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: SSHBackgroundService.taskIdentifier,
+            using: nil
+        ) { task in
+            guard let refreshTask = task as? BGAppRefreshTask else {
+                task.setTaskCompleted(success: false)
+                return
+            }
+            Task { @MainActor in
+                SSHBackgroundService.shared.handleBackgroundTask(refreshTask)
+            }
+        }
         #endif
     }
 

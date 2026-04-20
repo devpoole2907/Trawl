@@ -30,11 +30,17 @@ struct ArrHistoryView: View {
 
     @ViewBuilder
     private var historyContent: some View {
-        if !hasConnectedService {
+        if !hasConfiguredService {
             ContentUnavailableView(
-                "No Arr Services Connected",
-                systemImage: "clock.arrow.circlepath",
+                "No Services Configured",
+                systemImage: "server.rack",
                 description: Text("Connect Sonarr or Radarr to view download and import history.")
+            )
+        } else if !hasConnectedService {
+            ContentUnavailableView(
+                "Services Unreachable",
+                systemImage: "network.slash",
+                description: Text("Unable to reach your configured Sonarr or Radarr servers.")
             )
         } else if isLoading && groupedItems.isEmpty {
             ProgressView("Loading history...")
@@ -76,6 +82,10 @@ struct ArrHistoryView: View {
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
         }
+    }
+
+    private var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
     private var hasConnectedService: Bool {

@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 enum MoreDestination: Hashable {
     case activity
@@ -24,6 +25,7 @@ enum MoreDestination: Hashable {
 }
 
 struct MoreView: View {
+    @Query private var servers: [ServerProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
     let openSSHSession: () -> Void
@@ -31,9 +33,24 @@ struct MoreView: View {
     @Environment(SSHSessionStore.self) private var sshSessionStore
     @Environment(ArrServiceManager.self) private var arrServiceManager
 
+    private var hasQBittorrentServer: Bool { !servers.isEmpty }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                if sshSessionStore.hasSession {
+                    Section("Live Session") {
+                        Button {
+                            sshSessionStore.focusSession()
+                            openSSHSession()
+                        } label: {
+                            activeSessionRow
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
                 Section {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
@@ -94,18 +111,6 @@ struct MoreView: View {
                     }
                 }
 
-                if sshSessionStore.hasSession {
-                    Section("Live Session") {
-                        Button {
-                            sshSessionStore.focusSession()
-                            openSSHSession()
-                        } label: {
-                            activeSessionRow
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
                 Section {
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
@@ -149,7 +154,7 @@ struct MoreView: View {
                     }
                     .moreDestinationTitleStyle()
                 case .sshSession:
-                    SSHSessionView()
+                    SSHSessionContainerView()
                         .moreDestinationTitleStyle()
                 case .settings:
                     settingsDestination
@@ -205,9 +210,15 @@ struct MoreView: View {
         if let services = appServices {
             TorrentStatsView()
                 .environment(services.syncService)
+        } else if hasQBittorrentServer {
+            ContentUnavailableView {
+                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
+            } description: {
+                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+            }
         } else {
             ContentUnavailableView {
-                Label("qBittorrent Not Connected", systemImage: "chart.line.uptrend.xyaxis")
+                Label("qBittorrent Not Set Up", systemImage: "chart.line.uptrend.xyaxis")
             } description: {
                 Text("Connect a qBittorrent server to view transfer statistics.")
             }
@@ -219,6 +230,21 @@ struct MoreView: View {
         if arrServiceManager.prowlarrConnected {
             ProwlarrIndexerListView()
                 .environment(arrServiceManager)
+        } else if arrServiceManager.hasProwlarrInstance {
+            ContentUnavailableView {
+                Label("Unable to Reach Prowlarr", systemImage: "network.slash")
+            } description: {
+                if let error = arrServiceManager.prowlarrConnectionError {
+                    Text(error)
+                } else {
+                    Text("The Prowlarr server is currently unreachable.")
+                }
+            } actions: {
+                Button("Retry Connection") {
+                    Task { await arrServiceManager.retry(.prowlarr) }
+                }
+                .buttonStyle(.bordered)
+            }
         } else {
             ContentUnavailableView {
                 Label("Prowlarr Not Set Up", systemImage: "magnifyingglass.circle")
@@ -290,6 +316,12 @@ struct MoreView: View {
             QBittorrentSettingsView()
                 .environment(services.syncService)
                 .environment(services.torrentService)
+        } else if hasQBittorrentServer {
+            ContentUnavailableView {
+                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
+            } description: {
+                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+            }
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "arrow.down.circle")
@@ -305,6 +337,12 @@ struct MoreView: View {
             QBittorrentCategoriesAndTagsView()
                 .environment(services.syncService)
                 .environment(services.torrentService)
+        } else if hasQBittorrentServer {
+            ContentUnavailableView {
+                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
+            } description: {
+                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+            }
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
@@ -320,6 +358,12 @@ struct MoreView: View {
             QBittorrentRSSView()
                 .environment(services.torrentService)
                 .environment(services)
+        } else if hasQBittorrentServer {
+            ContentUnavailableView {
+                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
+            } description: {
+                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+            }
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "dot.radiowaves.left.and.right")

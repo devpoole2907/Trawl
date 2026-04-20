@@ -347,6 +347,16 @@ struct RadarrMovieDetailView: View {
             badges.append(DetailBadge(icon: "bookmark.fill", label: "Monitored", color: .blue))
         }
 
+        if let q = viewModel.queue.first(where: { $0.movieId == movie.id }) {
+            let isIssue = q.isImportIssueQueueItem
+            let isDownloading = q.isDownloadingQueueItem
+            badges.append(DetailBadge(
+                icon: isIssue ? "exclamationmark.triangle.fill" : (isDownloading ? "arrow.down.circle.fill" : "clock.arrow.circlepath"),
+                label: isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
+                color: isIssue ? .orange : .purple
+            ))
+        }
+
         return badges
     }
 
@@ -1496,6 +1506,10 @@ struct RadarrMovieSearchView: View {
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
 
+    private var queueItem: ArrQueueItem? {
+        viewModel.queue.first { $0.movieId == movie.id }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .center, spacing: 20) {
@@ -1506,13 +1520,31 @@ struct RadarrMovieSearchView: View {
                     interactiveSearchButton
                 }
 
-                if let overview = movie.overview, !overview.isEmpty {
-                    movieSearchInfoCard(title: "How It Works", icon: "info.circle") {
-                        Text(overview)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.92))
-                            .fixedSize(horizontal: false, vertical: true)
+                movieSearchInfoCard(title: "Status", icon: "info.circle") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack(spacing: 12) {
+                            movieStatusBadge(movie.hasFile == true ? "Downloaded" : "Missing", tint: movie.hasFile == true ? .green : .orange, systemImage: movie.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            movieStatusBadge(movie.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: movie.monitored == true ? "bookmark.fill" : "bookmark.slash")
+
+                            if let q = queueItem {
+                                let isIssue = q.isImportIssueQueueItem
+                                movieStatusBadge(
+                                    isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
+                                    tint: isIssue ? .orange : .purple,
+                                    systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
+                                )
+                            }
+                        }
+
+                        if let overview = movie.overview, !overview.isEmpty {
+                            Text(overview)
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.92))
+                                .fixedSize(horizontal: false, vertical: true)
+                                .padding(.top, 4)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(.horizontal, 16)
@@ -1665,6 +1697,22 @@ struct RadarrMovieSearchView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private func movieStatusBadge(_ text: String, tint: Color, systemImage: String? = nil) -> some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.bold))
+            }
+            Text(text)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.14))
+        .clipShape(Capsule())
     }
 }
 
@@ -1875,6 +1923,7 @@ struct RadarrInteractiveSearchSheet: View {
         releaseSort.indexer = ""
         releaseSort.quality = ""
         releaseSort.approvedOnly = false
+        releaseSort.seasonPack = .any
     }
 
     private func loadReleases() async {

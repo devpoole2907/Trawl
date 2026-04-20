@@ -8,6 +8,7 @@ struct SSHSessionActivityAttributes: ActivityAttributes {
         var title: String
         var subtitle: String
         var statusText: String
+        var sessionCount: Int
     }
 
     var profileID: String

@@ -12,6 +12,7 @@ final class SSHLiveActivityManager {
     }
 
     func sync(
+        sessionCount: Int,
         profileID: String?,
         hostDisplay: String,
         title: String,
@@ -36,9 +37,10 @@ final class SSHLiveActivityManager {
             state: SSHSessionActivityAttributes.ContentState(
                 title: title,
                 subtitle: subtitle,
-                statusText: statusText
+                statusText: statusText,
+                sessionCount: sessionCount
             ),
-            staleDate: nil,
+            staleDate: Date(timeIntervalSinceNow: 3 * 60),
             relevanceScore: 100
         )
 
@@ -74,7 +76,7 @@ final class SSHLiveActivityManager {
 #else
 @MainActor
 final class SSHLiveActivityManager {
-    func sync(profileID: String?, hostDisplay: String, title: String, subtitle: String, statusText: String) {}
+    func sync(sessionCount: Int, profileID: String?, hostDisplay: String, title: String, subtitle: String, statusText: String) {}
     func end() async {}
 }
 #endif

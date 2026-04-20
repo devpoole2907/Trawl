@@ -267,6 +267,9 @@ private actor SshSessionActor {
         self.session = sess
         libssh2_session_set_blocking(sess, 0)
 
+        // Send keepalive packets every 15 seconds to prevent server/firewall timeouts
+        libssh2_keepalive_config(sess, 1, 15)
+
         // Register transport callbacks
         _ = libssh2_session_callback_set(sess, LIBSSH2_CALLBACK_SEND,
             unsafeBitCast(libssh2SendCallback, to: UnsafeMutableRawPointer.self))
@@ -516,6 +519,13 @@ private actor SshSessionActor {
         return nil
     }
 
+    /// Sends an SSH keepalive packet if the configured interval has elapsed.
+    func sendKeepalive() {
+        guard let sess = session else { return }
+        var secondsToNext: Int32 = 0
+        libssh2_keepalive_send(sess, &secondsToNext)
+    }
+
     var isChannelClosed: Bool {
         guard let ch = channel else { return true }
         return libssh2_channel_eof(ch) != 0
@@ -573,6 +583,7 @@ final class SSHConnection: @unchecked Sendable {
     private var nwConnection: NWConnection?
     private var receiveBuffer: SshReceiveBuffer?
     private var readLoopTask: Task<Void, Never>?
+    private var keepaliveTask: Task<Void, Never>?
     private let transportCloseLock = NSLock()
     private var isHandlingTransportClose = false
     private var connectionAttemptToken = UUID()
@@ -709,6 +720,7 @@ final class SSHConnection: @unchecked Sendable {
             }
             transition(to: .connected)
             startReadLoop()
+            startKeepaliveLoop()
         } catch {
             conn.cancel()
             guard connectionAttemptToken == attemptToken, nwConnection === conn else {
@@ -736,6 +748,8 @@ final class SSHConnection: @unchecked Sendable {
         connectionAttemptToken = UUID()
         readLoopTask?.cancel()
         readLoopTask = nil
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
         let connection = nwConnection
         nwConnection = nil
         receiveBuffer = nil
@@ -812,6 +826,22 @@ final class SSHConnection: @unchecked Sendable {
         }
     }
 
+    /// Sends a single SSH keepalive packet on demand (e.g. from a BGAppRefreshTask).
+    func sendBackgroundKeepalive() async {
+        guard state == .connected else { return }
+        await sshActor.sendKeepalive()
+    }
+
+    private func startKeepaliveLoop() {
+        keepaliveTask = Task.detached(priority: .utility) { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(15))
+                guard !Task.isCancelled, let self else { return }
+                await self.sshActor.sendKeepalive()
+            }
+        }
+    }
+
     private func shouldHandleTransportClose() -> Bool {
         transportCloseLock.lock()
         defer { transportCloseLock.unlock() }
@@ -833,6 +863,8 @@ final class SSHConnection: @unchecked Sendable {
 
         readLoopTask?.cancel()
         readLoopTask = nil
+        keepaliveTask?.cancel()
+        keepaliveTask = nil
 
         let wasConnected = state == .connected
         let failureMessage = error ?? (wasConnected ? nil : "Connection closed")

@@ -219,6 +219,7 @@ final class SonarrViewModel {
             }
 
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
+            await serviceManager.calendarViewModel.refresh()
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
                     itemName: series.title,
@@ -392,6 +393,7 @@ final class SonarrViewModel {
         do {
             _ = try await client.addSeries(body)
             await loadSeries()
+            await serviceManager.calendarViewModel.refresh()
             await MainActor.run {
                 InAppNotificationCenter.shared.showMonitoringChanged(
                     itemName: title,
@@ -429,6 +431,7 @@ final class SonarrViewModel {
             )
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
             await loadSeries()
+            await serviceManager.calendarViewModel.refresh()
             return true
         } catch {
             self.error = error.localizedDescription
@@ -441,6 +444,7 @@ final class SonarrViewModel {
         do {
             try await client.deleteSeries(id: id, deleteFiles: deleteFiles)
             series.removeAll { $0.id == id }
+            await serviceManager.calendarViewModel.refresh()
         } catch {
             self.error = error.localizedDescription
         }

@@ -41,19 +41,7 @@ struct SSHProfileListView: View {
 
     private var profileList: some View {
         List {
-            if sshSessionStore.hasSession {
-                Section("Current Session") {
-                    Button {
-                        guard let activeProfile = sshSessionStore.activeProfile else { return }
-                        openSession(activeProfile)
-                    } label: {
-                        currentSessionCard
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-
-            Section("Saved Hosts") {
+            Section("Hosts") {
             ForEach(profiles) { profile in
                 Button {
                     openSession(profile)
@@ -113,14 +101,23 @@ struct SSHProfileListView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 4) {
-                authBadge(profile.authType)
-                if profile.knownHostFingerprint != nil {
+                if sshSessionStore.hasSession, sshSessionStore.activeProfile?.id == profile.id {
                     HStack(spacing: 2) {
-                        Image(systemName: "lock.shield.fill")
-                        Text("Verified")
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("Connected")
                     }
                     .font(.caption2.weight(.medium))
                     .foregroundStyle(.green.opacity(0.9))
+                } else {
+                    authBadge(profile.authType)
+                    if profile.knownHostFingerprint != nil {
+                        HStack(spacing: 2) {
+                            Image(systemName: "lock.shield.fill")
+                            Text("Verified")
+                        }
+                        .font(.caption2.weight(.medium))
+                        .foregroundStyle(.green.opacity(0.9))
+                    }
                 }
             }
         }

@@ -8,11 +8,17 @@ struct ArrDiskSpaceView: View {
 
     var body: some View {
         Group {
-            if !hasConnectedService {
+            if !hasConfiguredService {
                 ContentUnavailableView(
-                    "No Arr Services Connected",
-                    systemImage: "internaldrive",
+                    "No Services Configured",
+                    systemImage: "server.rack",
                     description: Text("Connect Sonarr or Radarr to inspect storage usage.")
+                )
+            } else if !hasConnectedService {
+                ContentUnavailableView(
+                    "Services Unreachable",
+                    systemImage: "network.slash",
+                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
             } else if isLoading && snapshots.isEmpty {
                 ProgressView("Loading disk space...")
@@ -46,6 +52,10 @@ struct ArrDiskSpaceView: View {
         .refreshable {
             await loadDiskSpace()
         }
+    }
+
+    private var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
     private var hasConnectedService: Bool {

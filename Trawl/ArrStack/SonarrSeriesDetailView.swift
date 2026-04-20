@@ -309,12 +309,40 @@ struct SonarrSeriesDetailView: View {
             )
         )
 
+        if let certification = series.certification, !certification.isEmpty {
+            badges.append(DetailBadge(icon: "shield", label: certification, color: .white.opacity(0.8)))
+        }
+
         if isInLibrary && series.monitored == true {
             badges.append(DetailBadge(icon: "bookmark.fill", label: "Monitored", color: .blue))
         }
 
-        if let certification = series.certification, !certification.isEmpty {
-            badges.append(DetailBadge(icon: "shield", label: certification, color: .white.opacity(0.8)))
+        let seriesQueue = viewModel.queue.filter { $0.seriesId == series.id }
+        if !seriesQueue.isEmpty {
+            let issues = seriesQueue.filter { $0.isImportIssueQueueItem }.count
+            let downloading = seriesQueue.filter { $0.isDownloadingQueueItem }.count
+            let total = seriesQueue.count
+            
+            if issues > 0 {
+                badges.append(DetailBadge(
+                    icon: "exclamationmark.triangle.fill",
+                    label: issues == total ? "\(total) Import Issue\(total == 1 ? "" : "s")" : "\(issues) Import Issue\(issues == 1 ? "" : "s")",
+                    color: .orange
+                ))
+            } else if downloading > 0 {
+                badges.append(DetailBadge(
+                    icon: "arrow.down.circle.fill",
+                    label: downloading == total ? "\(total) Downloading" : "\(downloading) of \(total) Downloading",
+                    color: .purple
+                ))
+            } else {
+                let status = seriesQueue.first?.status?.capitalized ?? "In Queue"
+                badges.append(DetailBadge(
+                    icon: "clock.arrow.circlepath",
+                    label: total == 1 ? status : "\(total) \(status)",
+                    color: .purple
+                ))
+            }
         }
 
         return badges
@@ -1470,6 +1498,10 @@ struct SonarrInteractiveSearchSheet: View {
         self.series = series
         self.episode = episode
         self.seasonNumber = seasonNumber
+        
+        var initialSort = ArrReleaseSort()
+        initialSort.seasonPack = episode != nil ? .episode : .season
+        self._releaseSort = State(initialValue: initialSort)
     }
 
     private var availableIndexers: [String] {
@@ -1485,7 +1517,13 @@ struct SonarrInteractiveSearchSheet: View {
             let matchesIndexer = releaseSort.indexer.isEmpty || releaseSort.indexer == release.indexer
             let matchesQuality = releaseSort.quality.isEmpty || releaseSort.quality == release.qualityName
             let matchesApproved = !releaseSort.approvedOnly || release.approved == true
-            return matchesIndexer && matchesQuality && matchesApproved
+            let matchesSeasonPack: Bool
+            switch releaseSort.seasonPack {
+            case .any: matchesSeasonPack = true
+            case .season: matchesSeasonPack = release.fullSeason == true
+            case .episode: matchesSeasonPack = release.fullSeason != true
+            }
+            return matchesIndexer && matchesQuality && matchesApproved && matchesSeasonPack
         }
         guard releaseSort.option != .default else { return filtered }
         return filtered.sorted { lhs, rhs in
@@ -1633,6 +1671,14 @@ struct SonarrInteractiveSearchSheet: View {
 
     private var filterMenu: some View {
         Menu {
+            Picker("Type", selection: $releaseSort.seasonPack) {
+                ForEach(ArrSeasonPackFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
+                }
+            }
+            .pickerStyle(.inline)
+            .menuIndicator(.hidden)
+
             if !availableIndexers.isEmpty {
                 Picker("Indexer", selection: $releaseSort.indexer) {
                     Text("All Indexers").tag("")
@@ -1667,6 +1713,7 @@ struct SonarrInteractiveSearchSheet: View {
         releaseSort.indexer = ""
         releaseSort.quality = ""
         releaseSort.approvedOnly = false
+        releaseSort.seasonPack = .any
     }
 
     private var titleString: String {
@@ -1949,6 +1996,7 @@ struct SonarrSeasonSearchView: View {
                     } else {
                         VStack(spacing: 0) {
                             ForEach(sortedEpisodes) { episode in
+                                let queueItem = viewModel.queue.first { $0.episodeId == episode.id }
                                 NavigationLink {
                                     SonarrEpisodeSearchView(viewModel: viewModel, series: series, episode: episode)
                                 } label: {
@@ -1966,7 +2014,25 @@ struct SonarrSeasonSearchView: View {
 
                                         Spacer()
 
-                                        if episode.hasFile == true {
+                                        if let q = queueItem {
+                                            let isIssue = q.isImportIssueQueueItem
+                                            let status = isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading")
+                                            Text(status)
+                                                .font(.caption2.weight(.semibold))
+                                                .foregroundStyle(isIssue ? .orange : .purple)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background((isIssue ? Color.orange : Color.purple).opacity(0.2))
+                                                .clipShape(Capsule())
+                                                .overlay(alignment: .topTrailing) {
+                                                    if isIssue {
+                                                        Image(systemName: "exclamationmark.circle.fill")
+                                                            .font(.system(size: 8))
+                                                            .foregroundStyle(.orange)
+                                                            .offset(x: 3, y: -3)
+                                                    }
+                                                }
+                                        } else if episode.hasFile == true {
                                             Image(systemName: "checkmark.circle.fill")
                                                 .foregroundStyle(.green)
                                         }
@@ -2165,6 +2231,10 @@ struct SonarrEpisodeSearchView: View {
             }
     }
 
+    private var queueItem: ArrQueueItem? {
+        viewModel.queue.first { $0.episodeId == episode.id }
+    }
+
     private var episodeFiles: [SonarrEpisodeFile] {
         guard let seriesId = series?.id else { return [] }
         return viewModel.episodeFiles[seriesId]?.filter { $0.id == episode.episodeFileId } ?? []
@@ -2199,8 +2269,17 @@ struct SonarrEpisodeSearchView: View {
                         }
 
                         HStack(spacing: 12) {
-                            episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange)
-                            episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue)
+                            episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange, systemImage: episode.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                            episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: episode.monitored == true ? "bookmark.fill" : "bookmark.slash")
+                            
+                            if let q = queueItem {
+                                let isIssue = q.isImportIssueQueueItem
+                                episodeStatusBadge(
+                                    isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
+                                    tint: isIssue ? .orange : .purple,
+                                    systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
+                                )
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2412,14 +2491,20 @@ struct SonarrEpisodeSearchView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private func episodeStatusBadge(_ text: String, tint: Color) -> some View {
-        Text(text)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(tint.opacity(0.14))
-            .clipShape(Capsule())
+    private func episodeStatusBadge(_ text: String, tint: Color, systemImage: String? = nil) -> some View {
+        HStack(spacing: 4) {
+            if let systemImage {
+                Image(systemName: systemImage)
+                    .font(.caption2.weight(.bold))
+            }
+            Text(text)
+                .font(.caption.weight(.semibold))
+        }
+        .foregroundStyle(tint)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(tint.opacity(0.14))
+        .clipShape(Capsule())
     }
 
     @ViewBuilder

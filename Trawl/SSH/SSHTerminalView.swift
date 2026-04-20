@@ -277,30 +277,66 @@ private final class SSHKeyboardBar: UIInputView {
     }
     private static let horizontalInset: CGFloat = 10
 
-    private static let keys: [(String, [UInt8])] = [
-        ("Esc",  [0x1B]),
-        ("Tab",  [0x09]),
-        ("↑",    [0x1B, 0x5B, 0x41]),
-        ("↓",    [0x1B, 0x5B, 0x42]),
-        ("←",    [0x1B, 0x5B, 0x44]),
-        ("→",    [0x1B, 0x5B, 0x43]),
-        ("^C",   [0x03]),
-        ("^D",   [0x04]),
-        ("^W",   [0x17]),
-        ("^Z",   [0x1A]),
-        ("^A",   [0x01]),
-        ("^E",   [0x05]),
-        ("^L",   [0x0C]),
-        ("|",    [0x7C]),
-        ("/",    [0x2F]),
-        ("\\",   [0x5C]),
-        ("~",    [0x7E]),
-        ("-",    [0x2D]),
-        ("_",    [0x5F]),
-        ("[",    [0x5B]),
-        ("]",    [0x5D]),
-        ("{",    [0x7B]),
-        ("}",    [0x7D]),
+    /// Arrow key identifiers resolved at press time based on application cursor mode.
+    private enum ArrowKey {
+        case up, down, left, right
+
+        var normalBytes: [UInt8] {
+            switch self {
+            case .up:    return [0x1B, 0x5B, 0x41]
+            case .down:  return [0x1B, 0x5B, 0x42]
+            case .left:  return [0x1B, 0x5B, 0x44]
+            case .right: return [0x1B, 0x5B, 0x43]
+            }
+        }
+
+        var appBytes: [UInt8] {
+            switch self {
+            case .up:    return [0x1B, 0x4F, 0x41]
+            case .down:  return [0x1B, 0x4F, 0x42]
+            case .left:  return [0x1B, 0x4F, 0x44]
+            case .right: return [0x1B, 0x4F, 0x43]
+            }
+        }
+    }
+
+    private struct KeyDef {
+        let label: String
+        let fixedBytes: [UInt8]?
+        let arrow: ArrowKey?
+
+        static func fixed(_ label: String, _ bytes: [UInt8]) -> KeyDef {
+            KeyDef(label: label, fixedBytes: bytes, arrow: nil)
+        }
+        static func arrow(_ label: String, _ arrow: ArrowKey) -> KeyDef {
+            KeyDef(label: label, fixedBytes: nil, arrow: arrow)
+        }
+    }
+
+    private static let keys: [KeyDef] = [
+        .fixed("Esc",  [0x1B]),
+        .fixed("Tab",  [0x09]),
+        .arrow("↑",    .up),
+        .arrow("↓",    .down),
+        .arrow("←",    .left),
+        .arrow("→",    .right),
+        .fixed("^C",   [0x03]),
+        .fixed("^D",   [0x04]),
+        .fixed("^W",   [0x17]),
+        .fixed("^Z",   [0x1A]),
+        .fixed("^A",   [0x01]),
+        .fixed("^E",   [0x05]),
+        .fixed("^L",   [0x0C]),
+        .fixed("|",    [0x7C]),
+        .fixed("/",    [0x2F]),
+        .fixed("\\",   [0x5C]),
+        .fixed("~",    [0x7E]),
+        .fixed("-",    [0x2D]),
+        .fixed("_",    [0x5F]),
+        .fixed("[",    [0x5B]),
+        .fixed("]",    [0x5D]),
+        .fixed("{",    [0x7B]),
+        .fixed("}",    [0x7D]),
     ]
 
     private unowned let bridge: SSHTerminalBridge
@@ -360,8 +396,8 @@ private final class SSHKeyboardBar: UIInputView {
         stack.translatesAutoresizingMaskIntoConstraints = false
         scroll.addSubview(stack)
 
-        for (label, bytes) in SSHKeyboardBar.keys {
-            stack.addArrangedSubview(makeKey(label, bytes: bytes))
+        for keyDef in SSHKeyboardBar.keys {
+            stack.addArrangedSubview(makeKey(keyDef))
         }
 
         NSLayoutConstraint.activate([
@@ -399,9 +435,9 @@ private final class SSHKeyboardBar: UIInputView {
 
     // MARK: Key buttons
 
-    private func makeKey(_ label: String, bytes: [UInt8]) -> UIButton {
+    private func makeKey(_ keyDef: KeyDef) -> UIButton {
         var cfg = UIButton.Configuration.filled()
-        cfg.title = label
+        cfg.title = keyDef.label
         cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
             var a = a; a.font = SSHKeyboardBar.keyFont; return a
         }
@@ -420,7 +456,16 @@ private final class SSHKeyboardBar: UIInputView {
             b.configuration = c
         }
         btn.addAction(UIAction { [weak self] _ in
-            self?.bridge.sendToSSH?(Data(bytes))
+            guard let self else { return }
+            let bytes: [UInt8]
+            if let arrow = keyDef.arrow {
+                // Check the terminal's application cursor mode to send the correct escape sequence
+                let appCursor = self.bridge.terminalView?.getTerminal().applicationCursor ?? false
+                bytes = appCursor ? arrow.appBytes : arrow.normalBytes
+            } else {
+                bytes = keyDef.fixedBytes ?? []
+            }
+            self.bridge.sendToSSH?(Data(bytes))
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }, for: .touchUpInside)
         return btn

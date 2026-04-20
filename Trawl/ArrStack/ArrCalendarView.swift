@@ -19,6 +19,7 @@ final class ArrCalendarViewModel {
     var isLoadingInitial = true
     var isLoadingMore = false
     var isLoadingEarlier = false
+    private var lastRefreshKey: String = ""
     
     // Scroll state persistence
     var scrollID: Date? = Calendar.current.startOfDay(for: .now)
@@ -31,13 +32,23 @@ final class ArrCalendarViewModel {
     }
     
     func initialize() async {
-        guard isLoadingInitial else { return }
-        await refresh()
-        isLoadingInitial = false
+        let currentKey = "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        if isLoadingInitial || loadedMonths.isEmpty || currentKey != lastRefreshKey {
+            await refresh()
+            isLoadingInitial = false
+        }
     }
     
     func refresh() async {
+        let currentKey = "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        lastRefreshKey = currentKey
+        
         await loadLibraries()
+        
+        // Clear existing data for a clean refresh of the initial window
+        loadedMonths = []
+        eventsByDay = [:]
+        monthLoadErrors = [:]
         
         let today = calendar.startOfDay(for: .now)
         let startMonth = YearMonth.from(today).advanced(by: -1)
@@ -261,6 +272,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     private let today = Calendar.current.startOfDay(for: .now)
     private let firstWeekday = Calendar.current.firstWeekday
     
+    var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+    }
+
     var isConnected: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
@@ -287,11 +302,17 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     
     var body: some View {
         Group {
-            if !isConnected {
+            if !hasConfiguredService {
                 ContentUnavailableView(
-                    "No Arr Services Connected",
-                    systemImage: "calendar",
+                    "No Services Configured",
+                    systemImage: "server.rack",
                     description: Text("Connect Sonarr or Radarr to see upcoming releases.")
+                )
+            } else if !isConnected {
+                ContentUnavailableView(
+                    "Services Unreachable",
+                    systemImage: "network.slash",
+                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
             } else if viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty {
                 ProgressView("Loading calendar...")

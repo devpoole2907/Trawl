@@ -32,6 +32,10 @@ struct ArrBlocklistView: View {
         displayedSonarrItems.isEmpty && displayedRadarrItems.isEmpty
     }
 
+    private var hasConfigured: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+    }
+
     private var hasConnected: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
@@ -52,11 +56,17 @@ struct ArrBlocklistView: View {
 
     var body: some View {
         Group {
-            if !hasConnected {
+            if !hasConfigured {
                 ContentUnavailableView(
-                    "No Services Connected",
-                    systemImage: "nosign",
+                    "No Services Configured",
+                    systemImage: "server.rack",
                     description: Text("Connect Sonarr or Radarr to manage the blocklist.")
+                )
+            } else if !hasConnected {
+                ContentUnavailableView(
+                    "Services Unreachable",
+                    systemImage: "network.slash",
+                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
             } else if serviceManager.isLoadingBlocklist && serviceManager.sonarrBlocklist.isEmpty && serviceManager.radarrBlocklist.isEmpty {
                 ProgressView("Loading blocklist…")

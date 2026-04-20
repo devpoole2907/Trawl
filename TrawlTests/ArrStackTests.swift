@@ -2,36 +2,27 @@ import Testing
 import Foundation
 @testable import Trawl
 
-// MARK: - ArrError Tests
-
+@Suite("ArrError Tests")
 struct ArrErrorTests {
-
-    @Test func invalidAPIKeyDescription() {
-        let error = ArrError.invalidAPIKey
-        #expect(error.errorDescription == "Invalid API key. Check your *arr service settings.")
+    @Test("Error Descriptions", arguments: [
+        (ArrError.invalidAPIKey, "Invalid API key. Check your *arr service settings."),
+        (.invalidURL, "Invalid service URL."),
+        (.invalidResponse, "Invalid response from server."),
+        (.noServiceConfigured, "No service configured.")
+    ])
+    func staticErrorDescriptions(error: ArrError, expected: String) {
+        #expect(error.errorDescription == expected)
     }
 
-    @Test func invalidURLDescription() {
-        let error = ArrError.invalidURL
-        #expect(error.errorDescription == "Invalid service URL.")
-    }
-
-    @Test func invalidResponseDescription() {
-        let error = ArrError.invalidResponse
-        #expect(error.errorDescription == "Invalid response from server.")
-    }
-
-    @Test func noServiceConfiguredDescription() {
-        let error = ArrError.noServiceConfigured
-        #expect(error.errorDescription == "No service configured.")
-    }
-
-    @Test func connectionFailedDescription() {
+    @Test("Connection Failed Description")
+    func connectionFailedDescription() {
         let error = ArrError.connectionFailed
-        #expect(error.errorDescription?.contains("Could not connect") == true)
+        let desc = try? #require(error.errorDescription)
+        #expect(desc?.contains("Could not connect") == true)
     }
 
-    @Test func networkErrorDescription() {
+    @Test("Network Error Description")
+    func networkErrorDescription() {
         struct FakeError: LocalizedError {
             var errorDescription: String? { "timeout" }
         }
@@ -39,7 +30,8 @@ struct ArrErrorTests {
         #expect(error.errorDescription == "Network error: timeout")
     }
 
-    @Test func decodingErrorDescription() {
+    @Test("Decoding Error Description")
+    func decodingErrorDescription() {
         struct FakeError: LocalizedError {
             var errorDescription: String? { "bad JSON" }
         }
@@ -47,85 +39,49 @@ struct ArrErrorTests {
         #expect(error.errorDescription == "Failed to parse response: bad JSON")
     }
 
-    @Test func serverErrorDescription() {
-        let error = ArrError.serverError(statusCode: 500, message: "Internal Server Error")
-        #expect(error.errorDescription == "Server error (500): Internal Server Error")
-    }
-
-    @Test func serverErrorNilMessageDescription() {
-        let error = ArrError.serverError(statusCode: 503, message: nil)
-        #expect(error.errorDescription == "Server error (503): Unknown")
+    @Test("Server Error Description", arguments: [
+        (500, "Internal Server Error" as String?, "Server error (500): Internal Server Error"),
+        (503, nil as String?, "Server error (503): Unknown")
+    ])
+    func serverErrorDescription(statusCode: Int, message: String?, expected: String) {
+        let error = ArrError.serverError(statusCode: statusCode, message: message)
+        #expect(error.errorDescription == expected)
     }
 }
 
-// MARK: - ArrServiceType Tests
-
+@Suite("ArrServiceType Tests")
 struct ArrServiceTypeTests {
-
-    @Test func sonarrDisplayName() {
-        #expect(ArrServiceType.sonarr.displayName == "Sonarr")
+    @Test("Properties", arguments: [
+        (ArrServiceType.sonarr, "Sonarr", 8989, "tv", "sonarr"),
+        (.radarr, "Radarr", 7878, "film", "radarr"),
+        (.prowlarr, "Prowlarr", 9696, "magnifyingglass.circle", "prowlarr")
+    ])
+    func properties(type: ArrServiceType, name: String, port: Int, image: String, raw: String) {
+        #expect(type.displayName == name)
+        #expect(type.defaultPort == port)
+        #expect(type.systemImage == image)
+        #expect(type.rawValue == raw)
+        #expect(type.id == raw)
     }
 
-    @Test func radarrDisplayName() {
-        #expect(ArrServiceType.radarr.displayName == "Radarr")
-    }
-
-    @Test func prowlarrDisplayName() {
-        #expect(ArrServiceType.prowlarr.displayName == "Prowlarr")
-    }
-
-    @Test func sonarrDefaultPort() {
-        #expect(ArrServiceType.sonarr.defaultPort == 8989)
-    }
-
-    @Test func radarrDefaultPort() {
-        #expect(ArrServiceType.radarr.defaultPort == 7878)
-    }
-
-    @Test func prowlarrDefaultPort() {
-        #expect(ArrServiceType.prowlarr.defaultPort == 9696)
-    }
-
-    @Test func sonarrSystemImage() {
-        #expect(ArrServiceType.sonarr.systemImage == "tv")
-    }
-
-    @Test func radarrSystemImage() {
-        #expect(ArrServiceType.radarr.systemImage == "film")
-    }
-
-    @Test func prowlarrSystemImage() {
-        #expect(ArrServiceType.prowlarr.systemImage == "magnifyingglass.circle")
-    }
-
-    @Test func idEqualsRawValue() {
-        for type_ in ArrServiceType.allCases {
-            #expect(type_.id == type_.rawValue)
-        }
-    }
-
-    @Test func allCasesCount() {
+    @Test("All Cases Count")
+    func allCasesCount() {
         #expect(ArrServiceType.allCases.count == 3)
     }
 
-    @Test func rawValueEncoding() {
-        #expect(ArrServiceType.sonarr.rawValue == "sonarr")
-        #expect(ArrServiceType.radarr.rawValue == "radarr")
-        #expect(ArrServiceType.prowlarr.rawValue == "prowlarr")
-    }
-
-    @Test func initFromRawValue() {
-        #expect(ArrServiceType(rawValue: "sonarr") == .sonarr)
-        #expect(ArrServiceType(rawValue: "radarr") == .radarr)
-        #expect(ArrServiceType(rawValue: "prowlarr") == .prowlarr)
-        #expect(ArrServiceType(rawValue: "unknown") == nil)
+    @Test("Initialization from Raw Value", arguments: [
+        ("sonarr", ArrServiceType.sonarr),
+        ("radarr", .radarr),
+        ("prowlarr", .prowlarr),
+        ("unknown", nil as ArrServiceType?)
+    ])
+    func initFromRawValue(rawValue: String, expected: ArrServiceType?) {
+        #expect(ArrServiceType(rawValue: rawValue) == expected)
     }
 }
 
-// MARK: - ArrQueueItem Computed Properties Tests
-
+@Suite("ArrQueueItem Computed Properties Tests")
 struct ArrQueueItemTests {
-
     private func makeItem(
         id: Int = 1,
         title: String? = nil,
@@ -136,7 +92,7 @@ struct ArrQueueItemTests {
         size: Double? = nil,
         sizeleft: Double? = nil,
         timeleft: String? = nil
-    ) -> ArrQueueItem {
+    ) throws -> ArrQueueItem {
         let json: [String: Any?] = [
             "id": id,
             "title": title,
@@ -148,99 +104,57 @@ struct ArrQueueItemTests {
             "timeleft": timeleft
         ]
         let cleaned = json.compactMapValues { $0 }
-        let data = try! JSONSerialization.data(withJSONObject: cleaned)
-        return try! JSONDecoder().decode(ArrQueueItem.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: cleaned)
+        return try JSONDecoder().decode(ArrQueueItem.self, from: data)
     }
 
-    @Test func progressZeroWhenSizeIsNil() {
-        let item = makeItem()
-        #expect(item.progress == 0.0)
+    @Test("Progress Calculation", arguments: [
+        (nil as Double?, nil as Double?, 0.0),
+        (0.0 as Double?, 0.0 as Double?, 0.0),
+        (1000.0 as Double?, 500.0 as Double?, 0.5),
+        (1000.0 as Double?, 0.0 as Double?, 1.0),
+        (100.0 as Double?, 200.0 as Double?, 0.0),
+        (500.0 as Double?, 0.0 as Double?, 1.0)
+    ])
+    func progressCalculation(size: Double?, sizeleft: Double?, expected: Double) throws {
+        let item = try makeItem(size: size, sizeleft: sizeleft)
+        #expect(item.progress == expected)
     }
 
-    @Test func progressZeroWhenSizeIsZero() {
-        let item = makeItem(size: 0, sizeleft: 0)
-        #expect(item.progress == 0.0)
+    @Test("Normalized State", arguments: [
+        ("Downloading" as String?, nil as String?, "downloading"),
+        (nil as String?, "ImportPending" as String?, "importpending"),
+        ("completed" as String?, "ImportFailed" as String?, "importfailed"),
+        (nil as String?, nil as String?, "")
+    ])
+    func normalizedState(status: String?, trackedState: String?, expected: String) throws {
+        let item = try makeItem(status: status, trackedDownloadState: trackedState)
+        #expect(item.normalizedState == expected)
     }
 
-    @Test func progressHalfway() {
-        let item = makeItem(size: 1000, sizeleft: 500)
-        #expect(item.progress == 0.5)
+    @Test("Downloading Status Queue Item", arguments: [
+        ("downloading", true),
+        ("importPending", false)
+    ])
+    func isDownloadingQueueItem(trackedState: String, expected: Bool) throws {
+        let item = try makeItem(trackedDownloadState: trackedState)
+        #expect(item.isDownloadingQueueItem == expected)
     }
 
-    @Test func progressComplete() {
-        let item = makeItem(size: 1000, sizeleft: 0)
-        #expect(item.progress == 1.0)
+    @Test("Import Issue Queue Item", arguments: [
+        ("importPending" as String?, nil as String?, true),
+        ("failedPending" as String?, nil as String?, true),
+        (nil as String?, "warning" as String?, true),
+        (nil as String?, "error" as String?, true),
+        ("downloading" as String?, "ok" as String?, false)
+    ])
+    func isImportIssue(trackedState: String?, trackedStatus: String?, expected: Bool) throws {
+        let item = try makeItem(trackedDownloadStatus: trackedStatus, trackedDownloadState: trackedState)
+        #expect(item.isImportIssueQueueItem == expected)
     }
 
-    @Test func progressClampsToOne() {
-        // sizeleft > size means negative downloaded — clamp to 0
-        let item = makeItem(size: 100, sizeleft: 200)
-        #expect(item.progress == 0.0)
-    }
-
-    @Test func progressClampedAtMax() {
-        // sizeleft == 0 → fully downloaded
-        let item = makeItem(size: 500, sizeleft: 0)
-        #expect(item.progress <= 1.0)
-        #expect(item.progress >= 0.0)
-    }
-
-    @Test func normalizedStateFromStatus() {
-        let item = makeItem(status: "Downloading")
-        #expect(item.normalizedState == "downloading")
-    }
-
-    @Test func normalizedStateFromTrackedState() {
-        let item = makeItem(trackedDownloadState: "ImportPending")
-        #expect(item.normalizedState == "importpending")
-    }
-
-    @Test func normalizedStatePrefersTacked() {
-        let item = makeItem(status: "completed", trackedDownloadState: "ImportFailed")
-        #expect(item.normalizedState == "importfailed")
-    }
-
-    @Test func normalizedStateEmpty() {
-        let item = makeItem()
-        #expect(item.normalizedState == "")
-    }
-
-    @Test func isDownloadingQueueItemTrue() {
-        let item = makeItem(trackedDownloadState: "downloading")
-        #expect(item.isDownloadingQueueItem == true)
-    }
-
-    @Test func isDownloadingQueueItemFalse() {
-        let item = makeItem(trackedDownloadState: "importPending")
-        #expect(item.isDownloadingQueueItem == false)
-    }
-
-    @Test func isImportIssueForImportPending() {
-        let item = makeItem(trackedDownloadState: "importPending")
-        #expect(item.isImportIssueQueueItem == true)
-    }
-
-    @Test func isImportIssueForFailedPending() {
-        let item = makeItem(trackedDownloadState: "failedPending")
-        #expect(item.isImportIssueQueueItem == true)
-    }
-
-    @Test func isImportIssueForWarningStatus() {
-        let item = makeItem(trackedDownloadStatus: "warning")
-        #expect(item.isImportIssueQueueItem == true)
-    }
-
-    @Test func isImportIssueForErrorStatus() {
-        let item = makeItem(trackedDownloadStatus: "error")
-        #expect(item.isImportIssueQueueItem == true)
-    }
-
-    @Test func isImportIssueForOkStatus() {
-        let item = makeItem(trackedDownloadStatus: "ok", trackedDownloadState: "downloading")
-        #expect(item.isImportIssueQueueItem == false)
-    }
-
-    @Test func primaryStatusMessageReturnsFirst() throws {
+    @Test("Primary Status Message")
+    func primaryStatusMessage() throws {
         let json: [String: Any] = [
             "id": 1,
             "statusMessages": [
@@ -253,16 +167,15 @@ struct ArrQueueItemTests {
         #expect(item.primaryStatusMessage == "real message")
     }
 
-    @Test func primaryStatusMessageNilWhenEmpty() {
-        let item = makeItem()
+    @Test("Primary Status Message is Nil When Empty")
+    func primaryStatusMessageNilWhenEmpty() throws {
+        let item = try makeItem()
         #expect(item.primaryStatusMessage == nil)
     }
 }
 
-// MARK: - ArrRelease Computed Properties Tests
-
+@Suite("ArrRelease Computed Properties Tests")
 struct ArrReleaseTests {
-
     private func makeRelease(
         guid: String? = "test-guid",
         indexerId: Int? = 1,
@@ -274,7 +187,7 @@ struct ArrReleaseTests {
         age: Int? = nil,
         ageMinutes: Double? = nil,
         qualityName: String? = nil
-    ) -> ArrRelease {
+    ) throws -> ArrRelease {
         var json: [String: Any] = [:]
         if let guid { json["guid"] = guid }
         if let indexerId { json["indexerId"] = indexerId }
@@ -288,285 +201,201 @@ struct ArrReleaseTests {
         if let qualityName {
             json["quality"] = ["quality": ["name": qualityName]]
         }
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        return try! JSONDecoder().decode(ArrRelease.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(ArrRelease.self, from: data)
     }
 
-    @Test func idCombinesGuidAndIndexer() {
-        let release = makeRelease(guid: "abc123", indexerId: 5)
+    @Test("ID Combinations")
+    func idCombinesGuidAndIndexer() throws {
+        let release = try makeRelease(guid: "abc123", indexerId: 5)
         #expect(release.id == "abc123|5")
     }
 
-    @Test func idFallsBackToTitle() {
+    @Test("ID Falls Back to Title")
+    func idFallsBackToTitle() throws {
         let json: [String: Any] = ["title": "SomeRelease", "indexerId": 2]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let release = try! JSONDecoder().decode(ArrRelease.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
         #expect(release.id == "SomeRelease|2")
     }
 
-    @Test func idFallsBackToReleaseWhenNoGuidOrTitle() {
+    @Test("ID Falls Back to release When No Guid Or Title")
+    func idFallsBackToReleaseWhenNoGuidOrTitle() throws {
         let json: [String: Any] = ["indexerId": 99]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let release = try! JSONDecoder().decode(ArrRelease.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
         #expect(release.id == "release|99")
     }
 
-    @Test func canGrabApproved() {
-        let release = makeRelease(approved: true)
-        #expect(release.canGrab == true)
+    @Test("Can Grab Logic", arguments: [
+        (true as Bool?, nil as Bool?, nil as Bool?, nil as Bool?, true),
+        (nil as Bool?, nil as Bool?, nil as Bool?, false as Bool?, false),
+        (nil as Bool?, true as Bool?, nil as Bool?, nil as Bool?, false),
+        (nil as Bool?, nil as Bool?, true as Bool?, nil as Bool?, false),
+        (nil as Bool?, nil as Bool?, nil as Bool?, nil as Bool?, true),
+        (nil as Bool?, true as Bool?, nil as Bool?, false as Bool?, false)
+    ])
+    func canGrabLogic(approved: Bool?, rejected: Bool?, tempRejected: Bool?, allowed: Bool?, expected: Bool) throws {
+        let release = try makeRelease(approved: approved, rejected: rejected, temporarilyRejected: tempRejected, downloadAllowed: allowed)
+        #expect(release.canGrab == expected)
     }
 
-    @Test func canGrabFalseWhenDownloadNotAllowed() {
-        let release = makeRelease(downloadAllowed: false)
-        #expect(release.canGrab == false)
+    @Test("Quality Name Logic", arguments: [
+        (nil as String?, "Unknown Quality"),
+        ("Bluray-1080p", "Bluray-1080p")
+    ])
+    func qualityNameFallback(quality: String?, expected: String) throws {
+        let release = try makeRelease(qualityName: quality)
+        #expect(release.qualityName == expected)
     }
 
-    @Test func canGrabFalseWhenRejected() {
-        let release = makeRelease(rejected: true)
-        #expect(release.canGrab == false)
-    }
-
-    @Test func canGrabFalseWhenTemporarilyRejected() {
-        let release = makeRelease(temporarilyRejected: true)
-        #expect(release.canGrab == false)
-    }
-
-    @Test func canGrabDefaultsToTrueWhenApprovedNil() {
-        let release = makeRelease(approved: nil)
-        #expect(release.canGrab == true)
-    }
-
-    @Test func qualityNameFallback() {
-        let release = makeRelease()
-        #expect(release.qualityName == "Unknown Quality")
-    }
-
-    @Test func qualityNameFromQuality() {
-        let release = makeRelease(qualityName: "Bluray-1080p")
-        #expect(release.qualityName == "Bluray-1080p")
-    }
-
-    @Test func protocolNameUppercased() {
+    @Test("Protocol Name")
+    func protocolName() throws {
         let json: [String: Any] = ["protocol": "torrent"]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let release = try! JSONDecoder().decode(ArrRelease.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
         #expect(release.protocolName == "TORRENT")
+
+        let unknownRelease = try makeRelease()
+        #expect(unknownRelease.protocolName == "UNKNOWN")
     }
 
-    @Test func protocolNameUnknownWhenNil() {
-        let release = makeRelease()
-        #expect(release.protocolName == "UNKNOWN")
+    @Test("Age Description", arguments: [
+        (5.0 as Double?, nil as Int?, nil as Double?, "5h" as String?),
+        (72.0 as Double?, nil as Int?, nil as Double?, "3d" as String?),
+        (nil as Double?, 14 as Int?, nil as Double?, "14d" as String?),
+        (nil as Double?, nil as Int?, 45.0 as Double?, "45m" as String?),
+        (0.0 as Double?, 0 as Int?, 0.0 as Double?, nil as String?),
+        (nil as Double?, nil as Int?, nil as Double?, nil as String?)
+    ])
+    func ageDescription(hours: Double?, days: Int?, minutes: Double?, expected: String?) throws {
+        let release = try makeRelease(ageHours: hours, age: days, ageMinutes: minutes)
+        #expect(release.ageDescription == expected)
     }
 
-    @Test func ageDescriptionFromAgeHoursLessThan24() {
-        let release = makeRelease(ageHours: 5)
-        #expect(release.ageDescription == "5h")
-    }
-
-    @Test func ageDescriptionFromAgeHoursMoreThan24() {
-        let release = makeRelease(ageHours: 72)
-        #expect(release.ageDescription == "3d")
-    }
-
-    @Test func ageDescriptionFromAgeDays() {
-        let release = makeRelease(age: 14)
-        #expect(release.ageDescription == "14d")
-    }
-
-    @Test func ageDescriptionFromAgeMinutes() {
-        let release = makeRelease(ageMinutes: 45)
-        #expect(release.ageDescription == "45m")
-    }
-
-    @Test func ageDescriptionNilWhenAllZero() {
-        let release = makeRelease(ageHours: 0, age: 0, ageMinutes: 0)
-        #expect(release.ageDescription == nil)
-    }
-
-    @Test func ageDescriptionNilWhenAllNil() {
-        let release = makeRelease()
-        #expect(release.ageDescription == nil)
-    }
-
-    @Test func protocolCodingKeyMapped() throws {
+    @Test("Protocol Coding Key Mapped")
+    func protocolCodingKeyMapped() throws {
         let json = #"{"protocol":"usenet","guid":"x","indexerId":1}"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let release = try JSONDecoder().decode(ArrRelease.self, from: data)
         #expect(release.protocol_ == "usenet")
     }
 
-    @Test func flexibleDoubleDecodesInt() throws {
-        let json = #"{"ageHours":12,"guid":"x"}"#
-        let data = json.data(using: .utf8)!
-        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
-        #expect(release.ageHours == 12.0)
-    }
+    @Test("Flexible Double Decodes")
+    func flexibleDoubleDecodes() throws {
+        let jsonInt = #"{"ageHours":12,"guid":"x"}"#
+        let dataInt = try #require(jsonInt.data(using: .utf8))
+        let releaseInt = try JSONDecoder().decode(ArrRelease.self, from: dataInt)
+        #expect(releaseInt.ageHours == 12.0)
 
-    @Test func flexibleDoubleDecodesString() throws {
-        let json = #"{"ageHours":"3.5","guid":"x"}"#
-        let data = json.data(using: .utf8)!
-        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
-        #expect(release.ageHours == 3.5)
+        let jsonStr = #"{"ageHours":"3.5","guid":"x"}"#
+        let dataStr = try #require(jsonStr.data(using: .utf8))
+        let releaseStr = try JSONDecoder().decode(ArrRelease.self, from: dataStr)
+        #expect(releaseStr.ageHours == 3.5)
     }
 }
 
-// MARK: - ArrReleaseSort Tests
-
+@Suite("ArrReleaseSort Tests")
 struct ArrReleaseSortTests {
-
-    @Test func defaultIsNotFiltered() {
-        let sort = ArrReleaseSort()
-        #expect(sort.isFiltered == false)
-    }
-
-    @Test func filteredWhenIndexerSet() {
+    @Test("Default and Active Status")
+    func defaultStatus() {
         var sort = ArrReleaseSort()
+        #expect(sort.isFiltered == false)
+        #expect(sort.isActive == false)
+
         sort.indexer = "MyIndexer"
         #expect(sort.isFiltered == true)
-    }
-
-    @Test func filteredWhenQualitySet() {
-        var sort = ArrReleaseSort()
-        sort.quality = "1080p"
-        #expect(sort.isFiltered == true)
-    }
-
-    @Test func filteredWhenApprovedOnly() {
-        var sort = ArrReleaseSort()
-        sort.approvedOnly = true
-        #expect(sort.isFiltered == true)
-    }
-
-    @Test func defaultIsNotActive() {
-        let sort = ArrReleaseSort()
-        #expect(sort.isActive == false)
-    }
-
-    @Test func activeWhenNonDefaultOption() {
-        var sort = ArrReleaseSort()
-        sort.option = .seeders
         #expect(sort.isActive == true)
+
+        var sort2 = ArrReleaseSort()
+        sort2.option = .seeders
+        #expect(sort2.isActive == true)
     }
 
-    @Test func activeWhenFiltered() {
-        var sort = ArrReleaseSort()
-        sort.indexer = "X"
-        #expect(sort.isActive == true)
-    }
-
-    @Test func roundTripRawRepresentable() {
+    @Test("Round Trip Raw Representable")
+    func roundTripRawRepresentable() throws {
         var sort = ArrReleaseSort()
         sort.option = .age
         sort.isAscending = true
         sort.indexer = "NZBGeek"
         sort.quality = "720p"
         sort.approvedOnly = true
+        sort.seasonPack = .season
 
         let raw = sort.rawValue
-        let decoded = ArrReleaseSort(rawValue: raw)
+        let decoded = try #require(ArrReleaseSort(rawValue: raw))
 
-        #expect(decoded?.option == .age)
-        #expect(decoded?.isAscending == true)
-        #expect(decoded?.indexer == "NZBGeek")
-        #expect(decoded?.quality == "720p")
-        #expect(decoded?.approvedOnly == true)
+        #expect(decoded.option == .age)
+        #expect(decoded.isAscending == true)
+        #expect(decoded.indexer == "NZBGeek")
+        #expect(decoded.quality == "720p")
+        #expect(decoded.approvedOnly == true)
+        #expect(decoded.seasonPack == .season)
     }
 
-    @Test func invalidRawValueFallsBackToDefault() {
+    @Test("Invalid and Empty Raw Values")
+    func invalidRawValues() {
         let sort = ArrReleaseSort(rawValue: "not valid json")
-        // Should fall back to defaults
         #expect(sort?.option == .default)
         #expect(sort?.isFiltered == false)
-    }
 
-    @Test func emptyRawValueFallsBack() {
-        let sort = ArrReleaseSort(rawValue: "")
-        #expect(sort?.option == .default)
+        let sortEmpty = ArrReleaseSort(rawValue: "")
+        #expect(sortEmpty?.option == .default)
     }
 }
 
-// MARK: - ArrReleaseSortKey Tests
-
+@Suite("ArrReleaseSortKey Tests")
 struct ArrReleaseSortKeyTests {
-
-    @Test func defaultSystemImage() {
-        #expect(ArrReleaseSortKey.default.systemImage == "square.stack")
-    }
-
-    @Test func ageSystemImage() {
-        #expect(ArrReleaseSortKey.age.systemImage == "clock")
-    }
-
-    @Test func qualitySystemImage() {
-        #expect(ArrReleaseSortKey.quality.systemImage == "sparkles")
-    }
-
-    @Test func sizeSystemImage() {
-        #expect(ArrReleaseSortKey.size.systemImage == "externaldrive")
-    }
-
-    @Test func seedersSystemImage() {
-        #expect(ArrReleaseSortKey.seeders.systemImage == "arrow.up.circle")
-    }
-
-    @Test func idEqualsRawValue() {
-        for key in ArrReleaseSortKey.allCases {
-            #expect(key.id == key.rawValue)
-        }
+    @Test("System Images", arguments: [
+        (ArrReleaseSortKey.default, "square.stack"),
+        (.age, "clock"),
+        (.quality, "sparkles"),
+        (.size, "externaldrive"),
+        (.seeders, "arrow.up.circle")
+    ])
+    func systemImages(key: ArrReleaseSortKey, image: String) {
+        #expect(key.systemImage == image)
+        #expect(key.id == key.rawValue)
     }
 }
 
-// MARK: - ArrDiskSpace Tests
-
+@Suite("ArrDiskSpace Tests")
 struct ArrDiskSpaceTests {
-
-    @Test func initSetsPathAsID() {
+    @Test("Initialization")
+    func initialization() {
         let disk = ArrDiskSpace(path: "/data", label: "Media", freeSpace: 100, totalSpace: 1000)
         #expect(disk.id == "/data")
+
+        let diskNil = ArrDiskSpace(path: nil, label: "Unknown", freeSpace: 0, totalSpace: 0)
+        #expect(!diskNil.id.isEmpty)
+        #expect(diskNil.path == nil)
     }
 
-    @Test func initNilPathUsesUUID() {
-        let disk = ArrDiskSpace(path: nil, label: "Unknown", freeSpace: 0, totalSpace: 0)
-        #expect(!disk.id.isEmpty)
-        // Should not be nil-based fallback, UUID format check
-        #expect(disk.path == nil)
-    }
-
-    @Test func decodeFromJSON() throws {
+    @Test("Decode and Encode")
+    func encodeDecode() throws {
         let json = #"{"path":"/mnt/media","label":"Media Drive","freeSpace":5368709120,"totalSpace":107374182400}"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let disk = try JSONDecoder().decode(ArrDiskSpace.self, from: data)
         #expect(disk.path == "/mnt/media")
         #expect(disk.label == "Media Drive")
         #expect(disk.freeSpace == 5368709120)
-        #expect(disk.totalSpace == 107374182400)
-        #expect(disk.id == "/mnt/media")
-    }
 
-    @Test func decodeWithMissingFields() throws {
-        let json = #"{"path":"/srv"}"#
-        let data = json.data(using: .utf8)!
-        let disk = try JSONDecoder().decode(ArrDiskSpace.self, from: data)
-        #expect(disk.path == "/srv")
-        #expect(disk.label == nil)
-        #expect(disk.freeSpace == nil)
-        #expect(disk.totalSpace == nil)
-    }
+        let missingJson = #"{"path":"/srv"}"#
+        let missingData = try #require(missingJson.data(using: .utf8))
+        let missingDisk = try JSONDecoder().decode(ArrDiskSpace.self, from: missingData)
+        #expect(missingDisk.label == nil)
 
-    @Test func encodeDoesNotIncludeIdField() throws {
-        let disk = ArrDiskSpace(path: "/data", label: "Test", freeSpace: 100, totalSpace: 200)
         let encoded = try JSONEncoder().encode(disk)
-        let dict = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
-        #expect(dict["id"] == nil)
-        #expect(dict["path"] as? String == "/data")
+        let dict = try JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+        #expect(dict?["id"] == nil)
+        #expect(dict?["path"] as? String == "/mnt/media")
     }
 }
 
-// MARK: - ArrDiskSpaceSnapshot Tests
-
+@Suite("ArrDiskSpaceSnapshot Tests")
 struct ArrDiskSpaceSnapshotTests {
-
-    @Test func idCombinesServiceTypeAndPath() {
+    @Test("ID Combines Service Type and Path")
+    func idCombinesServiceTypeAndPath() {
         let snap = ArrDiskSpaceSnapshot(
             serviceType: .sonarr,
             path: "/data/series",
@@ -575,25 +404,22 @@ struct ArrDiskSpaceSnapshotTests {
             totalSpace: nil
         )
         #expect(snap.id == "sonarr-/data/series")
-    }
 
-    @Test func radarrSnapshotID() {
-        let snap = ArrDiskSpaceSnapshot(
+        let snap2 = ArrDiskSpaceSnapshot(
             serviceType: .radarr,
             path: "/data/movies",
             label: "Movies",
             freeSpace: 1000,
             totalSpace: 5000
         )
-        #expect(snap.id == "radarr-/data/movies")
+        #expect(snap2.id == "radarr-/data/movies")
     }
 }
 
-// MARK: - ArrHealthCheck Tests
-
+@Suite("ArrHealthCheck Tests")
 struct ArrHealthCheckTests {
-
-    @Test func idIsConcatenationOfFields() {
+    @Test("ID Generation")
+    func idGeneration() {
         let check = ArrHealthCheck(
             source: "IndexerRssCheck",
             type: "warning",
@@ -602,253 +428,172 @@ struct ArrHealthCheckTests {
         )
         let expected = "IndexerRssCheck|warning|No indexer available|https://wiki.example.com"
         #expect(check.id == expected)
+
+        let checkNil = ArrHealthCheck(source: nil, type: nil, message: nil, wikiUrl: nil)
+        #expect(checkNil.id == "|||")
     }
 
-    @Test func idHandlesNilFields() {
-        let check = ArrHealthCheck(source: nil, type: nil, message: nil, wikiUrl: nil)
-        #expect(check.id == "|||")
-    }
-
-    @Test func decodeFromJSON() throws {
+    @Test("Decoding")
+    func decoding() throws {
         let json = #"{"source":"TestCheck","type":"error","message":"Something failed","wikiUrl":"https://wiki.test.com"}"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let check = try JSONDecoder().decode(ArrHealthCheck.self, from: data)
         #expect(check.source == "TestCheck")
-        #expect(check.type == "error")
-        #expect(check.message == "Something failed")
-        #expect(check.wikiUrl == "https://wiki.test.com")
     }
 }
 
-// MARK: - AnyCodableValue Tests
-
+@Suite("AnyCodableValue Tests")
 struct AnyCodableValueTests {
-
-    @Test func decodeString() throws {
+    @Test("Decode String")
+    func decodeString() throws {
         let json = #""hello world""#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .string(let s) = value {
-            #expect(s == "hello world")
-        } else {
+        guard case .string(let s) = value else {
             Issue.record("Expected .string, got \(value)")
+            return
         }
+        #expect(s == "hello world")
+        #expect(value.displayString == "hello world")
     }
 
-    @Test func decodeInt() throws {
+    @Test("Decode Int")
+    func decodeInt() throws {
         let json = #"42"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .int(let i) = value {
-            #expect(i == 42)
-        } else {
+        guard case .int(let i) = value else {
             Issue.record("Expected .int, got \(value)")
+            return
         }
+        #expect(i == 42)
+        #expect(value.displayString == "42")
+        #expect(value.intValue == 42)
     }
 
-    @Test func decodeDouble() throws {
+    @Test("Decode Double")
+    func decodeDouble() throws {
         let json = #"3.14"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        // Note: 3.14 may decode as double or could be int-first — just verify non-null
         switch value {
-        case .double(let d): #expect(d == 3.14)
-        case .int: break // acceptable if rounded
+        case .double(let d):
+            #expect(d == 3.14)
+            #expect(value.displayString == "3.14")
+            #expect(value.intValue == 3)
+        case .int: break
         default: Issue.record("Unexpected case \(value)")
         }
     }
 
-    @Test func decodeBool() throws {
+    @Test("Decode Bool")
+    func decodeBool() throws {
         let json = #"true"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .bool(let b) = value {
-            #expect(b == true)
-        } else {
+        guard case .bool(let b) = value else {
             Issue.record("Expected .bool, got \(value)")
+            return
         }
-    }
-
-    @Test func decodeNull() throws {
-        let json = #"null"#
-        let data = json.data(using: .utf8)!
-        let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .null = value { } else {
-            Issue.record("Expected .null, got \(value)")
-        }
-    }
-
-    @Test func decodeArray() throws {
-        let json = #"[1, "two", true]"#
-        let data = json.data(using: .utf8)!
-        let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .array(let arr) = value {
-            #expect(arr.count == 3)
-        } else {
-            Issue.record("Expected .array, got \(value)")
-        }
-    }
-
-    @Test func displayStringForString() {
-        let value = AnyCodableValue.string("hello")
-        #expect(value.displayString == "hello")
-    }
-
-    @Test func displayStringForEmptyStringIsNil() {
-        let value = AnyCodableValue.string("")
-        #expect(value.displayString == nil)
-    }
-
-    @Test func displayStringForInt() {
-        let value = AnyCodableValue.int(99)
-        #expect(value.displayString == "99")
-    }
-
-    @Test func displayStringForDouble() {
-        let value = AnyCodableValue.double(1.5)
-        #expect(value.displayString == "1.5")
-    }
-
-    @Test func displayStringForBoolTrue() {
-        let value = AnyCodableValue.bool(true)
+        #expect(b == true)
         #expect(value.displayString == "Yes")
-    }
-
-    @Test func displayStringForBoolFalse() {
-        let value = AnyCodableValue.bool(false)
-        #expect(value.displayString == "No")
-    }
-
-    @Test func displayStringForNull() {
-        let value = AnyCodableValue.null
-        #expect(value.displayString == nil)
-    }
-
-    @Test func displayStringForEmptyArray() {
-        let value = AnyCodableValue.array([])
-        #expect(value.displayString == nil)
-    }
-
-    @Test func displayStringForArray() {
-        let value = AnyCodableValue.array([.string("a"), .string("b")])
-        #expect(value.displayString == "a, b")
-    }
-
-    @Test func intValueFromInt() {
-        let value = AnyCodableValue.int(7)
-        #expect(value.intValue == 7)
-    }
-
-    @Test func intValueFromDouble() {
-        let value = AnyCodableValue.double(3.9)
-        #expect(value.intValue == 3)
-    }
-
-    @Test func intValueFromStringRepresentation() {
-        let value = AnyCodableValue.string("42")
-        #expect(value.intValue == 42)
-    }
-
-    @Test func intValueNilForBool() {
-        let value = AnyCodableValue.bool(true)
         #expect(value.intValue == nil)
     }
 
-    @Test func intValueNilForNull() {
-        let value = AnyCodableValue.null
+    @Test("Decode Null")
+    func decodeNull() throws {
+        let json = #"null"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
+        guard case .null = value else {
+            Issue.record("Expected .null, got \(value)")
+            return
+        }
+        #expect(value.displayString == nil)
         #expect(value.intValue == nil)
     }
 
-    @Test func encodeAndDecodeRoundTrip() throws {
-        let original = AnyCodableValue.string("round-trip")
-        let data = try JSONEncoder().encode(original)
-        let decoded = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        #expect(decoded.displayString == "round-trip")
+    @Test("Decode Array")
+    func decodeArray() throws {
+        let json = #"[1, "two", true]"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
+        guard case .array(let arr) = value else {
+            Issue.record("Expected .array, got \(value)")
+            return
+        }
+        #expect(arr.count == 3)
+        #expect(value.displayString != nil)
     }
 
-    @Test func htmlStrippedInDisplayString() {
-        let value = AnyCodableValue.string("<b>Bold</b> text &amp; more")
-        let display = value.displayString
+    @Test("Display String Formatting")
+    func displayStringFormatting() {
+        let emptyStr = AnyCodableValue.string("")
+        #expect(emptyStr.displayString == nil)
+
+        let boolFalse = AnyCodableValue.bool(false)
+        #expect(boolFalse.displayString == "No")
+
+        let emptyArr = AnyCodableValue.array([])
+        #expect(emptyArr.displayString == nil)
+
+        let arr = AnyCodableValue.array([.string("a"), .string("b")])
+        #expect(arr.displayString == "a, b")
+
+        let htmlVal = AnyCodableValue.string("<b>Bold</b> text &amp; more")
+        let display = htmlVal.displayString
         #expect(display?.contains("<b>") == false)
         #expect(display?.contains("&amp;") == false)
         #expect(display?.contains("Bold") == true)
         #expect(display?.contains("&") == true)
     }
-}
 
-// MARK: - ProwlarrIndexerProtocol Tests
-
-struct ProwlarrIndexerProtocolTests {
-
-    @Test func usenetDisplayName() {
-        #expect(ProwlarrIndexerProtocol.usenet.displayName == "Usenet")
-    }
-
-    @Test func torrentDisplayName() {
-        #expect(ProwlarrIndexerProtocol.torrent.displayName == "Torrent")
-    }
-
-    @Test func usenetIsNotTorrent() {
-        #expect(ProwlarrIndexerProtocol.usenet.isTorrent == false)
-    }
-
-    @Test func torrentIsTorrent() {
-        #expect(ProwlarrIndexerProtocol.torrent.isTorrent == true)
-    }
-
-    @Test func torrentSystemImage() {
-        #expect(ProwlarrIndexerProtocol.torrent.systemImage == "arrow.down.circle")
-    }
-
-    @Test func usenetSystemImage() {
-        #expect(ProwlarrIndexerProtocol.usenet.systemImage == "envelope.circle")
+    @Test("Encode and Decode Round Trip")
+    func encodeAndDecodeRoundTrip() throws {
+        let original = AnyCodableValue.string("round-trip")
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(AnyCodableValue.self, from: data)
+        #expect(decoded.displayString == "round-trip")
     }
 }
 
-// MARK: - ProwlarrIndexer.schemaListID Tests
-
-struct ProwlarrIndexerSchemaListIDTests {
-
-    @Test func nonZeroIDUsesIndexerPrefix() {
-        let indexer = ProwlarrIndexer(
-            id: 5, name: "NZBGeek", enable: true,
-            implementation: nil, implementationName: nil,
-            configContract: nil, infoLink: nil, tags: nil,
-            priority: nil, appProfileId: nil, shouldSearch: nil,
-            supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
-        )
-        #expect(indexer.schemaListID == "indexer-5")
+@Suite("Prowlarr Tests")
+struct ProwlarrTests {
+    @Test("Protocol Properties", arguments: [
+        (ProwlarrIndexerProtocol.usenet, "Usenet", false, "envelope.circle"),
+        (.torrent, "Torrent", true, "arrow.down.circle")
+    ])
+    func protocolProperties(proto: ProwlarrIndexerProtocol, name: String, isTorrent: Bool, image: String) {
+        #expect(proto.displayName == name)
+        #expect(proto.isTorrent == isTorrent)
+        #expect(proto.systemImage == image)
     }
 
-    @Test func zeroIDUsesTemplateFromComponents() {
-        let indexer = ProwlarrIndexer(
-            id: 0, name: "NZBGeek", enable: false,
-            implementation: "NZBGeekSettings", implementationName: "NZBGeek",
-            configContract: nil, infoLink: nil, tags: nil,
-            priority: nil, appProfileId: nil, shouldSearch: nil,
-            supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
+    @Test("Indexer Schema List ID")
+    func indexerSchemaListID() {
+        let indexer1 = ProwlarrIndexer(
+            id: 5, name: "NZBGeek", enable: true, implementation: nil, implementationName: nil,
+            configContract: nil, infoLink: nil, tags: nil, priority: nil, appProfileId: nil,
+            shouldSearch: nil, supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
         )
-        let id = indexer.schemaListID
-        #expect(id.hasPrefix("template-"))
-        #expect(id.contains("NZBGeekSettings") || id.contains("NZBGeek"))
-    }
+        #expect(indexer1.schemaListID == "indexer-5")
 
-    @Test func zeroIDAllNilComponentsIsUnknown() {
-        let indexer = ProwlarrIndexer(
-            id: 0, name: nil, enable: false,
-            implementation: nil, implementationName: nil,
-            configContract: nil, infoLink: nil, tags: nil,
-            priority: nil, appProfileId: nil, shouldSearch: nil,
-            supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
+        let indexer2 = ProwlarrIndexer(
+            id: 0, name: "NZBGeek", enable: false, implementation: "NZBGeekSettings",
+            implementationName: "NZBGeek", configContract: nil, infoLink: nil, tags: nil,
+            priority: nil, appProfileId: nil, shouldSearch: nil, supportsRss: nil, supportsSearch: nil,
+            protocol: nil, fields: nil
         )
-        let id = indexer.schemaListID
-        #expect(id.hasPrefix("template-unknown-"))
+        let id2 = indexer2.schemaListID
+        #expect(id2.hasPrefix("template-"))
+
+        let indexer3 = ProwlarrIndexer(
+            id: 0, name: nil, enable: false, implementation: nil, implementationName: nil,
+            configContract: nil, infoLink: nil, tags: nil, priority: nil, appProfileId: nil,
+            shouldSearch: nil, supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
+        )
+        #expect(indexer3.schemaListID.hasPrefix("template-unknown-"))
     }
-}
-
-// MARK: - ProwlarrSearchResult Tests
-
-struct ProwlarrSearchResultTests {
 
     private func makeResult(
         guid: String? = nil,
@@ -857,7 +602,7 @@ struct ProwlarrSearchResultTests {
         downloadUrl: String? = nil,
         downloadVolumeFactor: Double? = nil,
         protocol_: String? = nil
-    ) -> ProwlarrSearchResult {
+    ) throws -> ProwlarrSearchResult {
         var json: [String: Any] = [:]
         if let guid { json["guid"] = guid }
         if let title { json["title"] = title }
@@ -865,70 +610,33 @@ struct ProwlarrSearchResultTests {
         if let downloadUrl { json["downloadUrl"] = downloadUrl }
         if let downloadVolumeFactor { json["downloadVolumeFactor"] = downloadVolumeFactor }
         if let protocol_ { json["protocol"] = protocol_ }
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        return try! JSONDecoder().decode(ProwlarrSearchResult.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(ProwlarrSearchResult.self, from: data)
     }
 
-    @Test func idUsesGuidWhenPresent() {
-        let result = makeResult(guid: "my-unique-guid")
-        #expect(result.id == "my-unique-guid")
+    @Test("Search Result IDs")
+    func searchResultID() throws {
+        let result1 = try makeResult(guid: "my-unique-guid")
+        #expect(result1.id == "my-unique-guid")
+
+        let result2 = try makeResult(title: "Release Name", indexerId: 3)
+        #expect(result2.id.hasPrefix("search-result-"))
+
+        let result3 = try makeResult()
+        #expect(result3.id.hasPrefix("search-result-unknown-"))
     }
 
-    @Test func idFallsBackToCompositeWhenNoGuid() {
-        let result = makeResult(title: "Release Name", indexerId: 3)
-        #expect(result.id.hasPrefix("search-result-"))
-        #expect(result.id.contains("3") || result.id.contains("Release"))
+    @Test("Search Result Properties", arguments: [
+        // volumeFactor, proto, url, isFreeleech, isTorrent, isMagnet
+        (0.0, "torrent", "magnet:?xt=abc", true, true, true),
+        (1.0, "usenet", "https://example.com/nzb", false, false, false)
+    ])
+    func searchResultProperties(factor: Double, proto: String, url: String, free: Bool, torrent: Bool, magnet: Bool) throws {
+        let result = try makeResult(downloadUrl: url, downloadVolumeFactor: factor, protocol_: proto)
+        #expect(result.isFreeleech == free)
+        #expect(result.isTorrent == torrent)
+        #expect(result.isMagnet == magnet)
     }
-
-    @Test func idUnknownFallbackWhenAllNil() {
-        let result = makeResult()
-        #expect(result.id.hasPrefix("search-result-unknown-"))
-    }
-
-    @Test func isFreeleechWhenFactorZero() {
-        let result = makeResult(downloadVolumeFactor: 0.0)
-        #expect(result.isFreeleech == true)
-    }
-
-    @Test func isNotFreeleechWhenFactorOne() {
-        let result = makeResult(downloadVolumeFactor: 1.0)
-        #expect(result.isFreeleech == false)
-    }
-
-    @Test func isTorrentForTorrentProtocol() {
-        let result = makeResult(protocol_: "torrent")
-        #expect(result.isTorrent == true)
-    }
-
-    @Test func isNotTorrentForUsenet() {
-        let result = makeResult(protocol_: "usenet")
-        #expect(result.isTorrent == false)
-    }
-
-    @Test func isMagnetForMagnetURL() {
-        let result = makeResult(downloadUrl: "magnet:?xt=urn:btih:abc123")
-        #expect(result.isMagnet == true)
-    }
-
-    @Test func isMagnetCaseInsensitive() {
-        let result = makeResult(downloadUrl: "MAGNET:?xt=abc")
-        #expect(result.isMagnet == true)
-    }
-
-    @Test func isNotMagnetForHTTPUrl() {
-        let result = makeResult(downloadUrl: "https://example.com/release.nzb")
-        #expect(result.isMagnet == false)
-    }
-
-    @Test func isNotMagnetWhenNoURL() {
-        let result = makeResult()
-        #expect(result.isMagnet == false)
-    }
-}
-
-// MARK: - ProwlarrIndexerStatEntry Tests
-
-struct ProwlarrIndexerStatEntryTests {
 
     private func makeEntry(
         indexerId: Int? = nil,
@@ -936,138 +644,50 @@ struct ProwlarrIndexerStatEntryTests {
         averageResponseTime: Double? = nil,
         numberOfQueries: Int? = nil,
         numberOfFailedQueries: Int? = nil
-    ) -> ProwlarrIndexerStatEntry {
+    ) throws -> ProwlarrIndexerStatEntry {
         var json: [String: Any] = [:]
         if let indexerId { json["indexerId"] = indexerId }
         if let indexerName { json["indexerName"] = indexerName }
         if let averageResponseTime { json["averageResponseTime"] = averageResponseTime }
         if let numberOfQueries { json["numberOfQueries"] = numberOfQueries }
         if let numberOfFailedQueries { json["numberOfFailedQueries"] = numberOfFailedQueries }
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        return try! JSONDecoder().decode(ProwlarrIndexerStatEntry.self, from: data)
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(ProwlarrIndexerStatEntry.self, from: data)
     }
 
-    @Test func idWithIndexerId() {
-        let entry = makeEntry(indexerId: 10)
-        #expect(entry.id == "indexer-10")
+    @Test("Indexer Stat Entry")
+    func indexerStatEntry() throws {
+        let entry1 = try makeEntry(indexerId: 10)
+        #expect(entry1.id == "indexer-10")
+
+        let entry2 = try makeEntry(indexerName: "NZBGeek")
+        #expect(entry2.id == "indexer-unknown-NZBGeek")
+
+        let entry3 = try makeEntry(numberOfQueries: 100, numberOfFailedQueries: 20)
+        #expect(entry3.successRate == 0.8)
+
+        let entry4 = try makeEntry(averageResponseTime: 256.7)
+        #expect(entry4.avgResponseTimeFormatted == "257ms")
     }
 
-    @Test func idWithoutIndexerIdFallsBackToName() {
-        let entry = makeEntry(indexerName: "NZBGeek")
-        #expect(entry.id == "indexer-unknown-NZBGeek")
-    }
-
-    @Test func successRateCalculation() {
-        let entry = makeEntry(numberOfQueries: 100, numberOfFailedQueries: 20)
-        #expect(entry.successRate == 0.8)
-    }
-
-    @Test func successRateNilWhenZeroQueries() {
-        let entry = makeEntry(numberOfQueries: 0)
-        #expect(entry.successRate == nil)
-    }
-
-    @Test func successRateNilWhenNoQueries() {
-        let entry = makeEntry()
-        #expect(entry.successRate == nil)
-    }
-
-    @Test func successRatePerfect() {
-        let entry = makeEntry(numberOfQueries: 50, numberOfFailedQueries: 0)
-        #expect(entry.successRate == 1.0)
-    }
-
-    @Test func avgResponseTimeFormatted() {
-        let entry = makeEntry(averageResponseTime: 256.7)
-        #expect(entry.avgResponseTimeFormatted == "257ms")
-    }
-
-    @Test func avgResponseTimeNilWhenNil() {
-        let entry = makeEntry()
-        #expect(entry.avgResponseTimeFormatted == nil)
+    @Test("Search Type Properties", arguments: [
+        (ProwlarrSearchType.search, "All", "magnifyingglass"),
+        (.tvsearch, "TV", "tv"),
+        (.moviesearch, "Movies", "film"),
+        (.audiosearch, "Audio", "music.note")
+    ])
+    func searchTypeProperties(type: ProwlarrSearchType, name: String, image: String) {
+        #expect(type.displayName == name)
+        #expect(type.systemImage == image)
+        #expect(type.id == type.rawValue)
     }
 }
 
-// MARK: - ProwlarrIndexerStatus Tests
-
-struct ProwlarrIndexerStatusTests {
-
-    @Test func stableIDWithNonZeroID() throws {
-        let json = #"{"id": 5, "indexerId": 3}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
-        #expect(status.stableID == "status-5")
-    }
-
-    @Test func stableIDFallsBackToIndexerId() throws {
-        let json = #"{"id": 0, "indexerId": 7}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
-        #expect(status.stableID == "status-indexer-7")
-    }
-
-    @Test func isDisabledFalseWhenNoDisabledTill() throws {
-        let json = #"{"id": 1}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
-        #expect(status.isDisabled == false)
-    }
-
-    @Test func isDisabledTrueWhenDisabledTillInFuture() throws {
-        // Create a date far in the future
-        let future = Date().addingTimeInterval(3600 * 24 * 365)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let futureStr = formatter.string(from: future)
-        let json = #"{"id": 1, "disabledTill": "\#(futureStr)"}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
-        #expect(status.isDisabled == true)
-    }
-
-    @Test func isDisabledFalseWhenDisabledTillInPast() throws {
-        let past = Date().addingTimeInterval(-3600)
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        let pastStr = formatter.string(from: past)
-        let json = #"{"id": 1, "disabledTill": "\#(pastStr)"}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
-        #expect(status.isDisabled == false)
-    }
-}
-
-// MARK: - ProwlarrSearchType Tests
-
-struct ProwlarrSearchTypeTests {
-
-    @Test func allDisplayNames() {
-        #expect(ProwlarrSearchType.search.displayName == "All")
-        #expect(ProwlarrSearchType.tvsearch.displayName == "TV")
-        #expect(ProwlarrSearchType.moviesearch.displayName == "Movies")
-        #expect(ProwlarrSearchType.audiosearch.displayName == "Audio")
-    }
-
-    @Test func allSystemImages() {
-        #expect(ProwlarrSearchType.search.systemImage == "magnifyingglass")
-        #expect(ProwlarrSearchType.tvsearch.systemImage == "tv")
-        #expect(ProwlarrSearchType.moviesearch.systemImage == "film")
-        #expect(ProwlarrSearchType.audiosearch.systemImage == "music.note")
-    }
-
-    @Test func idEqualsRawValue() {
-        for type_ in ProwlarrSearchType.allCases {
-            #expect(type_.id == type_.rawValue)
-        }
-    }
-}
-
-// MARK: - ArrServiceManager State Tests
-
+@Suite("ArrServiceManager Tests")
 @MainActor
 struct ArrServiceManagerTests {
-
-    @Test func initialStateIsEmpty() {
+    @Test("Initial State")
+    func initialState() {
         let manager = ArrServiceManager()
         #expect(manager.sonarrInstances.isEmpty)
         #expect(manager.radarrInstances.isEmpty)
@@ -1075,435 +695,139 @@ struct ArrServiceManagerTests {
         #expect(manager.prowlarrConnected == false)
         #expect(manager.sonarrConnected == false)
         #expect(manager.radarrConnected == false)
+        #expect(manager.isInitializing == false)
+        #expect(manager.isLoadingHealth == false)
     }
 
-    @Test func disconnectAllClearsState() {
+    @Test("Disconnect All")
+    func disconnectAll() {
         let manager = ArrServiceManager()
         manager.disconnectAll()
         #expect(manager.sonarrInstances.isEmpty)
-        #expect(manager.radarrInstances.isEmpty)
         #expect(manager.prowlarrClient == nil)
-        #expect(manager.prowlarrConnected == false)
-        #expect(manager.sonarrHealthChecks.isEmpty)
-        #expect(manager.radarrHealthChecks.isEmpty)
-        #expect(manager.prowlarrHealthChecks.isEmpty)
         #expect(manager.sonarrBlocklist.isEmpty)
-        #expect(manager.radarrBlocklist.isEmpty)
     }
 
-    @Test func activeSonarrEntryNilWhenNoInstances() {
-        let manager = ArrServiceManager()
-        #expect(manager.activeSonarrEntry == nil)
-    }
-
-    @Test func activeRadarrEntryNilWhenNoInstances() {
-        let manager = ArrServiceManager()
-        #expect(manager.activeRadarrEntry == nil)
-    }
-
-    @Test func sonarrConnectedFalseWithEmptyInstances() {
-        let manager = ArrServiceManager()
-        #expect(manager.sonarrConnected == false)
-    }
-
-    @Test func radarrConnectedFalseWithEmptyInstances() {
-        let manager = ArrServiceManager()
-        #expect(manager.radarrConnected == false)
-    }
-
-    @Test func connectionErrorsEmptyInitially() {
-        let manager = ArrServiceManager()
-        #expect(manager.connectionErrors.isEmpty)
-    }
-
-    @Test func disconnectServiceProwlarrClearsClient() {
-        let manager = ArrServiceManager()
-        // prowlarrConnected starts false
-        manager.disconnectService(.prowlarr)
-        #expect(manager.prowlarrConnected == false)
-        #expect(manager.prowlarrClient == nil)
-    }
-
-    @Test func setActiveSonarrProfileIDUpdates() {
+    @Test("Set Active Profiles")
+    func setActiveProfiles() {
         let manager = ArrServiceManager()
         let uuid = UUID()
         manager.setActiveSonarr(uuid)
         #expect(manager.activeSonarrProfileID == uuid)
+
+        let radarrUuid = UUID()
+        manager.setActiveRadarr(radarrUuid)
+        #expect(manager.activeRadarrProfileID == radarrUuid)
     }
 
-    @Test func setActiveRadarrProfileIDUpdates() {
+    @Test("Clear Blocklist")
+    func clearBlocklist() async {
         let manager = ArrServiceManager()
-        let uuid = UUID()
-        manager.setActiveRadarr(uuid)
-        #expect(manager.activeRadarrProfileID == uuid)
-    }
-
-    @Test func clearBlocklistRemovesFromArrays() {
-        let manager = ArrServiceManager()
-        // Manually inject test blocklist items via private(set) workaround not possible;
-        // instead test that clearBlocklist with empty IDs doesn't crash
-        Task {
-            await manager.clearBlocklist(sonarrIDs: [], radarrIDs: [])
-        }
+        await manager.clearBlocklist(sonarrIDs: [], radarrIDs: [])
         #expect(manager.sonarrBlocklist.isEmpty)
         #expect(manager.radarrBlocklist.isEmpty)
     }
+}
 
-    @Test func syncProfilesUpdatesStoredProfiles() {
-        let manager = ArrServiceManager()
-        // syncProfiles is just a setter — shouldn't crash with empty array
-        manager.syncProfiles([])
-        // No crash means pass
+@Suite("Arr API Client Tests")
+struct ArrAPIClientTests {
+    @Test("Default Page Size")
+    func defaultPageSize() {
+        #expect(ArrAPIClient.defaultPageSize == 20)
     }
 
-    @Test func isInitializingFalseInitially() {
-        let manager = ArrServiceManager()
-        #expect(manager.isInitializing == false)
-    }
-
-    @Test func isLoadingHealthFalseInitially() {
-        let manager = ArrServiceManager()
-        #expect(manager.isLoadingHealth == false)
-    }
-
-    @Test func isLoadingBlocklistFalseInitially() {
-        let manager = ArrServiceManager()
-        #expect(manager.isLoadingBlocklist == false)
+    @Test("URL Trimming", arguments: [
+        ("http://localhost:8989/", "http://localhost:8989"),
+        ("  http://localhost:8989  ", "http://localhost:8989"),
+        ("  http://localhost:8989/  ", "http://localhost:8989"),
+        ("http://localhost:8989", "http://localhost:8989")
+    ])
+    func urlTrimming(input: String, expected: String) async {
+        let client = ArrAPIClient(baseURL: input, apiKey: "testkey")
+        let baseURL = await client.baseURL
+        #expect(baseURL == expected)
     }
 }
 
-// MARK: - ArrQueueItem CodingKeys Tests
-
-struct ArrQueueItemCodingKeysTests {
-
-    @Test func protocolFieldDecodedWithCodingKey() throws {
-        let json = #"{"id": 1, "protocol": "torrent"}"#
-        let data = json.data(using: .utf8)!
-        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
-        #expect(item.protocol_ == "torrent")
-    }
-
-    @Test func timeleftDecoded() throws {
-        let json = #"{"id": 1, "timeleft": "02:30:00"}"#
-        let data = json.data(using: .utf8)!
-        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
-        #expect(item.timeleft == "02:30:00")
-    }
-
-    @Test func allFieldsDecoded() throws {
+@Suite("Miscellaneous Parsing Tests")
+struct MiscellaneousParsingTests {
+    @Test("Queue Item Coding Keys")
+    func queueItemCodingKeys() throws {
         let json = #"""
         {
-          "id": 42,
-          "title": "Test Episode",
-          "status": "downloading",
-          "trackedDownloadStatus": "ok",
-          "trackedDownloadState": "downloading",
-          "protocol": "torrent",
-          "downloadClient": "qBittorrent",
-          "outputPath": "/downloads/test",
-          "size": 2000.0,
-          "sizeleft": 1000.0,
-          "timeleft": "00:30:00",
-          "seriesId": 5,
-          "episodeId": 10,
-          "seasonNumber": 2,
-          "movieId": null
+          "id": 42, "title": "Test Episode", "status": "downloading",
+          "trackedDownloadStatus": "ok", "trackedDownloadState": "downloading",
+          "protocol": "torrent", "downloadClient": "qBittorrent", "size": 2000.0,
+          "sizeleft": 1000.0, "timeleft": "00:30:00", "seriesId": 5, "episodeId": 10,
+          "seasonNumber": 2, "movieId": null
         }
         """#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
         #expect(item.id == 42)
-        #expect(item.title == "Test Episode")
         #expect(item.protocol_ == "torrent")
-        #expect(item.downloadClient == "qBittorrent")
-        #expect(item.seriesId == 5)
-        #expect(item.episodeId == 10)
-        #expect(item.seasonNumber == 2)
-        #expect(item.movieId == nil)
         #expect(item.progress == 0.5)
-    }
-}
-
-// MARK: - ArrQueuePage Tests
-
-struct ArrQueuePageTests {
-
-    @Test func decodeEmptyRecords() throws {
-        let json = #"{"page": 1, "pageSize": 20, "totalRecords": 0, "records": []}"#
-        let data = json.data(using: .utf8)!
-        let page = try JSONDecoder().decode(ArrQueuePage.self, from: data)
-        #expect(page.page == 1)
-        #expect(page.totalRecords == 0)
-        #expect(page.records?.isEmpty == true)
+        #expect(item.timeleft == "00:30:00")
     }
 
-    @Test func decodeWithRecords() throws {
+    @Test("ArrQueuePage Decoding")
+    func queuePageDecoding() throws {
         let json = #"{"page": 1, "pageSize": 10, "totalRecords": 1, "records": [{"id": 99}]}"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let page = try JSONDecoder().decode(ArrQueuePage.self, from: data)
         #expect(page.records?.count == 1)
         #expect(page.records?.first?.id == 99)
     }
-}
 
-// MARK: - ArrHistoryPage Tests
-
-struct ArrHistoryPageTests {
-
-    @Test func decodeHistoryPage() throws {
-        let json = #"""
-        {
-          "page": 1,
-          "pageSize": 20,
-          "sortKey": "date",
-          "sortDirection": "descending",
-          "totalRecords": 2,
-          "records": [
-            {"id": 1, "eventType": "grabbed", "sourceTitle": "Show.S01E01"},
-            {"id": 2, "eventType": "downloadFolderImported", "seriesId": 5, "episodeId": 10}
-          ]
-        }
-        """#
-        let data = json.data(using: .utf8)!
+    @Test("ArrHistoryPage Decoding")
+    func historyPageDecoding() throws {
+        let json = #"{"page": 1, "pageSize": 20, "totalRecords": 2, "records": [{"id": 1, "eventType": "grabbed", "sourceTitle": "Show.S01E01"}]}"#
+        let data = try #require(json.data(using: .utf8))
         let page = try JSONDecoder().decode(ArrHistoryPage.self, from: data)
         #expect(page.totalRecords == 2)
-        #expect(page.records?.count == 2)
         #expect(page.records?.first?.eventType == "grabbed")
-        #expect(page.records?.first?.sourceTitle == "Show.S01E01")
-        #expect(page.records?.last?.seriesId == 5)
     }
-}
 
-// MARK: - ArrBlocklistPage Tests
-
-struct ArrBlocklistPageTests {
-
-    @Test func decodeBlocklistPage() throws {
-        let json = #"""
-        {
-          "page": 1,
-          "pageSize": 20,
-          "totalRecords": 1,
-          "records": [
-            {
-              "id": 5,
-              "seriesId": 2,
-              "sourceTitle": "Bad.Release.HDTV",
-              "indexer": "MyIndexer",
-              "date": "2024-01-15T10:30:00Z"
-            }
-          ]
-        }
-        """#
-        let data = json.data(using: .utf8)!
+    @Test("ArrBlocklistPage Decoding")
+    func blocklistPageDecoding() throws {
+        let json = #"{"page": 1, "pageSize": 20, "totalRecords": 1, "records": [{"id": 5, "sourceTitle": "Bad.Release.HDTV"}]}"#
+        let data = try #require(json.data(using: .utf8))
         let page = try JSONDecoder().decode(ArrBlocklistPage.self, from: data)
         #expect(page.totalRecords == 1)
         #expect(page.records?.first?.id == 5)
-        #expect(page.records?.first?.sourceTitle == "Bad.Release.HDTV")
-        #expect(page.records?.first?.indexer == "MyIndexer")
     }
-}
 
-// MARK: - ArrSystemStatus Tests
-
-struct ArrSystemStatusTests {
-
-    @Test func decodeSystemStatus() throws {
-        let json = #"""
-        {
-          "appName": "Sonarr",
-          "instanceName": "MyInstance",
-          "version": "4.0.0",
-          "osName": "linux",
-          "isDocker": true
-        }
-        """#
-        let data = json.data(using: .utf8)!
+    @Test("ArrSystemStatus Decoding")
+    func systemStatusDecoding() throws {
+        let json = #"{"appName": "Sonarr", "instanceName": "MyInstance", "version": "4.0.0", "osName": "linux", "isDocker": true}"#
+        let data = try #require(json.data(using: .utf8))
         let status = try JSONDecoder().decode(ArrSystemStatus.self, from: data)
         #expect(status.appName == "Sonarr")
-        #expect(status.instanceName == "MyInstance")
         #expect(status.version == "4.0.0")
-        #expect(status.osName == "linux")
-        #expect(status.isDocker == true)
     }
 
-    @Test func decodeSystemStatusWithNilFields() throws {
-        let json = #"{}"#
-        let data = json.data(using: .utf8)!
-        let status = try JSONDecoder().decode(ArrSystemStatus.self, from: data)
-        #expect(status.appName == nil)
-        #expect(status.version == nil)
-    }
-}
-
-// MARK: - ArrQualityProfile Tests
-
-struct ArrQualityProfileTests {
-
-    @Test func decodeQualityProfile() throws {
-        let json = #"""
-        {
-          "id": 1,
-          "name": "Any",
-          "upgradeAllowed": true,
-          "cutoff": 5,
-          "items": []
-        }
-        """#
-        let data = json.data(using: .utf8)!
+    @Test("ArrQualityProfile Decoding")
+    func qualityProfileDecoding() throws {
+        let json = #"{"id": 1, "name": "Any", "upgradeAllowed": true, "cutoff": 5, "items": []}"#
+        let data = try #require(json.data(using: .utf8))
         let profile = try JSONDecoder().decode(ArrQualityProfile.self, from: data)
-        #expect(profile.id == 1)
         #expect(profile.name == "Any")
         #expect(profile.upgradeAllowed == true)
-        #expect(profile.cutoff == 5)
     }
-}
 
-// MARK: - ArrRootFolder Tests
-
-struct ArrRootFolderTests {
-
-    @Test func decodeRootFolder() throws {
-        let json = #"""
-        {
-          "id": 1,
-          "path": "/data/media/tv",
-          "accessible": true,
-          "freeSpace": 500000000000,
-          "totalSpace": 1000000000000
-        }
-        """#
-        let data = json.data(using: .utf8)!
+    @Test("ArrRootFolder Decoding")
+    func rootFolderDecoding() throws {
+        let json = #"{"id": 1, "path": "/data/media/tv", "accessible": true, "freeSpace": 500000000000}"#
+        let data = try #require(json.data(using: .utf8))
         let folder = try JSONDecoder().decode(ArrRootFolder.self, from: data)
-        #expect(folder.id == 1)
         #expect(folder.path == "/data/media/tv")
-        #expect(folder.accessible == true)
-        #expect(folder.freeSpace == 500000000000)
     }
-}
 
-// MARK: - ArrTag Tests
-
-struct ArrTagTests {
-
-    @Test func decodeTag() throws {
+    @Test("ArrTag Decoding")
+    func tagDecoding() throws {
         let json = #"{"id": 3, "label": "4k"}"#
-        let data = json.data(using: .utf8)!
+        let data = try #require(json.data(using: .utf8))
         let tag = try JSONDecoder().decode(ArrTag.self, from: data)
-        #expect(tag.id == 3)
         #expect(tag.label == "4k")
-    }
-}
-
-// MARK: - ArrAPIClient defaultPageSize Tests
-
-struct ArrAPIClientTests {
-
-    @Test func defaultPageSizeIs20() {
-        #expect(ArrAPIClient.defaultPageSize == 20)
-    }
-
-    @Test func initTrimsTrailingSlash() async {
-        let client = ArrAPIClient(baseURL: "http://localhost:8989/", apiKey: "testkey")
-        let baseURL = await client.baseURL
-        #expect(baseURL == "http://localhost:8989")
-    }
-
-    @Test func initTrimsWhitespace() async {
-        let client = ArrAPIClient(baseURL: "  http://localhost:8989  ", apiKey: "testkey")
-        let baseURL = await client.baseURL
-        #expect(baseURL == "http://localhost:8989")
-    }
-
-    @Test func initTrimsTrailingSlashAndWhitespace() async {
-        let client = ArrAPIClient(baseURL: "  http://localhost:8989/  ", apiKey: "testkey")
-        let baseURL = await client.baseURL
-        #expect(baseURL == "http://localhost:8989")
-    }
-
-    @Test func initPreservesPathWithNoTrailingSlash() async {
-        let client = ArrAPIClient(baseURL: "http://localhost:8989", apiKey: "testkey")
-        let baseURL = await client.baseURL
-        #expect(baseURL == "http://localhost:8989")
-    }
-}
-
-// MARK: - ArrServiceFilter Tests
-
-struct ArrServiceFilterTests {
-
-    @Test func allCasesCount() {
-        #expect(ArrServiceFilter.allCases.count == 4)
-    }
-
-    @Test func allTitles() {
-        #expect(ArrServiceFilter.all.title == "All")
-        #expect(ArrServiceFilter.sonarr.title == "Sonarr")
-        #expect(ArrServiceFilter.radarr.title == "Radarr")
-        #expect(ArrServiceFilter.prowlarr.title == "Prowlarr")
-    }
-}
-
-// MARK: - Regression / Edge Case Tests
-
-struct ArrSharedModelsRegressionTests {
-
-    @Test func queueItemProgressNeverExceedsOne() {
-        // size = 100, sizeleft = -10 (invalid but let's be defensive)
-        let json: [String: Any] = ["id": 1, "size": 100.0, "sizeleft": -10.0]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let item = try! JSONDecoder().decode(ArrQueueItem.self, from: data)
-        #expect(item.progress <= 1.0)
-    }
-
-    @Test func queueItemProgressNeverBelowZero() {
-        let json: [String: Any] = ["id": 1, "size": 100.0, "sizeleft": 200.0]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let item = try! JSONDecoder().decode(ArrQueueItem.self, from: data)
-        #expect(item.progress >= 0.0)
-    }
-
-    @Test func releaseCanGrabFalseWhenBothRejectedAndDownloadAllowedFalse() {
-        let json: [String: Any] = ["rejected": true, "downloadAllowed": false]
-        let data = try! JSONSerialization.data(withJSONObject: json)
-        let release = try! JSONDecoder().decode(ArrRelease.self, from: data)
-        #expect(release.canGrab == false)
-    }
-
-    @Test func arrReleaseSortDefaultRawValue() {
-        let sort = ArrReleaseSort()
-        let raw = sort.rawValue
-        // Should be a non-empty JSON string
-        #expect(!raw.isEmpty)
-        // Should round-trip
-        let decoded = ArrReleaseSort(rawValue: raw)
-        #expect(decoded?.option == .default)
-        #expect(decoded?.isAscending == false)
-    }
-
-    @Test func anyCodableValueArrayWithNullElements() throws {
-        let json = #"[null, "text", 42]"#
-        let data = json.data(using: .utf8)!
-        let value = try JSONDecoder().decode(AnyCodableValue.self, from: data)
-        if case .array(let arr) = value {
-            #expect(arr.count == 3)
-            // null element should have nil displayString
-            if case .null = arr[0] {
-                #expect(arr[0].displayString == nil)
-            }
-        } else {
-            Issue.record("Expected array")
-        }
-    }
-
-    @Test func prowlarrSearchResultIDIsStableForSameGuid() {
-        let makeResult: () -> ProwlarrSearchResult = {
-            let json: [String: Any] = ["guid": "stable-guid-123"]
-            let data = try! JSONSerialization.data(withJSONObject: json)
-            return try! JSONDecoder().decode(ProwlarrSearchResult.self, from: data)
-        }
-        let r1 = makeResult()
-        let r2 = makeResult()
-        #expect(r1.id == r2.id)
     }
 }

@@ -388,12 +388,8 @@ struct ContentView: View {
                     path: $morePath,
                     openSSHSession: { openSSHSession() },
                     selectSSHProfile: { profile in
-                        Task {
-                            await sshSessionStore.prepareSession(for: profile)
-                            await MainActor.run {
-                                openSSHSession()
-                            }
-                        }
+                        sshSessionStore.addSession(for: profile)
+                        openSSHSession()
                     }
                 )
                     .environment(arrServiceManager)
@@ -444,7 +440,7 @@ struct ContentView: View {
             sshSessionStore.wantsKeyboard = false
         }) {
             NavigationStack {
-                SSHSessionView()
+                SSHSessionContainerView()
             }
             .presentationDetents([.large])
             .presentationDragIndicator(.visible)
@@ -464,7 +460,8 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Your current terminal session will be closed.")
+            let count = sshSessionStore.sessions.count
+            Text(count > 1 ? "All \(count) terminal sessions will be closed." : "Your terminal session will be closed.")
         }
     }
 

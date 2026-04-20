@@ -14,6 +14,10 @@ struct ArrWantedView: View {
         _scope = State(initialValue: initialScope)
     }
 
+    private var hasConfiguredService: Bool {
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+    }
+
     private var hasConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
@@ -51,11 +55,17 @@ struct ArrWantedView: View {
 
     var body: some View {
         Group {
-            if !hasConnectedService {
+            if !hasConfiguredService {
                 ContentUnavailableView(
-                    "No Arr Services Connected",
-                    systemImage: "exclamationmark.triangle",
+                    "No Services Configured",
+                    systemImage: "server.rack",
                     description: Text("Connect Sonarr or Radarr to view monitored items that are still missing files.")
+                )
+            } else if !hasConnectedService {
+                ContentUnavailableView(
+                    "Services Unreachable",
+                    systemImage: "network.slash",
+                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
             } else if isLoading && isEmpty {
                 ProgressView("Loading wanted items...")
