@@ -44,18 +44,25 @@ class ShareViewController: UIViewController {
                 if provider.hasItemConformingToTypeIdentifier(torrentType.identifier) {
                     provider.loadItem(forTypeIdentifier: torrentType.identifier) { [weak self] item, _ in
                         if let url = item as? URL {
-                            Task {
-                                guard url.startAccessingSecurityScopedResource() else { return }
-                                defer { url.stopAccessingSecurityScopedResource() }
-                                
-                                if let data = try? Data(contentsOf: url) {
-                                    let fileName = url.lastPathComponent
-                                    DispatchQueue.main.async {
-                                        self?.torrentFileData = data
-                                        self?.torrentFileName = fileName
-                                        self?.presentShareUI()
-                                    }
+                            Task { @MainActor in
+                                guard url.startAccessingSecurityScopedResource() else {
+                                    self?.torrentFileData = nil
+                                    self?.torrentFileName = nil
+                                    self?.extensionContext?.completeRequest(returningItems: nil)
+                                    return
                                 }
+                                defer { url.stopAccessingSecurityScopedResource() }
+
+                                guard let data = try? Data(contentsOf: url) else {
+                                    self?.torrentFileData = nil
+                                    self?.torrentFileName = nil
+                                    self?.extensionContext?.completeRequest(returningItems: nil)
+                                    return
+                                }
+                                let fileName = url.lastPathComponent
+                                self?.torrentFileData = data
+                                self?.torrentFileName = fileName
+                                self?.presentShareUI()
                             }
                         }
                     }

@@ -54,8 +54,7 @@ struct ProwlarrIndexerDetailView: View {
             // MARK: Configuration Section
             if let fields = indexer.fields, !fields.isEmpty {
                 let visibleFields = fields.filter { field in
-                    guard let hidden = field.hidden else { return true }
-                    return hidden == "visible" || hidden.isEmpty
+                    field.hidden != "hidden"
                 }.filter { field in
                     field.type != "password" && field.advanced != true
                 }

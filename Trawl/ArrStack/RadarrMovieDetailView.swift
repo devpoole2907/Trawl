@@ -1937,6 +1937,7 @@ struct RadarrInteractiveSearchSheet: View {
     }
 
     private func grab(release: ArrRelease) async {
+        guard grabbingReleaseID == nil else { return }
         grabbingReleaseID = release.id
         let didGrab = await viewModel.grabRelease(release)
         grabbingReleaseID = nil

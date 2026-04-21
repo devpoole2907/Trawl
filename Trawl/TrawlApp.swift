@@ -103,7 +103,6 @@ struct TrawlApp: App {
         guard !destinationContextHasData(destinationContext) else { return }
 
         let sourceConfiguration = ModelConfiguration(
-            "DefaultStoreMigration",
             schema: schema,
             allowsSave: false,
             groupContainer: .none

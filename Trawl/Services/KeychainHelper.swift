@@ -24,7 +24,7 @@ enum KeychainError: LocalizedError {
 actor KeychainHelper {
     static let shared = KeychainHelper()
 
-    private let service = Bundle.main.bundleIdentifier ?? "com.poole.james.Trawl"
+    private let service = "com.poole.james.Trawl"
     private let accessGroup = KeychainAccessGroup.currentValue()
 
     func save(key: String, value: String) async throws {

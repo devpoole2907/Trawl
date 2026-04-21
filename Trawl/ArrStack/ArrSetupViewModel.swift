@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 
+@MainActor
 @Observable
 final class ArrSetupViewModel {
     var hostURL: String = ""
@@ -14,6 +15,7 @@ final class ArrSetupViewModel {
     var validatedStatus: ArrSystemStatus?
 
     private let serviceManager: ArrServiceManager
+    private var existingProfile: ArrServiceProfile?
 
     init(serviceManager: ArrServiceManager) {
         self.serviceManager = serviceManager
@@ -53,17 +55,27 @@ final class ArrSetupViewModel {
             )
             validatedStatus = status
 
-            // Save profile
+            // Save or update profile
             let name = displayName.isEmpty ? (status.instanceName ?? serviceType.displayName) : displayName
-            let profile = ArrServiceProfile(
-                displayName: name,
-                hostURL: trimmedURL,
-                serviceType: serviceType,
-                allowsUntrustedTLS: allowsUntrustedTLS
-            )
-            profile.apiVersion = status.version
 
-            modelContext.insert(profile)
+            let profile: ArrServiceProfile
+            if let existing = existingProfile {
+                existing.displayName = name
+                existing.hostURL = trimmedURL
+                existing.serviceType = serviceType.rawValue
+                existing.allowsUntrustedTLS = allowsUntrustedTLS
+                existing.apiVersion = status.version
+                profile = existing
+            } else {
+                profile = ArrServiceProfile(
+                    displayName: name,
+                    hostURL: trimmedURL,
+                    serviceType: serviceType,
+                    allowsUntrustedTLS: allowsUntrustedTLS
+                )
+                profile.apiVersion = status.version
+                modelContext.insert(profile)
+            }
 
             // Save API key to Keychain
             try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: trimmedKey)
@@ -88,6 +100,7 @@ final class ArrSetupViewModel {
 
     /// Pre-fill for editing an existing profile.
     func loadExisting(_ profile: ArrServiceProfile) async {
+        existingProfile = profile
         hostURL = profile.hostURL
         displayName = profile.displayName
         serviceType = profile.resolvedServiceType ?? .sonarr

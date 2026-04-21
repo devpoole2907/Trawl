@@ -85,11 +85,21 @@ struct ArrHistoryView: View {
     }
 
     private var hasConfiguredService: Bool {
-        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+        switch serviceFilter {
+        case .sonarr: serviceManager.hasSonarrInstance
+        case .radarr: serviceManager.hasRadarrInstance
+        case .all: serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+        case .prowlarr: false
+        }
     }
 
     private var hasConnectedService: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected
+        switch serviceFilter {
+        case .sonarr: serviceManager.sonarrConnected
+        case .radarr: serviceManager.radarrConnected
+        case .all: serviceManager.sonarrConnected || serviceManager.radarrConnected
+        case .prowlarr: false
+        }
     }
 
     private var isLoading: Bool {

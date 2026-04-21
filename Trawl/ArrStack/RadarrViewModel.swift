@@ -115,13 +115,15 @@ final class RadarrViewModel {
 
     func loadMovieFiles(movieId: Int) async {
         guard let client else { return }
+        movieFiles = []
         isLoadingFiles = true
+        defer { isLoadingFiles = false }
         do {
             movieFiles = try await client.getMovieFiles(movieId: movieId)
         } catch {
             self.error = error.localizedDescription
+            movieFiles = []
         }
-        isLoadingFiles = false
     }
 
     func refreshMovies() async throws {

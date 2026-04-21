@@ -65,6 +65,10 @@ actor ArrAPIClient {
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
+    deinit {
+        session.invalidateAndCancel()
+    }
+
     // MARK: - Shared Endpoints
 
     func getSystemStatus() async throws -> ArrSystemStatus {
@@ -284,16 +288,16 @@ actor ArrAPIClient {
 
         let urlString = request?.url?.absoluteString ?? "\(baseURL)\(path)"
         Self.logger.error("Interactive search diagnostic: \(message, privacy: .public)")
-        Self.logger.error("Interactive search URL: \(urlString, privacy: .public)")
+        Self.logger.error("Interactive search URL: \(urlString, privacy: .private)")
 
         if let error {
-            Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .private)")
         }
 
         if let responseData,
            let body = String(data: responseData, encoding: .utf8),
            !body.isEmpty {
-            Self.logger.error("Interactive search response body: \(body, privacy: .public)")
+            Self.logger.error("Interactive search response body: \(body, privacy: .private)")
         }
     }
     

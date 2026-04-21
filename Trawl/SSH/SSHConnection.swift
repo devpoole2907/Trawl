@@ -58,11 +58,16 @@ private final class SshReceiveBuffer: @unchecked Sendable {
     private var buffer = Data()
     private var readIndex = 0
     private let lock = NSLock()
+    private var dataContinuation: CheckedContinuation<Void, Never>?
 
     func append(_ data: Data) {
-        lock.lock(); defer { lock.unlock() }
+        lock.lock()
         compactBufferIfNeeded()
         buffer.append(data)
+        let cont = dataContinuation
+        dataContinuation = nil
+        lock.unlock()
+        cont?.resume()
     }
 
     func shouldPauseReceiving() -> Bool {
@@ -87,6 +92,21 @@ private final class SshReceiveBuffer: @unchecked Sendable {
         compactBufferIfNeeded()
         
         return n
+    }
+
+    /// Atomically check whether data is available; if so return immediately,
+    /// otherwise register a continuation that will be resumed when append() adds data.
+    func waitForData() async {
+        await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+            lock.lock()
+            if buffer.count > readIndex {
+                lock.unlock()
+                cont.resume()
+            } else {
+                dataContinuation = cont
+                lock.unlock()
+            }
+        }
     }
 
     private var unreadByteCount: Int {
@@ -239,6 +259,7 @@ private actor SshSessionActor {
     private var channel: OpaquePointer?
     private var contextRef: Unmanaged<SshSessionContext>?
     private var sessionToken = 0
+    private var receiveBuffer: SshReceiveBuffer?
 
     // Pending continuations waiting for new bytes to arrive (EAGAIN)
     private var pendingTasks: [CheckedContinuation<Void, Error>] = []
@@ -254,6 +275,7 @@ private actor SshSessionActor {
             try Libssh2RuntimeBootstrap.bootstrap()
         }
         sessionToken += 1
+        self.receiveBuffer = receiveBuffer
         let ctx = SshSessionContext(connection: connection, receiveBuffer: receiveBuffer)
         let ref = Unmanaged.passRetained(ctx)
         self.contextRef = ref
@@ -318,7 +340,8 @@ private actor SshSessionActor {
 
     func waitForBytes() async throws {
         guard !isChannelClosed else { return }
-        try await waitForRetry()
+        guard let buffer = receiveBuffer else { return }
+        await buffer.waitForData()
     }
 
     /// Retries `block` until it stops returning LIBSSH2_ERROR_EAGAIN.
@@ -331,7 +354,11 @@ private actor SshSessionActor {
 
             let rc = block()
             if rc == LIBSSH2_ERROR_EAGAIN {
-                try await waitForRetry()
+                if contextRef?.takeUnretainedValue().isBackpressured() == true {
+                    try await Task.sleep(nanoseconds: 50_000_000)
+                } else {
+                    try await waitForRetry()
+                }
             } else if rc < 0 {
                 throw lastErrorDetails()
             } else {

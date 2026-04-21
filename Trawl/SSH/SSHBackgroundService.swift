@@ -47,11 +47,7 @@ final class SSHBackgroundService {
     func handleBackgroundTask(_ task: BGAppRefreshTask) {
         scheduleNextTask()
 
-        task.expirationHandler = {
-            task.setTaskCompleted(success: false)
-        }
-
-        Task { @MainActor in
+        let bgTask = Task { @MainActor in
             let activeConnections = self.connections.values.filter { $0.state == .connected }
             if activeConnections.isEmpty {
                 self.logger.info("BGTask fired — no connected SSH sessions.")
@@ -65,6 +61,11 @@ final class SSHBackgroundService {
             }
             self.liveActivitySync?()
             task.setTaskCompleted(success: true)
+        }
+
+        task.expirationHandler = {
+            bgTask.cancel()
+            task.setTaskCompleted(success: false)
         }
     }
 

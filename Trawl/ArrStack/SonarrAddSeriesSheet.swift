@@ -137,6 +137,7 @@ struct SonarrAddSeriesSheet: View {
     }
 
     private func addSeries(_ series: SonarrSeries) async {
+        guard !isAdding else { return }
         guard let qpId = selectedQualityProfileId,
               let rootPath = selectedRootFolderPath,
               let tvdbId = series.tvdbId,
