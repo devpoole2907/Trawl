@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class TorrentListViewModel {
     var selectedFilter: TorrentFilter = .all
@@ -12,17 +13,24 @@ final class TorrentListViewModel {
     private(set) var filteredTorrents: [Torrent] = []
     private(set) var filterCounts: [TorrentFilter: Int] = [:]
 
-    // MARK: - Selection
+    // MARK: - Selection & Processing
     var isSelecting: Bool = false
     var selectedHashes: Set<String> = []
+    private(set) var processingHashes: Set<String> = []
 
     private let syncService: SyncService
     private let torrentService: TorrentService
+    private let notificationCenter: InAppNotificationCenter
     private var filterTask: Task<Void, Never>?
 
-    init(syncService: SyncService, torrentService: TorrentService) {
+    init(
+        syncService: SyncService,
+        torrentService: TorrentService,
+        notificationCenter: InAppNotificationCenter? = nil
+    ) {
         self.syncService = syncService
         self.torrentService = torrentService
+        self.notificationCenter = notificationCenter ?? .shared
     }
 
     // MARK: - Passthrough State
@@ -37,6 +45,7 @@ final class TorrentListViewModel {
     // MARK: - Selection Actions
 
     func toggleSelection(_ torrent: Torrent) {
+        notificationCenter.triggerImpact()
         if selectedHashes.contains(torrent.hash) {
             selectedHashes.remove(torrent.hash)
         } else {
@@ -55,49 +64,69 @@ final class TorrentListViewModel {
 
     func pauseSelected() async {
         let hashes = Array(selectedHashes)
+        hashes.forEach { processingHashes.insert($0) }
+        clearSelection()
+        
         do {
             try await torrentService.pauseTorrents(hashes: hashes)
+            notificationCenter.showSuccess(title: "Paused", message: "\(hashes.count) torrents paused.")
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Pause Torrents", message: error.localizedDescription)
+            hashes.forEach { processingHashes.remove($0) }
         }
-        clearSelection()
     }
 
     func resumeSelected() async {
         let hashes = Array(selectedHashes)
+        hashes.forEach { processingHashes.insert($0) }
+        clearSelection()
+        
         do {
             try await torrentService.resumeTorrents(hashes: hashes)
+            notificationCenter.showSuccess(title: "Resumed", message: "\(hashes.count) torrents resumed.")
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Resume Torrents", message: error.localizedDescription)
+            hashes.forEach { processingHashes.remove($0) }
         }
-        clearSelection()
     }
 
     func recheckSelected() async {
         let hashes = Array(selectedHashes)
+        hashes.forEach { processingHashes.insert($0) }
+        clearSelection()
+        
         do {
             try await torrentService.recheckTorrents(hashes: hashes)
+            notificationCenter.showSuccess(title: "Rechecking", message: "\(hashes.count) torrents queued for recheck.")
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Recheck Torrents", message: error.localizedDescription)
+            hashes.forEach { processingHashes.remove($0) }
         }
-        clearSelection()
     }
 
     func deleteSelected(deleteFiles: Bool) async {
         let hashes = Array(selectedHashes)
+        hashes.forEach { processingHashes.insert($0) }
+        clearSelection()
+        
         do {
             try await torrentService.deleteTorrents(hashes: hashes, deleteFiles: deleteFiles)
+            notificationCenter.showSuccess(title: "Deleted", message: "\(hashes.count) torrents removed.")
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: deleteFiles ? "Couldn't Delete Torrents and Files" : "Couldn't Delete Torrents",
                 message: error.localizedDescription
             )
+            hashes.forEach { processingHashes.remove($0) }
         }
-        clearSelection()
     }
 
     // MARK: - Sync
@@ -132,8 +161,10 @@ final class TorrentListViewModel {
             try await torrentService.toggleAlternativeSpeed()
             isAlternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
             await syncService.refreshNow()
+            notificationCenter.showSuccess(title: "Speed Mode Changed", message: "Alternative speed mode is now \(isAlternativeSpeedEnabled ? "enabled" : "disabled").")
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Toggle Alternative Speed",
                 message: error.localizedDescription
@@ -167,11 +198,22 @@ final class TorrentListViewModel {
         let filter = selectedFilter
         let search = searchText
         let sort = sortOrder
-        filterTask = Task.detached(priority: .userInitiated) { [weak self] in
+        filterTask = Task.detached(priority: .userInitiated) {
             let result = Self.compute(torrents: snapshot, filter: filter, searchText: search, sortOrder: sort)
-            await MainActor.run { [weak self] in
-                self?.filteredTorrents = result.sorted
-                self?.filterCounts = result.counts
+
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.filteredTorrents = result.sorted
+                self.filterCounts = result.counts
+
+                // Remove from processing hashes if the torrent is no longer in the sync data
+                // or if we want to be safe and just clear them after any successful sync.
+                // For simplicity, let's clear processing hashes that are now represented in the new data.
+                for hash in self.processingHashes {
+                    if snapshot[hash] != nil {
+                        self.processingHashes.remove(hash)
+                    }
+                }
             }
         }
     }
@@ -238,50 +280,66 @@ final class TorrentListViewModel {
     // MARK: - Actions
 
     func pauseTorrent(_ torrent: Torrent) async {
+        processingHashes.insert(torrent.hash)
         do {
             try await torrentService.pauseTorrents(hashes: [torrent.hash])
+            notificationCenter.showSuccess(title: "Paused", message: torrent.name)
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Pause Torrent",
                 message: error.localizedDescription
             )
+            processingHashes.remove(torrent.hash)
         }
     }
 
     func resumeTorrent(_ torrent: Torrent) async {
+        processingHashes.insert(torrent.hash)
         do {
             try await torrentService.resumeTorrents(hashes: [torrent.hash])
+            notificationCenter.showSuccess(title: "Resumed", message: torrent.name)
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Resume Torrent",
                 message: error.localizedDescription
             )
+            processingHashes.remove(torrent.hash)
         }
     }
 
     func recheckTorrent(_ torrent: Torrent) async {
+        processingHashes.insert(torrent.hash)
         do {
             try await torrentService.recheckTorrents(hashes: [torrent.hash])
+            notificationCenter.showSuccess(title: "Rechecking", message: torrent.name)
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Recheck Torrent",
                 message: error.localizedDescription
             )
+            processingHashes.remove(torrent.hash)
         }
     }
 
     func deleteTorrent(_ torrent: Torrent, deleteFiles: Bool) async {
+        processingHashes.insert(torrent.hash)
         do {
             try await torrentService.deleteTorrents(hashes: [torrent.hash], deleteFiles: deleteFiles)
+            notificationCenter.showSuccess(title: "Deleted", message: torrent.name)
             actionErrorAlert = nil
         } catch {
+            notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
                 title: deleteFiles ? "Couldn't Delete Torrent and Files" : "Couldn't Delete Torrent",
                 message: error.localizedDescription
             )
+            processingHashes.remove(torrent.hash)
         }
     }
 }

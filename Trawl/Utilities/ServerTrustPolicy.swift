@@ -1,7 +1,7 @@
 import Foundation
 import Security
 
-final class ServerTrustPolicy: NSObject, URLSessionDelegate, @unchecked Sendable {
+final class ServerTrustPolicy: NSObject, URLSessionDelegate, Sendable {
     private let allowsUntrustedTLS: Bool
 
     init(allowsUntrustedTLS: Bool) {

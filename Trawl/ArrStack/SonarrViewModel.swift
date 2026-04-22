@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import SwiftUI
 
 enum ArrServiceError: Error, LocalizedError {
     case clientNotAvailable
@@ -140,6 +141,7 @@ final class SonarrViewModel {
     func refreshSeries() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.refreshSeries()
+        InAppNotificationCenter.shared.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
         // Re-fetch after a brief delay for the refresh command to process
         try? await Task.sleep(for: .seconds(2))
         await loadSeries()
@@ -181,6 +183,7 @@ final class SonarrViewModel {
             }
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
         }
     }
 
@@ -220,15 +223,14 @@ final class SonarrViewModel {
 
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
             await serviceManager.calendarViewModel.refresh()
-            await MainActor.run {
-                InAppNotificationCenter.shared.showMonitoringChanged(
-                    itemName: series.title,
-                    itemType: "Series",
-                    isMonitoring: newMonitored
-                )
-            }
+            InAppNotificationCenter.shared.showMonitoringChanged(
+                itemName: series.title,
+                itemType: "Series",
+                isMonitoring: newMonitored
+            )
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
             await loadSeries() // Revert on failure
         }
     }
@@ -237,8 +239,10 @@ final class SonarrViewModel {
         guard let client else { return }
         do {
             _ = try await client.searchEpisodes(episodeIds: [episode.id])
+            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for episode.")
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
         }
     }
 
@@ -246,8 +250,10 @@ final class SonarrViewModel {
         guard let client else { return }
         do {
             _ = try await client.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
+            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for season \(seasonNumber).")
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
         }
     }
 
@@ -269,10 +275,12 @@ final class SonarrViewModel {
         error = nil
         do {
             try await client.grabRelease(release)
+            InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
             await loadQueue()
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -330,7 +338,16 @@ final class SonarrViewModel {
             guard searchRequestToken == requestToken else {
                 return
             }
-            searchResults = results
+            
+            // Stream in the results one by one for a more async feel
+            for result in results {
+                guard !Task.isCancelled && searchRequestToken == requestToken else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    searchResults.append(result)
+                }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            
             isSearching = false
         } catch is CancellationError {
             if searchRequestToken == requestToken {
@@ -394,21 +411,20 @@ final class SonarrViewModel {
             _ = try await client.addSeries(body)
             await loadSeries()
             await serviceManager.calendarViewModel.refresh()
-            await MainActor.run {
-                InAppNotificationCenter.shared.showMonitoringChanged(
-                    itemName: title,
-                    itemType: "Series",
-                    isMonitoring: monitored
-                )
-            }
+            InAppNotificationCenter.shared.showMonitoringChanged(
+                itemName: title,
+                itemType: "Series",
+                isMonitoring: monitored
+            )
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Add Failed", message: error.localizedDescription)
             return false
         }
     }
 
-    // MARK: - Delete
+    // MARK: - Update
 
     func updateSeries(
         _ series: SonarrSeries,
@@ -432,21 +448,28 @@ final class SonarrViewModel {
             _ = try await client.updateSeries(updatedSeries, moveFiles: false)
             await loadSeries()
             await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: series.title)
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
             return false
         }
     }
 
+    // MARK: - Delete
+
     func deleteSeries(id: Int, deleteFiles: Bool = false) async {
         guard let client else { return }
+        let seriesTitle = series.first(where: { $0.id == id })?.title ?? "Series"
         do {
             try await client.deleteSeries(id: id, deleteFiles: deleteFiles)
             series.removeAll { $0.id == id }
             await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: seriesTitle)
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
         }
     }
 
@@ -457,6 +480,7 @@ final class SonarrViewModel {
         do {
             error = nil
             try await client.deleteEpisodeFile(id: id)
+            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Episode file removed.")
 
             if let seriesId {
                 await loadEpisodeFiles(for: seriesId)
@@ -466,6 +490,7 @@ final class SonarrViewModel {
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -515,19 +540,23 @@ final class SonarrViewModel {
         do {
             try await client.deleteQueueItem(id: id, blocklist: blocklist)
             queue.removeAll { $0.id == id }
+            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
         }
     }
 
     func searchAllMissing() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.searchAllMissing()
+        InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for all missing episodes.")
     }
 
     func rssSync() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.rssSync()
+        InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
     }
 
     var canLoadMoreWantedMissing: Bool {

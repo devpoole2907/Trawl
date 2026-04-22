@@ -11,7 +11,7 @@ import CoreServices
 @main
 struct TrawlApp: App {
     private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "App")
-    
+
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
     @State private var sshSessionStore = SSHSessionStore()
@@ -26,23 +26,26 @@ struct TrawlApp: App {
             ArrServiceProfile.self,
             SSHProfile.self
         ])
-        // Try the shared app group container first (needed for Share Extension access).
-        // Fall back to the default container if the group isn't provisioned (e.g. simulator).
+
         do {
-            let groupConfiguration = ModelConfiguration(groupContainer: .identifier(AppGroup.identifier))
+            let groupConfiguration = ModelConfiguration(
+                schema: schema,
+                groupContainer: .identifier(AppGroup.identifier)
+            )
             let groupContainer = try ModelContainer(for: schema, configurations: [groupConfiguration])
             try Self.migrateDefaultStoreIfNeeded(schema: schema, destination: groupContainer)
             modelContainer = groupContainer
         } catch {
             Self.logger.error("Failed to initialize App Group ModelContainer: \(error.localizedDescription, privacy: .public)")
             do {
-                modelContainer = try ModelContainer(for: schema)
+                let localConfiguration = ModelConfiguration(schema: schema)
+                modelContainer = try ModelContainer(for: schema, configurations: [localConfiguration])
             } catch {
                 Self.logger.error("Failed to initialize default ModelContainer: \(error.localizedDescription, privacy: .public)")
                 do {
-                    let inMemoryConfiguration = ModelConfiguration(isStoredInMemoryOnly: true)
+                    let inMemoryConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
                     modelContainer = try ModelContainer(for: schema, configurations: [inMemoryConfiguration])
-                    
+
                     Task { @MainActor in
                         InAppNotificationCenter.shared.showError(
                             title: "Storage Error",
@@ -56,12 +59,10 @@ struct TrawlApp: App {
             }
         }
 
-        // Register with Launch Services so macOS knows this app handles magnet: URLs
         #if os(macOS)
         LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
         #endif
 
-        // Register background task for torrent completion notifications (iOS only)
         #if os(iOS)
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "com.poole.james.Trawl.torrentCheck",
@@ -196,6 +197,7 @@ struct TrawlApp: App {
                 copy.dateAdded = arrProfile.dateAdded
                 copy.lastSynced = arrProfile.lastSynced
                 copy.apiVersion = arrProfile.apiVersion
+                copy.importFolders = arrProfile.importFolders
                 destinationContext.insert(copy)
             }
 

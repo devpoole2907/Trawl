@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TorrentRowView: View {
     let torrent: Torrent
+    var isProcessing: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -18,6 +19,17 @@ struct TorrentRowView: View {
 
                 if let category = torrent.category, !category.isEmpty {
                     BadgeLabel(title: category)
+                }
+                
+                if isProcessing {
+                    HStack(spacing: 4) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        Text("Processing...")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.leading, 4)
                 }
             }
 
@@ -62,6 +74,8 @@ struct TorrentRowView: View {
             }
         }
         .padding(.vertical, 6)
+        .opacity(isProcessing ? 0.6 : 1.0)
+        .animation(.default, value: isProcessing)
         .accessibilityElement(children: .combine)
     }
 

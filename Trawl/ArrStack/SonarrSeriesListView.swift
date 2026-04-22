@@ -7,6 +7,7 @@ struct SonarrSeriesListView: View {
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: SonarrViewModel?
     @State private var showSettings = false
+    @State private var showAddSheet = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteSeries: SonarrSeries?
@@ -36,11 +37,16 @@ struct SonarrSeriesListView: View {
                 ContentUnavailableView {
                     Label("Sonarr Not Set Up", systemImage: "tv")
                 } description: {
-                    Text("Add a Sonarr server in Settings to get started.")
+                    Text("Add a Sonarr server to get started.")
                 } actions: {
                     Button("Add Server", systemImage: "plus") {
-                        showSettings = true
+                        if profiles.filter({ $0.resolvedServiceType == .sonarr }).isEmpty {
+                            showAddSheet = true
+                        } else {
+                            showSettings = true
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
                 }
             } else {
                 ProgressView()
@@ -93,6 +99,12 @@ struct SonarrSeriesListView: View {
                         }
                 }
             }
+        }
+        .sheet(isPresented: $showAddSheet) {
+            ArrSetupSheet(initialServiceType: .sonarr, onComplete: {
+                Task { await serviceManager.refreshConfiguration() }
+            })
+            .environment(serviceManager)
         }
         .sheet(isPresented: $showCalendar) {
             NavigationStack {

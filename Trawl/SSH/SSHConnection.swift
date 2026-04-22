@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import CSSH
+import Synchronization
 
 // MARK: - Errors
 
@@ -51,91 +52,101 @@ enum SSHAuth: Sendable {
 // MARK: - Thread-safe receive buffer
 
 /// NWConnection fills this; libssh2's recv callback drains it synchronously.
-private final class SshReceiveBuffer: @unchecked Sendable {
+private final class SshReceiveBuffer: Sendable {
     private static let maxBufferedBytes = 1_048_576
     private static let compactionThreshold = 8_192
 
-    private var buffer = Data()
-    private var readIndex = 0
-    private let lock = NSLock()
-    private var dataContinuation: CheckedContinuation<Void, Never>?
+    private struct State: Sendable {
+        var buffer = Data()
+        var readIndex = 0
+        var dataContinuation: CheckedContinuation<Void, Never>?
+    }
+
+    private let state = Mutex(State())
 
     func append(_ data: Data) {
-        lock.lock()
-        compactBufferIfNeeded()
-        buffer.append(data)
-        let cont = dataContinuation
-        dataContinuation = nil
-        lock.unlock()
+        let cont = state.withLock { state in
+            compactBufferIfNeeded(state: &state)
+            state.buffer.append(data)
+            let continuation = state.dataContinuation
+            state.dataContinuation = nil
+            return continuation
+        }
         cont?.resume()
     }
 
     func shouldPauseReceiving() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        compactBufferIfNeeded()
-        return unreadByteCount >= Self.maxBufferedBytes
+        state.withLock { state in
+            compactBufferIfNeeded(state: &state)
+            return unreadByteCount(state: state) >= Self.maxBufferedBytes
+        }
     }
 
     /// Copy up to `maxLength` bytes into `ptr`. Returns bytes copied, or -EAGAIN when empty.
     func read(into ptr: UnsafeMutableRawPointer, maxLength: Int) -> Int {
-        lock.lock(); defer { lock.unlock() }
-        
-        let available = buffer.count - readIndex
-        guard available > 0 else { return -Int(EAGAIN) }
-        
-        let n = min(maxLength, available)
-        buffer.withUnsafeBytes { src in
-            let base = src.baseAddress!.advanced(by: readIndex)
-            ptr.copyMemory(from: base, byteCount: n)
+        state.withLock { state in
+            let available = state.buffer.count - state.readIndex
+            guard available > 0 else { return -Int(EAGAIN) }
+
+            let n = min(maxLength, available)
+            state.buffer.withUnsafeBytes { src in
+                let base = src.baseAddress!.advanced(by: state.readIndex)
+                ptr.copyMemory(from: base, byteCount: n)
+            }
+            state.readIndex += n
+            compactBufferIfNeeded(state: &state)
+
+            return n
         }
-        readIndex += n
-        compactBufferIfNeeded()
-        
-        return n
     }
 
     /// Atomically check whether data is available; if so return immediately,
     /// otherwise register a continuation that will be resumed when append() adds data.
     func waitForData() async {
         await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-            lock.lock()
-            if buffer.count > readIndex {
-                lock.unlock()
+            let shouldResumeImmediately = state.withLock { state in
+                if state.buffer.count > state.readIndex {
+                    return true
+                } else {
+                    state.dataContinuation = cont
+                    return false
+                }
+            }
+            if shouldResumeImmediately {
                 cont.resume()
-            } else {
-                dataContinuation = cont
-                lock.unlock()
             }
         }
     }
 
-    private var unreadByteCount: Int {
-        buffer.count - readIndex
+    private func unreadByteCount(state: State) -> Int {
+        state.buffer.count - state.readIndex
     }
 
-    private func compactBufferIfNeeded() {
-        guard readIndex > 0 else { return }
+    private func compactBufferIfNeeded(state: inout State) {
+        guard state.readIndex > 0 else { return }
         let shouldCompact =
-            readIndex >= Self.compactionThreshold ||
-            readIndex >= buffer.count / 2 ||
-            unreadByteCount >= Self.maxBufferedBytes / 2
+            state.readIndex >= Self.compactionThreshold ||
+            state.readIndex >= state.buffer.count / 2 ||
+            unreadByteCount(state: state) >= Self.maxBufferedBytes / 2
         guard shouldCompact else { return }
-        buffer.removeFirst(readIndex)
-        readIndex = 0
+        state.buffer.removeFirst(state.readIndex)
+        state.readIndex = 0
     }
 }
 
 // MARK: - Session context (passed as libssh2 "abstract" pointer)
 
-private final class SshSessionContext: @unchecked Sendable {
+private final class SshSessionContext: Sendable {
     let connection: NWConnection
     let receiveBuffer: SshReceiveBuffer
-    
-    // Tracking for backpressure and error propagation
-    private let lock = NSLock()
-    nonisolated(unsafe) private(set) var pendingSendBytes = 0
-    nonisolated(unsafe) private(set) var sendError: Error?
-    
+
+    private struct State: Sendable {
+        var pendingSendBytes = 0
+        var sendError: Error?
+    }
+
+    private let state = Mutex(State())
+
     nonisolated
     init(connection: NWConnection, receiveBuffer: SshReceiveBuffer) {
         self.connection = connection
@@ -143,48 +154,50 @@ private final class SshSessionContext: @unchecked Sendable {
     }
 
     func incrementPending(_ count: Int) {
-        lock.lock(); defer { lock.unlock() }
-        pendingSendBytes += count
+        state.withLock { state in
+            state.pendingSendBytes += count
+        }
     }
 
     func decrementPending(_ count: Int, error: Error?) {
-        lock.lock(); defer { lock.unlock() }
-        pendingSendBytes -= count
-        if let error, sendError == nil {
-            sendError = error
+        state.withLock { state in
+            state.pendingSendBytes -= count
+            if let error, state.sendError == nil {
+                state.sendError = error
+            }
         }
     }
 
     nonisolated
     func isBackpressured() -> Bool {
-        lock.lock(); defer { lock.unlock() }
-        return pendingSendBytes >= 1024 * 1024
+        state.withLock { state in
+            state.pendingSendBytes >= 1024 * 1024
+        }
     }
 
     nonisolated
     func transportError() -> Error? {
-        lock.lock(); defer { lock.unlock() }
-        return sendError
+        state.withLock { state in
+            state.sendError
+        }
     }
 }
 
-private final class ContinuationResumeGate: @unchecked Sendable {
-    private let lock = NSLock()
-    nonisolated(unsafe) private var didResume = false
+private final class ContinuationResumeGate: Sendable {
+    private let didResume = Mutex(false)
 
     nonisolated
     func tryResume() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        guard !didResume else { return false }
-        didResume = true
-        return true
+        didResume.withLock { didResume in
+            guard !didResume else { return false }
+            didResume = true
+            return true
+        }
     }
 }
 
-@MainActor
 enum Libssh2RuntimeBootstrap {
-    private static let result: Result<Void, SSHConnectionError> = {
+    nonisolated private static let result: Result<Void, SSHConnectionError> = {
         let result = libssh2_init(0)
         guard result == 0 else {
             return .failure(.connectionFailed("libssh2_init failed with code \(result)"))
@@ -195,7 +208,7 @@ enum Libssh2RuntimeBootstrap {
         return .success(())
     }()
 
-    static func bootstrap() throws {
+    nonisolated static func bootstrap() throws {
         try result.get()
     }
 }
@@ -271,9 +284,7 @@ private actor SshSessionActor {
     // MARK: Setup / Teardown
 
     func setup(connection: NWConnection, receiveBuffer: SshReceiveBuffer) async throws {
-        try await MainActor.run {
-            try Libssh2RuntimeBootstrap.bootstrap()
-        }
+        try Libssh2RuntimeBootstrap.bootstrap()
         sessionToken += 1
         self.receiveBuffer = receiveBuffer
         let ctx = SshSessionContext(connection: connection, receiveBuffer: receiveBuffer)
@@ -581,7 +592,7 @@ private actor SshSessionActor {
 
 @MainActor
 @Observable
-final class SSHConnection: @unchecked Sendable {
+final class SSHConnection {
 
     enum State: Equatable {
         case disconnected, connecting, connected
@@ -814,11 +825,9 @@ final class SSHConnection: @unchecked Sendable {
                         return
                     }
                     if buffer.shouldPauseReceiving() {
-                        Task.detached(priority: .utility) {
+                        Task(priority: .utility) {
                             try? await Task.sleep(for: .milliseconds(25))
-                            await MainActor.run {
-                                scheduleReceive()
-                            }
+                            scheduleReceive()
                         }
                     } else {
                         scheduleReceive()
@@ -833,12 +842,12 @@ final class SSHConnection: @unchecked Sendable {
 
     private func startReadLoop() {
         guard let conn = nwConnection else { return }
-        readLoopTask = Task.detached(priority: .userInitiated) { [weak self] in
+        readLoopTask = Task(priority: .userInitiated) { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 do {
                     if let bytes = try await self.sshActor.readChannel(), !bytes.isEmpty {
-                        await MainActor.run { self.onOutput?(bytes) }
+                        self.onOutput?(bytes)
                     } else if await self.sshActor.isChannelClosed {
                         await self.handleTransportClosed(for: conn, error: nil)
                         return
@@ -860,7 +869,7 @@ final class SSHConnection: @unchecked Sendable {
     }
 
     private func startKeepaliveLoop() {
-        keepaliveTask = Task.detached(priority: .utility) { [weak self] in
+        keepaliveTask = Task(priority: .utility) { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(15))
                 guard !Task.isCancelled, let self else { return }

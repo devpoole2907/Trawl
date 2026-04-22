@@ -44,6 +44,12 @@ struct SearchView: View {
     // Recents
     @AppStorage("search.recents") private var recentsStorage: String = "[]"
 
+    // Incremental Library Matches
+    @State private var matchedTorrents: [Torrent] = []
+    @State private var matchedSeries: [SonarrSeries] = []
+    @State private var matchedMovies: [RadarrMovie] = []
+    @State private var librarySearchTask: Task<Void, Never>?
+
     // MARK: - Body
 
     var body: some View {
@@ -131,12 +137,15 @@ struct SearchView: View {
             }
         }
         .onChange(of: searchText) { _, newValue in
-            guard scope == .arr else { return }
-            let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-            if trimmed.isEmpty {
-                resetArrLookup()
+            if scope == .arr {
+                let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                if trimmed.isEmpty {
+                    resetArrLookup()
+                } else {
+                    startArrLookup()
+                }
             } else {
-                startArrLookup()
+                startLibrarySearch()
             }
         }
         .task {
@@ -405,24 +414,21 @@ struct SearchView: View {
 
     @ViewBuilder
     private var resultsContent: some View {
-        let torrentHits  = matchedTorrents
-        let seriesHits   = matchedSeries
-        let movieHits    = matchedMovies
-        let totalCount   = torrentHits.count + seriesHits.count + movieHits.count
+        let totalCount = matchedTorrents.count + matchedSeries.count + matchedMovies.count
 
         VStack(spacing: 0) {
-            filterPills(torrents: torrentHits.count,
-                        series: seriesHits.count,
-                        movies: movieHits.count)
+            filterPills(torrents: matchedTorrents.count,
+                        series: matchedSeries.count,
+                        movies: matchedMovies.count)
 
             if totalCount == 0 {
                 ContentUnavailableView.search(text: searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    if shouldShow(.torrents), !torrentHits.isEmpty {
+                    if shouldShow(.torrents), !matchedTorrents.isEmpty {
                         Section("Torrents") {
-                            ForEach(torrentHits) { torrent in
+                            ForEach(matchedTorrents) { torrent in
                                 NavigationLink(value: torrent.hash) {
                                     TorrentRowView(torrent: torrent)
                                 }
@@ -430,9 +436,9 @@ struct SearchView: View {
                         }
                     }
 
-                    if shouldShow(.series), !seriesHits.isEmpty {
+                    if shouldShow(.series), !matchedSeries.isEmpty {
                         Section("Series") {
-                            ForEach(seriesHits) { series in
+                            ForEach(matchedSeries) { series in
                                 let isMonitored = series.monitored ?? true
                                 NavigationLink(value: SeriesDestination(id: series.id)) {
                                     SonarrSeriesRow(series: series, hasIssue: false)
@@ -462,9 +468,9 @@ struct SearchView: View {
                         }
                     }
 
-                    if shouldShow(.movies), !movieHits.isEmpty {
+                    if shouldShow(.movies), !matchedMovies.isEmpty {
                         Section("Movies") {
-                            ForEach(movieHits) { movie in
+                            ForEach(matchedMovies) { movie in
                                 let isMonitored = movie.monitored ?? true
                                 NavigationLink(value: MovieDestination(id: movie.id)) {
                                     RadarrMovieRow(movie: movie, hasIssue: false)
@@ -569,9 +575,15 @@ struct SearchView: View {
             arrFilterPills(series: seriesResults.count, movies: movieResults.count)
 
             if totalCount == 0 && isSearching {
-                Spacer()
-                ProgressView("Searching…")
-                Spacer()
+                VStack(spacing: 16) {
+                    Spacer(minLength: 80)
+                    ProgressView()
+                    Text("Searching Sonarr and Radarr…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity)
             } else if totalCount == 0 && hasSearchedArr {
                 if lookupErrors.isEmpty {
                     ContentUnavailableView.search(text: searchText)
@@ -596,7 +608,7 @@ struct SearchView: View {
                             HStack(spacing: 10) {
                                 ProgressView()
                                     .controlSize(.small)
-                                Text("Updating results as Sonarr and Radarr respond…")
+                                Text("Updating results as services respond…")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
                             }
@@ -994,30 +1006,64 @@ struct SearchView: View {
         }
     }
 
-    // MARK: - Library matches
+    // MARK: - Library search implementation
 
-    private var matchedTorrents: [Torrent] {
-        guard let services = appServices, !searchText.isEmpty else { return [] }
-        let q = searchText.lowercased()
-        return services.syncService.torrents.values
-            .filter { $0.name.lowercased().contains(q) }
-            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-    }
+    private func startLibrarySearch() {
+        librarySearchTask?.cancel()
+        
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        if query.isEmpty {
+            matchedTorrents = []
+            matchedSeries = []
+            matchedMovies = []
+            return
+        }
 
-    private var matchedSeries: [SonarrSeries] {
-        guard !searchText.isEmpty else { return [] }
-        let q = searchText.lowercased()
-        return sonarrSeries
-            .filter { $0.title.lowercased().contains(q) }
-            .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
-    }
+        librarySearchTask = Task {
+            // Torrents
+            if let syncService = appServices?.syncService {
+                let torrents = syncService.torrents.values
+                    .filter { $0.name.lowercased().contains(query) }
+                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+                
+                matchedTorrents = []
+                for chunk in torrents.chunked(into: 5) {
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.spring(response: 0.3)) {
+                        matchedTorrents.append(contentsOf: chunk)
+                    }
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+            }
 
-    private var matchedMovies: [RadarrMovie] {
-        guard !searchText.isEmpty else { return [] }
-        let q = searchText.lowercased()
-        return radarrMovies
-            .filter { $0.title.lowercased().contains(q) }
-            .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
+            // Series
+            let series = sonarrSeries
+                .filter { $0.title.lowercased().contains(query) }
+                .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
+            
+            matchedSeries = []
+            for chunk in series.chunked(into: 5) {
+                guard !Task.isCancelled else { return }
+                withAnimation(.spring(response: 0.3)) {
+                    matchedSeries.append(contentsOf: chunk)
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+
+            // Movies
+            let movies = radarrMovies
+                .filter { $0.title.lowercased().contains(query) }
+                .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
+            
+            matchedMovies = []
+            for chunk in movies.chunked(into: 5) {
+                guard !Task.isCancelled else { return }
+                withAnimation(.spring(response: 0.3)) {
+                    matchedMovies.append(contentsOf: chunk)
+                }
+                try? await Task.sleep(for: .milliseconds(10))
+            }
+        }
     }
 
     // MARK: - Library loading
@@ -1423,3 +1469,11 @@ private struct SeriesDestination: Hashable { let id: Int }
 private struct MovieDestination: Hashable { let id: Int }
 private struct ArrSeriesLookupDestination: Hashable { let series: SonarrSeries }
 private struct ArrMovieLookupDestination: Hashable { let movie: RadarrMovie }
+
+extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0 ..< Swift.min($0 + size, count)])
+        }
+    }
+}

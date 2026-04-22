@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import SwiftUI
 
 @MainActor
 @Observable
@@ -129,6 +130,7 @@ final class RadarrViewModel {
     func refreshMovies() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.refreshMovie()
+        InAppNotificationCenter.shared.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
         try? await Task.sleep(for: .seconds(2))
         await loadMovies()
     }
@@ -207,7 +209,16 @@ final class RadarrViewModel {
             guard searchRequestToken == requestToken else {
                 return
             }
-            searchResults = results
+            
+            // Stream in the results one by one for a more async feel
+            for result in results {
+                guard !Task.isCancelled && searchRequestToken == requestToken else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    searchResults.append(result)
+                }
+                try? await Task.sleep(for: .milliseconds(40))
+            }
+            
             isSearching = false
         } catch is CancellationError {
             if searchRequestToken == requestToken {
@@ -260,21 +271,20 @@ final class RadarrViewModel {
             _ = try await client.addMovie(body)
             await loadMovies()
             await serviceManager.calendarViewModel.refresh()
-            await MainActor.run {
-                InAppNotificationCenter.shared.showMonitoringChanged(
-                    itemName: title,
-                    itemType: "Movies",
-                    isMonitoring: monitored
-                )
-            }
+            InAppNotificationCenter.shared.showMonitoringChanged(
+                itemName: title,
+                itemType: "Movies",
+                isMonitoring: monitored
+            )
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Add Failed", message: error.localizedDescription)
             return false
         }
     }
 
-    // MARK: - Delete
+    // MARK: - Update
 
     func updateMovie(
         _ movie: RadarrMovie,
@@ -296,9 +306,11 @@ final class RadarrViewModel {
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
             await loadMovies()
             await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: movie.title)
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -333,28 +345,30 @@ final class RadarrViewModel {
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
             await loadMovies()
             await serviceManager.calendarViewModel.refresh()
-            await MainActor.run {
-                InAppNotificationCenter.shared.showMonitoringChanged(
-                    itemName: movie.title,
-                    itemType: "Movies",
-                    isMonitoring: newMonitored
-                )
-            }
+            InAppNotificationCenter.shared.showMonitoringChanged(
+                itemName: movie.title,
+                itemType: "Movies",
+                isMonitoring: newMonitored
+            )
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
             await loadMovies() // Revert on failure
         }
     }
 
     func deleteMovie(id: Int, deleteFiles: Bool = false) async -> Bool {
         guard let client else { return false }
+        let movieTitle = movies.first(where: { $0.id == id })?.title ?? "Movie"
         do {
             try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
             movies.removeAll { $0.id == id }
             await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: movieTitle)
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -366,9 +380,11 @@ final class RadarrViewModel {
         error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])
+            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for movie.")
             error = nil
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
         }
     }
 
@@ -390,10 +406,12 @@ final class RadarrViewModel {
         error = nil
         do {
             try await client.grabRelease(release)
+            InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
             await loadQueue()
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -401,11 +419,13 @@ final class RadarrViewModel {
     func searchAllMissing() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.searchAllMissing()
+        InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for all missing movies.")
     }
 
     func rssSync() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.rssSync()
+        InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
     }
 
     func deleteMovieFile(id: Int) async -> Bool {
@@ -414,6 +434,7 @@ final class RadarrViewModel {
 
         do {
             try await client.deleteMovieFile(id: id)
+            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Movie file removed.")
             if let movieId {
                 await refreshMovieInLibrary(id: movieId)
                 await loadMovieFiles(movieId: movieId)
@@ -422,6 +443,7 @@ final class RadarrViewModel {
             return true
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
             return false
         }
     }
@@ -471,8 +493,10 @@ final class RadarrViewModel {
         do {
             try await client.deleteQueueItem(id: id, blocklist: blocklist)
             queue.removeAll { $0.id == id }
+            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
         } catch {
             self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
         }
     }
 

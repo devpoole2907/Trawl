@@ -163,16 +163,10 @@ struct AddTorrentSheet: View {
         ) { result in
             if case .success(let url) = result {
                 Task {
-                    guard url.startAccessingSecurityScopedResource() else { return }
-                    defer { url.stopAccessingSecurityScopedResource() }
-                    
-                    if let data = try? Data(contentsOf: url) {
-                        let fileName = url.lastPathComponent
-                        await MainActor.run {
-                            vm.torrentFileData = data
-                            vm.torrentFileName = fileName
-                            inputTab = .file
-                        }
+                    if let torrentFile = await Self.readTorrentFile(from: url) {
+                        vm.torrentFileData = torrentFile.data
+                        vm.torrentFileName = torrentFile.fileName
+                        inputTab = .file
                     }
                 }
             }
@@ -258,5 +252,20 @@ struct AddTorrentSheet: View {
             return "Sending to \(server.displayName)…"
         }
         return "Adding torrent…"
+    }
+
+    private struct SelectedTorrentFile: Sendable {
+        let data: Data
+        let fileName: String
+    }
+
+    private nonisolated static func readTorrentFile(from url: URL) async -> SelectedTorrentFile? {
+        await Task.detached(priority: .userInitiated) {
+            guard url.startAccessingSecurityScopedResource() else { return nil }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            guard let data = try? Data(contentsOf: url) else { return nil }
+            return SelectedTorrentFile(data: data, fileName: url.lastPathComponent)
+        }.value
     }
 }

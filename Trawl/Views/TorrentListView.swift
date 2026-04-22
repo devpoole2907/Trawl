@@ -4,6 +4,7 @@ import SwiftData
 struct TorrentListView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \ServerProfile.dateAdded) private var servers: [ServerProfile]
     @State private var viewModel: TorrentListViewModel?
@@ -102,7 +103,11 @@ struct TorrentListView: View {
         }
         .task {
             if viewModel == nil {
-                let vm = TorrentListViewModel(syncService: syncService, torrentService: torrentService)
+                let vm = TorrentListViewModel(
+                    syncService: syncService,
+                    torrentService: torrentService,
+                    notificationCenter: inAppNotificationCenter
+                )
                 viewModel = vm
                 vm.startSync()
             }
@@ -144,6 +149,8 @@ struct TorrentListView: View {
 
     @ViewBuilder
     private func row(for torrent: Torrent, vm: TorrentListViewModel) -> some View {
+        let isProcessing = vm.processingHashes.contains(torrent.hash)
+        
         if editMode.isEditing {
             Button {
                 vm.toggleSelection(torrent)
@@ -153,7 +160,7 @@ struct TorrentListView: View {
                         .font(.title3)
                         .foregroundStyle(vm.selectedHashes.contains(torrent.hash) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
 
-                    TorrentRowView(torrent: torrent)
+                    TorrentRowView(torrent: torrent, isProcessing: isProcessing)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
@@ -166,7 +173,7 @@ struct TorrentListView: View {
                     .environment(syncService)
                     .environment(torrentService)
             } label: {
-                TorrentRowView(torrent: torrent)
+                TorrentRowView(torrent: torrent, isProcessing: isProcessing)
             }
             .contextMenu {
                 let isPaused = torrent.state == .pausedDL || torrent.state == .pausedUP || torrent.state == .stoppedDL || torrent.state == .stoppedUP

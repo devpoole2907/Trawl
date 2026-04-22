@@ -42,12 +42,18 @@ final class NotificationService: Sendable {
             let schema = Schema([
                 ServerProfile.self,
                 CachedTorrentState.self,
-                RecentSavePath.self
+                RecentSavePath.self,
+                ArrServiceProfile.self,
+                SSHProfile.self
             ])
-            let config = ModelConfiguration(
+            let configuration = ModelConfiguration(
+                schema: schema,
                 groupContainer: .identifier(AppGroup.identifier)
             )
-            let container = try ModelContainer(for: schema, configurations: [config])
+            let container = try ModelContainer(
+                for: schema,
+                configurations: [configuration]
+            )
             let context = ModelContext(container)
 
             // Load the active server profile

@@ -7,4 +7,8 @@ enum AppGroup {
     static var sharedContainerURL: URL? {
         FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier)
     }
+
+    static func storeURL(fileName: String) -> URL? {
+        sharedContainerURL?.appendingPathComponent(fileName)
+    }
 }

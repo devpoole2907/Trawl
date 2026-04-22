@@ -83,8 +83,12 @@ struct SonarrSeriesDetailView: View {
         guard let id = resolvedSeriesId else { return [] }
         return viewModel.episodes[id] ?? []
     }
+
     private var seasonNumbers: [Int] {
-        Set(episodes.map(\.seasonNumber)).sorted(by: >)
+        if let s = series?.seasons, !s.isEmpty {
+            return s.map(\.seasonNumber).sorted(by: >)
+        }
+        return Set(episodes.map(\.seasonNumber)).sorted(by: >)
     }
     private var episodeFiles: [SonarrEpisodeFile] {
         guard let id = resolvedSeriesId else { return [] }
@@ -378,10 +382,11 @@ struct SonarrSeriesDetailView: View {
 
         // Library-only: episodes and files
         if isInLibrary {
-            if episodes.isEmpty && viewModel.isLoadingEpisodes {
+            let numbers = seasonNumbers
+            if numbers.isEmpty && viewModel.isLoadingEpisodes {
                 loadingCard
-            } else if !episodes.isEmpty {
-                ForEach(seasonNumbers, id: \.self) { seasonNum in
+            } else {
+                ForEach(numbers, id: \.self) { seasonNum in
                     seasonCard(seasonNum: seasonNum)
                 }
             }
@@ -943,23 +948,35 @@ struct SonarrSeriesDetailView: View {
     // MARK: - Season card
 
     private func seasonCard(seasonNum: Int) -> some View {
-        let seasonEpisodes = episodes
-            .filter { $0.seasonNumber == seasonNum }
-            .sorted { $0.episodeNumber < $1.episodeNumber }
-        let filesCount = seasonEpisodes.filter { $0.hasFile == true }.count
+        let seasonEpisodes = episodes.filter { $0.seasonNumber == seasonNum }
+        
+        let filesCount: Int
+        let totalCount: Int
+        
+        if !seasonEpisodes.isEmpty {
+            filesCount = seasonEpisodes.filter { $0.hasFile == true }.count
+            totalCount = seasonEpisodes.count
+        } else if let stat = series?.seasons?.first(where: { $0.seasonNumber == seasonNum })?.statistics {
+            filesCount = stat.episodeFileCount ?? 0
+            totalCount = stat.episodeCount ?? 0
+        } else {
+            filesCount = 0
+            totalCount = 0
+        }
+
         return NavigationLink {
             SonarrSeasonSearchView(
                 viewModel: viewModel,
                 series: series ?? discoverSeries,
                 seasonNumber: seasonNum,
-                episodes: seasonEpisodes
+                episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber }
             )
         } label: {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(seasonNum == 0 ? "Specials" : "Season \(seasonNum)")
                         .font(.subheadline.weight(.semibold))
-                    Text("\(filesCount) of \(seasonEpisodes.count) episodes")
+                    Text("\(filesCount) of \(totalCount) episodes")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -968,11 +985,11 @@ struct SonarrSeriesDetailView: View {
 
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.secondary.opacity(0.3)).frame(width: 48, height: 4)
-                    if seasonEpisodes.count > 0 {
+                    if totalCount > 0 {
                         Capsule()
-                            .fill(filesCount == seasonEpisodes.count ? Color.green : Color.purple)
+                            .fill(filesCount == totalCount ? Color.green : Color.purple)
                             .frame(
-                                width: 48 * CGFloat(filesCount) / CGFloat(seasonEpisodes.count),
+                                width: 48 * CGFloat(filesCount) / CGFloat(totalCount),
                                 height: 4
                             )
                     }
@@ -1386,96 +1403,6 @@ private struct EpisodeFileRow: View {
         default:
             return nil
         }
-    }
-}
-
-private struct EpisodeRow: View {
-    let episode: SonarrEpisode
-    let onToggleMonitor: () -> Void
-    let onSearch: () -> Void
-
-    var body: some View {
-        HStack(spacing: 10) {
-            Circle()
-                .fill(statusColor)
-                .frame(width: 7, height: 7)
-                .padding(.leading, 14)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(episode.episodeIdentifier)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.purple)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.purple.opacity(0.2))
-                        .clipShape(Capsule())
-
-                    Text(episode.title ?? "TBA")
-                        .font(.subheadline)
-                        .lineLimit(1)
-                }
-
-                if let airDate = episode.airDate {
-                    Text(formattedDate(airDate))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer(minLength: 8)
-
-            Group {
-                if episode.hasFile == true {
-                    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-                } else if episode.monitored == true {
-                    Image(systemName: "clock.badge").foregroundStyle(.orange)
-                } else {
-                    Image(systemName: "minus.circle").foregroundStyle(.tertiary)
-                }
-            }
-            .font(.subheadline)
-
-            Button(action: onSearch) {
-                Image(systemName: "magnifyingglass")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .padding(7)
-                    .glassEffect(.regular.interactive(), in: Circle())
-            }
-            .buttonStyle(.plain)
-            .padding(.trailing, 8)
-        }
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
-        .contentShape(Rectangle())
-        .contextMenu {
-            Button {
-                onToggleMonitor()
-            } label: {
-                Label(
-                    episode.monitored == true ? "Unmonitor" : "Monitor",
-                    systemImage: episode.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                )
-            }
-            Button { onSearch() } label: {
-                Label("Search", systemImage: "magnifyingglass")
-            }
-        }
-    }
-
-    private var statusColor: Color {
-        if episode.hasFile == true { return .green }
-        if episode.monitored == true { return .orange }
-        return .secondary.opacity(0.4)
-    }
-
-    private func formattedDate(_ string: String) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        guard let date = f.date(from: string) else { return string }
-        f.dateStyle = .medium; f.dateFormat = nil
-        return f.string(from: date)
     }
 }
 
@@ -2002,9 +1929,15 @@ struct SonarrSeasonSearchView: View {
                                 } label: {
                                     HStack(spacing: 12) {
                                         VStack(alignment: .leading, spacing: 4) {
-                                            Text(episode.episodeIdentifier)
-                                                .font(.caption.weight(.semibold))
-                                                .foregroundStyle(.secondary)
+                                            HStack(spacing: 6) {
+                                                Text(episode.episodeIdentifier)
+                                                    .font(.caption.weight(.semibold))
+                                                    .foregroundStyle(.secondary)
+                                                
+                                                Text(formattedDate(episode.airDate))
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.secondary.opacity(0.8))
+                                            }
 
                                             Text(episode.title ?? "Untitled Episode")
                                                 .font(.subheadline.weight(.semibold))
@@ -2083,6 +2016,15 @@ struct SonarrSeasonSearchView: View {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, seasonNumber: seasonNumber)
             }
         }
+    }
+
+    private func formattedDate(_ string: String?) -> String {
+        guard let string, !string.isEmpty else { return "TBA" }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let date = f.date(from: string) else { return string }
+        f.dateStyle = .medium; f.dateFormat = nil
+        return f.string(from: date)
     }
 
     private var seasonSearchHero: some View {
@@ -2261,11 +2203,17 @@ struct SonarrEpisodeSearchView: View {
 
                 episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
                     VStack(alignment: .leading, spacing: 8) {
-                        if let overview = episode.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.92))
-                                .fixedSize(horizontal: false, vertical: true)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Aired \(formattedDate(episode.airDate))")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+
+                            if let overview = episode.overview, !overview.isEmpty {
+                                Text(overview)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.white.opacity(0.92))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                         }
 
                         HStack(spacing: 12) {
@@ -2505,6 +2453,15 @@ struct SonarrEpisodeSearchView: View {
         .padding(.vertical, 6)
         .background(tint.opacity(0.14))
         .clipShape(Capsule())
+    }
+
+    private func formattedDate(_ string: String?) -> String {
+        guard let string, !string.isEmpty else { return "TBA" }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        guard let date = f.date(from: string) else { return string }
+        f.dateStyle = .medium; f.dateFormat = nil
+        return f.string(from: date)
     }
 
     @ViewBuilder

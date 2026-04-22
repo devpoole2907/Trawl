@@ -157,7 +157,30 @@ actor RadarrAPIClient: SharedArrClient {
     func rssSync() async throws -> ArrCommand {
         try await base.postCommand(name: RadarrCommand.rssSync.rawValue)
     }
-}
+
+    // MARK: - Manual Import
+
+    /// Get list of files that can be manually imported from a folder
+    func getManualImport(folder: String, movieId: Int? = nil, filterExistingFiles: Bool = true) async throws -> [JSONValue] {
+        var params = [
+            URLQueryItem(name: "folder", value: folder),
+            URLQueryItem(name: "filterExistingFiles", value: String(filterExistingFiles))
+        ]
+        if let movieId {
+            params.append(URLQueryItem(name: "movieId", value: String(movieId)))
+        }
+        return try await base.get("/api/v3/manualimport", queryItems: params)
+    }
+
+    /// Perform a manual import of specific files
+    func manualImport(files: [JSONValue], importMode: String = "move") async throws {
+        let additionalParams: [String: Any] = [
+            "files": files.map { $0.rawValue },
+            "importMode": importMode
+        ]
+        _ = try await base.postCommand(name: "ManualImport", additionalParams: additionalParams)
+    }
+    }
 
 // MARK: - Wanted Page (Radarr-specific paged response)
 

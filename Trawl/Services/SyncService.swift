@@ -11,6 +11,7 @@ final class SyncService {
     private(set) var serverState: ServerState?
     private(set) var isPolling: Bool = false
     private(set) var lastError: QBError?
+    private(set) var activeTorrentCount: Int = 0
     var defaultSavePath: String?
 
     // MARK: - Speed History
@@ -153,7 +154,7 @@ final class SyncService {
                     self.rid = data.rid
                     self.lastError = nil
                 } catch {
-                    self.lastError = error as? QBError ?? .networkError(error)
+                    self.lastError = error as? QBError ?? .networkError(error.localizedDescription)
                 }
                 try? await Task.sleep(for: .seconds(self.pollingInterval))
             }
@@ -175,7 +176,7 @@ final class SyncService {
             rid = data.rid
             lastError = nil
         } catch {
-            lastError = error as? QBError ?? .networkError(error)
+            lastError = error as? QBError ?? .networkError(error.localizedDescription)
         }
     }
 
@@ -276,6 +277,15 @@ final class SyncService {
             if speedHistory.count > maxSpeedHistoryCount {
                 speedHistory.removeFirst(speedHistory.count - maxSpeedHistoryCount)
             }
+        }
+
+        let nextActiveTorrentCount = torrents.values.reduce(into: 0) { count, torrent in
+            if torrent.isRunningInTabBadge {
+                count += 1
+            }
+        }
+        if activeTorrentCount != nextActiveTorrentCount {
+            activeTorrentCount = nextActiveTorrentCount
         }
 
         if !completedTorrentNames.isEmpty {

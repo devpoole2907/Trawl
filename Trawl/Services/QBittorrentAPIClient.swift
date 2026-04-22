@@ -397,7 +397,7 @@ actor QBittorrentAPIClient {
         } catch let error as QBError {
             throw error
         } catch {
-            throw QBError.networkError(error)
+            throw QBError.networkError(error.localizedDescription)
         }
     }
 
@@ -411,7 +411,7 @@ actor QBittorrentAPIClient {
         )
         let (data, _) = try await performRequest(request)
         guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS items"]))
+            throw QBError.decodingError("Failed to decode RSS items")
         }
         return json
     }
@@ -482,7 +482,7 @@ actor QBittorrentAPIClient {
         let request = try buildRequest(path: "/api/v2/rss/rules")
         let (data, _) = try await performRequest(request)
         guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw QBError.decodingError(NSError(domain: "QBittorrentAPI", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to decode RSS rules"]))
+            throw QBError.decodingError("Failed to decode RSS rules")
         }
         return json
     }
@@ -551,7 +551,7 @@ actor QBittorrentAPIClient {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw QBError.decodingError(error)
+            throw QBError.decodingError(error.localizedDescription)
         }
     }
 

@@ -14,6 +14,7 @@ final class ArrServiceProfile {
     var dateAdded: Date
     var lastSynced: Date?
     var apiVersion: String?          // Populated from /api/v3/system/status
+    var importFolders: [String] = [] // Custom folders for manual importing
 
     init(displayName: String, hostURL: String, serviceType: ArrServiceType, allowsUntrustedTLS: Bool = false) {
         self.id = UUID()

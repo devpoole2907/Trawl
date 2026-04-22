@@ -23,17 +23,7 @@ struct ArrActivityView: View {
         .navigationTitle("Activity")
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Filter", selection: $serviceFilter) {
-                        Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
-                        Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
-                        Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
-                    }
-                } label: {
-                    Image(systemName: serviceFilter == .all
-                          ? "line.3.horizontal.decrease.circle"
-                          : "line.3.horizontal.decrease.circle.fill")
-                }
+                ActivityFilterMenu(serviceFilter: $serviceFilter)
             }
         }
         .refreshable {
@@ -50,18 +40,7 @@ struct ArrActivityView: View {
             await loadQueues()
         }
         .safeAreaInset(edge: .top) {
-            Picker("Section", selection: Binding(
-                get: { mode },
-                set: { newMode in withAnimation { mode = newMode } }
-            )) {
-                ForEach(ArrActivityMode.allCases) { m in
-                    Text(m.title).tag(m)
-                }
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            ActivityModePicker(mode: $mode)
         }
         .sheet(item: $selectedItem) { activity in
             QueueDetailSheet(item: activity)
@@ -249,6 +228,69 @@ enum ArrServiceFilter: CaseIterable, Hashable {
         case .sonarr:   "Sonarr"
         case .radarr:   "Radarr"
         case .prowlarr: "Prowlarr"
+        }
+    }
+}
+
+private struct ActivityFilterMenu: View {
+    @Binding var serviceFilter: ArrServiceFilter
+
+    var body: some View {
+        Menu {
+            Picker("Filter", selection: $serviceFilter) {
+                Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
+                Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+            }
+        } label: {
+            Image(systemName: serviceFilter == .all
+                  ? "line.3.horizontal.decrease.circle"
+                  : "line.3.horizontal.decrease.circle.fill")
+        }
+    }
+}
+
+private struct ActivityModePicker: View {
+    @Binding var mode: ArrActivityMode
+
+    var body: some View {
+        Picker("Section", selection: Binding(
+            get: { mode },
+            set: { newMode in withAnimation { mode = newMode } }
+        )) {
+            ForEach(ArrActivityMode.allCases) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+        .pickerStyle(.segmented)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .padding(.horizontal, 48)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+}
+
+private struct HealthFilterMenu: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @Binding var serviceFilter: ArrServiceFilter
+
+    var body: some View {
+        Menu {
+            Picker("Filter", selection: $serviceFilter) {
+                Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
+                if serviceManager.sonarrConnected {
+                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                }
+                if serviceManager.radarrConnected {
+                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                }
+                if serviceManager.prowlarrConnected {
+                    Label("Prowlarr", systemImage: "magnifyingglass.circle").tag(ArrServiceFilter.prowlarr)
+                }
+            }
+        } label: {
+            Image(systemName: serviceFilter == .all
+                  ? "line.3.horizontal.decrease.circle"
+                  : "line.3.horizontal.decrease.circle.fill")
         }
     }
 }
@@ -484,24 +526,7 @@ struct ArrHealthView: View {
         .navigationSubtitle(navigationSubtitle)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Picker("Filter", selection: $serviceFilter) {
-                        Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
-                        if serviceManager.sonarrConnected {
-                            Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
-                        }
-                        if serviceManager.radarrConnected {
-                            Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
-                        }
-                        if serviceManager.prowlarrConnected {
-                            Label("Prowlarr", systemImage: "magnifyingglass.circle").tag(ArrServiceFilter.prowlarr)
-                        }
-                    }
-                } label: {
-                    Image(systemName: serviceFilter == .all
-                          ? "line.3.horizontal.decrease.circle"
-                          : "line.3.horizontal.decrease.circle.fill")
-                }
+                HealthFilterMenu(serviceFilter: $serviceFilter)
             }
         }
         .refreshable { await serviceManager.loadHealth() }
@@ -750,4 +775,3 @@ private struct HealthDetailSheet: View {
         }
     }
 }
-

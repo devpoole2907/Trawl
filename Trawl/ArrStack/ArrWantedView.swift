@@ -367,11 +367,9 @@ private struct WantedEpisodeRow: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
 
-                if let airDate = episode.airDate, !airDate.isEmpty {
-                    Text(formatDate(airDate))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                Text(formatDate(episode.airDate))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -394,7 +392,8 @@ private struct WantedEpisodeRow: View {
         .padding(.vertical, 4)
     }
 
-    private func formatDate(_ value: String) -> String {
+    private func formatDate(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "TBA" }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         guard let date = formatter.date(from: value) else { return value }

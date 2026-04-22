@@ -2,6 +2,7 @@ import Foundation
 import Observation
 import SwiftData
 
+@MainActor
 @Observable
 final class AddTorrentViewModel {
     // Input
@@ -57,12 +58,10 @@ final class AddTorrentViewModel {
             recentSavePaths = try modelContext.fetch(descriptor)
         } catch {
             recentSavePaths = []
-            await MainActor.run {
-                InAppNotificationCenter.shared.showError(
-                    title: "Couldn't Load Recent Paths",
-                    message: error.localizedDescription
-                )
-            }
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Load Recent Paths",
+                message: error.localizedDescription
+            )
         }
 
         // Pre-fill save path from the most recent path
@@ -139,12 +138,10 @@ final class AddTorrentViewModel {
             }
             try modelContext.save()
         } catch {
-            await MainActor.run {
-                InAppNotificationCenter.shared.showError(
-                    title: "Torrent Added",
-                    message: "The torrent was added, but the recent save path couldn't be stored. \(error.localizedDescription)"
-                )
-            }
+            InAppNotificationCenter.shared.showError(
+                title: "Torrent Added",
+                message: "The torrent was added, but the recent save path couldn't be stored. \(error.localizedDescription)"
+            )
         }
     }
 }

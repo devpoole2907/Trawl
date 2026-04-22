@@ -3,7 +3,8 @@ import SwiftTerm
 
 // MARK: - Bridge
 
-final class SSHTerminalBridge: @unchecked Sendable {
+@MainActor
+final class SSHTerminalBridge {
     #if os(iOS)
     var terminalView: ScrollableTerminalView?
     #else
@@ -25,7 +26,7 @@ final class SSHTerminalBridge: @unchecked Sendable {
 
     func hideKeyboard() {
         guard let terminalView, terminalView.window != nil, terminalView.isFirstResponder else { return }
-        DispatchQueue.main.async {
+        Task { @MainActor in
             guard terminalView.window != nil, terminalView.isFirstResponder else { return }
             _ = terminalView.resignFirstResponder()
         }
@@ -93,7 +94,7 @@ final class ScrollableTerminalView: TerminalView {
     override func becomeFirstResponder() -> Bool {
         let becameFirstResponder = super.becomeFirstResponder()
         if becameFirstResponder {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onKeyboardFocusChange?(true)
             }
         }
@@ -103,7 +104,7 @@ final class ScrollableTerminalView: TerminalView {
     override func resignFirstResponder() -> Bool {
         let resignedFirstResponder = super.resignFirstResponder()
         if resignedFirstResponder {
-            DispatchQueue.main.async { [weak self] in
+            Task { @MainActor [weak self] in
                 self?.onKeyboardFocusChange?(false)
             }
         }
@@ -179,12 +180,12 @@ struct SwiftTermView: UIViewRepresentable {
         applyAppearance(to: terminalView)
 
         if wantsKeyboard {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard terminalView.window != nil, !terminalView.isFirstResponder else { return }
                 _ = terminalView.becomeFirstResponder()
             }
         } else if terminalView.isFirstResponder {
-            DispatchQueue.main.async {
+            Task { @MainActor in
                 guard terminalView.window != nil, terminalView.isFirstResponder else { return }
                 _ = terminalView.resignFirstResponder()
             }
@@ -222,7 +223,7 @@ struct SwiftTermView: UIViewRepresentable {
             bridge.onResize?(newCols, newRows)
         }
         func setTerminalTitle(source: TerminalView, title: String) {
-            DispatchQueue.main.async { self.bridge.onTitleChange?(title) }
+            Task { @MainActor in self.bridge.onTitleChange?(title) }
         }
         func scrolled(source: TerminalView, position: Double) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}
@@ -507,7 +508,7 @@ struct SwiftTermView: NSViewRepresentable {
         let tv = TerminalView(frame: .zero)
         tv.terminalDelegate = context.coordinator
         bridge.terminalView = tv
-        DispatchQueue.main.async { tv.window?.makeFirstResponder(tv) }
+        Task { @MainActor in tv.window?.makeFirstResponder(tv) }
         return tv
     }
 
@@ -526,7 +527,7 @@ struct SwiftTermView: NSViewRepresentable {
             bridge.onResize?(newCols, newRows)
         }
         func setTerminalTitle(source: TerminalView, title: String) {
-            DispatchQueue.main.async { self.bridge.onTitleChange?(title) }
+            Task { @MainActor in self.bridge.onTitleChange?(title) }
         }
         func scrolled(source: TerminalView, position: Double) {}
         func hostCurrentDirectoryUpdate(source: TerminalView, directory: String?) {}

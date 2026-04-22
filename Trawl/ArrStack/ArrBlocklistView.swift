@@ -89,25 +89,12 @@ struct ArrBlocklistView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    if serviceManager.sonarrConnected && serviceManager.radarrConnected {
-                        Picker("Scope", selection: $scope) {
-                            Label("All", systemImage: "square.grid.2x2").tag(BlocklistScope.all)
-                            Label("Series", systemImage: "tv").tag(BlocklistScope.series)
-                            Label("Movies", systemImage: "film").tag(BlocklistScope.movies)
-                        }
-                    }
-                    if !isEmpty {
-                        Divider()
-                        Button("Clear All", role: .destructive) {
-                            showClearConfirm = true
-                        }
-                    }
-                } label: {
-                    Image(systemName: scope == .all
-                          ? "line.3.horizontal.decrease.circle"
-                          : "line.3.horizontal.decrease.circle.fill")
-                }
+                BlocklistToolbarMenu(
+                    scope: $scope,
+                    canFilterAcrossServices: serviceManager.sonarrConnected && serviceManager.radarrConnected,
+                    isEmpty: isEmpty,
+                    onClearAll: { showClearConfirm = true }
+                )
             }
         }
         .alert("Clear Blocklist?", isPresented: $showClearConfirm) {
@@ -180,6 +167,33 @@ struct ArrBlocklistView: View {
         let sonarrIDs = displayedSonarrItems.map(\.id)
         let radarrIDs = displayedRadarrItems.map(\.id)
         await serviceManager.clearBlocklist(sonarrIDs: sonarrIDs, radarrIDs: radarrIDs)
+    }
+}
+
+private struct BlocklistToolbarMenu: View {
+    @Binding var scope: ArrBlocklistView.BlocklistScope
+    let canFilterAcrossServices: Bool
+    let isEmpty: Bool
+    let onClearAll: () -> Void
+
+    var body: some View {
+        Menu {
+            if canFilterAcrossServices {
+                Picker("Scope", selection: $scope) {
+                    Label("All", systemImage: "square.grid.2x2").tag(ArrBlocklistView.BlocklistScope.all)
+                    Label("Series", systemImage: "tv").tag(ArrBlocklistView.BlocklistScope.series)
+                    Label("Movies", systemImage: "film").tag(ArrBlocklistView.BlocklistScope.movies)
+                }
+            }
+            if !isEmpty {
+                Divider()
+                Button("Clear All", role: .destructive, action: onClearAll)
+            }
+        } label: {
+            Image(systemName: scope == .all
+                  ? "line.3.horizontal.decrease.circle"
+                  : "line.3.horizontal.decrease.circle.fill")
+        }
     }
 }
 

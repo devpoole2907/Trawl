@@ -7,6 +7,7 @@ struct RadarrMovieListView: View {
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: RadarrViewModel?
     @State private var showSettings = false
+    @State private var showAddSheet = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteMovie: RadarrMovie?
@@ -36,11 +37,16 @@ struct RadarrMovieListView: View {
                 ContentUnavailableView {
                     Label("Radarr Not Set Up", systemImage: "film")
                 } description: {
-                    Text("Add a Radarr server in Settings to get started.")
+                    Text("Add a Radarr server to get started.")
                 } actions: {
                     Button("Add Server", systemImage: "plus") {
-                        showSettings = true
+                        if profiles.filter({ $0.resolvedServiceType == .radarr }).isEmpty {
+                            showAddSheet = true
+                        } else {
+                            showSettings = true
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
                 }
             } else {
                 ProgressView()
@@ -93,6 +99,12 @@ struct RadarrMovieListView: View {
                         }
                 }
             }
+        }
+        .sheet(isPresented: $showAddSheet) {
+            ArrSetupSheet(initialServiceType: .radarr, onComplete: {
+                Task { await serviceManager.refreshConfiguration() }
+            })
+            .environment(serviceManager)
         }
         .sheet(isPresented: $showCalendar) {
             NavigationStack {

@@ -19,9 +19,11 @@ enum MoreDestination: Hashable {
     case prowlarrIndexers
     case transferStats
     case blocklist
+    case manualImport
     case calendar
     case calendarSeries(id: Int)
     case calendarMovie(id: Int)
+    case manualImportScan(path: String, service: ArrServiceType)
 }
 
 struct MoreView: View {
@@ -75,6 +77,11 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.blocklist) {
                         moreRow(icon: "nosign", color: .red,
                                 title: "Blocklist", subtitle: "Releases blocked from being grabbed")
+                    }
+
+                    NavigationLink(value: MoreDestination.manualImport) {
+                        moreRow(icon: "tray.and.arrow.down.fill", color: .blue,
+                                title: "Manual Import", subtitle: "Browse and import files from root folders")
                     }
 
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
@@ -184,6 +191,10 @@ struct MoreView: View {
                     ArrBlocklistView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
+                case .manualImport:
+                    ArrManualImportView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .calendar:
                     ArrCalendarView(
                         seriesNavigationValue: { MoreDestination.calendarSeries(id: $0) },
@@ -199,6 +210,9 @@ struct MoreView: View {
                 case .calendarMovie(let id):
                     RadarrMovieDetailView(movieId: id, viewModel: RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []))
                         .injectSyncService(appServices)
+                        .moreDestinationTitleStyle()
+                case .manualImportScan(let path, let service):
+                    ManualImportScanView(path: path, service: service, serviceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 }
             }

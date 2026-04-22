@@ -341,7 +341,7 @@ struct ContentView: View {
     @ViewBuilder
     private var tabContent: some View {
         let services = appServices ?? disconnectedServices
-        let activeTorrentCount = services.syncService.torrents.values.filter(\.isRunningInTabBadge).count
+        let activeTorrentCount = services.syncService.activeTorrentCount
         TabView(selection: $selectedTab) {
             Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
                 NavigationStack {
@@ -449,12 +449,10 @@ struct ContentView: View {
         #endif
         .alert("Disconnect?", isPresented: $showSSHDisconnectConfirm) {
             Button("Disconnect", role: .destructive) {
-                Task {
+                Task { @MainActor in
                     await sshSessionStore.disconnect()
-                    await MainActor.run {
-                        withAnimation(.easeInOut(duration: 0.22)) {
-                            showSSHSessionSheet = false
-                        }
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        showSSHSessionSheet = false
                     }
                 }
             }
@@ -669,20 +667,6 @@ struct ContentView: View {
     private func presentSSHSession() {
         sshSessionStore.focusSession()
         showSSHSessionSheet = true
-    }
-}
-
-private extension Torrent {
-    var isRunningInTabBadge: Bool {
-        switch state {
-        case .downloading, .metaDL, .forcedDL, .forcedUP, .uploading, .checkingDL, .checkingUP,
-             .checkingResumeData, .allocating, .moving:
-            true
-        case .stalledDL, .stalledUP, .queuedDL, .queuedUP:
-            dlspeed > 0 || upspeed > 0
-        case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP, .error, .missingFiles, .unknown:
-            false
-        }
     }
 }
 

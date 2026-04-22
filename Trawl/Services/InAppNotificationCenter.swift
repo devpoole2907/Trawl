@@ -1,5 +1,8 @@
 import Foundation
 import Observation
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -10,6 +13,11 @@ final class InAppNotificationCenter {
 
     private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
+
+    #if os(iOS)
+    private let notificationGenerator = UINotificationFeedbackGenerator()
+    private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
+    #endif
 
     func showDownloadCompleted(name: String) {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -22,6 +30,10 @@ final class InAppNotificationCenter {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+
+        #if os(iOS)
+        notificationGenerator.notificationOccurred(.success)
+        #endif
 
         enqueue(
             InAppBannerItem(
@@ -38,6 +50,10 @@ final class InAppNotificationCenter {
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
 
+        #if os(iOS)
+        notificationGenerator.notificationOccurred(.error)
+        #endif
+
         enqueue(
             InAppBannerItem(
                 title: trimmedTitle,
@@ -46,6 +62,12 @@ final class InAppNotificationCenter {
                 style: .error
             )
         )
+    }
+
+    func triggerImpact() {
+        #if os(iOS)
+        impactGenerator.impactOccurred()
+        #endif
     }
 
     func showMonitoringChanged(itemName: String, itemType: String, isMonitoring: Bool) {
@@ -65,35 +87,33 @@ final class InAppNotificationCenter {
         dismissTask = nil
         currentBanner = nil
 
-        guard !queuedBanners.isEmpty else { return }
-        let nextBanner = queuedBanners.removeFirst()
-        present(nextBanner)
+        // Brief delay before showing next banner to allow for dismissal animation
+        Task {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled else { return }
+            self.showNext()
+        }
     }
 
     private func enqueue(_ banner: InAppBannerItem) {
-        queuedBanners.removeAll() // Clear any queued ones since we want immediate
+        queuedBanners.append(banner)
         
-        if currentBanner != nil {
-            // Dismiss current one immediately
-            dismissTask?.cancel()
-            currentBanner = nil
-            
-            // Wait briefly for the exit animation to start, then present new
-            Task {
-                try? await Task.sleep(for: .milliseconds(300))
-                guard !Task.isCancelled else { return }
-                self.present(banner)
-            }
-        } else {
-            present(banner)
+        if currentBanner == nil {
+            showNext()
         }
+    }
+
+    private func showNext() {
+        guard currentBanner == nil, !queuedBanners.isEmpty else { return }
+        let nextBanner = queuedBanners.removeFirst()
+        present(nextBanner)
     }
 
     private func present(_ banner: InAppBannerItem) {
         currentBanner = banner
         dismissTask?.cancel()
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(4))
+            try? await Task.sleep(for: .seconds(3.5))
             guard !Task.isCancelled else { return }
             self?.dismissCurrentBanner()
         }

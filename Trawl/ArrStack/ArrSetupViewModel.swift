@@ -118,12 +118,10 @@ final class ArrSetupViewModel {
         do {
             try await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
         } catch {
-            await MainActor.run {
-                InAppNotificationCenter.shared.showError(
-                    title: "Couldn't Remove Service",
-                    message: "Failed to delete the saved API key. \(error.localizedDescription)"
-                )
-            }
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Remove Service",
+                message: "Failed to delete the saved API key. \(error.localizedDescription)"
+            )
             return
         }
         modelContext.delete(profile)
@@ -133,12 +131,10 @@ final class ArrSetupViewModel {
                 serviceManager.disconnectService(serviceType, profileID: profile.id)
             }
         } catch {
-            await MainActor.run {
-                InAppNotificationCenter.shared.showError(
-                    title: "Couldn't Remove Service",
-                    message: "Failed to save the updated service list. \(error.localizedDescription)"
-                )
-            }
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Remove Service",
+                message: "Failed to save the updated service list. \(error.localizedDescription)"
+            )
         }
     }
 }

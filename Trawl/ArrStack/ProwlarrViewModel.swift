@@ -1,6 +1,7 @@
 import Foundation
 import OSLog
 import Observation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -239,7 +240,15 @@ final class ProwlarrViewModel {
 
             // Only apply results if this is still the current request
             guard currentRequestToken == requestToken else { return }
-            searchResults = results
+            
+            // Stream results in one by one
+            for result in results {
+                guard currentRequestToken == requestToken && !Task.isCancelled else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    searchResults.append(result)
+                }
+                try? await Task.sleep(for: .milliseconds(20))
+            }
         } catch {
             // Only apply error if this is still the current request
             guard currentRequestToken == requestToken else { return }

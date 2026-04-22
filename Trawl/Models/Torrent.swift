@@ -96,4 +96,16 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
             comment: delta.comment ?? comment
         )
     }
+
+    var isRunningInTabBadge: Bool {
+        switch state {
+        case .downloading, .metaDL, .forcedDL, .forcedUP, .uploading, .checkingDL, .checkingUP,
+             .checkingResumeData, .allocating, .moving:
+            true
+        case .stalledDL, .stalledUP, .queuedDL, .queuedUP:
+            dlspeed > 0 || upspeed > 0
+        case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP, .error, .missingFiles, .unknown:
+            false
+        }
+    }
 }
