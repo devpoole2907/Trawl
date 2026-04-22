@@ -157,8 +157,10 @@ final class RadarrViewModel {
     }
 
     func loadWantedMissing() async {
+        guard !isLoadingWantedMissing else { return }
         guard let client else { return }
         isLoadingWantedMissing = true
+        defer { isLoadingWantedMissing = false }
         error = nil
         do {
             let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingPageSize)
@@ -168,7 +170,6 @@ final class RadarrViewModel {
         } catch {
             self.error = error.localizedDescription
         }
-        isLoadingWantedMissing = false
     }
 
     func loadMoreWantedMissing() async {
@@ -210,7 +211,7 @@ final class RadarrViewModel {
             guard searchRequestToken == requestToken else {
                 return
             }
-            
+
             // Stream in the results one by one for a more async feel
             for result in results {
                 guard !Task.isCancelled && searchRequestToken == requestToken else { break }
@@ -219,8 +220,11 @@ final class RadarrViewModel {
                 }
                 try? await Task.sleep(for: .milliseconds(40))
             }
-            
-            isSearching = false
+
+            // Only turn off spinner if still the active request
+            if !Task.isCancelled && searchRequestToken == requestToken {
+                isSearching = false
+            }
         } catch is CancellationError {
             if searchRequestToken == requestToken {
                 isSearching = false

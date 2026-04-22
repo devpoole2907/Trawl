@@ -286,8 +286,10 @@ final class SonarrViewModel {
     }
 
     func loadWantedMissing() async {
+        guard !isLoadingWantedMissing else { return }
         guard let client else { return }
         isLoadingWantedMissing = true
+        defer { isLoadingWantedMissing = false }
         error = nil
         do {
             let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingPageSize)
@@ -297,7 +299,6 @@ final class SonarrViewModel {
         } catch {
             self.error = error.localizedDescription
         }
-        isLoadingWantedMissing = false
     }
 
     func loadMoreWantedMissing() async {

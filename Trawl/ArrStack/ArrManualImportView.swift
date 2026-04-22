@@ -312,6 +312,10 @@ fileprivate final class ManualImportScanViewModel {
     }
 
     func performImport() async {
+        // Prune selectedFiles against current importableFiles to remove stale IDs
+        let availableIDs = Set(importableFiles.map { $0.id })
+        selectedFiles = selectedFiles.intersection(availableIDs)
+
         guard !selectedFiles.isEmpty else { return }
         isLoading = true
         defer { isLoading = false }

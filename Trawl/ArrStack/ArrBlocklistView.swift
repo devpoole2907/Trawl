@@ -4,6 +4,7 @@ struct ArrBlocklistView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var scope: BlocklistScope = .all
     @State private var showClearConfirm = false
+    @State private var entryToDelete: BlocklistEntry?
 
     enum BlocklistScope: String, CaseIterable, Identifiable {
         case all = "All"
@@ -20,11 +21,13 @@ struct ArrBlocklistView: View {
     }
 
     private var displayedSonarrItems: [ArrBlocklistItem] {
-        scope == .movies ? [] : serviceManager.sonarrBlocklist
+        guard serviceManager.sonarrConnected else { return [] }
+        return scope == .movies ? [] : serviceManager.sonarrBlocklist
     }
 
     private var displayedRadarrItems: [ArrBlocklistItem] {
-        scope == .series ? [] : serviceManager.radarrBlocklist
+        guard serviceManager.radarrConnected else { return [] }
+        return scope == .series ? [] : serviceManager.radarrBlocklist
     }
 
     private var isEmpty: Bool {
@@ -104,6 +107,24 @@ struct ArrBlocklistView: View {
         } message: {
             Text("All blocked releases for the selected scope will be removed.")
         }
+        .alert("Unblock Release?", isPresented: Binding(
+            get: { entryToDelete != nil },
+            set: { if !$0 { entryToDelete = nil } }
+        )) {
+            Button("Unblock", role: .destructive) {
+                if let entry = entryToDelete {
+                    Task { await deleteEntry(entry) }
+                    entryToDelete = nil
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                entryToDelete = nil
+            }
+        } message: {
+            if let entry = entryToDelete {
+                Text("This will unblock \"\(entry.item.sourceTitle ?? "Unknown Release")\" and allow it to be downloaded again.")
+            }
+        }
         .refreshable { await serviceManager.loadBlocklist() }
         .task { await serviceManager.loadBlocklist() }
     }
@@ -113,9 +134,9 @@ struct ArrBlocklistView: View {
         List {
             ForEach(allEntries) { entry in
                 BlocklistRow(entry: entry)
-                    .swipeActions(allowsFullSwipe: true) {
+                    .swipeActions(allowsFullSwipe: false) {
                         Button {
-                            Task { await deleteEntry(entry) }
+                            entryToDelete = entry
                         } label: {
                             Label("Unblock", systemImage: "arrow.uturn.backward")
                         }
@@ -168,22 +189,27 @@ private struct BlocklistToolbarMenu: View {
     let onClearAll: () -> Void
 
     var body: some View {
-        Menu {
-            if canFilterAcrossServices {
-                Picker("Scope", selection: $scope) {
-                    Label("All", systemImage: "square.grid.2x2").tag(ArrBlocklistView.BlocklistScope.all)
-                    Label("Series", systemImage: "tv").tag(ArrBlocklistView.BlocklistScope.series)
-                    Label("Movies", systemImage: "film").tag(ArrBlocklistView.BlocklistScope.movies)
+        if canFilterAcrossServices || !isEmpty {
+            Menu {
+                if canFilterAcrossServices {
+                    Picker("Scope", selection: $scope) {
+                        Label("All", systemImage: "square.grid.2x2").tag(ArrBlocklistView.BlocklistScope.all)
+                        Label("Series", systemImage: "tv").tag(ArrBlocklistView.BlocklistScope.series)
+                        Label("Movies", systemImage: "film").tag(ArrBlocklistView.BlocklistScope.movies)
+                    }
                 }
+                if !isEmpty {
+                    if canFilterAcrossServices {
+                        Divider()
+                    }
+                    Button("Clear All", role: .destructive, action: onClearAll)
+                }
+            } label: {
+                Image(systemName: scope == .all
+                      ? "line.3.horizontal.decrease.circle"
+                      : "line.3.horizontal.decrease.circle.fill")
+                .accessibilityLabel("Filter scope")
             }
-            if !isEmpty {
-                Divider()
-                Button("Clear All", role: .destructive, action: onClearAll)
-            }
-        } label: {
-            Image(systemName: scope == .all
-                  ? "line.3.horizontal.decrease.circle"
-                  : "line.3.horizontal.decrease.circle.fill")
         }
     }
 }

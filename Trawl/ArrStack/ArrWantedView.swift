@@ -273,8 +273,8 @@ struct ArrWantedView: View {
         if serviceManager.radarrConnected, radarrViewModel == nil {
             radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
         }
-        if !serviceManager.sonarrConnected { sonarrViewModel = nil }
-        if !serviceManager.radarrConnected { radarrViewModel = nil }
+        // Keep ViewModels alive to preserve pagination state
+        // Connection state is checked via VM's isConnected property
     }
 
     private func reloadWantedMissing() async {

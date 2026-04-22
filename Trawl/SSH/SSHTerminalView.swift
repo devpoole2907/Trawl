@@ -461,12 +461,12 @@ private final class SSHKeyboardBar: UIInputView {
             let bytes: [UInt8]
             if let arrow = keyDef.arrow {
                 // Check the terminal's application cursor mode to send the correct escape sequence
-                let appCursor = self.bridge.terminalView?.getTerminal().applicationCursor ?? false
+                let appCursor = self.bridge?.terminalView?.getTerminal().applicationCursor ?? false
                 bytes = appCursor ? arrow.appBytes : arrow.normalBytes
             } else {
                 bytes = keyDef.fixedBytes ?? []
             }
-            self.bridge.sendToSSH?(Data(bytes))
+            self.bridge?.sendToSSH?(Data(bytes))
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }, for: .touchUpInside)
         return btn
@@ -489,7 +489,7 @@ private final class SSHKeyboardBar: UIInputView {
         btn.layer.cornerRadius = SSHKeyboardBar.keyHeight / 2
         btn.layer.cornerCurve = .continuous
         btn.addAction(UIAction { [weak self] _ in
-            self?.bridge.hideKeyboard()
+            self?.bridge?.hideKeyboard()
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }, for: .touchUpInside)
         return btn
@@ -508,11 +508,15 @@ struct SwiftTermView: NSViewRepresentable {
         let tv = TerminalView(frame: .zero)
         tv.terminalDelegate = context.coordinator
         bridge.terminalView = tv
-        Task { @MainActor in tv.window?.makeFirstResponder(tv) }
         return tv
     }
 
-    func updateNSView(_ nsView: TerminalView, context: Context) {}
+    func updateNSView(_ nsView: TerminalView, context: Context) {
+        // Set first responder when view is attached to window
+        if nsView.window != nil, nsView.window?.firstResponder != nsView {
+            nsView.window?.makeFirstResponder(nsView)
+        }
+    }
 
     func makeCoordinator() -> Coordinator { Coordinator(bridge: bridge) }
 
