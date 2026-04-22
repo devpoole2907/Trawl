@@ -109,7 +109,11 @@ actor SonarrAPIClient: SharedArrClient {
         guard let guid = release.guid, let indexerId = release.indexerId else {
             throw ArrError.invalidResponse
         }
-        try await base.postVoidCodable("/api/v3/release", body: ArrReleaseGrabRequest(guid: guid, indexerId: indexerId))
+        let trimmedGuid = guid.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedGuid.isEmpty else {
+            throw ArrError.invalidResponse
+        }
+        try await base.postVoidCodable("/api/v3/release", body: ArrReleaseGrabRequest(guid: trimmedGuid, indexerId: indexerId))
     }
 
     // MARK: - Wanted / Missing

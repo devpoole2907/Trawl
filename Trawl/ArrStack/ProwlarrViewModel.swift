@@ -234,13 +234,17 @@ final class ProwlarrViewModel {
 
         isSearching = true
         searchError = nil
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+            searchResults = []
+        }
+
         do {
             let ids = selectedIndexerIds.isEmpty ? nil : Array(selectedIndexerIds)
             let results = try await client.search(query: trimmed, indexerIds: ids, type: searchType)
 
             // Only apply results if this is still the current request
             guard currentRequestToken == requestToken else { return }
-            
+
             // Stream results in one by one
             for result in results {
                 guard currentRequestToken == requestToken && !Task.isCancelled else { break }

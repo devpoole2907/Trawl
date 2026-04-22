@@ -22,7 +22,20 @@ struct ArrManualImportView: View {
     }
 
     private var currentProfile: ArrServiceProfile? {
-        allProfiles.first { $0.resolvedServiceType == selectedService }
+        let activeProfileID: UUID?
+        switch selectedService {
+        case .sonarr:
+            activeProfileID = serviceManager.activeSonarrProfileID
+        case .radarr:
+            activeProfileID = serviceManager.activeRadarrProfileID
+        case .prowlarr:
+            activeProfileID = nil
+        }
+
+        if let activeProfileID, let profile = allProfiles.first(where: { $0.id == activeProfileID }) {
+            return profile
+        }
+        return allProfiles.first { $0.resolvedServiceType == selectedService }
     }
 
     private var customFolders: [String] {
@@ -160,6 +173,13 @@ struct ArrManualImportView: View {
         guard let profile = currentProfile else { return }
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !profile.importFolders.contains(trimmed) else { return }
+
+        // Validate absolute path: Unix (/...), Windows (C:\... or D:/...), or UNC (\\...)
+        let isUnixAbsolute = trimmed.hasPrefix("/")
+        let isWindowsDrive = trimmed.count >= 3 && trimmed.dropFirst().prefix(2) == ":\\" || trimmed.dropFirst().prefix(2) == ":/"
+        let isUNC = trimmed.hasPrefix("\\\\")
+        guard isUnixAbsolute || isWindowsDrive || isUNC else { return }
+
         withAnimation {
             profile.importFolders.append(trimmed)
         }
@@ -209,6 +229,13 @@ struct AddImportLocationSheet: View {
                     Button("Add") {
                         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
+
+                        // Validate absolute path: Unix (/...), Windows (C:\... or D:/...), or UNC (\\...)
+                        let isUnixAbsolute = trimmed.hasPrefix("/")
+                        let isWindowsDrive = trimmed.count >= 3 && trimmed.dropFirst().prefix(2) == ":\\" || trimmed.dropFirst().prefix(2) == ":/"
+                        let isUNC = trimmed.hasPrefix("\\\\")
+                        guard isUnixAbsolute || isWindowsDrive || isUNC else { return }
+
                         onAdd(trimmed)
                         dismiss()
                     }
@@ -293,9 +320,17 @@ fileprivate final class ManualImportScanViewModel {
 
         do {
             if service == .sonarr {
-                try await serviceManager.sonarrClient?.manualImport(files: filesToImport)
+                guard let client = serviceManager.sonarrClient else {
+                    InAppNotificationCenter.shared.showError(title: "Import Failed", message: "Sonarr client is not available.")
+                    return
+                }
+                try await client.manualImport(files: filesToImport)
             } else {
-                try await serviceManager.radarrClient?.manualImport(files: filesToImport)
+                guard let client = serviceManager.radarrClient else {
+                    InAppNotificationCenter.shared.showError(title: "Import Failed", message: "Radarr client is not available.")
+                    return
+                }
+                try await client.manualImport(files: filesToImport)
             }
             InAppNotificationCenter.shared.showSuccess(title: "Import Started", message: "Import command sent to \(service.displayName).")
             selectedFiles = []

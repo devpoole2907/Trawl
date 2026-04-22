@@ -153,7 +153,7 @@ final class NotificationService: Sendable {
         do {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
-            logger.error("Failed to enqueue local notification \(identifier, privacy: .public): \(error.localizedDescription, privacy: .private)")
+            logger.error("Failed to enqueue local notification: \(error.localizedDescription, privacy: .private)")
         }
     }
 }

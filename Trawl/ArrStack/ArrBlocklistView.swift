@@ -4,7 +4,6 @@ struct ArrBlocklistView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var scope: BlocklistScope = .all
     @State private var showClearConfirm = false
-    @State private var error: String?
 
     enum BlocklistScope: String, CaseIterable, Identifiable {
         case all = "All"
@@ -122,14 +121,6 @@ struct ArrBlocklistView: View {
                         }
                         .tint(.red)
                     }
-            }
-
-            if let error, !error.isEmpty {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .font(.footnote)
-                        .foregroundStyle(.red)
-                }
             }
         }
         .listStyle(.insetGrouped)

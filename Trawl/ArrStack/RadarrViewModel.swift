@@ -192,6 +192,7 @@ final class RadarrViewModel {
 
     func searchForNewMovies(term: String) async {
         guard let client, !term.isEmpty else {
+            isSearching = false
             searchResults = []
             searchRequestToken = nil
             return

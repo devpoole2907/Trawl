@@ -31,6 +31,17 @@ struct ArrWantedView: View {
         (radarrViewModel?.error != nil && !radarrViewModel!.error!.isEmpty)
     }
 
+    private var errorDescription: String {
+        var errors: [String] = []
+        if let sonarrError = sonarrViewModel?.error, !sonarrError.isEmpty {
+            errors.append("Sonarr: \(sonarrError)")
+        }
+        if let radarrError = radarrViewModel?.error, !radarrError.isEmpty {
+            errors.append("Radarr: \(radarrError)")
+        }
+        return errors.isEmpty ? "An error occurred loading wanted items." : errors.joined(separator: "\n")
+    }
+
     private var canSearchAllMissing: Bool {
         switch scope {
         case .all:
@@ -70,6 +81,12 @@ struct ArrWantedView: View {
             } else if isLoading && isEmpty {
                 ProgressView("Loading wanted items...")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if isEmpty && hasError {
+                ContentUnavailableView(
+                    "Load Failed",
+                    systemImage: "exclamationmark.triangle",
+                    description: Text(errorDescription)
+                )
             } else if isEmpty && !hasError {
                 ContentUnavailableView(
                     "Nothing Missing",
@@ -193,26 +210,10 @@ struct ArrWantedView: View {
 
     private func searchEpisode(_ episode: SonarrEpisode, in vm: SonarrViewModel) async {
         await vm.searchEpisode(episode)
-        if let error = vm.error, !error.isEmpty {
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
-        } else {
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Search Queued",
-                message: "\(episode.series?.title ?? episode.episodeIdentifier) – search sent to indexers."
-            )
-        }
     }
 
     private func searchMovie(_ movie: RadarrMovie, in vm: RadarrViewModel) async {
         await vm.searchMovie(movieId: movie.id)
-        if let error = vm.error, !error.isEmpty {
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
-        } else {
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Search Queued",
-                message: "\(movie.title) – search sent to indexers."
-            )
-        }
     }
 
     private func searchAllMissing() async {

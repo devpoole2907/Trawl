@@ -62,7 +62,7 @@ final class SyncService {
     }
 
     func removeCategoriesLocally(names: [String]) {
-        let removedNames = Set(names)
+        let removedNames = Set(names.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
         guard !removedNames.isEmpty else { return }
 
         for name in removedNames {

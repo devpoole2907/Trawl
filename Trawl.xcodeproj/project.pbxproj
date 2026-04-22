@@ -1202,8 +1202,8 @@
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/migueldeicaza/Libssh2Prebuild";
 			requirement = {
-				branch = master;
-				kind = branch;
+				kind = revision;
+				revision = 242b5e3746076f93a284df21a2af4567fcae094a;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */

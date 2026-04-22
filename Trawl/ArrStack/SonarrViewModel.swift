@@ -347,8 +347,11 @@ final class SonarrViewModel {
                 }
                 try? await Task.sleep(for: .milliseconds(40))
             }
-            
-            isSearching = false
+
+            // Only turn off spinner if still the active request
+            if !Task.isCancelled && searchRequestToken == requestToken {
+                isSearching = false
+            }
         } catch is CancellationError {
             if searchRequestToken == requestToken {
                 isSearching = false

@@ -103,7 +103,12 @@ final class ArrSetupViewModel {
         existingProfile = profile
         hostURL = profile.hostURL
         displayName = profile.displayName
-        serviceType = profile.resolvedServiceType ?? .sonarr
+        if let resolvedType = profile.resolvedServiceType {
+            serviceType = resolvedType
+        } else {
+            serviceType = .sonarr
+            validationError = "Invalid service type stored in profile. Defaulting to Sonarr."
+        }
         allowsUntrustedTLS = profile.allowsUntrustedTLS
         do {
             apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey) ?? ""

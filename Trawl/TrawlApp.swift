@@ -185,7 +185,10 @@ struct TrawlApp: App {
             }
 
             for arrProfile in try sourceContext.fetch(FetchDescriptor<ArrServiceProfile>()) {
-                let serviceType = arrProfile.resolvedServiceType ?? .sonarr
+                guard let serviceType = arrProfile.resolvedServiceType else {
+                    logger.warning("Skipping ArrServiceProfile with invalid service type: \(arrProfile.serviceType, privacy: .public)")
+                    continue
+                }
                 let copy = ArrServiceProfile(
                     displayName: arrProfile.displayName,
                     hostURL: arrProfile.hostURL,

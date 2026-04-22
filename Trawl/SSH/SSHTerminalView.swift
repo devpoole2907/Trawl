@@ -340,7 +340,7 @@ private final class SSHKeyboardBar: UIInputView {
         .fixed("}",    [0x7D]),
     ]
 
-    private unowned let bridge: SSHTerminalBridge
+    private weak var bridge: SSHTerminalBridge?
 
     init(bridge: SSHTerminalBridge) {
         self.bridge = bridge
