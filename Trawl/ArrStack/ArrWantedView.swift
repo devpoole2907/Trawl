@@ -27,8 +27,8 @@ struct ArrWantedView: View {
     }
 
     private var hasError: Bool {
-        (sonarrViewModel?.error != nil && !sonarrViewModel!.error!.isEmpty) ||
-        (radarrViewModel?.error != nil && !radarrViewModel!.error!.isEmpty)
+        (sonarrViewModel?.error?.isEmpty == false) ||
+        (radarrViewModel?.error?.isEmpty == false)
     }
 
     private var errorDescription: String {
@@ -219,9 +219,11 @@ struct ArrWantedView: View {
     private func searchAllMissing() async {
         isSearchingAll = true
         var errors: [String] = []
+        let sonarrCanSearch = sonarrViewModel?.isConnected == true
+        let radarrCanSearch = radarrViewModel?.isConnected == true
 
         await withTaskGroup(of: String?.self) { group in
-            if let sonarrViewModel {
+            if let sonarrViewModel, sonarrCanSearch {
                 group.addTask {
                     do {
                         try await sonarrViewModel.searchAllMissing()
@@ -231,7 +233,7 @@ struct ArrWantedView: View {
                     }
                 }
             }
-            if let radarrViewModel {
+            if let radarrViewModel, radarrCanSearch {
                 group.addTask {
                     do {
                         try await radarrViewModel.searchAllMissing()
@@ -279,10 +281,10 @@ struct ArrWantedView: View {
 
     private func reloadWantedMissing() async {
         await withTaskGroup(of: Void.self) { group in
-            if let sonarrViewModel {
+            if let sonarrViewModel, sonarrViewModel.isConnected {
                 group.addTask { await sonarrViewModel.loadWantedMissing() }
             }
-            if let radarrViewModel {
+            if let radarrViewModel, radarrViewModel.isConnected {
                 group.addTask { await radarrViewModel.loadWantedMissing() }
             }
         }

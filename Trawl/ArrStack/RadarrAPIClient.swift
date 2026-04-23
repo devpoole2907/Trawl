@@ -158,6 +158,10 @@ actor RadarrAPIClient: SharedArrClient {
         try await base.postCommand(name: RadarrCommand.rssSync.rawValue)
     }
 
+    func installUpdate() async throws -> ArrCommand {
+        try await base.postCommand(name: RadarrCommand.applicationUpdate.rawValue)
+    }
+
     // MARK: - Manual Import
 
     /// Get list of files that can be manually imported from a folder
@@ -184,7 +188,7 @@ actor RadarrAPIClient: SharedArrClient {
 
 // MARK: - Wanted Page (Radarr-specific paged response)
 
-struct RadarrWantedPage: Codable, Sendable {
+nonisolated struct RadarrWantedPage: Codable, Sendable {
     let page: Int?
     let pageSize: Int?
     let sortKey: String?

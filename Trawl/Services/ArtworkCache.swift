@@ -63,7 +63,7 @@ actor ArtworkCache {
         memoryCache.setObject(dataToStore as NSData, forKey: url as NSURL, cost: dataToStore.count)
         
         // Evict before writing if we're near the limit
-        await evictIfNecessary(incomingSize: Int64(dataToStore.count))
+        evictIfNecessary(incomingSize: Int64(dataToStore.count))
         
         try? dataToStore.write(to: fileURL, options: .atomic)
         return dataToStore
@@ -73,7 +73,7 @@ actor ArtworkCache {
         try fileManager.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
     }
 
-    private func evictIfNecessary(incomingSize: Int64) async {
+    private func evictIfNecessary(incomingSize: Int64) {
         let currentSize = cacheSizeInBytes()
         guard currentSize + incomingSize > diskCacheLimit else { return }
 

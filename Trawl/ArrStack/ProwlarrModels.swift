@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Indexer
 
-struct ProwlarrIndexer: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     let id: Int
     var name: String?
     var enable: Bool
@@ -91,7 +91,7 @@ struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     }
 }
 
-enum ProwlarrIndexerProtocol: String, Codable, Sendable {
+nonisolated enum ProwlarrIndexerProtocol: String, Codable, Sendable {
     case usenet = "usenet"
     case torrent = "torrent"
 
@@ -112,7 +112,7 @@ enum ProwlarrIndexerProtocol: String, Codable, Sendable {
     }
 }
 
-struct ProwlarrIndexerField: Codable, Sendable {
+nonisolated struct ProwlarrIndexerField: Codable, Sendable {
     let name: String?
     let label: String?
     let value: AnyCodableValue?
@@ -122,7 +122,7 @@ struct ProwlarrIndexerField: Codable, Sendable {
     let selectOptions: [ProwlarrSelectOption]?
 }
 
-struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
     let name: String?
     let value: AnyCodableValue?
     let order: Int?
@@ -135,7 +135,7 @@ struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
 }
 
 /// Type-erased JSON value for indexer config fields
-enum AnyCodableValue: Codable, Sendable {
+nonisolated enum AnyCodableValue: Codable, Sendable {
     case string(String)
     case int(Int)
     case double(Double)
@@ -188,7 +188,7 @@ enum AnyCodableValue: Codable, Sendable {
 }
 
 private extension String {
-    var strippingHTML: String {
+    nonisolated var strippingHTML: String {
         var s = self
         // Block elements → newline
         s = s.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
@@ -211,7 +211,7 @@ private extension String {
 
 // MARK: - Search
 
-enum ProwlarrSearchType: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum ProwlarrSearchType: String, CaseIterable, Identifiable, Sendable {
     case search
     case tvsearch
     case moviesearch
@@ -238,7 +238,7 @@ enum ProwlarrSearchType: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     let guid: String?
     let title: String?
     let indexerId: Int?
@@ -345,18 +345,18 @@ struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     }
 }
 
-struct ProwlarrCategory: Codable, Sendable {
+nonisolated struct ProwlarrCategory: Codable, Sendable {
     let id: Int?
     let name: String?
 }
 
 // MARK: - Indexer Stats
 
-struct ProwlarrIndexerStats: Codable, Sendable {
+nonisolated struct ProwlarrIndexerStats: Codable, Sendable {
     let indexers: [ProwlarrIndexerStatEntry]?
 }
 
-struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
     let indexerId: Int?
     let indexerName: String?
     let averageResponseTime: Double?
@@ -390,7 +390,7 @@ struct ProwlarrIndexerStatEntry: Codable, Identifiable, Sendable {
 
 // MARK: - Indexer Status
 
-struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
     let id: Int
     let indexerId: Int?
     let disabledTill: String?

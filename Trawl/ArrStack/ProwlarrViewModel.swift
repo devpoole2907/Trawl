@@ -67,9 +67,11 @@ final class ProwlarrViewModel {
         isLoadingIndexers = false
 
         // Load stats separately so failures don't affect indexers/statuses
+        isLoadingStats = true
+        defer { isLoadingStats = false }
+        statsError = nil
         do {
             indexerStats = try await client.getIndexerStats()
-            statsError = nil
         } catch {
             statsError = error.localizedDescription
         }
@@ -245,23 +247,21 @@ final class ProwlarrViewModel {
             // Only apply results if this is still the current request
             guard currentRequestToken == requestToken else { return }
 
-            // Stream results in one by one
-            for result in results {
+            let batchSize = results.count > 30 ? 10 : 5
+            for batch in results.chunked(into: batchSize) {
                 guard currentRequestToken == requestToken && !Task.isCancelled else { break }
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    searchResults.append(result)
+                    searchResults.append(contentsOf: batch)
                 }
-                try? await Task.sleep(for: .milliseconds(20))
             }
         } catch {
             // Only apply error if this is still the current request
             guard currentRequestToken == requestToken else { return }
             searchError = error.localizedDescription
-            searchResults = []
         }
 
         // Only update isSearching if this is still the current request
-        guard currentRequestToken == requestToken else { return }
+        guard currentRequestToken == requestToken && !Task.isCancelled else { return }
         isSearching = false
     }
 

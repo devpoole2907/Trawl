@@ -34,6 +34,11 @@ struct ArrBlocklistView: View {
         displayedSonarrItems.isEmpty && displayedRadarrItems.isEmpty
     }
 
+    private var hasFilterableBlocklistItems: Bool {
+        (serviceManager.sonarrConnected && !serviceManager.sonarrBlocklist.isEmpty) ||
+        (serviceManager.radarrConnected && !serviceManager.radarrBlocklist.isEmpty)
+    }
+
     private var hasConfigured: Bool {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
@@ -93,7 +98,7 @@ struct ArrBlocklistView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 BlocklistToolbarMenu(
                     scope: $scope,
-                    canFilterAcrossServices: serviceManager.sonarrConnected && serviceManager.radarrConnected,
+                    canFilter: hasFilterableBlocklistItems,
                     isEmpty: isEmpty,
                     onClearAll: { showClearConfirm = true }
                 )
@@ -184,14 +189,14 @@ struct ArrBlocklistView: View {
 
 private struct BlocklistToolbarMenu: View {
     @Binding var scope: ArrBlocklistView.BlocklistScope
-    let canFilterAcrossServices: Bool
+    let canFilter: Bool
     let isEmpty: Bool
     let onClearAll: () -> Void
 
     var body: some View {
-        if canFilterAcrossServices || !isEmpty {
+        if canFilter || !isEmpty {
             Menu {
-                if canFilterAcrossServices {
+                if canFilter {
                     Picker("Scope", selection: $scope) {
                         Label("All", systemImage: "square.grid.2x2").tag(ArrBlocklistView.BlocklistScope.all)
                         Label("Series", systemImage: "tv").tag(ArrBlocklistView.BlocklistScope.series)
@@ -199,7 +204,7 @@ private struct BlocklistToolbarMenu: View {
                     }
                 }
                 if !isEmpty {
-                    if canFilterAcrossServices {
+                    if canFilter {
                         Divider()
                     }
                     Button("Clear All", role: .destructive, action: onClearAll)
@@ -208,7 +213,7 @@ private struct BlocklistToolbarMenu: View {
                 Image(systemName: scope == .all
                       ? "line.3.horizontal.decrease.circle"
                       : "line.3.horizontal.decrease.circle.fill")
-                .accessibilityLabel("Filter scope")
+                .accessibilityLabel(Text("Blocklist filter menu"))
             }
         }
     }

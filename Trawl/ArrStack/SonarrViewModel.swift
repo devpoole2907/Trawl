@@ -45,6 +45,10 @@ final class SonarrViewModel {
     private var historyPage = 1
     private let historyPageSize = 20
 
+    // Updates
+    private(set) var availableUpdates: [ArrUpdateInfo] = []
+    private(set) var isLoadingUpdates: Bool = false
+
     // Filter & Sort
     var selectedFilter: SonarrFilter = .all { didSet { rebuildFilteredSeries() } }
     var sortOrder: SonarrSortOrder = .title { didSet { rebuildFilteredSeries() } }
@@ -561,6 +565,23 @@ final class SonarrViewModel {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.rssSync()
         InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
+    }
+
+    func checkForUpdates() async {
+        guard let client else { return }
+        isLoadingUpdates = true
+        defer { isLoadingUpdates = false }
+        do {
+            availableUpdates = try await client.getUpdates()
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func installUpdate() async throws {
+        guard let client else { throw ArrServiceError.clientNotAvailable }
+        _ = try await client.installUpdate()
+        InAppNotificationCenter.shared.showSuccess(title: "Update Started", message: "Application update command sent.")
     }
 
     var canLoadMoreWantedMissing: Bool {

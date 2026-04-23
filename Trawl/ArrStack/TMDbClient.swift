@@ -45,11 +45,11 @@ actor TMDbClient {
 
 // MARK: - Models
 
-struct TMDbPage: Decodable, Sendable {
+nonisolated struct TMDbPage: Decodable, Sendable {
     let results: [TMDbItem]
 }
 
-struct TMDbItem: Decodable, Identifiable, Sendable {
+nonisolated struct TMDbItem: Decodable, Identifiable, Sendable {
     let id: Int
     let title: String?          // movies
     let name: String?           // tv

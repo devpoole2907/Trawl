@@ -409,6 +409,7 @@ enum RadarrCommand: String, Sendable {
     case missingMoviesSearch = "MissingMoviesSearch"
     case rssSync = "RssSync"
     case backup = "Backup"
+    case applicationUpdate = "ApplicationUpdate"
 }
 
 // MARK: - Movie Lookup (search results for adding)

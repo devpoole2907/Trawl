@@ -174,11 +174,7 @@ struct ArrManualImportView: View {
         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !profile.importFolders.contains(trimmed) else { return }
 
-        // Validate absolute path: Unix (/...), Windows (C:\... or D:/...), or UNC (\\...)
-        let isUnixAbsolute = trimmed.hasPrefix("/")
-        let isWindowsDrive = trimmed.count >= 3 && trimmed.dropFirst().prefix(2) == ":\\" || trimmed.dropFirst().prefix(2) == ":/"
-        let isUNC = trimmed.hasPrefix("\\\\")
-        guard isUnixAbsolute || isWindowsDrive || isUNC else { return }
+        guard isAbsoluteImportPath(trimmed) else { return }
 
         withAnimation {
             profile.importFolders.append(trimmed)
@@ -230,11 +226,7 @@ struct AddImportLocationSheet: View {
                         let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
                         guard !trimmed.isEmpty else { return }
 
-                        // Validate absolute path: Unix (/...), Windows (C:\... or D:/...), or UNC (\\...)
-                        let isUnixAbsolute = trimmed.hasPrefix("/")
-                        let isWindowsDrive = trimmed.count >= 3 && trimmed.dropFirst().prefix(2) == ":\\" || trimmed.dropFirst().prefix(2) == ":/"
-                        let isUNC = trimmed.hasPrefix("\\\\")
-                        guard isUnixAbsolute || isWindowsDrive || isUNC else { return }
+                        guard isAbsoluteImportPath(trimmed) else { return }
 
                         onAdd(trimmed)
                         dismiss()
@@ -296,12 +288,7 @@ fileprivate final class ManualImportScanViewModel {
         defer { isLoading = false }
 
         do {
-            let jsonValues: [JSONValue]
-            if service == .sonarr {
-                jsonValues = try await serviceManager.sonarrClient?.getManualImport(folder: path) ?? []
-            } else {
-                jsonValues = try await serviceManager.radarrClient?.getManualImport(folder: path) ?? []
-            }
+            let jsonValues = try await getManualImport(folder: path)
             importableFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
         } catch is CancellationError {
             importableFiles = []
@@ -312,8 +299,7 @@ fileprivate final class ManualImportScanViewModel {
     }
 
     func performImport() async {
-        // Prune selectedFiles against current importableFiles to remove stale IDs
-        let availableIDs = Set(importableFiles.map { $0.id })
+        let availableIDs = Set(importableFiles.map(\.id))
         selectedFiles = selectedFiles.intersection(availableIDs)
 
         guard !selectedFiles.isEmpty else { return }
@@ -323,19 +309,7 @@ fileprivate final class ManualImportScanViewModel {
         let filesToImport = importableFiles.filter { selectedFiles.contains($0.id) }.map { $0.originalJSON }
 
         do {
-            if service == .sonarr {
-                guard let client = serviceManager.sonarrClient else {
-                    InAppNotificationCenter.shared.showError(title: "Import Failed", message: "Sonarr client is not available.")
-                    return
-                }
-                try await client.manualImport(files: filesToImport)
-            } else {
-                guard let client = serviceManager.radarrClient else {
-                    InAppNotificationCenter.shared.showError(title: "Import Failed", message: "Radarr client is not available.")
-                    return
-                }
-                try await client.manualImport(files: filesToImport)
-            }
+            try await manualImport(files: filesToImport)
             InAppNotificationCenter.shared.showSuccess(title: "Import Started", message: "Import command sent to \(service.displayName).")
             selectedFiles = []
             await loadFiles()
@@ -345,6 +319,61 @@ fileprivate final class ManualImportScanViewModel {
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
         }
     }
+
+    private func getManualImport(folder: String) async throws -> [JSONValue] {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else {
+                throw ManualImportServiceClientUnavailableError(service: service)
+            }
+            return try await client.getManualImport(folder: folder)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else {
+                throw ManualImportServiceClientUnavailableError(service: service)
+            }
+            return try await client.getManualImport(folder: folder)
+        case .prowlarr:
+            throw ManualImportServiceClientUnavailableError(service: service)
+        }
+    }
+
+    private func manualImport(files: [JSONValue]) async throws {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else {
+                throw ManualImportServiceClientUnavailableError(service: service)
+            }
+            try await client.manualImport(files: files)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else {
+                throw ManualImportServiceClientUnavailableError(service: service)
+            }
+            try await client.manualImport(files: files)
+        case .prowlarr:
+            throw ManualImportServiceClientUnavailableError(service: service)
+        }
+    }
+}
+
+private struct ManualImportServiceClientUnavailableError: LocalizedError {
+    let service: ArrServiceType
+
+    var errorDescription: String? {
+        "\(service.displayName) client is not available."
+    }
+}
+
+private func isAbsoluteImportPath(_ path: String) -> Bool {
+    path.hasPrefix("/") || path.hasPrefix("\\\\") || isWindowsDrivePath(path)
+}
+
+private func isWindowsDrivePath(_ path: String) -> Bool {
+    guard path.count >= 3 else { return false }
+    let characters = Array(path.prefix(3))
+    let drive = characters[0]
+    let separator = characters[2]
+
+    return drive.isASCII && drive.isLetter && characters[1] == ":" && (separator == "\\" || separator == "/")
 }
 
 // MARK: - Scan View

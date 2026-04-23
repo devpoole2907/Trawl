@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - System Status
 
-struct ArrSystemStatus: Codable, Sendable {
+nonisolated struct ArrSystemStatus: Codable, Sendable {
     let appName: String?
     let instanceName: String?
     let version: String?
@@ -237,7 +237,7 @@ struct ArrReleaseQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
-struct ArrReleaseGrabRequest: Codable, Sendable {
+nonisolated struct ArrReleaseGrabRequest: Codable, Sendable {
     let guid: String
     let indexerId: Int
 }
@@ -259,7 +259,7 @@ private extension KeyedDecodingContainer where K == ArrRelease.CodingKeys {
 
 // MARK: - Queue
 
-struct ArrQueuePage: Codable, Sendable {
+nonisolated struct ArrQueuePage: Codable, Sendable {
     let page: Int?
     let pageSize: Int?
     let sortKey: String?
@@ -342,7 +342,7 @@ struct ArrStatusMessage: Codable, Sendable {
 
 // MARK: - History
 
-struct ArrHistoryPage: Codable, Sendable {
+nonisolated struct ArrHistoryPage: Codable, Sendable {
     let page: Int?
     let pageSize: Int?
     let sortKey: String?
@@ -388,7 +388,7 @@ struct ArrRatings: Codable, Sendable {
 
 // MARK: - Command
 
-struct ArrCommand: Codable, Identifiable, Sendable {
+nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
     let id: Int?
     let name: String?
     let commandName: String?
@@ -403,7 +403,7 @@ struct ArrCommand: Codable, Identifiable, Sendable {
 
 // MARK: - Blocklist
 
-struct ArrBlocklistPage: Codable, Sendable {
+nonisolated struct ArrBlocklistPage: Codable, Sendable {
     let page: Int?
     let pageSize: Int?
     let totalRecords: Int?
@@ -482,6 +482,25 @@ struct ArrDiskSpaceSnapshot: Identifiable, Sendable {
     let totalSpace: Int64?
 
     var id: String { "\(serviceType.rawValue)-\(path)" }
+}
+
+// MARK: - Update Info
+
+struct ArrUpdateInfo: Codable, Identifiable, Sendable {
+    var id: String { version ?? UUID().uuidString }
+    let version: String?
+    let releaseDate: String?
+    let fileName: String?
+    let url: String?
+    let installed: Bool?
+    let installable: Bool?
+    let latest: Bool?
+    let changes: ArrUpdateChanges?
+
+    struct ArrUpdateChanges: Codable, Sendable {
+        let new: [String]?
+        let fixed: [String]?
+    }
 }
 
 // MARK: - Arr Error

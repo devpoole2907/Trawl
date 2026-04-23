@@ -1645,11 +1645,11 @@ struct SonarrInteractiveSearchSheet: View {
 
     private var titleString: String {
         if let episode {
-            return "\(series.title ?? "Series") · \(episode.episodeIdentifier)"
+            return "\(series.title) · \(episode.episodeIdentifier)"
         } else if let seasonNumber {
-            return "\(series.title ?? "Series") · Season \(seasonNumber)"
+            return "\(series.title) · Season \(seasonNumber)"
         } else {
-            return series.title ?? "Interactive Search"
+            return series.title
         }
     }
 

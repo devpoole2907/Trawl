@@ -60,28 +60,13 @@ final class ArrSetupViewModel {
 
             let profile: ArrServiceProfile
             let isEditing = existingProfile != nil
-
-            // Snapshot original fields for rollback on edit path
-            var originalDisplayName: String?
-            var originalHostURL: String?
-            var originalServiceType: String?
-            var originalAllowsUntrustedTLS: Bool?
-            var originalApiVersion: String?
+            let originalAPIKey: String?
 
             if let existing = existingProfile {
-                originalDisplayName = existing.displayName
-                originalHostURL = existing.hostURL
-                originalServiceType = existing.serviceType
-                originalAllowsUntrustedTLS = existing.allowsUntrustedTLS
-                originalApiVersion = existing.apiVersion
-
-                existing.displayName = name
-                existing.hostURL = trimmedURL
-                existing.serviceType = serviceType.rawValue
-                existing.allowsUntrustedTLS = allowsUntrustedTLS
-                existing.apiVersion = status.version
+                originalAPIKey = try await KeychainHelper.shared.read(key: existing.apiKeyKeychainKey)
                 profile = existing
             } else {
+                originalAPIKey = nil
                 profile = ArrServiceProfile(
                     displayName: name,
                     hostURL: trimmedURL,
@@ -91,22 +76,21 @@ final class ArrSetupViewModel {
                 profile.apiVersion = status.version
             }
 
-            // Save API key to Keychain first (atomic operation)
-            do {
-                try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: trimmedKey)
-            } catch {
-                // Restore snapshot if edit path
-                if isEditing, let existing = existingProfile {
-                    if let original = originalDisplayName { existing.displayName = original }
-                    if let original = originalHostURL { existing.hostURL = original }
-                    if let original = originalServiceType { existing.serviceType = original }
-                    if let original = originalAllowsUntrustedTLS { existing.allowsUntrustedTLS = original }
-                    if let original = originalApiVersion { existing.apiVersion = original }
-                }
-                throw error
-            }
+            let originalDisplayName = profile.displayName
+            let originalHostURL = profile.hostURL
+            let originalServiceType = profile.serviceType
+            let originalAllowsUntrustedTLS = profile.allowsUntrustedTLS
+            let originalApiVersion = profile.apiVersion
+            let keychainKey = profile.apiKeyKeychainKey
 
-            // Insert and save to DB
+            try await KeychainHelper.shared.save(key: keychainKey, value: trimmedKey)
+
+            profile.displayName = name
+            profile.hostURL = trimmedURL
+            profile.serviceType = serviceType.rawValue
+            profile.allowsUntrustedTLS = allowsUntrustedTLS
+            profile.apiVersion = status.version
+
             if !isEditing {
                 modelContext.insert(profile)
             }
@@ -114,18 +98,21 @@ final class ArrSetupViewModel {
             do {
                 try modelContext.save()
             } catch {
-                // Rollback: remove keychain entry on failure
-                try? await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
+                if isEditing {
+                    profile.displayName = originalDisplayName
+                    profile.hostURL = originalHostURL
+                    profile.serviceType = originalServiceType
+                    profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                    profile.apiVersion = originalApiVersion
 
-                // Restore snapshot or rollback model context
-                if isEditing, let existing = existingProfile {
-                    if let original = originalDisplayName { existing.displayName = original }
-                    if let original = originalHostURL { existing.hostURL = original }
-                    if let original = originalServiceType { existing.serviceType = original }
-                    if let original = originalAllowsUntrustedTLS { existing.allowsUntrustedTLS = original }
-                    if let original = originalApiVersion { existing.apiVersion = original }
+                    if let originalAPIKey {
+                        try? await KeychainHelper.shared.save(key: keychainKey, value: originalAPIKey)
+                    } else {
+                        try? await KeychainHelper.shared.delete(key: keychainKey)
+                    }
                 } else {
                     modelContext.rollback()
+                    try? await KeychainHelper.shared.delete(key: keychainKey)
                 }
                 throw error
             }
@@ -168,16 +155,22 @@ final class ArrSetupViewModel {
 
     /// Delete a service profile.
     func deleteProfile(_ profile: ArrServiceProfile, modelContext: ModelContext) async {
-        // Disconnect service first
-        if let serviceType = profile.resolvedServiceType {
-            serviceManager.disconnectService(serviceType, profileID: profile.id)
+        guard let serviceType = profile.resolvedServiceType else {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Remove Service",
+                message: "The saved service type is invalid. Please try editing the profile before deleting it."
+            )
+            return
         }
 
-        // Delete from SwiftData
+        let keychainKey = profile.apiKeyKeychainKey
+        serviceManager.disconnectService(serviceType, profileID: profile.id)
+
         modelContext.delete(profile)
         do {
             try modelContext.save()
         } catch {
+            modelContext.rollback()
             InAppNotificationCenter.shared.showError(
                 title: "Couldn't Remove Service",
                 message: "Failed to save the updated service list. \(error.localizedDescription)"
@@ -185,9 +178,8 @@ final class ArrSetupViewModel {
             return
         }
 
-        // Only delete keychain after successful save
         do {
-            try await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
+            try await KeychainHelper.shared.delete(key: keychainKey)
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Keychain Warning",

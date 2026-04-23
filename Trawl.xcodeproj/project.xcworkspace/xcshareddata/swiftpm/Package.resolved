@@ -1,13 +1,12 @@
 {
-  "originHash" : "abae6ee28e6d7aba77c7ef37f4bf748db2e5b2370485a72d42f6a5460e10ecab",
+  "originHash" : "41ae1360438da66b281d50c5a86ef83082c33ff24193bedcc660853a79a1f39f",
   "pins" : [
     {
       "identity" : "libssh2prebuild",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/migueldeicaza/Libssh2Prebuild",
       "state" : {
-        "branch" : "master",
-        "revision" : "2b9a34880aa7906a76872ac03077ea5aa313c72b"
+        "revision" : "242b5e3746076f93a284df21a2af4567fcae094a"
       }
     },
     {

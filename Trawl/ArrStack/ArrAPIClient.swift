@@ -5,7 +5,7 @@ protocol SharedArrClient: Actor {
     var base: ArrAPIClient { get }
 }
 
-enum JSONValue: Codable, Sendable {
+nonisolated enum JSONValue: Codable, Sendable {
     case string(String)
     case number(Double)
     case bool(Bool)
@@ -44,7 +44,7 @@ enum JSONValue: Codable, Sendable {
         }
     }
     
-    var rawValue: Any {
+    nonisolated var rawValue: Any {
         switch self {
         case .string(let x): return x
         case .number(let x): return x
@@ -91,6 +91,7 @@ extension SharedArrClient {
     }
 
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.getDiskSpace() }
+    func getUpdates() async throws -> [ArrUpdateInfo] { try await base.getUpdates() }
 }
 
 /// Base actor handling shared HTTP infrastructure for all *arr services.
@@ -181,6 +182,10 @@ actor ArrAPIClient {
 
     func getDiskSpace() async throws -> [ArrDiskSpace] {
         try await get("/api/v3/diskspace")
+    }
+
+    func getUpdates() async throws -> [ArrUpdateInfo] {
+        try await get("/api/v3/update")
     }
 
     func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {

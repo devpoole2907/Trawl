@@ -323,6 +323,52 @@ struct SonarrEpisode: Codable, Identifiable, Sendable {
     let unverifiedSceneNumbering: Bool?
     let grabbed: Bool?
 
+    enum CodingKeys: String, CodingKey {
+        case id
+        case seriesId
+        case series
+        case tvdbId
+        case episodeFileId
+        case seasonNumber
+        case episodeNumber
+        case title
+        case airDate
+        case airDateUtc
+        case overview
+        case hasFile
+        case monitored
+        case absoluteEpisodeNumber
+        case sceneAbsoluteEpisodeNumber
+        case sceneEpisodeNumber
+        case sceneSeasonNumber
+        case unverifiedSceneNumbering
+        case grabbed
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        id = try container.decode(Int.self, forKey: .id)
+        seriesId = try container.decodeIfPresent(Int.self, forKey: .seriesId)
+        series = try container.decodeIfPresent(SonarrSeries.self, forKey: .series)
+        tvdbId = try container.decodeIfPresent(Int.self, forKey: .tvdbId)
+        episodeFileId = try container.decodeIfPresent(Int.self, forKey: .episodeFileId)
+        seasonNumber = try container.decode(Int.self, forKey: .seasonNumber)
+        episodeNumber = try container.decode(Int.self, forKey: .episodeNumber)
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        airDate = try container.decodeIfPresent(String.self, forKey: .airDate)
+        airDateUtc = try container.decodeIfPresent(String.self, forKey: .airDateUtc)
+        overview = try container.decodeIfPresent(String.self, forKey: .overview)
+        hasFile = try container.decodeIfPresent(Bool.self, forKey: .hasFile)
+        monitored = try container.decodeIfPresent(Bool.self, forKey: .monitored)
+        absoluteEpisodeNumber = try container.decodeIfPresent(Int.self, forKey: .absoluteEpisodeNumber)
+        sceneAbsoluteEpisodeNumber = try container.decodeIfPresent(Int.self, forKey: .sceneAbsoluteEpisodeNumber)
+        sceneEpisodeNumber = try container.decodeIfPresent(Int.self, forKey: .sceneEpisodeNumber)
+        sceneSeasonNumber = try container.decodeIfPresent(Int.self, forKey: .sceneSeasonNumber)
+        unverifiedSceneNumbering = try container.decodeIfPresent(Bool.self, forKey: .unverifiedSceneNumbering)
+        grabbed = try container.decodeIfPresent(Bool.self, forKey: .grabbed)
+    }
+
     /// Formatted episode identifier e.g. "S01E05"
     var episodeIdentifier: String {
         String(format: "S%02dE%02d", seasonNumber, episodeNumber)
@@ -412,4 +458,5 @@ enum SonarrCommand: String, Sendable {
     case missingEpisodeSearch = "missingEpisodeSearch"
     case rssSync = "RssSync"
     case backup = "Backup"
+    case applicationUpdate = "ApplicationUpdate"
 }

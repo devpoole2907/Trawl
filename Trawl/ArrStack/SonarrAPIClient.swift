@@ -188,6 +188,10 @@ actor SonarrAPIClient: SharedArrClient {
         try await base.postCommand(name: SonarrCommand.rssSync.rawValue)
     }
 
+    func installUpdate() async throws -> ArrCommand {
+        try await base.postCommand(name: SonarrCommand.applicationUpdate.rawValue)
+    }
+
     // MARK: - Manual Import
 
     /// Get list of files that can be manually imported from a folder
@@ -221,4 +225,24 @@ struct SonarrWantedPage: Codable, Sendable {
     let sortDirection: String?
     let totalRecords: Int?
     let records: [SonarrEpisode]?
+
+    enum CodingKeys: String, CodingKey {
+        case page
+        case pageSize
+        case sortKey
+        case sortDirection
+        case totalRecords
+        case records
+    }
+
+    nonisolated init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        page = try container.decodeIfPresent(Int.self, forKey: .page)
+        pageSize = try container.decodeIfPresent(Int.self, forKey: .pageSize)
+        sortKey = try container.decodeIfPresent(String.self, forKey: .sortKey)
+        sortDirection = try container.decodeIfPresent(String.self, forKey: .sortDirection)
+        totalRecords = try container.decodeIfPresent(Int.self, forKey: .totalRecords)
+        records = try container.decodeIfPresent([SonarrEpisode].self, forKey: .records)
+    }
 }
