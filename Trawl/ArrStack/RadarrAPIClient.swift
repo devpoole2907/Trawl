@@ -184,6 +184,7 @@ actor RadarrAPIClient: SharedArrClient {
         ]
         _ = try await base.postCommand(name: "ManualImport", additionalParams: additionalParams)
     }
+}
 
 // MARK: - Wanted Page (Radarr-specific paged response)
 

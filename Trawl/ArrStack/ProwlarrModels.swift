@@ -181,6 +181,15 @@ nonisolated enum AnyCodableValue: Codable, Sendable {
         case .double(let v): return String(v)
         case .bool(let v): return v ? "Yes" : "No"
         case .array(let v): return v.isEmpty ? nil : v.compactMap(\.displayString).joined(separator: ", ")
+        case .object(let v):
+            let pairs: [String] = v
+                .sorted { $0.key < $1.key }
+                .compactMap { element -> String? in
+                    let (key, value) = element
+                    guard let display = value.displayString, !display.isEmpty else { return nil }
+                    return "\(key): \(display)"
+                }
+            return pairs.isEmpty ? nil : pairs.joined(separator: ", ")
         case .null: return nil
         }
     }
