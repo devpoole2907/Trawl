@@ -40,6 +40,9 @@ final class RadarrViewModel {
     var selectedFilter: RadarrFilter = .all { didSet { rebuildFilteredMovies() } }
     var sortOrder: RadarrSortOrder = .title { didSet { rebuildFilteredMovies() } }
 
+    // Race-condition guard for loadMovieFiles
+    private var latestRequestedMovieId: Int?
+
     private let serviceManager: ArrServiceManager
 
     init(serviceManager: ArrServiceManager) {
@@ -120,12 +123,16 @@ final class RadarrViewModel {
 
     func loadMovieFiles(movieId: Int) async {
         guard let client else { return }
+        latestRequestedMovieId = movieId
         movieFiles = []
         isLoadingFiles = true
         defer { isLoadingFiles = false }
         do {
-            movieFiles = try await client.getMovieFiles(movieId: movieId)
+            let files = try await client.getMovieFiles(movieId: movieId)
+            guard latestRequestedMovieId == movieId else { return }
+            movieFiles = files
         } catch {
+            guard latestRequestedMovieId == movieId else { return }
             self.error = error.localizedDescription
             movieFiles = []
         }

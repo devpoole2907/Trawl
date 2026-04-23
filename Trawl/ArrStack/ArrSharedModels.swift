@@ -487,7 +487,7 @@ struct ArrDiskSpaceSnapshot: Identifiable, Sendable {
 // MARK: - Update Info
 
 struct ArrUpdateInfo: Codable, Identifiable, Sendable {
-    var id: String { version ?? UUID().uuidString }
+    let id: String
     let version: String?
     let releaseDate: String?
     let fileName: String?
@@ -500,6 +500,47 @@ struct ArrUpdateInfo: Codable, Identifiable, Sendable {
     struct ArrUpdateChanges: Codable, Sendable {
         let new: [String]?
         let fixed: [String]?
+    }
+
+    init(version: String?, releaseDate: String?, fileName: String?, url: String?, installed: Bool?, installable: Bool?, latest: Bool?, changes: ArrUpdateChanges?) {
+        self.id = version ?? UUID().uuidString
+        self.version = version
+        self.releaseDate = releaseDate
+        self.fileName = fileName
+        self.url = url
+        self.installed = installed
+        self.installable = installable
+        self.latest = latest
+        self.changes = changes
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decodeIfPresent(String.self, forKey: .version)
+        releaseDate = try container.decodeIfPresent(String.self, forKey: .releaseDate)
+        fileName = try container.decodeIfPresent(String.self, forKey: .fileName)
+        url = try container.decodeIfPresent(String.self, forKey: .url)
+        installed = try container.decodeIfPresent(Bool.self, forKey: .installed)
+        installable = try container.decodeIfPresent(Bool.self, forKey: .installable)
+        latest = try container.decodeIfPresent(Bool.self, forKey: .latest)
+        changes = try container.decodeIfPresent(ArrUpdateChanges.self, forKey: .changes)
+        id = version ?? UUID().uuidString
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case version, releaseDate, fileName, url, installed, installable, latest, changes
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(version, forKey: .version)
+        try container.encodeIfPresent(releaseDate, forKey: .releaseDate)
+        try container.encodeIfPresent(fileName, forKey: .fileName)
+        try container.encodeIfPresent(url, forKey: .url)
+        try container.encodeIfPresent(installed, forKey: .installed)
+        try container.encodeIfPresent(installable, forKey: .installable)
+        try container.encodeIfPresent(latest, forKey: .latest)
+        try container.encodeIfPresent(changes, forKey: .changes)
     }
 }
 

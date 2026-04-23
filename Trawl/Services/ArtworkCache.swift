@@ -60,11 +60,17 @@ actor ArtworkCache {
         }
 
         let dataToStore = compressedData(from: data) ?? data
+
+        // Skip caching oversized payloads
+        guard Int64(dataToStore.count) <= diskCacheLimit else {
+            return dataToStore
+        }
+
         memoryCache.setObject(dataToStore as NSData, forKey: url as NSURL, cost: dataToStore.count)
-        
+
         // Evict before writing if we're near the limit
         evictIfNecessary(incomingSize: Int64(dataToStore.count))
-        
+
         try? dataToStore.write(to: fileURL, options: .atomic)
         return dataToStore
     }

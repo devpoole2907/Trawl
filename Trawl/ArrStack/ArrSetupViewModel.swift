@@ -79,11 +79,17 @@ final class ArrSetupViewModel {
             let originalDisplayName = profile.displayName
             let originalHostURL = profile.hostURL
             let originalServiceType = profile.serviceType
+            let originalResolvedServiceType = profile.resolvedServiceType
             let originalAllowsUntrustedTLS = profile.allowsUntrustedTLS
             let originalApiVersion = profile.apiVersion
             let keychainKey = profile.apiKeyKeychainKey
 
             try await KeychainHelper.shared.save(key: keychainKey, value: trimmedKey)
+
+            // Tear down the old connection if the service type is changing
+            if let originalResolvedServiceType, originalResolvedServiceType != serviceType {
+                serviceManager.disconnectService(originalResolvedServiceType, profileID: profile.id)
+            }
 
             profile.displayName = name
             profile.hostURL = trimmedURL

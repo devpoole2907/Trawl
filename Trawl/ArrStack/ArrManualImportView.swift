@@ -51,7 +51,9 @@ struct ArrManualImportView: View {
             }
         }
         .navigationTitle("Manual Import")
+        #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var emptyState: some View {
@@ -216,7 +218,9 @@ struct AddImportLocationSheet: View {
                 }
             }
             .navigationTitle("Add Location")
+            #if os(iOS) || os(visionOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -290,6 +294,8 @@ fileprivate final class ManualImportScanViewModel {
         do {
             let jsonValues = try await getManualImport(folder: path)
             importableFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
+            let availableIDs = Set(importableFiles.map(\.id))
+            selectedFiles = selectedFiles.intersection(availableIDs)
         } catch is CancellationError {
             importableFiles = []
         } catch {
@@ -425,7 +431,9 @@ struct ManualImportScanView: View {
         .listStyle(.plain)
         .navigationTitle(viewModel.folderName)
         .navigationSubtitle(navigationSubtitleText)
+        #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
+        #endif
         .refreshable {
             await viewModel.loadFiles()
         }

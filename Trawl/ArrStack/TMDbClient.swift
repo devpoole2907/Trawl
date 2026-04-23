@@ -5,6 +5,7 @@ import Foundation
 actor TMDbClient {
     private let apiKey: String
     private let session: URLSession
+    private let decoder = JSONDecoder()
     private static let baseURL = "https://api.themoviedb.org/3"
     static let imageBase = "https://image.tmdb.org/t/p"
 
@@ -30,16 +31,30 @@ actor TMDbClient {
     // MARK: - HTTP
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        var components = URLComponents(string: "\(Self.baseURL)\(path)")!
+        guard !apiKey.isEmpty else { throw TMDbError.noAPIKey }
+        guard var components = URLComponents(string: "\(Self.baseURL)\(path)") else {
+            throw TMDbError.invalidURL
+        }
         components.queryItems = [URLQueryItem(name: "api_key", value: apiKey)]
-        var request = URLRequest(url: components.url!)
+        guard let url = components.url else {
+            throw TMDbError.invalidURL
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = "GET"
 
         let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw TMDbError.requestFailed
+        guard let http = response as? HTTPURLResponse else {
+            throw TMDbError.requestFailed(statusCode: 0, body: nil)
         }
-        return try JSONDecoder().decode(T.self, from: data)
+        guard (200..<300).contains(http.statusCode) else {
+            let body = String(data: data, encoding: .utf8)
+            throw TMDbError.requestFailed(statusCode: http.statusCode, body: body)
+        }
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw TMDbError.decodingFailed(error)
+        }
     }
 }
 
@@ -95,13 +110,21 @@ nonisolated struct TMDbItem: Decodable, Identifiable, Sendable {
 }
 
 enum TMDbError: LocalizedError {
-    case requestFailed
+    case requestFailed(statusCode: Int, body: String?)
     case noAPIKey
+    case invalidURL
+    case decodingFailed(Error)
 
     var errorDescription: String? {
         switch self {
-        case .requestFailed: "TMDb request failed."
-        case .noAPIKey: "No TMDb API key configured."
+        case .requestFailed(let statusCode, let body):
+            "TMDb request failed (\(statusCode)): \(body ?? "Unknown error")"
+        case .noAPIKey:
+            "No TMDb API key configured."
+        case .invalidURL:
+            "Invalid TMDb URL."
+        case .decodingFailed(let error):
+            "Failed to decode TMDb response: \(error.localizedDescription)"
         }
     }
 }

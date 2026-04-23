@@ -217,7 +217,9 @@ struct ArrWantedView: View {
     }
 
     private func searchAllMissing() async {
+        guard !isSearchingAll else { return }
         isSearchingAll = true
+        defer { isSearchingAll = false }
         var errors: [String] = []
         let sonarrCanSearch = sonarrViewModel?.isConnected == true
         let radarrCanSearch = radarrViewModel?.isConnected == true
@@ -245,13 +247,12 @@ struct ArrWantedView: View {
             }
 
             for await result in group {
+                if Task.isCancelled { break }
                 if let result {
                     errors.append(result)
                 }
             }
         }
-
-        isSearchingAll = false
 
         if errors.isEmpty {
             InAppNotificationCenter.shared.showSuccess(

@@ -18,6 +18,7 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable {
     let supportsSearch: Bool?
     let `protocol`: ProwlarrIndexerProtocol?
     let fields: [ProwlarrIndexerField]?
+    private let _schemaListID: String
 
     init(
         id: Int,
@@ -51,6 +52,7 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable {
         self.supportsSearch = supportsSearch
         self.protocol = `protocol`
         self.fields = fields
+        self._schemaListID = ProwlarrIndexer.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }
 
     // Schema endpoint omits `id` and `enable` for template entries.
@@ -72,9 +74,12 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable {
         let protocolValue = try c.decodeIfPresent(String.self, forKey: .protocol)
         `protocol` = protocolValue.flatMap(ProwlarrIndexerProtocol.init(rawValue:))
         fields = try c.decodeIfPresent([ProwlarrIndexerField].self, forKey: .fields)
+        _schemaListID = ProwlarrIndexer.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }
 
-    var schemaListID: String {
+    var schemaListID: String { _schemaListID }
+
+    private static func computeSchemaListID(id: Int, implementation: String?, configContract: String?, implementationName: String?, name: String?) -> String {
         if id != 0 { return "indexer-\(id)" }
         let components = [
             implementation,
@@ -141,6 +146,7 @@ nonisolated enum AnyCodableValue: Codable, Sendable {
     case double(Double)
     case bool(Bool)
     case array([AnyCodableValue])
+    case object([String: AnyCodableValue])
     case null
 
     init(from decoder: Decoder) throws {
@@ -150,6 +156,7 @@ nonisolated enum AnyCodableValue: Codable, Sendable {
         else if let v = try? container.decode(Int.self) { self = .int(v) }
         else if let v = try? container.decode(Double.self) { self = .double(v) }
         else if let v = try? container.decode(String.self) { self = .string(v) }
+        else if let v = try? container.decode([String: AnyCodableValue].self) { self = .object(v) }
         else if let v = try? container.decode([AnyCodableValue].self) { self = .array(v) }
         else { self = .null }
     }
@@ -162,6 +169,7 @@ nonisolated enum AnyCodableValue: Codable, Sendable {
         case .double(let v): try container.encode(v)
         case .bool(let v): try container.encode(v)
         case .array(let v): try container.encode(v)
+        case .object(let v): try container.encode(v)
         case .null: try container.encodeNil()
         }
     }
@@ -255,6 +263,7 @@ nonisolated struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
     let downloadVolumeFactor: Double?
     let uploadVolumeFactor: Double?
     let `protocol`: ProwlarrIndexerProtocol?
+    private let _id: String
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -275,6 +284,7 @@ nonisolated struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         uploadVolumeFactor = try c.decodeIfPresent(Double.self, forKey: .uploadVolumeFactor)
         let protocolValue = try c.decodeIfPresent(String.self, forKey: .protocol)
         `protocol` = protocolValue.flatMap(ProwlarrIndexerProtocol.init(rawValue:))
+        _id = ProwlarrSearchResult.computeID(guid: guid, indexerId: indexerId, title: title, downloadUrl: downloadUrl, infoUrl: infoUrl, publishDate: publishDate, size: size, seeders: seeders, leechers: leechers)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -284,18 +294,20 @@ nonisolated struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
         case `protocol`
     }
 
-    var id: String {
+    var id: String { _id }
+
+    private static func computeID(guid: String?, indexerId: Int?, title: String?, downloadUrl: String?, infoUrl: String?, publishDate: String?, size: Int64?, seeders: Int?, leechers: Int?) -> String {
         if let guid = guid, !guid.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return guid
         }
         let components = [
-            Self.normalizedIDComponent(indexerId.map(String.init)),
-            Self.normalizedIDComponent(title),
-            Self.normalizedIDComponent(downloadUrl ?? infoUrl),
-            Self.normalizedIDComponent(publishDate),
-            Self.normalizedIDComponent(size.map(String.init)),
-            Self.normalizedIDComponent(seeders.map(String.init)),
-            Self.normalizedIDComponent(leechers.map(String.init))
+            normalizedIDComponent(indexerId.map(String.init)),
+            normalizedIDComponent(title),
+            normalizedIDComponent(downloadUrl ?? infoUrl),
+            normalizedIDComponent(publishDate),
+            normalizedIDComponent(size.map(String.init)),
+            normalizedIDComponent(seeders.map(String.init)),
+            normalizedIDComponent(leechers.map(String.init))
         ]
         .compactMap { $0 }
 

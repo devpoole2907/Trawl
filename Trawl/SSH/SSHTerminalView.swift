@@ -233,7 +233,7 @@ struct SwiftTermView: UIViewRepresentable {
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
         }
         func clipboardCopy(source: TerminalView, content: Data) {
-            UIPasteboard.general.string = String(data: content, encoding: .utf8)
+            UIPasteboard.general.string = String(decoding: content, as: UTF8.self)
         }
     }
 }
@@ -268,9 +268,7 @@ private final class SSHKeyboardBar: UIInputView {
     private static let keyForegroundColor = UIColor { traits in
         traits.userInterfaceStyle == .dark ? .white : .label
     }
-    private static let dismissColor = UIColor { traits in
-        UIColor.white
-    }
+    private static let dismissColor = UIColor.white
     private static let dismissBackgroundColor = UIColor { traits in
         traits.userInterfaceStyle == .dark
             ? UIColor(white: 1.0, alpha: 0.08)
@@ -358,7 +356,7 @@ private final class SSHKeyboardBar: UIInputView {
     // MARK: Layout
 
     private func setupContent() {
-        let chrome = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterialDark))
+        let chrome = UIVisualEffectView(effect: UIBlurEffect(style: .systemChromeMaterial))
         chrome.backgroundColor = SSHKeyboardBar.chromeColor
         chrome.layer.cornerRadius = 24
         chrome.layer.cornerCurve = .continuous
@@ -540,7 +538,7 @@ struct SwiftTermView: NSViewRepresentable {
         func bell(source: TerminalView) {}
         func clipboardCopy(source: TerminalView, content: Data) {
             NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(String(data: content, encoding: .utf8) ?? "", forType: .string)
+            NSPasteboard.general.setString(String(decoding: content, as: UTF8.self), forType: .string)
         }
     }
 }
