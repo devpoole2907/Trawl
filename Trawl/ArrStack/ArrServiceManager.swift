@@ -101,6 +101,92 @@ final class ArrServiceManager {
     var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
 
+    func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
+        guard let serviceType = profile.resolvedServiceType else {
+            throw ArrError.noServiceConfigured
+        }
+
+        let client: any SharedArrClient
+        switch serviceType {
+        case .sonarr:
+            guard let resolvedClient = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            client = resolvedClient
+        case .radarr:
+            guard let resolvedClient = radarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            client = resolvedClient
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+
+        let notificationName = "Trawl (\(profile.displayName))"
+        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
+        var components = URLComponents(string: normalizedWorkerURL)
+
+        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
+        pathParts.removeAll { $0.lowercased() == "push" }
+        pathParts.append("push")
+        components?.path = "/" + pathParts.joined(separator: "/")
+
+        guard let pushURL = components?.url?.absoluteString else {
+            throw ArrError.invalidURL
+        }
+
+        let notifications = try await client.getNotifications()
+        let existing = notifications.first { $0.name == notificationName }
+
+        let fields = [
+            ArrNotificationField(name: "url", value: .string(pushURL)),
+            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+            ArrNotificationField(name: "headers", value: .array([
+                .object([
+                    "Key": .string("X-Trawl-Token"),
+                    "Value": .string(deviceToken)
+                ])
+            ]))
+        ]
+
+        let newNotification = ArrNotification(
+            id: existing?.id,
+            name: notificationName,
+            onGrab: true,
+            onDownload: true,
+            onUpgrade: true,
+            onRename: true,
+            onHealthIssue: true,
+            onApplicationUpdate: true,
+            onSeriesDelete: false,
+            onEpisodeFileDelete: false,
+            onEpisodeFileDeleteForUpgrade: false,
+            onMovieDelete: false,
+            onMovieFileDelete: false,
+            onMovieFileDeleteForUpgrade: false,
+            implementation: "Webhook",
+            configContract: "WebhookSettings",
+            fields: fields,
+            tags: []
+        )
+
+        #if DEBUG
+        if let encoded = try? JSONEncoder().encode(newNotification),
+           var jsonString = String(data: encoded, encoding: .utf8) {
+            jsonString = jsonString.replacingOccurrences(of: deviceToken, with: "[REDACTED]")
+            print("--- Trawl Notification Payload (Redacted) ---")
+            print(jsonString)
+            print("---------------------------------------------")
+        }
+        #endif
+
+        if existing != nil {
+            _ = try await client.updateNotification(newNotification)
+        } else {
+            _ = try await client.createNotification(newNotification)
+        }
+    }
+
     // MARK: - Backward-compatible Sonarr computed properties
 
     var sonarrClient: SonarrAPIClient? { activeSonarrEntry?.client }
@@ -513,5 +599,35 @@ final class ArrServiceManager {
             prowlarrConnectionError = message
             prowlarrConnected = false
         }
+    }
+
+    private func normalizedNotificationWorkerURL(from rawValue: String) throws -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed.isEmpty ? NotificationConstants.defaultWorkerURL : trimmed
+
+        func isAllowedScheme(_ components: URLComponents) -> Bool {
+            guard let scheme = components.scheme?.lowercased() else { return false }
+            switch scheme {
+            case "https":
+                return true
+            case "http":
+                let host = components.host?.lowercased()
+                return host == "localhost" || host == "127.0.0.1"
+            default:
+                return false
+            }
+        }
+
+        let withHTTPS = candidate.hasPrefix("//") ? "https:\(candidate)" : "https://\(candidate)"
+        let normalizedCandidate = (URLComponents(string: candidate)?.scheme?.isEmpty == false) ? candidate : withHTTPS
+
+        guard let components = URLComponents(string: normalizedCandidate),
+              let host = components.host,
+              !host.isEmpty,
+              isAllowedScheme(components) else {
+            throw ArrError.invalidURL
+        }
+
+        return normalizedCandidate
     }
 }

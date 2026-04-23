@@ -274,7 +274,13 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         rootFolderPath: String,
         tags: [Int]
     ) -> RadarrMovie {
-        RadarrMovie(
+        let updatedPath = rebasedLibraryPath(
+            existingPath: path ?? "",
+            existingRoot: self.rootFolderPath ?? "",
+            newRoot: rootFolderPath
+        )
+
+        return RadarrMovie(
             id: id,
             title: title,
             originalTitle: originalTitle,
@@ -291,7 +297,7 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
             hasFile: hasFile,
             youTubeTrailerId: youTubeTrailerId,
             studio: studio,
-            path: path,
+            path: updatedPath,
             rootFolderPath: rootFolderPath,
             qualityProfileId: qualityProfileId,
             monitored: monitored,

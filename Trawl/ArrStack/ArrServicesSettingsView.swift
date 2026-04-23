@@ -8,6 +8,7 @@ struct ArrServiceSettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var allProfiles: [ArrServiceProfile]
     @State private var showAddSheet = false
     @State private var systemStatus: ArrSystemStatus?
@@ -20,9 +21,27 @@ struct ArrServiceSettingsView: View {
     @State private var showUpdateConfirmation = false
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
+    @State private var isSettingUpNotifications = false
+    @State private var notificationSetupMessage: String?
+    @State private var isViewActive = false
+    
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
 
     private var profile: ArrServiceProfile? {
-        allProfiles.first { $0.resolvedServiceType == serviceType }
+        let activeID: UUID? = {
+            switch serviceType {
+            case .sonarr: return serviceManager.activeSonarrInstanceID
+            case .radarr: return serviceManager.activeRadarrInstanceID
+            case .prowlarr: return nil
+            }
+        }()
+        
+        if let activeID {
+            return allProfiles.first { $0.id == activeID }
+        }
+        return allProfiles.first { $0.resolvedServiceType == serviceType }
     }
 
     private var isConnected: Bool {
@@ -135,6 +154,47 @@ struct ArrServiceSettingsView: View {
                         Label(systemStatusError, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
                             .foregroundStyle(.orange)
+                    }
+                }
+
+                if serviceType != .prowlarr, isConnected {
+                    Section("Notifications") {
+                        Button {
+                            setupNotifications()
+                        } label: {
+                            if isSettingUpNotifications {
+                                HStack {
+                                    ProgressView()
+                                        .padding(.trailing, 8)
+                                    Text("Setting up...")
+                                }
+                            } else {
+                                Label("One-Tap Notification Setup", systemImage: "bell.badge.fill")
+                            }
+                        }
+                        #if os(iOS)
+                        .disabled(isSettingUpNotifications || deviceToken == nil)
+                        #else
+                        .disabled(true)
+                        #endif
+                        
+                        #if os(iOS)
+                        if deviceToken == nil {
+                            Text("Enable notifications in Trawl settings first.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Automatically creates or updates a 'Trawl' webhook in your \(serviceType.displayName) settings.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        #endif
+
+                        if let notificationSetupMessage {
+                            Label(notificationSetupMessage, systemImage: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                        }
                     }
                 }
 
@@ -288,11 +348,27 @@ struct ArrServiceSettingsView: View {
                 Text("This will download and install the update. The service will restart automatically.")
             }
         }
+        .onAppear {
+            isViewActive = true
+        }
+        .onDisappear {
+            isViewActive = false
+        }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             await loadSystemStatus()
             await loadDiskSpace()
             await loadUpdates()
+            #if os(iOS)
+            deviceToken = await NotificationService.shared.deviceToken
+            #endif
         }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+            }
+        }
+        #endif
     }
 
     private func loadDiskSpace() async {
@@ -376,6 +452,43 @@ struct ArrServiceSettingsView: View {
             availableUpdates = try await client.getUpdates()
         } catch {
             availableUpdates = []
+        }
+    }
+
+    // MARK: - Actions
+
+    private func setupNotifications() {
+        guard let profile else { return }
+
+        isSettingUpNotifications = true
+        notificationSetupMessage = nil
+        Task {
+            #if os(iOS)
+            let token = await NotificationService.shared.deviceToken
+            #else
+            let token: String? = nil
+            #endif
+
+            guard let token else { 
+                isSettingUpNotifications = false
+                return 
+            }
+            
+            let url = NotificationService.shared.workerURL
+            
+            do {
+                try await serviceManager.setupNotifications(for: profile, workerURL: url, deviceToken: token)
+                notificationSetupMessage = "Webhook configured for \(serviceType.displayName)."
+                if isViewActive {
+                    inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
+                }
+            } catch {
+                notificationSetupMessage = nil
+                if isViewActive {
+                    inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
+                }
+            }
+            isSettingUpNotifications = false
         }
     }
 

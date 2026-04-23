@@ -230,7 +230,13 @@ struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
         rootFolderPath: String,
         tags: [Int]
     ) -> SonarrSeries {
-        SonarrSeries(
+        let updatedPath = rebasedLibraryPath(
+            existingPath: path ?? "",
+            existingRoot: self.rootFolderPath ?? "",
+            newRoot: rootFolderPath
+        )
+
+        return SonarrSeries(
             id: id,
             title: title,
             sortTitle: sortTitle,
@@ -243,7 +249,7 @@ struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
             remotePoster: remotePoster,
             seasons: seasons,
             year: year,
-            path: path,
+            path: updatedPath,
             qualityProfileId: qualityProfileId,
             seasonFolder: seasonFolder,
             monitored: monitored,

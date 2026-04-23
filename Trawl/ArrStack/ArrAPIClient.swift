@@ -62,6 +62,9 @@ extension SharedArrClient {
     func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.getQualityProfiles() }
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
     func getTags() async throws -> [ArrTag] { try await base.getTags() }
+    func getNotifications() async throws -> [ArrNotification] { try await base.getNotifications() }
+    func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.createNotification(notification) }
+    func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.updateNotification(notification) }
 
     func getQueue(
         page: Int = 1,
@@ -141,6 +144,19 @@ actor ArrAPIClient {
 
     func getTags() async throws -> [ArrTag] {
         try await get("/api/v3/tag")
+    }
+
+    func getNotifications() async throws -> [ArrNotification] {
+        try await get("/api/v3/notification")
+    }
+
+    func createNotification(_ notification: ArrNotification) async throws -> ArrNotification {
+        try await postCodable("/api/v3/notification", body: notification)
+    }
+
+    func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification {
+        guard let id = notification.id else { throw ArrError.invalidResponse }
+        return try await putCodable("/api/v3/notification/\(id)", body: notification)
     }
 
     func getQueue(
@@ -320,8 +336,16 @@ actor ArrAPIClient {
         }
 
         guard (200..<400).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8)
+            let body = String(data: data, encoding: .utf8) ?? "No body"
             Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(http.statusCode)")
+            
+            #if DEBUG
+            print("--- Arr Request Failure (\(http.statusCode)) ---")
+            print("Path: \(path)")
+            print("Body: \(body)")
+            print("---------------------------------------")
+            #endif
+            
             logReleaseDiagnostics(
                 message: "HTTP error \(http.statusCode)",
                 path: path,

@@ -12,6 +12,10 @@ import CoreServices
 struct TrawlApp: App {
     private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "App")
 
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(TrawlAppDelegate.self) var appDelegate
+    #endif
+
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
     @State private var sshSessionStore = SSHSessionStore()
@@ -64,16 +68,6 @@ struct TrawlApp: App {
         #endif
 
         #if os(iOS)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.poole.james.Trawl.torrentCheck",
-            using: nil
-        ) { task in
-            Task {
-                await NotificationService.shared.handleBackgroundRefresh()
-                task.setTaskCompleted(success: true)
-            }
-        }
-
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: SSHBackgroundService.taskIdentifier,
             using: nil

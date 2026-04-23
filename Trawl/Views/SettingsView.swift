@@ -177,6 +177,43 @@ struct SettingsView: View {
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 }
+
+                #if os(iOS)
+                if viewModel.notificationsEnabled, let deviceToken = viewModel.deviceToken {
+                    VStack(alignment: .leading, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Account ID")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+
+                            HStack {
+                                Text(deviceToken)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+
+                                Spacer()
+
+                                Button {
+                                    UIPasteboard.general.string = deviceToken
+                                    inAppNotificationCenter.showSuccess(title: "Copied", message: "ID copied to clipboard")
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.1))
+                            .cornerRadius(8)
+                        }
+
+                        Text("Use the 'One-Tap Setup' inside Radarr or Sonarr settings to link your notifications automatically.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 4)
+                }
+                #endif
             }
 
             Section("Storage") {

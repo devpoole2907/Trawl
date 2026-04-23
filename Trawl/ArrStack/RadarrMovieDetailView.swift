@@ -17,6 +17,7 @@ struct RadarrMovieDetailView: View {
     }
 
     @Bindable var viewModel: RadarrViewModel
+    @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(\.dismiss) private var dismiss
 
@@ -34,6 +35,7 @@ struct RadarrMovieDetailView: View {
     @State private var isAlternateTitlesExpanded = false
     @State private var isFilesExpanded = false
     @State private var showAddSheet = false
+    @State private var manualImportPath: String?
     @State private var didAdd = false
     @State private var showInteractiveSearchSheet = false
     @State private var isDispatchingAutomaticSearch = false
@@ -150,6 +152,18 @@ struct RadarrMovieDetailView: View {
         .sheet(isPresented: $showEditSheet) {
             if let movie, isInLibrary {
                 RadarrEditMovieSheet(viewModel: viewModel, movie: movie)
+            }
+        }
+        .sheet(isPresented: manualImportPresented) {
+            if let manualImportPath {
+                ManualImportScanView(
+                    path: manualImportPath,
+                    service: .radarr,
+                    serviceManager: serviceManager,
+                    libraryItemID: resolvedLibraryId
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -837,6 +851,28 @@ struct RadarrMovieDetailView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if let rootFolder = movie?.rootFolderPath, !rootFolder.isEmpty {
+                LabeledContent("Library Root") {
+                    Text(rootFolder)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let outputPath = item.outputPath, !outputPath.isEmpty {
+                LabeledContent("Import Destination") {
+                    Text(outputPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 10) {
                 Button {
                     showEditSheet = true
@@ -846,6 +882,17 @@ struct RadarrMovieDetailView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Edit Movie")
                 .disabled(isRemoving || !isInLibrary)
+
+                if let outputPath = item.outputPath, !outputPath.isEmpty {
+                    Button {
+                        manualImportPath = outputPath
+                    } label: {
+                        importIssueActionIcon(systemName: "tray.and.arrow.down.fill", tint: .teal)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Manual Import")
+                    .disabled(isRemoving)
+                }
 
                 Button {
                     pendingQueueAction = PendingQueueAction(
@@ -973,6 +1020,13 @@ struct RadarrMovieDetailView: View {
         Binding(
             get: { pendingQueueAction != nil },
             set: { if !$0 { pendingQueueAction = nil } }
+        )
+    }
+
+    private var manualImportPresented: Binding<Bool> {
+        Binding(
+            get: { manualImportPath != nil },
+            set: { if !$0 { manualImportPath = nil } }
         )
     }
 

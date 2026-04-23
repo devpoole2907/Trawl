@@ -105,7 +105,7 @@ final class ShareViewController: UIViewController {
         .modelContainer(container)
 
         let hostingController = UIHostingController(rootView: shareView)
-        hostingController.modalPresentationStyle = .formSheet
+        hostingController.modalPresentationStyle = UIModalPresentationStyle.formSheet
 
         addChild(hostingController)
         view.addSubview(hostingController.view)

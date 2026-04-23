@@ -555,6 +555,7 @@ enum ArrError: LocalizedError, Sendable {
     case serverError(statusCode: Int, message: String?)
     case noServiceConfigured
     case connectionFailed
+    case unsupportedNotificationsService(String)
 
     var errorDescription: String? {
         switch self {
@@ -574,6 +575,55 @@ enum ArrError: LocalizedError, Sendable {
             "No service configured."
         case .connectionFailed:
             "Could not connect. Check the URL and ensure the service is running."
+        case .unsupportedNotificationsService(let service):
+            "\(service) does not support one-tap notification setup."
         }
     }
+}
+
+// MARK: - Shared Helpers
+
+/// Computes a new absolute path by replacing an existing root with a new one.
+/// Preserves leading separators (POSIX / or Windows UNC/Root) to ensure the path remains absolute.
+func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: String) -> String {
+    let normalizedExisting = existingPath.replacingOccurrences(of: "\\", with: "/")
+    let normalizedExistingRoot = existingRoot.replacingOccurrences(of: "\\", with: "/")
+    let normalizedNewRoot = newRoot.replacingOccurrences(of: "\\", with: "/")
+
+    if normalizedExisting.isEmpty {
+        return ""
+    }
+
+    let suffix: String
+    if normalizedExistingRoot.isEmpty {
+        suffix = normalizedExisting
+    } else if normalizedExisting.compare(normalizedExistingRoot, options: [.caseInsensitive, .anchored]) == .orderedSame,
+              (normalizedExisting.count == normalizedExistingRoot.count ||
+               normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
+        suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
+    } else {
+        suffix = normalizedExisting
+    }
+
+    // Trim only trailing separators from newRoot, not leading
+    var resultRoot = normalizedNewRoot
+    while resultRoot.hasSuffix("/") { resultRoot.removeLast() }
+
+    // Join
+    let trimmedSuffix = suffix.hasPrefix("/") ? String(suffix.dropFirst()) : suffix
+    let finalPath: String
+    if resultRoot.isEmpty {
+        finalPath = suffix
+    } else if trimmedSuffix.isEmpty {
+        finalPath = resultRoot
+    } else {
+        finalPath = resultRoot + "/" + trimmedSuffix
+    }
+    
+    // Restore separators based on the new root style.
+    if newRoot.contains("\\") {
+        return finalPath.replacingOccurrences(of: "/", with: "\\")
+    }
+
+    return finalPath.replacingOccurrences(of: "\\", with: "/")
 }
