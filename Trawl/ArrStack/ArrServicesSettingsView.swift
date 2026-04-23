@@ -22,9 +22,26 @@ struct ArrServiceSettingsView: View {
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
     @State private var isSettingUpNotifications = false
+    @State private var notificationSetupMessage: String?
+    @State private var isViewActive = false
+    
+    #if os(iOS)
+    @AppStorage("APNSDeviceToken") private var apnsToken: String?
+    #endif
 
     private var profile: ArrServiceProfile? {
-        allProfiles.first { $0.resolvedServiceType == serviceType }
+        let activeID: UUID? = {
+            switch serviceType {
+            case .sonarr: return serviceManager.activeSonarrInstanceID
+            case .radarr: return serviceManager.activeRadarrInstanceID
+            case .prowlarr: return nil
+            }
+        }()
+        
+        if let activeID {
+            return allProfiles.first { $0.id == activeID }
+        }
+        return allProfiles.first { $0.resolvedServiceType == serviceType }
     }
 
     private var isConnected: Bool {
@@ -155,9 +172,14 @@ struct ArrServiceSettingsView: View {
                                 Label("One-Tap Notification Setup", systemImage: "bell.badge.fill")
                             }
                         }
-                        .disabled(isSettingUpNotifications || NotificationService.shared.deviceToken == nil)
+                        #if os(iOS)
+                        .disabled(isSettingUpNotifications || apnsToken == nil)
+                        #else
+                        .disabled(true)
+                        #endif
                         
-                        if NotificationService.shared.deviceToken == nil {
+                        #if os(iOS)
+                        if apnsToken == nil {
                             Text("Enable notifications in Trawl settings first.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -166,6 +188,13 @@ struct ArrServiceSettingsView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+
+                        if let notificationSetupMessage {
+                            Label(notificationSetupMessage, systemImage: "checkmark.circle.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                        }
+                        #endif
                     }
                 }
 
@@ -319,6 +348,12 @@ struct ArrServiceSettingsView: View {
                 Text("This will download and install the update. The service will restart automatically.")
             }
         }
+        .onAppear {
+            isViewActive = true
+        }
+        .onDisappear {
+            isViewActive = false
+        }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             await loadSystemStatus()
             await loadDiskSpace()
@@ -413,17 +448,35 @@ struct ArrServiceSettingsView: View {
     // MARK: - Actions
 
     private func setupNotifications() {
-        guard let profile,
-              let token = NotificationService.shared.deviceToken else { return }
+        guard let profile else { return }
 
-        let url = NotificationService.shared.workerURL
         isSettingUpNotifications = true
+        notificationSetupMessage = nil
         Task {
+            #if os(iOS)
+            let token = await NotificationService.shared.deviceToken
+            #else
+            let token: String? = nil
+            #endif
+
+            guard let token else { 
+                isSettingUpNotifications = false
+                return 
+            }
+            
+            let url = NotificationService.shared.workerURL
+            
             do {
                 try await serviceManager.setupNotifications(for: profile, workerURL: url, deviceToken: token)
-                inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
+                notificationSetupMessage = "Webhook configured for \(serviceType.displayName)."
+                if isViewActive {
+                    inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
+                }
             } catch {
-                inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
+                notificationSetupMessage = nil
+                if isViewActive {
+                    inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
+                }
             }
             isSettingUpNotifications = false
         }

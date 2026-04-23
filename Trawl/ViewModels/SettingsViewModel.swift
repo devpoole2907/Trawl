@@ -2,6 +2,9 @@ import Foundation
 import Observation
 import SwiftData
 import UserNotifications
+#if os(iOS)
+import UIKit
+#endif
 
 @MainActor
 @Observable
@@ -18,6 +21,29 @@ final class SettingsViewModel {
 
     private var torrentService: TorrentService?
     private var syncService: SyncService?
+    @ObservationIgnored
+    nonisolated(unsafe) private var tokenObserver: NSObjectProtocol?
+
+    init() {
+        tokenObserver = NotificationCenter.default.addObserver(
+            forName: NSNotification.Name("TrawlAPNSTokenReceived"),
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            if let token = notification.object as? String {
+                Task { @MainActor [weak self] in
+                    self?.deviceToken = token
+                }
+            }
+        }
+    }
+
+    // Note: deinit is non-isolated. Removing an observer via NotificationCenter is thread-safe.
+    deinit {
+        if let observer = tokenObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func configure(torrentService: TorrentService, syncService: SyncService, arrServiceManager: ArrServiceManager? = nil) {
         self.torrentService = torrentService
@@ -32,10 +58,17 @@ final class SettingsViewModel {
 
         // Check notification permission
         await checkNotificationPermission()
+        
+        #if os(iOS)
+        // Register only when authorized and no token is currently available.
+        if notificationPermissionGranted {
+            await NotificationService.shared.registerForRemoteNotificationsIfNeeded()
+        }
+        #endif
 
         // Load device token
         #if os(iOS)
-        deviceToken = NotificationService.shared.deviceToken
+        deviceToken = await NotificationService.shared.deviceToken
         #endif
 
         // Fetch qBittorrent version
@@ -56,11 +89,7 @@ final class SettingsViewModel {
         if notificationsEnabled {
             let granted = await NotificationService.shared.requestPermission()
             notificationPermissionGranted = granted
-            if granted {
-                #if os(iOS)
-                deviceToken = NotificationService.shared.deviceToken
-                #endif
-            } else {
+            if !granted {
                 notificationsEnabled = false
             }
         }

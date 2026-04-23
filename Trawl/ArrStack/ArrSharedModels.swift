@@ -577,3 +577,34 @@ enum ArrError: LocalizedError, Sendable {
         }
     }
 }
+
+// MARK: - Shared Helpers
+
+/// Computes a new absolute path by replacing an existing root with a new one.
+/// Preserves leading separators (POSIX / or Windows UNC/Root) to ensure the path remains absolute.
+func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: String) -> String {
+    let normalizedExisting = existingPath.replacingOccurrences(of: "\\", with: "/")
+    let normalizedExistingRoot = existingRoot.replacingOccurrences(of: "\\", with: "/")
+    let normalizedNewRoot = newRoot.replacingOccurrences(of: "\\", with: "/")
+
+    let suffix: String
+    if normalizedExisting.lowercased().hasPrefix(normalizedExistingRoot.lowercased()) {
+        suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
+    } else {
+        suffix = normalizedExisting
+    }
+
+    // Trim only trailing separators from newRoot, not leading
+    var resultRoot = normalizedNewRoot
+    while resultRoot.hasSuffix("/") { resultRoot.removeLast() }
+
+    // Join
+    var finalPath = resultRoot + (suffix.hasPrefix("/") ? suffix : "/" + suffix)
+    
+    // Restore Windows separators if the original path used them
+    if existingPath.contains("\\") {
+        finalPath = finalPath.replacingOccurrences(of: "/", with: "\\")
+    }
+    
+    return finalPath
+}

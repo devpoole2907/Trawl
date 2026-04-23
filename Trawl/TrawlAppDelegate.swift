@@ -12,10 +12,22 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
         let tokenString = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
-        logger.info("Successfully registered for remote notifications. Token: \(tokenString, privacy: .private)")
-        
-        // Save token to UserDefaults for easy access in Settings
-        UserDefaults.standard.set(tokenString, forKey: "APNSDeviceToken")
+
+        Task {
+            let previousToken = try? await KeychainHelper.shared.read(key: NotificationConstants.apnsTokenKey)
+            try? await KeychainHelper.shared.save(key: NotificationConstants.apnsTokenKey, value: tokenString)
+
+            if previousToken == tokenString {
+                self.logger.debug("Remote notification token unchanged.")
+            } else {
+                self.logger.info("Successfully registered for remote notifications. Token: \(tokenString, privacy: .private)")
+            }
+            
+            // Post notification for observers (like SettingsViewModel)
+            await MainActor.run {
+                NotificationCenter.default.post(name: NSNotification.Name("TrawlAPNSTokenReceived"), object: tokenString)
+            }
+        }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {

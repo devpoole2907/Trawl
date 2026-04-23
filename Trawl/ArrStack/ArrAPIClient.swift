@@ -338,10 +338,14 @@ actor ArrAPIClient {
         guard (200..<400).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "No body"
             Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(http.statusCode)")
+            
+            #if DEBUG
             print("--- Arr Request Failure (\(http.statusCode)) ---")
             print("Path: \(path)")
             print("Body: \(body)")
             print("---------------------------------------")
+            #endif
+            
             logReleaseDiagnostics(
                 message: "HTTP error \(http.statusCode)",
                 path: path,

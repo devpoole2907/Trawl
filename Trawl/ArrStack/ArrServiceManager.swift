@@ -112,26 +112,37 @@ final class ArrServiceManager {
 
         guard let client else { throw ArrError.noServiceConfigured }
 
-        let workerURL = workerURL.isEmpty ? "https://trawl-apns-worker.james-5d8.workers.dev" : workerURL
-        let pushURL = workerURL.hasSuffix("/push") ? workerURL : (workerURL.hasSuffix("/") ? "\(workerURL)push" : "\(workerURL)/push")
+        let notificationName = "Trawl (\(profile.displayName))"
+        let normalizedWorkerURL = normalizedNotificationWorkerURL(from: workerURL)
+        var components = URLComponents(string: normalizedWorkerURL)
+
+        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
+        pathParts.removeAll { $0.lowercased() == "push" }
+        pathParts.append("push")
+        components?.path = "/" + pathParts.joined(separator: "/")
+
+        guard let pushURL = components?.url?.absoluteString else {
+            throw ArrError.invalidURL
+        }
 
         let notifications = try await client.getNotifications()
-        let existing = notifications.first(where: { $0.name == "Trawl" })
+        // Match by composite name or implementation + URL to be more precise
+        let existing = notifications.first { $0.name == notificationName || ($0.implementation == "Webhook" && $0.fieldValue(for: "url") == pushURL) }
 
         let fields = [
             ArrNotificationField(name: "url", value: .string(pushURL)),
             ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
             ArrNotificationField(name: "headers", value: .array([
                 .object([
-                    "key": .string("X-Trawl-Token"),
-                    "value": .string(deviceToken)
+                    "Key": .string("X-Trawl-Token"),
+                    "Value": .string(deviceToken)
                 ])
             ]))
         ]
 
         let newNotification = ArrNotification(
             id: existing?.id,
-            name: "Trawl",
+            name: notificationName,
             onGrab: true,
             onDownload: true,
             onUpgrade: true,
@@ -150,15 +161,43 @@ final class ArrServiceManager {
             tags: []
         )
 
-        // Debug logging for the payload
-        if let encoded = try? JSONEncoder().encode(newNotification),
-           let jsonString = String(data: encoded, encoding: .utf8) {
-            print("--- Trawl Notification Payload ---")
-            print(jsonString)
-            print("---------------------------------")
+        #if DEBUG
+        // Debug logging for the payload with redacted token
+        var loggedFields = fields
+        if let headersIdx = loggedFields.firstIndex(where: { $0.name == "headers" }) {
+            loggedFields[headersIdx] = ArrNotificationField(name: "headers", value: .string("[REDACTED]"))
         }
+        
+        let logNotification = ArrNotification(
+            id: newNotification.id,
+            name: newNotification.name,
+            onGrab: newNotification.onGrab,
+            onDownload: newNotification.onDownload,
+            onUpgrade: newNotification.onUpgrade,
+            onRename: newNotification.onRename,
+            onHealthIssue: newNotification.onHealthIssue,
+            onApplicationUpdate: newNotification.onApplicationUpdate,
+            onSeriesDelete: newNotification.onSeriesDelete,
+            onEpisodeFileDelete: newNotification.onEpisodeFileDelete,
+            onEpisodeFileDeleteForUpgrade: newNotification.onEpisodeFileDeleteForUpgrade,
+            onMovieDelete: newNotification.onMovieDelete,
+            onMovieFileDelete: newNotification.onMovieFileDelete,
+            onMovieFileDeleteForUpgrade: newNotification.onMovieFileDeleteForUpgrade,
+            implementation: newNotification.implementation,
+            configContract: newNotification.configContract,
+            fields: loggedFields,
+            tags: newNotification.tags
+        )
 
-        if let existing {
+        if let encoded = try? JSONEncoder().encode(logNotification),
+           let jsonString = String(data: encoded, encoding: .utf8) {
+            print("--- Trawl Notification Payload (Redacted) ---")
+            print(jsonString)
+            print("---------------------------------------------")
+        }
+        #endif
+
+        if existing != nil {
             _ = try await client.updateNotification(newNotification)
         } else {
             _ = try await client.createNotification(newNotification)
@@ -577,5 +616,27 @@ final class ArrServiceManager {
             prowlarrConnectionError = message
             prowlarrConnected = false
         }
+    }
+
+    private func normalizedNotificationWorkerURL(from rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let candidate = trimmed.isEmpty ? NotificationConstants.defaultWorkerURL : trimmed
+
+        if let components = URLComponents(string: candidate),
+           let scheme = components.scheme,
+           !scheme.isEmpty,
+           let host = components.host,
+           !host.isEmpty {
+            return candidate
+        }
+
+        let withHTTPS = candidate.hasPrefix("//") ? "https:\(candidate)" : "https://\(candidate)"
+        if let components = URLComponents(string: withHTTPS),
+           let host = components.host,
+           !host.isEmpty {
+            return withHTTPS
+        }
+
+        return NotificationConstants.defaultWorkerURL
     }
 }

@@ -467,16 +467,14 @@ struct ManualImportScanView: View {
             }
 
             if !viewModel.importableFiles.isEmpty {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
                     Button(viewModel.allSelected ? "Deselect" : "Select All") {
                         withAnimation(.snappy) {
                             viewModel.toggleSelectAll()
                         }
                     }
                     .font(.subheadline)
-                }
 
-                ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         Task { await viewModel.performImport() }
                     } label: {
@@ -575,7 +573,10 @@ fileprivate struct ManualImportItem: Identifiable {
                 let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty { return [trimmed] }
             }
-            return object.values.flatMap(extractMessages(from:))
+            // Deterministic traversal of remaining values
+            return object.keys.sorted().flatMap { key in
+                extractMessages(from: object[key])
+            }
         default:
             return []
         }

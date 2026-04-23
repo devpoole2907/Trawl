@@ -29,7 +29,7 @@ struct RadarrEditMovieSheet: View {
         _minimumAvailability = State(initialValue: movie.minimumAvailability ?? "released")
         _rootFolderPath = State(initialValue: movie.rootFolderPath ?? viewModel.rootFolders.first?.path ?? "")
         _selectedTags = State(initialValue: Set(movie.tags ?? []))
-        _moveFiles = State(initialValue: movie.hasFile ?? false)
+        _moveFiles = State(initialValue: false)
     }
 
     private var rootFolderChanged: Bool {
