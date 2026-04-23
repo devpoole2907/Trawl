@@ -1,10 +1,10 @@
 import Foundation
 
-enum QBError: LocalizedError, @unchecked Sendable {
+enum QBError: LocalizedError, Sendable {
     case authFailed
-    case networkError(Error)
+    case networkError(String)
     case invalidResponse
-    case decodingError(Error)
+    case decodingError(String)
     case serverError(statusCode: Int, message: String?)
     case noServerConfigured
     case connectionTestFailed
@@ -13,12 +13,12 @@ enum QBError: LocalizedError, @unchecked Sendable {
         switch self {
         case .authFailed:
             "Authentication failed. Check your credentials."
-        case .networkError(let error):
-            "Network error: \(error.localizedDescription)"
+        case .networkError(let message):
+            "Network error: \(message)"
         case .invalidResponse:
             "Invalid response from server."
-        case .decodingError(let error):
-            "Failed to parse server response: \(error.localizedDescription)"
+        case .decodingError(let message):
+            "Failed to parse server response: \(message)"
         case .serverError(let code, let msg):
             "Server error (\(code)): \(msg ?? "Unknown")"
         case .noServerConfigured:

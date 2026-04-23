@@ -3,7 +3,8 @@ import SwiftUI
 import SwiftData
 import UniformTypeIdentifiers
 
-class ShareViewController: UIViewController {
+@MainActor
+final class ShareViewController: UIViewController {
     private var magnetURL: String?
     private var torrentFileData: Data?
     private var torrentFileName: String?
@@ -26,14 +27,11 @@ class ShareViewController: UIViewController {
                 // Check for URLs (magnet links)
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier) { [weak self] item, _ in
-                        if let url = item as? URL {
-                            if url.scheme == "magnet" {
-                                self?.magnetURL = url.absoluteString
-                            } else {
-                                // Could be a .torrent URL — try to download
-                                self?.magnetURL = url.absoluteString
-                            }
-                            DispatchQueue.main.async { self?.presentShareUI() }
+                        guard let url = item as? URL else { return }
+                        Task { @MainActor [weak self] in
+                            guard let self else { return }
+                            self.magnetURL = url.absoluteString
+                            self.presentShareUI()
                         }
                     }
                     return
@@ -43,12 +41,14 @@ class ShareViewController: UIViewController {
                 let torrentType = UTType(filenameExtension: "torrent") ?? .data
                 if provider.hasItemConformingToTypeIdentifier(torrentType.identifier) {
                     provider.loadItem(forTypeIdentifier: torrentType.identifier) { [weak self] item, _ in
-                        if let url = item as? URL {
-                            _ = url.startAccessingSecurityScopedResource()
-                            defer { url.stopAccessingSecurityScopedResource() }
-                            self?.torrentFileData = try? Data(contentsOf: url)
-                            self?.torrentFileName = url.lastPathComponent
-                            DispatchQueue.main.async { self?.presentShareUI() }
+                        guard let url = item as? URL else { return }
+                        Task { [weak self] in
+                            guard let self else { return }
+                            guard let payload = await Self.readTorrentFile(from: url) else {
+                                await self.clearSharedFileAndClose()
+                                return
+                            }
+                            await self.presentTorrentFile(payload)
                         }
                     }
                     return
@@ -58,8 +58,11 @@ class ShareViewController: UIViewController {
                 if provider.hasItemConformingToTypeIdentifier(UTType.plainText.identifier) {
                     provider.loadItem(forTypeIdentifier: UTType.plainText.identifier) { [weak self] item, _ in
                         if let text = item as? String, text.lowercased().hasPrefix("magnet:") {
-                            self?.magnetURL = text
-                            DispatchQueue.main.async { self?.presentShareUI() }
+                            Task { @MainActor [weak self] in
+                                guard let self else { return }
+                                self.magnetURL = text
+                                self.presentShareUI()
+                            }
                         }
                     }
                     return
@@ -75,13 +78,19 @@ class ShareViewController: UIViewController {
         let schema = Schema([
             ServerProfile.self,
             CachedTorrentState.self,
-            RecentSavePath.self
+            RecentSavePath.self,
+            ArrServiceProfile.self,
+            SSHProfile.self
         ])
         let config = ModelConfiguration(
+            schema: schema,
             groupContainer: .identifier(AppGroup.identifier)
         )
 
-        guard let container = try? ModelContainer(for: schema, configurations: [config]) else {
+        guard let container = try? ModelContainer(
+            for: schema,
+            configurations: [config]
+        ) else {
             close()
             return
         }
@@ -113,4 +122,36 @@ class ShareViewController: UIViewController {
     private func close() {
         extensionContext?.completeRequest(returningItems: nil)
     }
+
+    private func presentTorrentFile(_ payload: SharedTorrentFile) {
+        torrentFileData = payload.data
+        torrentFileName = payload.name
+        presentShareUI()
+    }
+
+    private func clearSharedFileAndClose() {
+        torrentFileData = nil
+        torrentFileName = nil
+        close()
+    }
+
+    nonisolated private static func readTorrentFile(from url: URL) async -> SharedTorrentFile? {
+        await Task.detached(priority: .userInitiated) {
+            guard url.startAccessingSecurityScopedResource() else {
+                return nil
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+
+            guard let data = try? Data(contentsOf: url) else {
+                return nil
+            }
+
+            return SharedTorrentFile(data: data, name: url.lastPathComponent)
+        }.value
+    }
+}
+
+private struct SharedTorrentFile: Sendable {
+    let data: Data
+    let name: String
 }

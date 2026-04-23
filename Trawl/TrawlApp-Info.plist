@@ -5,6 +5,7 @@
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
 		<string>com.poole.james.Trawl.torrentCheck</string>
+		<string>com.poole.james.Trawl.sshKeepalive</string>
 	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Trawl</string>
@@ -32,9 +33,23 @@
 				<string>magnet</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>Trawl Deep Link</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>trawl</string>
+			</array>
+		</dict>
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>fetch</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -15,10 +15,27 @@ final class AppServices {
         self.syncService = syncService
     }
 
+    /// Creates a disconnected placeholder for use when no qBittorrent server is configured.
+    /// All services exist but are idle — no networking is performed.
+    static func disconnected() -> AppServices {
+        let authService = AuthService(serverProfileID: UUID())
+        let apiClient = QBittorrentAPIClient(baseURL: "http://localhost", authService: authService)
+        return AppServices(
+            authService: authService,
+            apiClient: apiClient,
+            torrentService: TorrentService(apiClient: apiClient),
+            syncService: SyncService(apiClient: apiClient)
+        )
+    }
+
     /// Convenience factory that builds the full service graph from a ServerProfile and Keychain credentials.
     static func build(from server: ServerProfile, username: String, password: String) async throws -> AppServices {
-        let authService = AuthService(serverProfileID: server.id)
-        let apiClient = QBittorrentAPIClient(baseURL: server.hostURL, authService: authService)
+        let authService = AuthService(serverProfileID: server.id, allowsUntrustedTLS: server.allowsUntrustedTLS)
+        let apiClient = QBittorrentAPIClient(
+            baseURL: server.hostURL,
+            authService: authService,
+            allowsUntrustedTLS: server.allowsUntrustedTLS
+        )
 
         // Authenticate
         try await apiClient.login(username: username, password: password)

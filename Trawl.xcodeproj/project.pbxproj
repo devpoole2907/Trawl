@@ -7,7 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7C8E12A32F904F7200D5EBFA /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A22F904F7200D5EBFA /* SwiftTerm */; };
+		7C8E12A62F908FD800D5EBFA /* CSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A52F908FD800D5EBFA /* CSSH */; };
 		CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC100000CC100000CC100000 /* TrawlShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		DD000021DD000021DD000021 /* SSHLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = DD100000DD100000DD100000 /* SSHLiveActivity.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -32,6 +35,13 @@
 			remoteGlobalIDString = CC000003CC000003CC000003;
 			remoteInfo = TrawlShare;
 		};
+		DD900000DD900000DD900000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C724A122F81D5920073A650 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = DD000005DD000005DD000005;
+			remoteInfo = SSHLiveActivity;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -42,6 +52,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */,
+				DD000021DD000021DD000021 /* SSHLiveActivity.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -53,6 +64,7 @@
 		7C724A292F81D5940073A650 /* TrawlTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7C724A332F81D5940073A650 /* TrawlUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC100000CC100000CC100000 /* TrawlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		DD100000DD100000DD100000 /* SSHLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SSHLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE000001EE000001EE000001 /* TrawlMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrawlMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -71,13 +83,56 @@
 		CCB00000CCB00000CCB00000 /* Exceptions for "Trawl" folder in "TrawlShare" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrAPIClient.swift,
+				ArrStack/ArrArtworkView.swift,
+				ArrStack/ArrBlocklistView.swift,
+				ArrStack/ArrCalendarView.swift,
+				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrHistoryView.swift,
+				ArrStack/ArrManualImportView.swift,
+				ArrStack/ArrServiceManager.swift,
+				ArrStack/ArrServicesSettingsView.swift,
+				ArrStack/ArrSetupSheet.swift,
+				ArrStack/ArrSetupViewModel.swift,
+				ArrStack/ArrSharedModels.swift,
+				ArrStack/ArrWantedView.swift,
+				ArrStack/ProwlarrAddIndexerSheet.swift,
+				ArrStack/ProwlarrAPIClient.swift,
+				ArrStack/ProwlarrIndexerDetailView.swift,
+				ArrStack/ProwlarrIndexerListView.swift,
+				ArrStack/ProwlarrModels.swift,
+				ArrStack/ProwlarrSearchView.swift,
+				ArrStack/ProwlarrStatsView.swift,
+				ArrStack/ProwlarrViewModel.swift,
+				ArrStack/RadarrAddMovieSheet.swift,
+				ArrStack/RadarrAPIClient.swift,
+				ArrStack/RadarrEditMovieSheet.swift,
+				ArrStack/RadarrModels.swift,
+				ArrStack/RadarrMovieDetailView.swift,
+				ArrStack/RadarrMovieListView.swift,
+				ArrStack/RadarrViewModel.swift,
+				ArrStack/SonarrAddSeriesSheet.swift,
+				ArrStack/SonarrAPIClient.swift,
+				ArrStack/SonarrEditSeriesSheet.swift,
+				ArrStack/SonarrModels.swift,
+				ArrStack/SonarrSeriesDetailView.swift,
+				ArrStack/SonarrSeriesListView.swift,
+				ArrStack/SonarrViewModel.swift,
 				Assets.xcassets,
 				CLAUDE_CODE_GUIDE.md,
 				Info.plist,
 				Services/AppServices.swift,
+				Services/ArtworkCache.swift,
 				Services/NotificationService.swift,
 				Services/SyncService.swift,
 				Services/TorrentService.swift,
+				SSH/SSHBackgroundService.swift,
+				SSH/SSHConnection.swift,
+				SSH/SSHProfileEditSheet.swift,
+				SSH/SSHProfileListView.swift,
+				SSH/SSHSessionView.swift,
+				SSH/SSHTerminalView.swift,
 				"TrawlApp-Info.plist",
 				TrawlApp.swift,
 				"TrawlMac-Info.plist",
@@ -91,18 +146,69 @@
 				Views/ContentView.swift,
 				Views/DocumentPicker.swift,
 				Views/FileListView.swift,
+				Views/MoreView.swift,
 				Views/OnboardingSheet.swift,
+				Views/QBittorrentCategoriesAndTagsView.swift,
+				Views/QBittorrentCategoriesView.swift,
+				Views/QBittorrentRSSView.swift,
+				Views/QBittorrentTagsView.swift,
+				Views/SearchView.swift,
+				Views/ServerListView.swift,
 				Views/SettingsView.swift,
 				Views/TorrentDetailView.swift,
 				Views/TorrentListView.swift,
 				Views/TorrentRowView.swift,
+				Views/TorrentStatsView.swift,
 				Views/TrackerListView.swift,
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
 		};
+		DD000001DD000001DD000001 /* Exceptions for "TrawlLiveActivity" folder in "SSHLiveActivity" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
+		};
 		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
+				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrAPIClient.swift,
+				ArrStack/ArrArtworkView.swift,
+				ArrStack/ArrBlocklistView.swift,
+				ArrStack/ArrCalendarView.swift,
+				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrHistoryView.swift,
+				ArrStack/ArrManualImportView.swift,
+				ArrStack/ArrServiceManager.swift,
+				ArrStack/ArrServicesSettingsView.swift,
+				ArrStack/ArrSetupSheet.swift,
+				ArrStack/ArrSetupViewModel.swift,
+				ArrStack/ArrSharedModels.swift,
+				ArrStack/ArrWantedView.swift,
+				ArrStack/ProwlarrAddIndexerSheet.swift,
+				ArrStack/ProwlarrAPIClient.swift,
+				ArrStack/ProwlarrIndexerDetailView.swift,
+				ArrStack/ProwlarrIndexerListView.swift,
+				ArrStack/ProwlarrModels.swift,
+				ArrStack/ProwlarrSearchView.swift,
+				ArrStack/ProwlarrStatsView.swift,
+				ArrStack/ProwlarrViewModel.swift,
+				ArrStack/RadarrAddMovieSheet.swift,
+				ArrStack/RadarrAPIClient.swift,
+				ArrStack/RadarrEditMovieSheet.swift,
+				ArrStack/RadarrModels.swift,
+				ArrStack/RadarrMovieDetailView.swift,
+				ArrStack/RadarrMovieListView.swift,
+				ArrStack/RadarrViewModel.swift,
+				ArrStack/SonarrAddSeriesSheet.swift,
+				ArrStack/SonarrAPIClient.swift,
+				ArrStack/SonarrEditSeriesSheet.swift,
+				ArrStack/SonarrModels.swift,
+				ArrStack/SonarrSeriesDetailView.swift,
+				ArrStack/SonarrSeriesListView.swift,
+				ArrStack/SonarrViewModel.swift,
 				CLAUDE_CODE_GUIDE.md,
 				Info.plist,
 				Share/ShareAddTorrentView.swift,
@@ -141,6 +247,14 @@
 			path = Trawl;
 			sourceTree = "<group>";
 		};
+		DD000002DD000002DD000002 /* TrawlLiveActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DD000001DD000001DD000001 /* Exceptions for "TrawlLiveActivity" folder in "SSHLiveActivity" target */,
+			);
+			path = TrawlLiveActivity;
+			sourceTree = "<group>";
+		};
 		EE000006EE000006EE000006 /* Trawl */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
@@ -156,6 +270,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7C8E12A32F904F7200D5EBFA /* SwiftTerm in Frameworks */,
+				7C8E12A62F908FD800D5EBFA /* CSSH in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -180,6 +296,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD000003DD000003DD000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EE000003EE000003EE000003 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -196,6 +319,7 @@
 				7C724A1C2F81D5920073A650 /* Trawl */,
 				7C724A2C2F81D5940073A650 /* TrawlTests */,
 				7C724A362F81D5940073A650 /* TrawlUITests */,
+				DD000002DD000002DD000002 /* TrawlLiveActivity */,
 				7C724A1B2F81D5920073A650 /* Products */,
 				7C724DEA2F81E0170073A650 /* Recovered References */,
 			);
@@ -209,6 +333,7 @@
 				7C724A292F81D5940073A650 /* TrawlTests.xctest */,
 				7C724A332F81D5940073A650 /* TrawlUITests.xctest */,
 				CC100000CC100000CC100000 /* TrawlShare.appex */,
+				DD100000DD100000DD100000 /* SSHLiveActivity.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -238,12 +363,15 @@
 			);
 			dependencies = (
 				CCA00000CCA00000CCA00000 /* PBXTargetDependency */,
+				DDA00000DDA00000DDA00000 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7C724A1C2F81D5920073A650 /* Trawl */,
 			);
 			name = Trawl;
 			packageProductDependencies = (
+				7C8E12A22F904F7200D5EBFA /* SwiftTerm */,
+				7C8E12A52F908FD800D5EBFA /* CSSH */,
 			);
 			productName = Trawl;
 			productReference = 7C724A1A2F81D5920073A650 /* Trawl.app */;
@@ -317,6 +445,28 @@
 			productReference = CC100000CC100000CC100000 /* TrawlShare.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		DD000005DD000005DD000005 /* SSHLiveActivity */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DD800000DD800000DD800000 /* Build configuration list for PBXNativeTarget "SSHLiveActivity" */;
+			buildPhases = (
+				DD000006DD000006DD000006 /* Sources */,
+				DD000003DD000003DD000003 /* Frameworks */,
+				DD000004DD000004DD000004 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				DD000002DD000002DD000002 /* TrawlLiveActivity */,
+			);
+			name = SSHLiveActivity;
+			packageProductDependencies = (
+			);
+			productName = SSHLiveActivity;
+			productReference = DD100000DD100000DD100000 /* SSHLiveActivity.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		EE000005EE000005EE000005 /* TrawlMac */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = EE000010EE000010EE000010 /* Build configuration list for PBXNativeTarget "TrawlMac" */;
@@ -360,6 +510,9 @@
 						CreatedOnToolsVersion = 26.4;
 						TestTargetID = 7C724A192F81D5920073A650;
 					};
+					DD000005DD000005DD000005 = {
+						CreatedOnToolsVersion = 26.4;
+					};
 					EE000005EE000005EE000005 = {
 						CreatedOnToolsVersion = 26.4;
 					};
@@ -374,6 +527,10 @@
 			);
 			mainGroup = 7C724A112F81D5920073A650;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7C8E12A12F904F7200D5EBFA /* XCRemoteSwiftPackageReference "SwiftTerm" */,
+				7C8E12A42F908FD800D5EBFA /* XCRemoteSwiftPackageReference "Libssh2Prebuild" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 7C724A1B2F81D5920073A650 /* Products */;
 			projectDirPath = "";
@@ -383,6 +540,7 @@
 				7C724A282F81D5940073A650 /* TrawlTests */,
 				7C724A322F81D5940073A650 /* TrawlUITests */,
 				CC000003CC000003CC000003 /* TrawlShare */,
+				DD000005DD000005DD000005 /* SSHLiveActivity */,
 				EE000005EE000005EE000005 /* TrawlMac */,
 			);
 		};
@@ -411,6 +569,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		CC500000CC500000CC500000 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DD000004DD000004DD000004 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -455,6 +620,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DD000006DD000006DD000006 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		EE000002EE000002EE000002 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -479,6 +651,11 @@
 			isa = PBXTargetDependency;
 			target = CC000003CC000003CC000003 /* TrawlShare */;
 			targetProxy = CC900000CC900000CC900000 /* PBXContainerItemProxy */;
+		};
+		DDA00000DDA00000DDA00000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
+			targetProxy = DD900000DD900000DD900000 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -542,6 +719,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
 			};
 			name = Debug;
 		};
@@ -596,6 +774,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
 			};
 			name = Release;
 		};
@@ -827,6 +1006,64 @@
 			};
 			name = Release;
 		};
+		DD600000DD600000DD600000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TrawlLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl.SSHLiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		DD700000DD700000DD700000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TrawlLiveActivity/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl.SSHLiveActivity;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		EE000008EE000008EE000008 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -934,6 +1171,15 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		DD800000DD800000DD800000 /* Build configuration list for PBXNativeTarget "SSHLiveActivity" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DD600000DD600000DD600000 /* Debug */,
+				DD700000DD700000DD700000 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		EE000010EE000010EE000010 /* Build configuration list for PBXNativeTarget "TrawlMac" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -944,6 +1190,38 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		7C8E12A12F904F7200D5EBFA /* XCRemoteSwiftPackageReference "SwiftTerm" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/SwiftTerm";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.5.0;
+			};
+		};
+		7C8E12A42F908FD800D5EBFA /* XCRemoteSwiftPackageReference "Libssh2Prebuild" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/migueldeicaza/Libssh2Prebuild";
+			requirement = {
+				kind = revision;
+				revision = 242b5e3746076f93a284df21a2af4567fcae094a;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7C8E12A22F904F7200D5EBFA /* SwiftTerm */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C8E12A12F904F7200D5EBFA /* XCRemoteSwiftPackageReference "SwiftTerm" */;
+			productName = SwiftTerm;
+		};
+		7C8E12A52F908FD800D5EBFA /* CSSH */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 7C8E12A42F908FD800D5EBFA /* XCRemoteSwiftPackageReference "Libssh2Prebuild" */;
+			productName = CSSH;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 7C724A122F81D5920073A650 /* Project object */;
 }

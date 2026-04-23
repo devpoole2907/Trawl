@@ -7,76 +7,77 @@ import CoreServices
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
+    @Query private var arrProfiles: [ArrServiceProfile]
     @State private var showOnboarding = false
     @State private var appServices: AppServices?
+    @State private var disconnectedServices = AppServices.disconnected()
     @State private var connectionError: String?
     @State private var isConnecting = false
+    @State private var isInWelcomeFlow = true
     @State private var selectedTab: RootTab = .torrents
-    @State private var searchText = ""
+    @State private var morePath: [MoreDestination] = []
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
+    @State private var showArrSetup = false
+    @State private var showSSHDisconnectConfirm = false
+    @State private var showSSHSessionSheet = false
+    @State private var welcomePath: [WelcomeStep] = []
+    @State private var setupTarget: SetupTarget?
+    @State private var hasAutoSelectedTorrents = false
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
     #endif
 
+    @Environment(SSHSessionStore.self) private var sshSessionStore
+
     var body: some View {
         Group {
-            if let services = appServices {
-                connectedContent(services: services)
-            } else if isConnecting {
-                VStack(spacing: 16) {
-                    ProgressView()
-                        .controlSize(.large)
-                    Text("Connecting to qBittorrent")
-                        .font(.headline)
-
-                    if let server = activeServer {
-                        VStack(spacing: 4) {
-                            Text(server.displayName)
-                            Text(server.hostURL)
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.subheadline)
-                        .multilineTextAlignment(.center)
-                    }
-
-                    Button("Edit Server", systemImage: "server.rack") {
-                        showOnboarding = true
-                    }
-
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = connectionError {
-                ContentUnavailableView {
-                    Label("Connection Failed", systemImage: "wifi.exclamationmark")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry", systemImage: "arrow.clockwise") {
-                        initializeServices()
-                    }
-                    Button("Edit Server", systemImage: "server.rack") {
-                        showOnboarding = true
-                    }
-                }
+            if shouldShowWelcomeScreen {
+                welcomeScreen
             } else {
-                ContentUnavailableView {
-                    Label("Welcome to Trawl", systemImage: "externaldrive.badge.wifi")
-                } description: {
-                    Text("Connect to your qBittorrent server to get started.")
-                } actions: {
-                    Button("Add Server", systemImage: "plus") {
-                        showOnboarding = true
-                    }
-                }
+                tabContent
             }
+        }
+        .overlay(alignment: .top) {
+            if let banner = inAppNotificationCenter.currentBanner {
+                InAppNotificationBanner(item: banner) {
+                    inAppNotificationCenter.dismissCurrentBanner()
+                }
+                .padding(.top, 8)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(1)
+            }
+        }
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: inAppNotificationCenter.currentBanner)
+        .sensoryFeedback(trigger: inAppNotificationCenter.currentBanner) { _, newValue in
+            guard let newBanner = newValue else { return nil }
+            return newBanner.style == .error ? .error : .success
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
+        }
+        .sheet(item: $setupTarget) { target in
+            switch target {
+            case .qbittorrent:
+                OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
+            case .sonarr:
+                ArrSetupSheet(initialServiceType: .sonarr, onComplete: refreshArrConfiguration)
+                    .environment(arrServiceManager)
+            case .radarr:
+                ArrSetupSheet(initialServiceType: .radarr, onComplete: refreshArrConfiguration)
+                    .environment(arrServiceManager)
+            case .prowlarr:
+                ArrSetupSheet(initialServiceType: .prowlarr, onComplete: refreshArrConfiguration)
+                    .environment(arrServiceManager)
+            }
+        }
+        .sheet(isPresented: $showArrSetup) {
+            ArrSetupSheet(onComplete: refreshArrConfiguration)
+                .environment(arrServiceManager)
         }
         #if os(macOS)
         .alert("Handle Magnet Links?", isPresented: $showMagnetHandlerPrompt) {
@@ -87,93 +88,421 @@ struct ContentView: View {
         }
         #endif
         .onOpenURL { url in
-            guard url.scheme?.lowercased() == "magnet" else { return }
-            if appServices != nil {
-                magnetDeepLink = MagnetDeepLink(url: url.absoluteString)
-            } else {
-                pendingMagnetURL = url.absoluteString
+            switch url.scheme?.lowercased() {
+            case "magnet":
+                if appServices != nil {
+                    magnetDeepLink = MagnetDeepLink(url: url.absoluteString)
+                } else {
+                    pendingMagnetURL = url.absoluteString
+                }
+            case "trawl":
+                guard url.host?.lowercased() == "ssh-session", sshSessionStore.hasSession else { return }
+                if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                    .queryItems?
+                    .first(where: { $0.name == "profile" })?
+                    .value,
+                   sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
+                    return
+                }
+                openSSHSession()
+            default:
+                return
             }
         }
         .task {
-            if servers.isEmpty {
-                showOnboarding = true
+            if !servers.isEmpty || !arrProfiles.isEmpty {
+                isInWelcomeFlow = false
+            }
+            if !servers.isEmpty {
+                initializeServices()
+            }
+            await arrServiceManager.initialize(from: arrProfiles)
+        }
+        .onChange(of: servers.count) { _, _ in
+            syncWelcomeFlowState()
+        }
+        .onChange(of: arrProfiles.count) { _, _ in
+            syncWelcomeFlowState()
+        }
+        .onChange(of: activeServerID) { _, newValue in
+            appServices?.syncService.stopPolling()
+            if newValue == nil {
+                appServices = nil
+                connectionError = nil
+                isConnecting = false
             } else {
                 initializeServices()
             }
         }
+        .onDisappear {
+            appServices?.syncService.stopPolling()
+        }
+    }
+
+    private var welcomeScreen: some View {
+        NavigationStack(path: $welcomePath) {
+            welcomeIntroScreen
+                .navigationDestination(for: WelcomeStep.self) { step in
+                    switch step {
+                    case .services:
+                        serviceSelectionScreen
+                    }
+                }
+        }
+    }
+
+    private func featureRow(icon: String, color: Color, title: String, description: String) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.title2)
+                .foregroundStyle(color)
+                .frame(width: 36)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                Text(description)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var welcomeIntroScreen: some View {
+        VStack(spacing: 32) {
+            VStack(spacing: 12) {
+                Image(systemName: "externaldrive.badge.wifi")
+                    .font(.system(size: 56))
+                    .foregroundStyle(.tint)
+
+                Text("Welcome to Trawl")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("Your home for torrents, TV, and movies.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(alignment: .leading, spacing: 16) {
+                featureRow(icon: "arrow.down.circle.fill", color: .blue,
+                           title: "qBittorrent",
+                           description: "Manage and monitor your downloads")
+                featureRow(icon: "tv.fill", color: .purple,
+                           title: "Sonarr",
+                           description: "Track and automate your TV series")
+                featureRow(icon: "film.fill", color: .orange,
+                           title: "Radarr",
+                           description: "Discover and collect movies")
+                featureRow(icon: "magnifyingglass.circle.fill", color: .yellow,
+                           title: "Prowlarr",
+                           description: "Manage and search your indexers")
+            }
+            .padding(.horizontal, 8)
+
+            NavigationLink(value: WelcomeStep.services) {
+                Text("Get Started")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
+        }
+        .padding(32)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var serviceSelectionScreen: some View {
+        VStack(spacing: 24) {
+            VStack(spacing: 10) {
+                Text("Choose Your Services")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("Set up the services you want to use, then continue into the app.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
+            VStack(spacing: 12) {
+                setupRow(
+                    icon: "arrow.down.circle.fill",
+                    color: .blue,
+                    title: "qBittorrent",
+                    description: "Manage and monitor your downloads",
+                    isConfigured: activeServer != nil
+                ) {
+                    setupTarget = .qbittorrent
+                }
+
+                setupRow(
+                    icon: "tv.fill",
+                    color: .purple,
+                    title: "Sonarr",
+                    description: "Track and automate your TV series",
+                    isConfigured: sonarrProfile != nil
+                ) {
+                    setupTarget = .sonarr
+                }
+
+                setupRow(
+                    icon: "film.fill",
+                    color: .orange,
+                    title: "Radarr",
+                    description: "Discover and collect movies",
+                    isConfigured: radarrProfile != nil
+                ) {
+                    setupTarget = .radarr
+                }
+
+                setupRow(
+                    icon: "magnifyingglass.circle.fill",
+                    color: .yellow,
+                    title: "Prowlarr",
+                    description: "Manage and search your indexers",
+                    isConfigured: prowlarrProfile != nil
+                ) {
+                    setupTarget = .prowlarr
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(spacing: 10) {
+                Button("Done") {
+                    if hasConfiguredAnyService {
+                        isInWelcomeFlow = false
+                    }
+                }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .disabled(!hasConfiguredAnyService)
+                    .frame(maxWidth: .infinity)
+
+                Button("Back") {
+                    welcomePath.removeAll()
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: 440)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .navigationTitle("Choose Services")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private func setupRow(
+        icon: String,
+        color: Color,
+        title: String,
+        description: String,
+        isConfigured: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 14) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundStyle(color)
+                    .frame(width: 36)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.subheadline)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.primary)
+                    Text(description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: isConfigured ? "checkmark.circle.fill" : "circle")
+                    .font(.title3)
+                    .foregroundStyle(isConfigured ? Color.green : Color.secondary.opacity(0.4))
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Tab Content
+
+    @ViewBuilder
+    private var tabContent: some View {
+        let services = appServices ?? disconnectedServices
+        let activeTorrentCount = services.syncService.activeTorrentCount
+        TabView(selection: $selectedTab) {
+            Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
+                NavigationStack {
+                    if appServices != nil {
+                        TorrentListView(title: activeServer?.displayName ?? "Trawl")
+                            .environment(services.syncService)
+                            .environment(services.torrentService)
+                    } else {
+                        torrentsUnavailableContent
+                            .navigationTitle(activeServer?.displayName ?? "Trawl")
+                    }
+                }
+            }
+            .badge(activeTorrentCount)
+
+            Tab("Series", systemImage: "tv", value: RootTab.series) {
+                NavigationStack {
+                    SonarrSeriesListView()
+                }
+                .environment(arrServiceManager)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+            }
+
+            Tab("Movies", systemImage: "film", value: RootTab.movies) {
+                NavigationStack {
+                    RadarrMovieListView()
+                }
+                .environment(arrServiceManager)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+            }
+
+            Tab(value: RootTab.search, role: .search) {
+                SearchView(appServices: appServices)
+                    .environment(arrServiceManager)
+                    .environment(services.syncService)
+                    .environment(services.torrentService)
+            }
+
+            Tab("More", systemImage: "ellipsis.circle", value: RootTab.more) {
+                MoreView(
+                    appServices: appServices,
+                    path: $morePath,
+                    openSSHSession: { openSSHSession() },
+                    selectSSHProfile: { profile in
+                        sshSessionStore.addSession(for: profile)
+                        openSSHSession()
+                    }
+                )
+                    .environment(arrServiceManager)
+                    .environment(\.navigateToQbittorrentSettings) {
+                        morePath.append(.qbittorrentSettings)
+                    }
+                    .environment(\.navigateToSonarrSettings) {
+                        morePath.append(.sonarrSettings)
+                    }
+                    .environment(\.navigateToRadarrSettings) {
+                        morePath.append(.radarrSettings)
+                    }
+                    .environment(\.navigateToProwlarrSettings) {
+                        morePath.append(.prowlarrSettings)
+                    }
+            }
+        }
+        .tabViewStyle(.sidebarAdaptable)
+        #if os(iOS)
+        .tabBarMinimizeBehavior(.onScrollDown)
+        .modifier(SSHSessionAccessoryModifier(
+            isEnabled: isAccessoryVisible,
+            title: sshSessionStore.sessionTitle,
+            subtitle: sshSessionStore.sessionSubtitle,
+            statusText: sshSessionStore.statusText,
+            statusColor: sshSessionStore.statusColor,
+            openSession: openSSHSession,
+            closeSession: { showSSHDisconnectConfirm = true }
+        ))
+        #endif
+        .onChange(of: selectedTab) { _, newValue in
+            if newValue != .more {
+                sshSessionStore.hideKeyboard()
+            }
+        }
+        .onChange(of: morePath) { _, newValue in
+            if !newValue.contains(MoreDestination.sshSession) {
+                sshSessionStore.hideKeyboard()
+            }
+        }
+        .sheet(item: $magnetDeepLink) { link in
+            AddTorrentSheet(initialMagnetURL: link.url)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+        }
+        #if os(iOS)
+        .sheet(isPresented: $showSSHSessionSheet, onDismiss: {
+            sshSessionStore.wantsKeyboard = false
+        }) {
+            NavigationStack {
+                SSHSessionContainerView()
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+            .presentationCornerRadius(28)
+        }
+        #endif
+        .alert("Disconnect?", isPresented: $showSSHDisconnectConfirm) {
+            Button("Disconnect", role: .destructive) {
+                Task { @MainActor in
+                    await sshSessionStore.disconnect()
+                    withAnimation(.easeInOut(duration: 0.22)) {
+                        showSSHSessionSheet = false
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            let count = sshSessionStore.sessions.count
+            Text(count > 1 ? "All \(count) terminal sessions will be closed." : "Your terminal session will be closed.")
+        }
     }
 
     @ViewBuilder
-    private func connectedContent(services: AppServices) -> some View {
-        if horizontalSizeClass == .compact {
-            // iPhone: dedicated search tab activated by tapping the search icon
-            TabView(selection: $selectedTab) {
-                Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
-                    NavigationStack {
-                        TorrentListView(title: activeServer?.displayName ?? "Trawl", searchText: $searchText, showsSearchField: false)
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
+    private var torrentsUnavailableContent: some View {
+        if isConnecting {
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Connecting…")
+                    .font(.headline)
+                if let server = activeServer {
+                    VStack(spacing: 4) {
+                        Text(server.displayName)
+                        Text(server.hostURL)
+                            .foregroundStyle(.secondary)
                     }
+                    .font(.subheadline)
+                    .multilineTextAlignment(.center)
                 }
-
-                Tab(value: RootTab.search, role: .search) {
-                    NavigationStack {
-                        TorrentListView(title: activeServer?.displayName ?? "Trawl", searchText: $searchText, showsSearchField: true)
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
-                            .searchable(text: $searchText, prompt: "Search torrents")
-                    }
-                }
-
-                Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
-                    NavigationStack {
-                        SettingsView(showsDoneButton: false)
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
-                    }
+                Button("Edit Server", systemImage: "server.rack") {
+                    showOnboarding = true
                 }
             }
-            .tabViewStyle(.sidebarAdaptable)
-            #if os(iOS)
-            .tabBarMinimizeBehavior(.onScrollDown)
-            #endif
-            .tabViewSearchActivation(.searchTabSelection)
-            .onChange(of: selectedTab) { _, newTab in
-                if newTab != .search { searchText = "" }
-            }
-            .sheet(item: $magnetDeepLink) { link in
-                AddTorrentSheet(initialMagnetURL: link.url)
-                    .environment(services.syncService)
-                    .environment(services.torrentService)
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error = connectionError {
+            ContentUnavailableView {
+                Label("Connection Failed", systemImage: "wifi.exclamationmark")
+            } description: {
+                Text(error)
+            } actions: {
+                Button("Retry", systemImage: "arrow.clockwise") { initializeServices() }
+                Button("Edit Server", systemImage: "server.rack") { showOnboarding = true }
             }
         } else {
-            // iPad/macOS: no search tab — persistent search bar in the navigation toolbar
-            TabView(selection: $selectedTab) {
-                Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
-                    NavigationStack {
-                        TorrentListView(title: activeServer?.displayName ?? "Trawl", searchText: $searchText, showsSearchField: true)
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
-                    }
-                    .searchable(text: $searchText, prompt: "Search torrents")
-                }
-
-                Tab("Settings", systemImage: "gearshape", value: RootTab.settings) {
-                    NavigationStack {
-                        SettingsView(showsDoneButton: false)
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
-                    }
-                }
-            }
-            .tabViewStyle(.sidebarAdaptable)
-            #if os(iOS)
-            .tabBarMinimizeBehavior(.onScrollDown)
-            #endif
-            .sheet(item: $magnetDeepLink) { link in
-                AddTorrentSheet(initialMagnetURL: link.url)
-                    .environment(services.syncService)
-                    .environment(services.torrentService)
+            // qBittorrent not configured — arr-only user or setup pending
+            ContentUnavailableView {
+                Label("qBittorrent Not Set Up", systemImage: "arrow.down.circle")
+            } description: {
+                Text("Add a qBittorrent server in Settings to manage your downloads.")
+            } actions: {
+                Button("Add Server", systemImage: "plus") { showOnboarding = true }
             }
         }
     }
@@ -195,12 +524,55 @@ struct ContentView: View {
         servers.first(where: { $0.isActive }) ?? servers.first
     }
 
+    private var activeServerID: UUID? {
+        activeServer?.id
+    }
+
+    private var sonarrProfile: ArrServiceProfile? {
+        arrProfiles.first(where: { $0.resolvedServiceType == .sonarr })
+    }
+
+    private var radarrProfile: ArrServiceProfile? {
+        arrProfiles.first(where: { $0.resolvedServiceType == .radarr })
+    }
+
+    private var prowlarrProfile: ArrServiceProfile? {
+        arrProfiles.first(where: { $0.resolvedServiceType == .prowlarr })
+    }
+
+    private var hasConfiguredAnyService: Bool {
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil
+    }
+
+    private var shouldShowWelcomeScreen: Bool {
+        isInWelcomeFlow && !hasConfiguredAnyService
+    }
+
+    private var isShowingSSHSession: Bool {
+        showSSHSessionSheet
+    }
+
+    private var isAccessoryVisible: Bool {
+        sshSessionStore.hasSession && !isShowingSSHSession
+    }
+
+    private func syncWelcomeFlowState() {
+        if hasConfiguredAnyService {
+            isInWelcomeFlow = false
+        }
+    }
+
     private func initializeServices() {
         guard let server = activeServer else {
-            showOnboarding = true
+            appServices?.syncService.stopPolling()
+            appServices = nil
+            connectionError = nil
+            isConnecting = false
             return
         }
 
+        let initiatingServerID = server.id
+        let previousServices = appServices
         isConnecting = true
         connectionError = nil
 
@@ -210,19 +582,47 @@ struct ContentView: View {
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
                 guard !username.isEmpty, !password.isEmpty else {
+                    guard activeServerID == initiatingServerID else { return }
+                    previousServices?.syncService.stopPolling()
+                    appServices = nil
                     connectionError = "Credentials not found. Please re-enter your server details."
                     isConnecting = false
                     return
                 }
 
                 let services = try await AppServices.build(from: server, username: username, password: password)
+                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
+                previousServices?.syncService.stopPolling()
+                await services.syncService.refreshNow()
+                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
+                services.syncService.startPolling()
 
                 // Update last connected
                 server.lastConnected = .now
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Save Server State",
+                        message: error.localizedDescription
+                    )
+                }
 
+                guard activeServerID == initiatingServerID else {
+                    services.syncService.stopPolling()
+                    return
+                }
                 appServices = services
-                selectedTab = .torrents
+                if !hasAutoSelectedTorrents {
+                    selectedTab = .torrents
+                    hasAutoSelectedTorrents = true
+                }
                 isConnecting = false
 
                 #if os(macOS)
@@ -237,10 +637,87 @@ struct ContentView: View {
                     pendingMagnetURL = nil
                 }
             } catch {
+                guard activeServerID == initiatingServerID else { return }
+                previousServices?.syncService.stopPolling()
+                appServices = nil
                 connectionError = error.localizedDescription
                 isConnecting = false
             }
         }
+    }
+
+    private func refreshArrConfiguration() {
+        Task {
+            await arrServiceManager.refreshConfiguration()
+        }
+    }
+
+    private func openSSHSession() {
+        if sshSessionStore.activeProfile != nil {
+            #if os(iOS)
+            presentSSHSession()
+            #else
+            selectedTab = .more
+            morePath = [.ssh, .sshSession]
+            sshSessionStore.focusSession()
+            #endif
+        }
+    }
+
+    private func presentSSHSession() {
+        sshSessionStore.focusSession()
+        showSSHSessionSheet = true
+    }
+}
+
+private struct InAppNotificationBanner: View {
+    let item: InAppBannerItem
+    let onDismiss: () -> Void
+    
+    @State private var dragOffset: CGFloat = 0
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: item.systemImage)
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(item.style == .error ? .red : .green)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(item.message)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .glassEffect(.regular.tint((item.style == .error ? Color.red : Color.green).opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
+        .frame(maxWidth: 560)
+        .padding(.horizontal, 16)
+        .contentShape(Rectangle())
+        .offset(y: dragOffset)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    if value.translation.height < 0 {
+                        dragOffset = value.translation.height
+                    }
+                }
+                .onEnded { value in
+                    if value.translation.height < -40 {
+                        onDismiss()
+                    } else {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
     }
 }
 
@@ -251,6 +728,64 @@ private struct MagnetDeepLink: Identifiable {
 
 private enum RootTab: Hashable {
     case torrents
+    case series
+    case movies
     case search
-    case settings
+    case more
 }
+
+private enum WelcomeStep: Hashable {
+    case services
+}
+
+private enum SetupTarget: Identifiable {
+    case qbittorrent
+    case sonarr
+    case radarr
+    case prowlarr
+
+    var id: String {
+        switch self {
+        case .qbittorrent: "qbittorrent"
+        case .sonarr: "sonarr"
+        case .radarr: "radarr"
+        case .prowlarr: "prowlarr"
+        }
+    }
+}
+#if os(iOS)
+private struct SSHSessionAccessoryModifier: ViewModifier {
+    let isEnabled: Bool
+    let title: String
+    let subtitle: String
+    let statusText: String
+    let statusColor: Color
+    let openSession: () -> Void
+    let closeSession: () -> Void
+
+    func body(content: Content) -> some View {
+        if #available(iOS 26.1, *) {
+            content.tabViewBottomAccessory(isEnabled: isEnabled) {
+                accessoryView
+            }
+        } else {
+            content.tabViewBottomAccessory {
+                if isEnabled {
+                    accessoryView
+                }
+            }
+        }
+    }
+
+    private var accessoryView: some View {
+        SSHSessionAccessoryView(
+            title: title,
+            subtitle: subtitle,
+            statusText: statusText,
+            statusColor: statusColor,
+            openSession: openSession,
+            closeSession: closeSession
+        )
+    }
+}
+#endif

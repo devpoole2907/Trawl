@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class TorrentDetailViewModel {
     let torrentHash: String
@@ -25,6 +26,17 @@ final class TorrentDetailViewModel {
 
     /// Available categories from sync
     var availableCategories: [String] { syncService.sortedCategoryNames }
+
+    /// Available tags from sync
+    var availableTags: [String] { syncService.sortedTags }
+
+    var currentTags: [String] {
+        guard let rawTags = torrent?.tags else { return [] }
+        return rawTags
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+    }
 
     // MARK: - Data Loading
 
@@ -152,13 +164,71 @@ final class TorrentDetailViewModel {
     }
 
     func setCategory(_ category: String) async {
+        let normalizedCategory = category.trimmingCharacters(in: .whitespacesAndNewlines)
         do {
-            try await torrentService.setTorrentCategory(hashes: [torrentHash], category: category)
+            try await torrentService.setTorrentCategory(hashes: [torrentHash], category: normalizedCategory)
+            if !normalizedCategory.isEmpty {
+                syncService.addCategoryLocally(name: normalizedCategory, savePath: nil)
+            }
+            syncService.setTorrentCategoryLocally(hash: torrentHash, category: normalizedCategory)
+            await syncService.refreshNow()
             error = nil
             actionErrorAlert = nil
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Change Category",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func toggleTag(_ tag: String) async {
+        let normalizedTag = tag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedTag.isEmpty else { return }
+
+        let containsTag = currentTags.contains { $0.caseInsensitiveCompare(normalizedTag) == .orderedSame }
+
+        do {
+            if containsTag {
+                try await torrentService.removeTorrentTags(hashes: [torrentHash], tags: [normalizedTag])
+                syncService.removeTagsFromTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+            } else {
+                try await torrentService.addTorrentTags(hashes: [torrentHash], tags: [normalizedTag])
+                syncService.addTagLocally(name: normalizedTag)
+                syncService.addTagsToTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+            }
+            await syncService.refreshNow()
+            error = nil
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: containsTag ? "Couldn't Remove Tag" : "Couldn't Add Tag",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func setTorrentDownloadLimit(_ limit: Int64) async {
+        do {
+            try await torrentService.setTorrentDownloadLimit(hashes: [torrentHash], limit: limit)
+            await loadProperties()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Set Download Limit",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func setTorrentUploadLimit(_ limit: Int64) async {
+        do {
+            try await torrentService.setTorrentUploadLimit(hashes: [torrentHash], limit: limit)
+            await loadProperties()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Set Upload Limit",
                 message: error.localizedDescription
             )
         }

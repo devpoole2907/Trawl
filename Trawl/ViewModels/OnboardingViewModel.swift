@@ -2,39 +2,41 @@ import Foundation
 import Observation
 import SwiftData
 
+@MainActor
 @Observable
 final class OnboardingViewModel {
     var hostURL: String = ""
     var username: String = ""
     var password: String = ""
     var displayName: String = ""
+    var allowsUntrustedTLS: Bool = false
     var isValidating: Bool = false
     var validationError: String?
     var isValid: Bool = false
     var hasAttemptedSubmit: Bool = false
 
-    func loadExistingServer(_ server: ServerProfile, username: String, password: String) {
+    func loadExistingServer(_ server: ServerProfile) async {
         hostURL = server.hostURL
         displayName = server.displayName == server.hostURL ? "" : server.displayName
-        self.username = username
-        self.password = password
+        allowsUntrustedTLS = server.allowsUntrustedTLS
+        do {
+            username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
+            password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
+        } catch {
+            username = ""
+            password = ""
+            validationError = "Couldn't load the saved credentials: \(error.localizedDescription)"
+        }
     }
 
     /// Validates the connection and saves the server profile.
     /// Returns true if saved successfully.
     func validateAndSave(modelContext: ModelContext, editingServer: ServerProfile? = nil) async -> Bool {
-        var trimmedURL = hostURL
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-        // Prepend http:// if the user didn't include a scheme
-        if !trimmedURL.hasPrefix("http://") && !trimmedURL.hasPrefix("https://") {
-            trimmedURL = "http://" + trimmedURL
-        }
+        let trimmedURLInput = hostURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         hasAttemptedSubmit = true
 
-        guard !trimmedURL.isEmpty else {
+        guard !trimmedURLInput.isEmpty else {
             validationError = nil
             return false
         }
@@ -44,13 +46,25 @@ final class OnboardingViewModel {
             return false
         }
 
+        let trimmedURL: String
+        do {
+            trimmedURL = try ServerURLValidator.normalizedURLString(from: trimmedURLInput)
+        } catch {
+            validationError = error.localizedDescription
+            return false
+        }
+
         isValidating = true
         validationError = nil
 
         do {
             // Create a temporary API client to test the connection
-            let tempAuth = AuthService(serverProfileID: UUID())
-            let tempClient = QBittorrentAPIClient(baseURL: trimmedURL, authService: tempAuth)
+            let tempAuth = AuthService(serverProfileID: UUID(), allowsUntrustedTLS: allowsUntrustedTLS)
+            let tempClient = QBittorrentAPIClient(
+                baseURL: trimmedURL,
+                authService: tempAuth,
+                allowsUntrustedTLS: allowsUntrustedTLS
+            )
 
             try await tempClient.login(username: username, password: password)
             _ = try await tempClient.getAppVersion()
@@ -62,17 +76,21 @@ final class OnboardingViewModel {
             if let editingServer {
                 editingServer.displayName = name
                 editingServer.hostURL = trimmedURL
+                editingServer.allowsUntrustedTLS = allowsUntrustedTLS
                 editingServer.isActive = true
                 profile = editingServer
             } else {
-                profile = ServerProfile(displayName: name, hostURL: trimmedURL)
+                profile = ServerProfile(
+                    displayName: name,
+                    hostURL: trimmedURL,
+                    allowsUntrustedTLS: allowsUntrustedTLS
+                )
 
                 // Deactivate any existing active servers
                 let descriptor = FetchDescriptor<ServerProfile>(predicate: #Predicate { $0.isActive })
-                if let existingServers = try? modelContext.fetch(descriptor) {
-                    for server in existingServers {
-                        server.isActive = false
-                    }
+                let existingServers = try modelContext.fetch(descriptor)
+                for server in existingServers {
+                    server.isActive = false
                 }
 
                 modelContext.insert(profile)
