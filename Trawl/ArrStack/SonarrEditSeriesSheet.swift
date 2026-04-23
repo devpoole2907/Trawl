@@ -11,6 +11,7 @@ struct SonarrEditSeriesSheet: View {
     @State private var seasonFolder: Bool
     @State private var rootFolderPath: String
     @State private var selectedTags: Set<Int>
+    @State private var moveFiles: Bool
     @State private var isSaving = false
 
     private var rootFolderOptions: [String] {
@@ -30,6 +31,15 @@ struct SonarrEditSeriesSheet: View {
         _seasonFolder = State(initialValue: series.seasonFolder ?? true)
         _rootFolderPath = State(initialValue: series.rootFolderPath ?? viewModel.rootFolders.first?.path ?? "")
         _selectedTags = State(initialValue: Set(series.tags ?? []))
+        _moveFiles = State(initialValue: (series.statistics?.episodeFileCount ?? 0) > 0)
+    }
+
+    private var rootFolderChanged: Bool {
+        rootFolderPath != (series.rootFolderPath ?? "")
+    }
+
+    private var hasExistingFiles: Bool {
+        (series.statistics?.episodeFileCount ?? 0) > 0
     }
 
     var body: some View {
@@ -43,7 +53,7 @@ struct SonarrEditSeriesSheet: View {
             }
         ) {
             Form {
-                Section("Library") {
+                Section {
                     Toggle("Monitored", isOn: $monitored)
                     Toggle("Season Folder", isOn: $seasonFolder)
 
@@ -62,6 +72,22 @@ struct SonarrEditSeriesSheet: View {
                     Picker("Root Folder", selection: $rootFolderPath) {
                         ForEach(rootFolderOptions, id: \.self) { path in
                             Text(path).tag(path)
+                        }
+                    }
+
+                    if rootFolderChanged && hasExistingFiles {
+                        Toggle("Move Existing Files", isOn: $moveFiles)
+                    }
+                } header: {
+                    Text("Library")
+                } footer: {
+                    if rootFolderChanged {
+                        if hasExistingFiles {
+                            Text(moveFiles
+                                 ? "This updates the series folder and asks Sonarr to move existing files into the new root."
+                                 : "This updates the series folder, but existing files stay where they are until you move them manually.")
+                        } else {
+                            Text("This updates the series folder so future imports target the new root.")
                         }
                     }
                 }
@@ -104,7 +130,8 @@ struct SonarrEditSeriesSheet: View {
             seriesType: seriesType,
             seasonFolder: seasonFolder,
             rootFolderPath: rootFolderPath,
-            tags: Array(selectedTags).sorted()
+            tags: Array(selectedTags).sorted(),
+            moveFiles: rootFolderChanged && hasExistingFiles && moveFiles
         )
         isSaving = false
 

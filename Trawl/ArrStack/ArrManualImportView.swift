@@ -252,15 +252,18 @@ fileprivate final class ManualImportScanViewModel {
     let path: String
     let service: ArrServiceType
     let serviceManager: ArrServiceManager
+    let libraryItemID: Int?
 
     var isLoading = false
     var importableFiles: [ManualImportItem] = []
+    var blockedFiles: [ManualImportItem] = []
     var selectedFiles: Set<String> = []
 
-    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager) {
+    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil) {
         self.path = path
         self.service = service
         self.serviceManager = serviceManager
+        self.libraryItemID = libraryItemID
     }
 
     var folderName: String {
@@ -293,14 +296,18 @@ fileprivate final class ManualImportScanViewModel {
 
         do {
             let jsonValues = try await getManualImport(folder: path)
-            importableFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
+            let scannedFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
+            importableFiles = scannedFiles.filter(\.isImportable)
+            blockedFiles = scannedFiles.filter { !$0.isImportable }
             let availableIDs = Set(importableFiles.map(\.id))
             selectedFiles = selectedFiles.intersection(availableIDs)
         } catch is CancellationError {
             importableFiles = []
+            blockedFiles = []
         } catch {
             InAppNotificationCenter.shared.showError(title: "Scan Failed", message: error.localizedDescription)
             importableFiles = []
+            blockedFiles = []
         }
     }
 
@@ -332,12 +339,12 @@ fileprivate final class ManualImportScanViewModel {
             guard let client = serviceManager.sonarrClient else {
                 throw ManualImportServiceClientUnavailableError(service: service)
             }
-            return try await client.getManualImport(folder: folder)
+            return try await client.getManualImport(folder: folder, seriesId: libraryItemID)
         case .radarr:
             guard let client = serviceManager.radarrClient else {
                 throw ManualImportServiceClientUnavailableError(service: service)
             }
-            return try await client.getManualImport(folder: folder)
+            return try await client.getManualImport(folder: folder, movieId: libraryItemID)
         case .prowlarr:
             throw ManualImportServiceClientUnavailableError(service: service)
         }
@@ -385,10 +392,11 @@ private func isWindowsDrivePath(_ path: String) -> Bool {
 // MARK: - Scan View
 
 struct ManualImportScanView: View {
+    @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ManualImportScanViewModel
 
-    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager) {
-        _viewModel = State(wrappedValue: ManualImportScanViewModel(path: path, service: service, serviceManager: serviceManager))
+    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil) {
+        _viewModel = State(wrappedValue: ManualImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID))
     }
 
     var body: some View {
@@ -402,7 +410,7 @@ struct ManualImportScanView: View {
                     }
                     .listRowBackground(Color.clear)
                 }
-            } else if viewModel.importableFiles.isEmpty {
+            } else if viewModel.importableFiles.isEmpty && viewModel.blockedFiles.isEmpty {
                 Section {
                     ContentUnavailableView(
                         "No Importable Files",
@@ -412,19 +420,33 @@ struct ManualImportScanView: View {
                     .listRowBackground(Color.clear)
                 }
             } else {
-                Section {
-                    ForEach(viewModel.importableFiles) { item in
-                        ManualImportRow(
-                            item: item,
-                            isSelected: viewModel.selectedFiles.contains(item.id)
-                        ) {
-                            withAnimation(.snappy) {
-                                viewModel.toggleFile(item.id)
+                if !viewModel.importableFiles.isEmpty {
+                    Section {
+                        ForEach(viewModel.importableFiles) { item in
+                            ManualImportRow(
+                                item: item,
+                                isSelected: viewModel.selectedFiles.contains(item.id)
+                            ) {
+                                withAnimation(.snappy) {
+                                    viewModel.toggleFile(item.id)
+                                }
                             }
                         }
+                    } header: {
+                        Text("Importable Files")
                     }
-                } header: {
-                    Text("Found Files")
+                }
+
+                if !viewModel.blockedFiles.isEmpty {
+                    Section {
+                        ForEach(viewModel.blockedFiles) { item in
+                            ManualImportBlockedRow(item: item)
+                        }
+                    } header: {
+                        Text("Blocked Files")
+                    } footer: {
+                        Text("Files flagged as dangerous or otherwise rejected by \(viewModel.service.displayName) can't be imported until the underlying issue is resolved.")
+                    }
                 }
             }
         }
@@ -438,6 +460,12 @@ struct ManualImportScanView: View {
             await viewModel.loadFiles()
         }
         .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Close") {
+                    dismiss()
+                }
+            }
+
             if !viewModel.importableFiles.isEmpty {
                 ToolbarItem(placement: .topBarLeading) {
                     Button(viewModel.allSelected ? "Deselect" : "Select All") {
@@ -473,6 +501,9 @@ struct ManualImportScanView: View {
 
     private var navigationSubtitleText: String {
         if viewModel.selectedFiles.isEmpty {
+            if !viewModel.blockedFiles.isEmpty && viewModel.importableFiles.isEmpty {
+                return "\(viewModel.blockedFiles.count) blocked"
+            }
             return viewModel.path
         } else {
             let count = viewModel.selectedFiles.count
@@ -488,7 +519,11 @@ fileprivate struct ManualImportItem: Identifiable {
     let path: String
     let fileName: String
     let size: Int64
+    let rejectionReasons: [String]
+    let warningMessages: [String]
     let originalJSON: JSONValue
+
+    var isImportable: Bool { rejectionReasons.isEmpty }
 
     init?(json: JSONValue) {
         guard case .object(let dict) = json else { return nil }
@@ -514,7 +549,36 @@ fileprivate struct ManualImportItem: Identifiable {
             self.size = 0
         }
 
+        self.rejectionReasons = ManualImportItem.extractMessages(from: dict["rejections"])
+        self.warningMessages = ManualImportItem.extractMessages(from: dict["warnings"])
         self.originalJSON = json
+    }
+
+    nonisolated private static func extractMessages(from value: JSONValue?) -> [String] {
+        guard let value else { return [] }
+        switch value {
+        case .string(let string):
+            let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? [] : [trimmed]
+        case .array(let values):
+            return values.flatMap(extractMessages(from:))
+        case .object(let object):
+            if case .string(let reason) = object["reason"] {
+                let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return [trimmed] }
+            }
+            if case .string(let message) = object["message"] {
+                let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return [trimmed] }
+            }
+            if case .string(let title) = object["title"] {
+                let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { return [trimmed] }
+            }
+            return object.values.flatMap(extractMessages(from:))
+        default:
+            return []
+        }
     }
 }
 
@@ -538,6 +602,12 @@ fileprivate struct ManualImportRow: View {
                     Text(ByteFormatter.format(bytes: item.size))
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    if let warning = item.warningMessages.first {
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                            .lineLimit(2)
+                    }
                 }
 
                 Spacer()
@@ -545,5 +615,36 @@ fileprivate struct ManualImportRow: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+    }
+}
+
+fileprivate struct ManualImportBlockedRow: View {
+    let item: ManualImportItem
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.title3)
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(item.fileName)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    Text(ByteFormatter.format(bytes: item.size))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ForEach(Array(item.rejectionReasons.enumerated()), id: \.offset) { _, reason in
+                Text(reason)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }

@@ -10,6 +10,7 @@ struct RadarrEditMovieSheet: View {
     @State private var minimumAvailability: String
     @State private var rootFolderPath: String
     @State private var selectedTags: Set<Int>
+    @State private var moveFiles: Bool
     @State private var isSaving = false
 
     private var rootFolderOptions: [String] {
@@ -28,6 +29,15 @@ struct RadarrEditMovieSheet: View {
         _minimumAvailability = State(initialValue: movie.minimumAvailability ?? "released")
         _rootFolderPath = State(initialValue: movie.rootFolderPath ?? viewModel.rootFolders.first?.path ?? "")
         _selectedTags = State(initialValue: Set(movie.tags ?? []))
+        _moveFiles = State(initialValue: movie.hasFile ?? false)
+    }
+
+    private var rootFolderChanged: Bool {
+        rootFolderPath != (movie.rootFolderPath ?? "")
+    }
+
+    private var hasExistingFiles: Bool {
+        movie.hasFile ?? false
     }
 
     var body: some View {
@@ -41,7 +51,7 @@ struct RadarrEditMovieSheet: View {
             }
         ) {
             Form {
-                Section("Library") {
+                Section {
                     Toggle("Monitored", isOn: $monitored)
 
                     Picker("Quality Profile", selection: $qualityProfileId) {
@@ -60,6 +70,22 @@ struct RadarrEditMovieSheet: View {
                     Picker("Root Folder", selection: $rootFolderPath) {
                         ForEach(rootFolderOptions, id: \.self) { path in
                             Text(path).tag(path)
+                        }
+                    }
+                    
+                    if rootFolderChanged && hasExistingFiles {
+                        Toggle("Move Existing Files", isOn: $moveFiles)
+                    }
+                } header: {
+                    Text("Library")
+                } footer: {
+                    if rootFolderChanged {
+                        if hasExistingFiles {
+                            Text(moveFiles
+                                 ? "This updates the movie folder and asks Radarr to move existing files into the new root."
+                                 : "This updates the movie folder, but existing files stay where they are until you move them manually.")
+                        } else {
+                            Text("This updates the movie folder so future imports target the new root.")
                         }
                     }
                 }
@@ -101,7 +127,8 @@ struct RadarrEditMovieSheet: View {
             qualityProfileId: qualityProfileId,
             minimumAvailability: minimumAvailability,
             rootFolderPath: rootFolderPath,
-            tags: Array(selectedTags).sorted()
+            tags: Array(selectedTags).sorted(),
+            moveFiles: rootFolderChanged && hasExistingFiles && moveFiles
         )
         isSaving = false
 

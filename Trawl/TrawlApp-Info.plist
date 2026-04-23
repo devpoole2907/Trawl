@@ -4,7 +4,6 @@
 <dict>
 	<key>BGTaskSchedulerPermittedIdentifiers</key>
 	<array>
-		<string>com.poole.james.Trawl.torrentCheck</string>
 		<string>com.poole.james.Trawl.sshKeepalive</string>
 	</array>
 	<key>CFBundleDisplayName</key>

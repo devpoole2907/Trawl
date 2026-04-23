@@ -8,6 +8,7 @@ struct ArrServiceSettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var allProfiles: [ArrServiceProfile]
     @State private var showAddSheet = false
     @State private var systemStatus: ArrSystemStatus?
@@ -20,6 +21,7 @@ struct ArrServiceSettingsView: View {
     @State private var showUpdateConfirmation = false
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
+    @State private var isSettingUpNotifications = false
 
     private var profile: ArrServiceProfile? {
         allProfiles.first { $0.resolvedServiceType == serviceType }
@@ -135,6 +137,35 @@ struct ArrServiceSettingsView: View {
                         Label(systemStatusError, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
                             .foregroundStyle(.orange)
+                    }
+                }
+
+                if serviceType != .prowlarr, isConnected {
+                    Section("Notifications") {
+                        Button {
+                            setupNotifications()
+                        } label: {
+                            if isSettingUpNotifications {
+                                HStack {
+                                    ProgressView()
+                                        .padding(.trailing, 8)
+                                    Text("Setting up...")
+                                }
+                            } else {
+                                Label("One-Tap Notification Setup", systemImage: "bell.badge.fill")
+                            }
+                        }
+                        .disabled(isSettingUpNotifications || NotificationService.shared.deviceToken == nil)
+                        
+                        if NotificationService.shared.deviceToken == nil {
+                            Text("Enable notifications in Trawl settings first.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("Automatically creates or updates a 'Trawl' webhook in your \(serviceType.displayName) settings.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -376,6 +407,25 @@ struct ArrServiceSettingsView: View {
             availableUpdates = try await client.getUpdates()
         } catch {
             availableUpdates = []
+        }
+    }
+
+    // MARK: - Actions
+
+    private func setupNotifications() {
+        guard let profile,
+              let token = NotificationService.shared.deviceToken else { return }
+
+        let url = NotificationService.shared.workerURL
+        isSettingUpNotifications = true
+        Task {
+            do {
+                try await serviceManager.setupNotifications(for: profile, workerURL: url, deviceToken: token)
+                inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
+            } catch {
+                inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
+            }
+            isSettingUpNotifications = false
         }
     }
 

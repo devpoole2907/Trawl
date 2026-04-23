@@ -6,6 +6,8 @@
 	<array>
 		<string>group.com.poole.james.Trawl</string>
 	</array>
+	<key>aps-environment</key>
+	<string>development</string>
 	<key>keychain-access-groups</key>
 	<array>
 		<string>$(AppIdentifierPrefix)com.poole.james.Trawl.shared</string>

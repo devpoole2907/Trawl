@@ -17,6 +17,7 @@ struct SonarrSeriesDetailView: View {
     }
 
     @Bindable var viewModel: SonarrViewModel
+    @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
 
     // Library mode: look up series by ID from viewModel
@@ -32,6 +33,7 @@ struct SonarrSeriesDetailView: View {
     @State private var showEditSheet = false
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
     @State private var showAddSheet = false
+    @State private var manualImportPath: String?
     @State private var didAdd = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: PendingQueueAction?
@@ -142,6 +144,18 @@ struct SonarrSeriesDetailView: View {
                 SonarrEditSeriesSheet(viewModel: viewModel, series: series)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+            }
+        }
+        .sheet(isPresented: manualImportPresented) {
+            if let manualImportPath {
+                ManualImportScanView(
+                    path: manualImportPath,
+                    service: .sonarr,
+                    serviceManager: serviceManager,
+                    libraryItemID: resolvedSeriesId
+                )
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
             }
         }
         .sheet(isPresented: $showAddSheet) {
@@ -738,6 +752,28 @@ struct SonarrSeriesDetailView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
+            if let rootFolder = series?.rootFolderPath, !rootFolder.isEmpty {
+                LabeledContent("Library Root") {
+                    Text(rootFolder)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            if let outputPath = item.outputPath, !outputPath.isEmpty {
+                LabeledContent("Import Destination") {
+                    Text(outputPath)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
             HStack(spacing: 10) {
                 Button {
                     showEditSheet = true
@@ -747,6 +783,17 @@ struct SonarrSeriesDetailView: View {
                 .buttonStyle(.plain)
                 .accessibilityLabel("Edit Series")
                 .disabled(isRemoving || !isInLibrary)
+
+                if let outputPath = item.outputPath, !outputPath.isEmpty {
+                    Button {
+                        manualImportPath = outputPath
+                    } label: {
+                        importIssueActionIcon(systemName: "tray.and.arrow.down.fill", tint: .teal)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open Manual Import")
+                    .disabled(isRemoving)
+                }
 
                 Button {
                     pendingQueueAction = PendingQueueAction(
@@ -874,6 +921,13 @@ struct SonarrSeriesDetailView: View {
         Binding(
             get: { pendingQueueAction != nil },
             set: { if !$0 { pendingQueueAction = nil } }
+        )
+    }
+
+    private var manualImportPresented: Binding<Bool> {
+        Binding(
+            get: { manualImportPath != nil },
+            set: { if !$0 { manualImportPath = nil } }
         )
     }
 

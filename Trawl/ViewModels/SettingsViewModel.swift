@@ -14,6 +14,7 @@ final class SettingsViewModel {
     var qbVersion: String?
     var artworkCacheSizeDescription = "Empty"
     var isClearingArtworkCache = false
+    var deviceToken: String?
 
     private var torrentService: TorrentService?
     private var syncService: SyncService?
@@ -31,6 +32,11 @@ final class SettingsViewModel {
 
         // Check notification permission
         await checkNotificationPermission()
+
+        // Load device token
+        #if os(iOS)
+        deviceToken = NotificationService.shared.deviceToken
+        #endif
 
         // Fetch qBittorrent version
         if let service = torrentService {
@@ -51,7 +57,9 @@ final class SettingsViewModel {
             let granted = await NotificationService.shared.requestPermission()
             notificationPermissionGranted = granted
             if granted {
-                NotificationService.shared.registerBackgroundTask()
+                #if os(iOS)
+                deviceToken = NotificationService.shared.deviceToken
+                #endif
             } else {
                 notificationsEnabled = false
             }

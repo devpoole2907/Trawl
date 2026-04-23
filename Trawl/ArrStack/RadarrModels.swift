@@ -274,7 +274,13 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         rootFolderPath: String,
         tags: [Int]
     ) -> RadarrMovie {
-        RadarrMovie(
+        let updatedPath = rebasedLibraryPath(
+            existingPath: path,
+            existingRootFolderPath: self.rootFolderPath,
+            newRootFolderPath: rootFolderPath
+        )
+
+        return RadarrMovie(
             id: id,
             title: title,
             originalTitle: originalTitle,
@@ -291,7 +297,7 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
             hasFile: hasFile,
             youTubeTrailerId: youTubeTrailerId,
             studio: studio,
-            path: path,
+            path: updatedPath,
             rootFolderPath: rootFolderPath,
             qualityProfileId: qualityProfileId,
             monitored: monitored,
@@ -315,6 +321,35 @@ struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
             alternateTitles: alternateTitles
         )
     }
+}
+
+private func rebasedLibraryPath(
+    existingPath: String?,
+    existingRootFolderPath: String?,
+    newRootFolderPath: String
+) -> String? {
+    guard let existingPath, !existingPath.isEmpty else { return existingPath }
+    guard let existingRootFolderPath, !existingRootFolderPath.isEmpty else { return existingPath }
+    guard existingRootFolderPath != newRootFolderPath else { return existingPath }
+
+    let normalizedExistingRoot = existingRootFolderPath.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+    let normalizedNewRoot = newRootFolderPath.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+    let normalizedExistingPath = existingPath.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+
+    let pathComponents = normalizedExistingPath.split(whereSeparator: { $0 == "/" || $0 == "\\" })
+    let rootComponents = normalizedExistingRoot.split(whereSeparator: { $0 == "/" || $0 == "\\" })
+    let isWindowsStyle = existingPath.contains("\\") || existingRootFolderPath.contains("\\") || newRootFolderPath.contains("\\")
+    let separator = isWindowsStyle ? "\\" : "/"
+
+    guard pathComponents.count > rootComponents.count else { return existingPath }
+    guard Array(pathComponents.prefix(rootComponents.count)).map(String.init) == rootComponents.map(String.init) else {
+        return existingPath
+    }
+
+    let suffixComponents = pathComponents.dropFirst(rootComponents.count).map(String.init)
+    guard !suffixComponents.isEmpty else { return existingPath }
+
+    return ([normalizedNewRoot] + suffixComponents).joined(separator: separator)
 }
 
 struct RadarrRatings: Codable, Sendable {

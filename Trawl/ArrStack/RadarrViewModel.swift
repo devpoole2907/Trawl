@@ -308,10 +308,12 @@ final class RadarrViewModel {
         qualityProfileId: Int,
         minimumAvailability: String,
         rootFolderPath: String,
-        tags: [Int]
+        tags: [Int],
+        moveFiles: Bool = false
     ) async -> Bool {
         guard let client else { return false }
         do {
+            let rootFolderChanged = rootFolderPath != (movie.rootFolderPath ?? "")
             let updatedMovie = movie.updatingForEdit(
                 monitored: monitored,
                 qualityProfileId: qualityProfileId,
@@ -319,10 +321,22 @@ final class RadarrViewModel {
                 rootFolderPath: rootFolderPath,
                 tags: tags
             )
-            _ = try await client.updateMovie(updatedMovie, moveFiles: false)
+            _ = try await client.updateMovie(updatedMovie, moveFiles: moveFiles)
             await loadMovies()
+            if movie.id > 0 {
+                await loadMovieFiles(movieId: movie.id)
+            }
+            await loadQueue()
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: movie.title)
+            let message: String
+            if rootFolderChanged {
+                message = moveFiles
+                    ? "Root folder updated to \(rootFolderPath) and Radarr was asked to move existing files."
+                    : "Root folder updated to \(rootFolderPath). Import status was refreshed."
+            } else {
+                message = movie.title
+            }
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: message)
             return true
         } catch {
             self.error = error.localizedDescription

@@ -101,6 +101,70 @@ final class ArrServiceManager {
     var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
 
+    func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
+        let client: (any SharedArrClient)? = {
+            switch profile.resolvedServiceType {
+            case .sonarr: return sonarrInstances.first(where: { $0.id == profile.id })?.client
+            case .radarr: return radarrInstances.first(where: { $0.id == profile.id })?.client
+            default: return nil
+            }
+        }()
+
+        guard let client else { throw ArrError.noServiceConfigured }
+
+        let workerURL = workerURL.isEmpty ? "https://trawl-apns-worker.james-5d8.workers.dev" : workerURL
+        let pushURL = workerURL.hasSuffix("/push") ? workerURL : (workerURL.hasSuffix("/") ? "\(workerURL)push" : "\(workerURL)/push")
+
+        let notifications = try await client.getNotifications()
+        let existing = notifications.first(where: { $0.name == "Trawl" })
+
+        let fields = [
+            ArrNotificationField(name: "url", value: .string(pushURL)),
+            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+            ArrNotificationField(name: "headers", value: .array([
+                .object([
+                    "key": .string("X-Trawl-Token"),
+                    "value": .string(deviceToken)
+                ])
+            ]))
+        ]
+
+        let newNotification = ArrNotification(
+            id: existing?.id,
+            name: "Trawl",
+            onGrab: true,
+            onDownload: true,
+            onUpgrade: true,
+            onRename: true,
+            onHealthIssue: true,
+            onApplicationUpdate: true,
+            onSeriesDelete: false,
+            onEpisodeFileDelete: false,
+            onEpisodeFileDeleteForUpgrade: false,
+            onMovieDelete: false,
+            onMovieFileDelete: false,
+            onMovieFileDeleteForUpgrade: false,
+            implementation: "Webhook",
+            configContract: "WebhookSettings",
+            fields: fields,
+            tags: []
+        )
+
+        // Debug logging for the payload
+        if let encoded = try? JSONEncoder().encode(newNotification),
+           let jsonString = String(data: encoded, encoding: .utf8) {
+            print("--- Trawl Notification Payload ---")
+            print(jsonString)
+            print("---------------------------------")
+        }
+
+        if let existing {
+            _ = try await client.updateNotification(newNotification)
+        } else {
+            _ = try await client.createNotification(newNotification)
+        }
+    }
+
     // MARK: - Backward-compatible Sonarr computed properties
 
     var sonarrClient: SonarrAPIClient? { activeSonarrEntry?.client }

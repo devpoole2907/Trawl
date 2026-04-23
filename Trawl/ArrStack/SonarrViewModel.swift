@@ -441,10 +441,12 @@ final class SonarrViewModel {
         seriesType: String,
         seasonFolder: Bool,
         rootFolderPath: String,
-        tags: [Int]
+        tags: [Int],
+        moveFiles: Bool = false
     ) async -> Bool {
         guard let client else { return false }
         do {
+            let rootFolderChanged = rootFolderPath != (series.rootFolderPath ?? "")
             let updatedSeries = series.updatingForEdit(
                 monitored: monitored,
                 qualityProfileId: qualityProfileId,
@@ -453,10 +455,23 @@ final class SonarrViewModel {
                 rootFolderPath: rootFolderPath,
                 tags: tags
             )
-            _ = try await client.updateSeries(updatedSeries, moveFiles: false)
+            _ = try await client.updateSeries(updatedSeries, moveFiles: moveFiles)
             await loadSeries()
+            if series.id > 0 {
+                await loadEpisodes(for: series.id)
+                await loadEpisodeFiles(for: series.id)
+            }
+            await loadQueue()
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: series.title)
+            let message: String
+            if rootFolderChanged {
+                message = moveFiles
+                    ? "Root folder updated to \(rootFolderPath) and Sonarr was asked to move existing files."
+                    : "Root folder updated to \(rootFolderPath). Import status was refreshed."
+            } else {
+                message = series.title
+            }
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: message)
             return true
         } catch {
             self.error = error.localizedDescription
