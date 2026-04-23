@@ -25,12 +25,14 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             
             // Post notification for observers (like SettingsViewModel)
             await MainActor.run {
-                NotificationCenter.default.post(name: NSNotification.Name("TrawlAPNSTokenReceived"), object: tokenString)
+                NotificationCenter.default.post(name: NotificationConstants.apnsTokenReceivedNotification, object: tokenString)
+                NotificationCenter.default.post(name: NotificationConstants.apnsRegistrationDidCompleteNotification, object: nil)
             }
         }
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: NotificationConstants.apnsRegistrationDidCompleteNotification, object: nil)
         logger.error("Failed to register for remote notifications: \(error.localizedDescription, privacy: .public)")
     }
 

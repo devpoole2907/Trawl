@@ -8,6 +8,27 @@ import UIKit
 final class NotificationService: Sendable {
     static let shared = NotificationService()
     private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "NotificationService")
+    nonisolated(unsafe) private var registrationObserver: NSObjectProtocol?
+
+    private init() {
+        #if os(iOS)
+        registrationObserver = NotificationCenter.default.addObserver(
+            forName: NotificationConstants.apnsRegistrationDidCompleteNotification,
+            object: nil,
+            queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.isRegisteringRemoteNotifications = false
+            }
+        }
+        #endif
+    }
+
+    deinit {
+        if let registrationObserver {
+            NotificationCenter.default.removeObserver(registrationObserver)
+        }
+    }
 
     #if os(iOS)
     @MainActor
@@ -56,16 +77,10 @@ final class NotificationService: Sendable {
     @MainActor
     private func registerForRemoteNotifications(force: Bool) async {
         guard force || !isRegisteringRemoteNotifications else { return }
-        if isRegisteringRemoteNotifications { return }
 
         isRegisteringRemoteNotifications = true
         UIApplication.shared.registerForRemoteNotifications()
-
-        // Prevent repeated same-turn registrations from multiple call sites.
-        Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(2))
-            self?.isRegisteringRemoteNotifications = false
-        }
     }
+
     #endif
 }

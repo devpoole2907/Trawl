@@ -248,7 +248,7 @@ struct AddImportLocationSheet: View {
 
 @Observable
 @MainActor
-fileprivate final class ManualImportScanViewModel {
+private final class ManualImportScanViewModel {
     let path: String
     let service: ArrServiceType
     let serviceManager: ArrServiceManager
@@ -499,6 +499,9 @@ struct ManualImportScanView: View {
 
     private var navigationSubtitleText: String {
         if viewModel.selectedFiles.isEmpty {
+            if !viewModel.importableFiles.isEmpty && !viewModel.blockedFiles.isEmpty {
+                return "\(viewModel.importableFiles.count) importable · \(viewModel.blockedFiles.count) blocked"
+            }
             if !viewModel.blockedFiles.isEmpty && viewModel.importableFiles.isEmpty {
                 return "\(viewModel.blockedFiles.count) blocked"
             }
@@ -512,7 +515,7 @@ struct ManualImportScanView: View {
 
 // MARK: - Models
 
-fileprivate struct ManualImportItem: Identifiable {
+private struct ManualImportItem: Identifiable {
     let id: String
     let path: String
     let fileName: String
@@ -583,7 +586,7 @@ fileprivate struct ManualImportItem: Identifiable {
     }
 }
 
-fileprivate struct ManualImportRow: View {
+private struct ManualImportRow: View {
     let item: ManualImportItem
     let isSelected: Bool
     let onToggle: () -> Void
@@ -619,7 +622,7 @@ fileprivate struct ManualImportRow: View {
     }
 }
 
-fileprivate struct ManualImportBlockedRow: View {
+private struct ManualImportBlockedRow: View {
     let item: ManualImportItem
 
     var body: some View {

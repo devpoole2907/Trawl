@@ -102,18 +102,28 @@ final class ArrServiceManager {
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
 
     func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
-        let client: (any SharedArrClient)? = {
-            switch profile.resolvedServiceType {
-            case .sonarr: return sonarrInstances.first(where: { $0.id == profile.id })?.client
-            case .radarr: return radarrInstances.first(where: { $0.id == profile.id })?.client
-            default: return nil
-            }
-        }()
+        guard let serviceType = profile.resolvedServiceType else {
+            throw ArrError.noServiceConfigured
+        }
 
-        guard let client else { throw ArrError.noServiceConfigured }
+        let client: any SharedArrClient
+        switch serviceType {
+        case .sonarr:
+            guard let resolvedClient = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            client = resolvedClient
+        case .radarr:
+            guard let resolvedClient = radarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            client = resolvedClient
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
 
         let notificationName = "Trawl (\(profile.displayName))"
-        let normalizedWorkerURL = normalizedNotificationWorkerURL(from: workerURL)
+        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
         var components = URLComponents(string: normalizedWorkerURL)
 
         var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
@@ -126,8 +136,7 @@ final class ArrServiceManager {
         }
 
         let notifications = try await client.getNotifications()
-        // Match by composite name or implementation + URL to be more precise
-        let existing = notifications.first { $0.name == notificationName || ($0.implementation == "Webhook" && $0.fieldValue(for: "url") == pushURL) }
+        let existing = notifications.first { $0.name == notificationName }
 
         let fields = [
             ArrNotificationField(name: "url", value: .string(pushURL)),
@@ -162,35 +171,9 @@ final class ArrServiceManager {
         )
 
         #if DEBUG
-        // Debug logging for the payload with redacted token
-        var loggedFields = fields
-        if let headersIdx = loggedFields.firstIndex(where: { $0.name == "headers" }) {
-            loggedFields[headersIdx] = ArrNotificationField(name: "headers", value: .string("[REDACTED]"))
-        }
-        
-        let logNotification = ArrNotification(
-            id: newNotification.id,
-            name: newNotification.name,
-            onGrab: newNotification.onGrab,
-            onDownload: newNotification.onDownload,
-            onUpgrade: newNotification.onUpgrade,
-            onRename: newNotification.onRename,
-            onHealthIssue: newNotification.onHealthIssue,
-            onApplicationUpdate: newNotification.onApplicationUpdate,
-            onSeriesDelete: newNotification.onSeriesDelete,
-            onEpisodeFileDelete: newNotification.onEpisodeFileDelete,
-            onEpisodeFileDeleteForUpgrade: newNotification.onEpisodeFileDeleteForUpgrade,
-            onMovieDelete: newNotification.onMovieDelete,
-            onMovieFileDelete: newNotification.onMovieFileDelete,
-            onMovieFileDeleteForUpgrade: newNotification.onMovieFileDeleteForUpgrade,
-            implementation: newNotification.implementation,
-            configContract: newNotification.configContract,
-            fields: loggedFields,
-            tags: newNotification.tags
-        )
-
-        if let encoded = try? JSONEncoder().encode(logNotification),
-           let jsonString = String(data: encoded, encoding: .utf8) {
+        if let encoded = try? JSONEncoder().encode(newNotification),
+           var jsonString = String(data: encoded, encoding: .utf8) {
+            jsonString = jsonString.replacingOccurrences(of: deviceToken, with: "[REDACTED]")
             print("--- Trawl Notification Payload (Redacted) ---")
             print(jsonString)
             print("---------------------------------------------")
@@ -618,25 +601,33 @@ final class ArrServiceManager {
         }
     }
 
-    private func normalizedNotificationWorkerURL(from rawValue: String) -> String {
+    private func normalizedNotificationWorkerURL(from rawValue: String) throws -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let candidate = trimmed.isEmpty ? NotificationConstants.defaultWorkerURL : trimmed
 
-        if let components = URLComponents(string: candidate),
-           let scheme = components.scheme,
-           !scheme.isEmpty,
-           let host = components.host,
-           !host.isEmpty {
-            return candidate
+        func isAllowedScheme(_ components: URLComponents) -> Bool {
+            guard let scheme = components.scheme?.lowercased() else { return false }
+            switch scheme {
+            case "https":
+                return true
+            case "http":
+                let host = components.host?.lowercased()
+                return host == "localhost" || host == "127.0.0.1"
+            default:
+                return false
+            }
         }
 
         let withHTTPS = candidate.hasPrefix("//") ? "https:\(candidate)" : "https://\(candidate)"
-        if let components = URLComponents(string: withHTTPS),
-           let host = components.host,
-           !host.isEmpty {
-            return withHTTPS
+        let normalizedCandidate = (URLComponents(string: candidate)?.scheme?.isEmpty == false) ? candidate : withHTTPS
+
+        guard let components = URLComponents(string: normalizedCandidate),
+              let host = components.host,
+              !host.isEmpty,
+              isAllowedScheme(components) else {
+            throw ArrError.invalidURL
         }
 
-        return NotificationConstants.defaultWorkerURL
+        return normalizedCandidate
     }
 }

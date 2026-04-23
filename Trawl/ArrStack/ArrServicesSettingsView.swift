@@ -26,7 +26,7 @@ struct ArrServiceSettingsView: View {
     @State private var isViewActive = false
     
     #if os(iOS)
-    @AppStorage("APNSDeviceToken") private var apnsToken: String?
+    @State private var deviceToken: String?
     #endif
 
     private var profile: ArrServiceProfile? {
@@ -173,13 +173,13 @@ struct ArrServiceSettingsView: View {
                             }
                         }
                         #if os(iOS)
-                        .disabled(isSettingUpNotifications || apnsToken == nil)
+                        .disabled(isSettingUpNotifications || deviceToken == nil)
                         #else
                         .disabled(true)
                         #endif
                         
                         #if os(iOS)
-                        if apnsToken == nil {
+                        if deviceToken == nil {
                             Text("Enable notifications in Trawl settings first.")
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -188,13 +188,13 @@ struct ArrServiceSettingsView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                         }
+                        #endif
 
                         if let notificationSetupMessage {
                             Label(notificationSetupMessage, systemImage: "checkmark.circle.fill")
                                 .font(.caption2)
                                 .foregroundStyle(.green)
                         }
-                        #endif
                     }
                 }
 
@@ -358,7 +358,17 @@ struct ArrServiceSettingsView: View {
             await loadSystemStatus()
             await loadDiskSpace()
             await loadUpdates()
+            #if os(iOS)
+            deviceToken = await NotificationService.shared.deviceToken
+            #endif
         }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+            }
+        }
+        #endif
     }
 
     private func loadDiskSpace() async {

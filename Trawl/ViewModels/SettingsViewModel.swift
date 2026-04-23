@@ -26,7 +26,7 @@ final class SettingsViewModel {
 
     init() {
         tokenObserver = NotificationCenter.default.addObserver(
-            forName: NSNotification.Name("TrawlAPNSTokenReceived"),
+            forName: NotificationConstants.apnsTokenReceivedNotification,
             object: nil,
             queue: .main
         ) { [weak self] notification in

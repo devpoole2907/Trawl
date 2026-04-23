@@ -555,6 +555,7 @@ enum ArrError: LocalizedError, Sendable {
     case serverError(statusCode: Int, message: String?)
     case noServiceConfigured
     case connectionFailed
+    case unsupportedNotificationsService(String)
 
     var errorDescription: String? {
         switch self {
@@ -574,6 +575,8 @@ enum ArrError: LocalizedError, Sendable {
             "No service configured."
         case .connectionFailed:
             "Could not connect. Check the URL and ensure the service is running."
+        case .unsupportedNotificationsService(let service):
+            "\(service) does not support one-tap notification setup."
         }
     }
 }
@@ -587,8 +590,16 @@ func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: Str
     let normalizedExistingRoot = existingRoot.replacingOccurrences(of: "\\", with: "/")
     let normalizedNewRoot = newRoot.replacingOccurrences(of: "\\", with: "/")
 
+    if normalizedExisting.isEmpty {
+        return ""
+    }
+
     let suffix: String
-    if normalizedExisting.lowercased().hasPrefix(normalizedExistingRoot.lowercased()) {
+    if normalizedExistingRoot.isEmpty {
+        suffix = normalizedExisting
+    } else if normalizedExisting.compare(normalizedExistingRoot, options: [.caseInsensitive, .anchored]) == .orderedSame,
+              (normalizedExisting.count == normalizedExistingRoot.count ||
+               normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
         suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
     } else {
         suffix = normalizedExisting
@@ -599,12 +610,20 @@ func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: Str
     while resultRoot.hasSuffix("/") { resultRoot.removeLast() }
 
     // Join
-    var finalPath = resultRoot + (suffix.hasPrefix("/") ? suffix : "/" + suffix)
-    
-    // Restore Windows separators if the original path used them
-    if existingPath.contains("\\") {
-        finalPath = finalPath.replacingOccurrences(of: "/", with: "\\")
+    let trimmedSuffix = suffix.hasPrefix("/") ? String(suffix.dropFirst()) : suffix
+    let finalPath: String
+    if resultRoot.isEmpty {
+        finalPath = suffix
+    } else if trimmedSuffix.isEmpty {
+        finalPath = resultRoot
+    } else {
+        finalPath = resultRoot + "/" + trimmedSuffix
     }
     
-    return finalPath
+    // Restore separators based on the new root style.
+    if newRoot.contains("\\") {
+        return finalPath.replacingOccurrences(of: "/", with: "\\")
+    }
+
+    return finalPath.replacingOccurrences(of: "\\", with: "/")
 }
