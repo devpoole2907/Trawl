@@ -407,7 +407,10 @@ final class RadarrViewModel {
 
     @discardableResult
     func searchMovie(movieId: Int) async -> Bool {
-        guard let client else { return false }
+        guard let client else {
+            self.error = ArrServiceError.clientNotAvailable.errorDescription
+            return false
+        }
         error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])

@@ -241,8 +241,9 @@ private struct CalendarMonthLoadError: LocalizedError {
 }
 
 extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
-    init() {
+    init(showsCloseButton: Bool = false) {
         self.init(
+            showsCloseButton: showsCloseButton,
             seriesNavigationValue: { $0 },
             movieNavigationValue: { Int64($0) }
         )
@@ -252,14 +253,18 @@ extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
 struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(\.dismiss) private var dismiss
     
+    let showsCloseButton: Bool
     let seriesNavigationValue: (Int) -> SeriesDest
     let movieNavigationValue: (Int) -> MovieDest
 
     init(
+        showsCloseButton: Bool = false,
         seriesNavigationValue: @escaping (Int) -> SeriesDest,
         movieNavigationValue: @escaping (Int) -> MovieDest
     ) {
+        self.showsCloseButton = showsCloseButton
         self.seriesNavigationValue = seriesNavigationValue
         self.movieNavigationValue = movieNavigationValue
     }
@@ -341,6 +346,15 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         .navigationTitle("Calendar")
         .navigationSubtitle(navigationSubtitleText)
         .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Today") {
                     scrollToToday()

@@ -142,20 +142,27 @@ final class ArrServiceManager {
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
 
-        // Check if the existing webhook already points at the right URL with the right token.
+        // Check if the existing webhook already matches the full expected config.
         // If so, skip the write to avoid unnecessary API churn.
         if let existing {
             let urlMatches: Bool = {
                 guard case .string(let u) = existing.fields.first(where: { $0.name == "url" })?.value else { return false }
                 return u == pushURL
             }()
+            let methodMatches: Bool = {
+                guard case .number(let m) = existing.fields.first(where: { $0.name == "method" })?.value else { return false }
+                return m == 1
+            }()
             let tokenMatches: Bool = {
                 guard case .array(let headers) = existing.fields.first(where: { $0.name == "headers" })?.value,
+                      headers.count == 1,
                       case .object(let header) = headers.first,
+                      case .string(let k) = header["Key"],
                       case .string(let t) = header["Value"] else { return false }
-                return t == deviceToken
+                return k == "X-Trawl-Token" && t == deviceToken
             }()
-            if urlMatches && tokenMatches {
+            let triggersMatch = existing.onGrab && existing.onDownload
+            if urlMatches && methodMatches && tokenMatches && triggersMatch {
                 return // Already up to date — no API write needed
             }
         }

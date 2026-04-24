@@ -101,7 +101,8 @@ struct SonarrAddSeriesSheet: View {
                             Text("• **All** — every episode, past and future")
                             Text("• **Future** — only episodes that haven't aired yet")
                             Text("• **Missing** — existing episodes without files")
-                            Text("• **First / Latest Season** — only that season")
+                            Text("• **First Season** — only the first season")
+                            Text("• **Latest Season** — only the most recent season")
                             Text("• **None** — nothing is monitored automatically")
                             Text("**Search for Missing** triggers an immediate search for any monitored episodes that don't have a file yet.")
                         }

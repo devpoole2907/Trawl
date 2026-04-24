@@ -136,7 +136,7 @@ struct TorrentListView: View {
                 }
             }
             .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredTorrents)
+            .animation(.default, value: vm.filteredTorrents.map(\.id))
             .listStyle(.plain)
             .onChange(of: vm.selectedFilter) {
                 withAnimation { editMode = .inactive }

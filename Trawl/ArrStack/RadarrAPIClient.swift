@@ -176,7 +176,7 @@ actor RadarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/manualimport", queryItems: params)
     }
 
-    /// Perform a manual import of specific files
+    /// Perform a manual import of specific files, waiting for the command to complete.
     func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
         let additionalParams: [String: Any] = [
             "files": files.map { $0.rawValue },

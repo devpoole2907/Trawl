@@ -180,6 +180,14 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.post("/api/v3/command", jsonBody: params)
     }
 
+    func searchSeries(seriesId: Int) async throws -> ArrCommand {
+        let params: [String: Any] = [
+            "name": SonarrCommand.seriesSearch.rawValue,
+            "seriesId": seriesId
+        ]
+        return try await base.post("/api/v3/command", jsonBody: params)
+    }
+
     func searchAllMissing() async throws -> ArrCommand {
         try await base.postCommand(name: SonarrCommand.missingEpisodeSearch.rawValue)
     }

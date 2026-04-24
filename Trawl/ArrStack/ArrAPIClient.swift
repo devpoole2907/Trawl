@@ -231,8 +231,14 @@ actor ArrAPIClient {
         while ContinuousClock.now < deadline {
             try await Task.sleep(for: .seconds(1))
             try Task.checkCancellation()
-            let updated = try await getCommand(id: commandId)
-            if updated.isTerminal { return updated }
+            do {
+                let updated = try await getCommand(id: commandId)
+                if updated.isTerminal { return updated }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                // Transient network error — continue polling until deadline
+            }
         }
         // Timed out — return last known state
         return (try? await getCommand(id: commandId)) ?? command

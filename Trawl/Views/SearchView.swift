@@ -8,7 +8,7 @@ struct SearchView: View {
 
     @State private var searchText = ""
     @State private var isSearchPresented = false
-    @State private var scope: SearchScope = .library
+    @State private var scope: SearchScope = .arr
     @State private var filter: ResultKind = .all
     @State private var showClearConfirmation = false
     @State private var actionErrorAlert: ErrorAlertItem?
@@ -60,8 +60,8 @@ struct SearchView: View {
 
                 if isSearchPresented && searchText.isEmpty {
                     Picker("Scope", selection: $scope) { 
-                        Text("Library").tag(SearchScope.library)
                         Text("Discover").tag(SearchScope.arr)
+                        Text("Library").tag(SearchScope.library)
                     }
                     .pickerStyle(.segmented)
                     .glassEffect(.regular.interactive(), in: Capsule())

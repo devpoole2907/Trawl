@@ -1722,8 +1722,10 @@ struct RadarrMovieSearchView: View {
                 let didStart = await viewModel.searchMovie(movieId: movie.id)
                 isDispatchingAutomaticSearch = false
 
-                if !didStart, let error = viewModel.error, !error.isEmpty {
-                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                if !didStart {
+                    withAnimation(.snappy) { automaticSearchFeedback = nil }
+                    let message = viewModel.error ?? "Could not start search."
+                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
                 } else {
                     InAppNotificationCenter.shared.showSuccess(
                         title: "Search Queued",

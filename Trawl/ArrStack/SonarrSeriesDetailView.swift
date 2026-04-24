@@ -37,6 +37,8 @@ struct SonarrSeriesDetailView: View {
     @State private var didAdd = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: PendingQueueAction?
+    @State private var isDispatchingSeriesSearch = false
+    @State private var showSeriesInteractiveSearchSheet = false
 
     /// Library init — series lives in the ViewModel's loaded library.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -144,6 +146,11 @@ struct SonarrSeriesDetailView: View {
                 SonarrEditSeriesSheet(viewModel: viewModel, series: series)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
+            }
+        }
+        .sheet(isPresented: $showSeriesInteractiveSearchSheet) {
+            if let series {
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
             }
         }
         .sheet(isPresented: manualImportPresented) {
@@ -377,6 +384,7 @@ struct SonarrSeriesDetailView: View {
 
         if isInLibrary {
             statsCard(series)
+            seriesSearchCard(series)
         }
 
         if !activeQueueItems.isEmpty {
@@ -453,6 +461,87 @@ struct SonarrSeriesDetailView: View {
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Search card
+
+    private func seriesSearchCard(_ series: SonarrSeries) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                guard !isDispatchingSeriesSearch else { return }
+                let seriesId = series.id
+                isDispatchingSeriesSearch = true
+                Task {
+                    let didStart = await viewModel.searchSeries(seriesId: seriesId)
+                    isDispatchingSeriesSearch = false
+                    if !didStart, let error = viewModel.error, !error.isEmpty {
+                        InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                    }
+                }
+            } label: {
+                seriesSearchButtonLabel(
+                    title: "Automatic",
+                    subtitle: "Search all monitored",
+                    systemImage: "magnifyingglass",
+                    isLoading: isDispatchingSeriesSearch
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isDispatchingSeriesSearch)
+
+            Button {
+                showSeriesInteractiveSearchSheet = true
+            } label: {
+                seriesSearchButtonLabel(
+                    title: "Interactive",
+                    subtitle: "Pick a release",
+                    systemImage: "person.fill",
+                    trailingSystemImage: "arrow.up.forward.square"
+                )
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func seriesSearchButtonLabel(
+        title: String,
+        subtitle: String,
+        systemImage: String,
+        isLoading: Bool = false,
+        trailingSystemImage: String = "arrow.right"
+    ) -> some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.headline)
+                .foregroundStyle(.purple)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.white)
+
+                Text(subtitle)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer()
+
+            if isLoading {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.white)
+            } else {
+                Image(systemName: trailingSystemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .contentShape(Rectangle())
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var cardDivider: some View {
@@ -2155,24 +2244,28 @@ struct SonarrSeasonSearchView: View {
         Button {
             guard !isDispatchingAutomaticSearch, let seriesId = series?.id else { return }
             isDispatchingAutomaticSearch = true
+            // Set feedback immediately so the info card replaces this button before the Task runs,
+            // ensuring the interactive search button is never visually affected by a loading state.
+            withAnimation(.snappy) {
+                automaticSearchFeedback = AutomaticSearchFeedback(
+                    kind: .searching,
+                    message: "Sonarr is searching indexers for monitored episodes in \(title)."
+                )
+            }
             Task {
                 let episodeIDs = Set(sortedEpisodes.map(\.id))
                 let baselineQueueIDs = Set(viewModel.queue.filter { item in
                     guard let episodeId = item.episodeId else { return false }
                     return episodeIDs.contains(episodeId)
                 }.map(\.id))
-                withAnimation(.snappy) {
-                    automaticSearchFeedback = AutomaticSearchFeedback(
-                        kind: .searching,
-                        message: "Sonarr is searching indexers for monitored episodes in \(title)."
-                    )
-                }
 
                 let didStart = await viewModel.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
                 isDispatchingAutomaticSearch = false
 
-                if !didStart, let error = viewModel.error, !error.isEmpty {
-                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                if !didStart {
+                    withAnimation(.snappy) { automaticSearchFeedback = nil }
+                    let message = viewModel.error ?? "Could not start search."
+                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
                 } else {
                     InAppNotificationCenter.shared.showSuccess(
                         title: "Search Queued",

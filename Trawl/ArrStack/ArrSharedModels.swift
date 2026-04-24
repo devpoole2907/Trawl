@@ -402,7 +402,7 @@ nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
     let exception: String?      // error message when status == "failed"
 
     var isTerminal: Bool {
-        status == "completed" || status == "failed"
+        status == "completed" || status == "failed" || status == "aborted" || status == "cancelled" || status == "orphaned"
     }
     var succeeded: Bool { status == "completed" }
 }

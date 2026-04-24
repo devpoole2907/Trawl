@@ -1,5 +1,6 @@
 import SwiftUI
 import SwiftData
+import OSLog
 
 // MARK: - Location Browser
 
@@ -252,6 +253,8 @@ struct AddImportLocationSheet: View {
 @Observable
 @MainActor
 private final class ManualImportScanViewModel {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrManualImportView")
+
     let path: String
     let service: ArrServiceType
     let serviceManager: ArrServiceManager
@@ -373,17 +376,18 @@ private final class ManualImportScanViewModel {
 
             let fileMeta = importableFiles.filter { importedIDs.contains($0.id) }
                 .map { "\($0.fileName) mediaID:\($0.mediaID?.description ?? "nil")" }
-            print("[ManualImport] Sending \(count) \(fileWord) to \(service.displayName): \(fileMeta)")
+            Self.logger.info("Sending \(count) \(fileWord) to \(self.service.displayName, privacy: .public): \(fileMeta, privacy: .private)")
 
             // Optimistically remove from list while command runs
             withAnimation(.snappy) {
                 importableFiles.removeAll { importedIDs.contains($0.id) }
             }
             selectedFiles = []
+            selectedBlockedFiles = []
 
             // Wait for the command to actually complete (polls up to 30s)
             let command = try await manualImport(files: filesToImport)
-            print("[ManualImport] Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil") exception:\(command.exception ?? "none")")
+            Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
             if command.succeeded {
                 // Items were already optimistically removed. Don't reload — rescanning the folder
@@ -398,16 +402,16 @@ private final class ManualImportScanViewModel {
                 return true
             } else {
                 let reason = manualImportFailureMessage(for: command)
-                print("[ManualImport] Command failed — \(reason)")
+                Self.logger.error("Command failed — \(reason, privacy: .private)")
                 InAppNotificationCenter.shared.showError(title: "Import Failed", message: reason)
                 await loadFiles()
                 return false
             }
         } catch is CancellationError {
-            print("[ManualImport] Task cancelled")
+            Self.logger.info("Task cancelled")
             return false
         } catch {
-            print("[ManualImport] Threw error — \(error)")
+            Self.logger.error("Threw error — \(error, privacy: .private)")
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             await loadFiles()
             return false
@@ -575,9 +579,7 @@ private final class ManualImportScanViewModel {
                 tags: nil
             )
             let added = try await client.addMovie(body)
-            let posterURL = added.images?.first(where: { $0.coverType == "poster" })
-                .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
-            applyIdentification(to: blockedItem, mediaID: added.id, title: added.title, posterURL: posterURL)
+            applyIdentification(to: blockedItem, mediaID: added.id, title: added.title, posterURL: posterURL(from: added.images))
             if importAfterAdding {
                 await performImport()
             }
@@ -599,7 +601,7 @@ private final class ManualImportScanViewModel {
         defer { isAddingToLibrary = false }
         do {
             let seasons = (series.seasons ?? []).map {
-                SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: false)
+                SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: importAfterAdding)
             }
             let body = SonarrAddSeriesBody(
                 tvdbId: tvdbId,
@@ -614,16 +616,14 @@ private final class ManualImportScanViewModel {
                 seasonFolder: true,
                 seriesType: "standard",
                 addOptions: SonarrAddOptions(
-                    monitor: "none",
-                    searchForMissingEpisodes: false,
+                    monitor: importAfterAdding ? "all" : "none",
+                    searchForMissingEpisodes: importAfterAdding,
                     searchForCutoffUnmetEpisodes: false
                 ),
                 tags: nil
             )
             let added = try await client.addSeries(body)
-            let posterURL = added.images?.first(where: { $0.coverType == "poster" })
-                .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
-            applyIdentification(to: blockedItem, mediaID: added.id, title: added.title, posterURL: posterURL)
+            applyIdentification(to: blockedItem, mediaID: added.id, title: added.title, posterURL: posterURL(from: added.images))
             if importAfterAdding {
                 await performImport()
             }
@@ -643,6 +643,12 @@ private struct ManualImportServiceClientUnavailableError: LocalizedError {
     }
 }
 
+private func posterURL(from images: [ArrImage]?) -> URL? {
+    images?.first(where: { $0.coverType == "poster" })
+        .flatMap { $0.remoteUrl ?? $0.url }
+        .flatMap { URL(string: $0) }
+}
+
 private func extractTitleFromFilename(_ filename: String) -> String {
     // Strip file extension
     var name = filename
@@ -652,8 +658,15 @@ private func extractTitleFromFilename(_ filename: String) -> String {
         if knownExts.contains(ext) { name = String(name[..<dot.lowerBound]) }
     }
 
-    // Split on dots, spaces, underscores
-    let tokens = name.components(separatedBy: CharacterSet(charactersIn: ". _"))
+    // Strip bracketed metadata groups, e.g. [BluRay-1080p], (2022)
+    if let bracketRegex = try? NSRegularExpression(pattern: "\\[.*?\\]|\\(.*?\\)") {
+        let range = NSRange(name.startIndex..., in: name)
+        name = bracketRegex.stringByReplacingMatches(in: name, range: range, withTemplate: " ")
+    }
+
+    // Split on dots, spaces, underscores, hyphens, and bracket characters
+    let tokens = name.components(separatedBy: CharacterSet(charactersIn: ". _-[]()"))
+
 
     let stopTokens: Set<String> = [
         "1080p", "720p", "480p", "2160p", "4k", "uhd",
@@ -669,13 +682,18 @@ private func extractTitleFromFilename(_ filename: String) -> String {
     for token in tokens {
         guard !token.isEmpty else { continue }
         let lower = token.lowercased()
-        // Stop at year
-        if token.count == 4, let year = Int(token), (1900...2099).contains(year) { break }
         // Stop at SxxExx
         if token.range(of: #"^[Ss]\d{1,2}"#, options: .regularExpression) != nil { break }
         // Stop at known quality/codec token
         if stopTokens.contains(lower) { break }
         titleTokens.append(token)
+    }
+
+    while let last = titleTokens.last,
+          last.count == 4,
+          let year = Int(last),
+          (1900...2099).contains(year) {
+        titleTokens.removeLast()
     }
 
     return titleTokens.joined(separator: " ").trimmingCharacters(in: .whitespaces)
@@ -1315,7 +1333,7 @@ private struct ManualImportBlockedSelectionSheet: View {
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(readyItems.isEmpty ? "Import Ready" : "Import \(readyItems.count)") {
+                    Button(viewModel.selectedFiles.isEmpty ? "Identify to Continue" : "Import \(readyItems.count)") {
                         dismiss()
                         Task {
                             await viewModel.performImport()
@@ -1451,8 +1469,7 @@ private struct ManualImportIdentifySheet: View {
             if !suggestions.isEmpty {
                 Section("Maybe:") {
                     ForEach(Array(suggestions)) { movie in
-                        let inLibrary = viewModel.libraryMovies.contains(where: { $0.tmdbId == movie.tmdbId })
-                        if inLibrary, let match = viewModel.libraryMovies.first(where: { $0.tmdbId == movie.tmdbId }) {
+                        if let match = viewModel.libraryMovies.first(where: { $0.tmdbId == movie.tmdbId }) {
                             libraryMovieRow(match)
                         } else {
                             catalogMovieRow(movie)
@@ -1509,8 +1526,7 @@ private struct ManualImportIdentifySheet: View {
             if !suggestions.isEmpty {
                 Section("Maybe:") {
                     ForEach(Array(suggestions)) { s in
-                        let inLibrary = viewModel.librarySeries.contains(where: { $0.tvdbId == s.tvdbId })
-                        if inLibrary, let match = viewModel.librarySeries.first(where: { $0.tvdbId == s.tvdbId }) {
+                        if let match = viewModel.librarySeries.first(where: { $0.tvdbId == s.tvdbId }) {
                             librarySeriesRow(match)
                         } else {
                             catalogSeriesRow(s)
@@ -1558,8 +1574,7 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
-        let posterURL = movie.images?.first(where: { $0.coverType == "poster" })
-            .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
+        let posterURL = posterURL(from: movie.images)
         return Button {
             viewModel.applyIdentification(to: item, mediaID: movie.id, title: movie.title, posterURL: posterURL)
             dismiss()
@@ -1571,8 +1586,7 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private func catalogMovieRow(_ movie: RadarrMovie) -> some View {
-        let posterURL = movie.images?.first(where: { $0.coverType == "poster" })
-            .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
+        let posterURL = posterURL(from: movie.images)
         return Button {
             Task {
                 let succeeded = await viewModel.addToLibraryAndIdentify(
@@ -1592,8 +1606,7 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private func librarySeriesRow(_ s: SonarrSeries) -> some View {
-        let posterURL = s.images?.first(where: { $0.coverType == "poster" })
-            .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
+        let posterURL = posterURL(from: s.images)
         return Button {
             viewModel.applyIdentification(to: item, mediaID: s.id, title: s.title, posterURL: posterURL)
             dismiss()
@@ -1605,8 +1618,7 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private func catalogSeriesRow(_ s: SonarrSeries) -> some View {
-        let posterURL = s.images?.first(where: { $0.coverType == "poster" })
-            .flatMap { $0.remoteUrl ?? $0.url }.flatMap { URL(string: $0) }
+        let posterURL = posterURL(from: s.images)
         return Button {
             Task {
                 let succeeded = await viewModel.addToLibraryAndIdentify(

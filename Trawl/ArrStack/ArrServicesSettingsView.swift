@@ -1329,12 +1329,13 @@ private extension ArrQualityProfileDraft {
 }
 
 private extension Array where Element == ArrQualityProfileItem {
-    func firstAllowedValue(for qualityID: Int) -> Bool? {
+    func firstAllowedValue(for qualityID: Int, inheritedAllowed: Bool? = nil) -> Bool? {
         for item in self {
+            let resolved = item.allowed ?? inheritedAllowed
             if item.quality?.id == qualityID {
-                return item.allowed
+                return resolved
             }
-            if let nested = item.items?.firstAllowedValue(for: qualityID) {
+            if let nested = item.items?.firstAllowedValue(for: qualityID, inheritedAllowed: resolved) {
                 return nested
             }
         }

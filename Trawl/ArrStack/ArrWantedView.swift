@@ -445,7 +445,7 @@ private struct WantedMovieRow: View {
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(1)
 
-                if let subtitle = movie.sortTitle ?? movie.originalTitle,
+                if let subtitle = movie.originalTitle,
                    subtitle != movie.title {
                     Text(subtitle)
                         .font(.caption)

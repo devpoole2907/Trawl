@@ -111,7 +111,7 @@ struct RadarrMovieListView: View {
         }
         .sheet(isPresented: $showCalendar) {
             NavigationStack {
-                ArrCalendarView()
+                ArrCalendarView(showsCloseButton: true)
                     .environment(serviceManager)
                     .environment(syncService)
             }
@@ -161,47 +161,83 @@ struct RadarrMovieListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
-                ForEach(vm.filteredMovies) { movie in
-                    NavigationLink(value: movie.id) {
-                        RadarrMovieRow(
-                            movie: movie,
-                            hasIssue: vm.queue.contains {
-                                $0.movieId == movie.id && $0.isImportIssueQueueItem
-                            }
-                        )
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            pendingDeleteMovie = movie
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await vm.toggleMovieMonitored(movie) }
-                        } label: {
-                            Label(
-                                movie.monitored == true ? "Unmonitor" : "Monitor",
-                                systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                            )
-                        }
-                        .tint(movie.monitored == true ? .orange : .blue)
+            movieList(vm: vm)
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredMovies)
+        }
+    }
 
-                        if movie.hasFile != true {
-                            Button {
-                                Task { await vm.searchMovie(movieId: movie.id) }
-                            } label: {
-                                Label("Search", systemImage: "magnifyingglass")
+    @ViewBuilder
+    private func movieList(vm: RadarrViewModel) -> some View {
+        if vm.sortOrder == .title {
+            let sections = movieTitleSections(for: vm.filteredMovies)
+            if #available(iOS 26.0, *) {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.movies) { movie in
+                                movieRow(movie, vm: vm)
                             }
-                            .tint(.purple)
+                        }
+                        .sectionIndexLabel(Text(section.indexLabel))
+                    }
+                }
+                .listSectionIndexVisibility(.visible)
+            } else {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.movies) { movie in
+                                movieRow(movie, vm: vm)
+                            }
                         }
                     }
                 }
             }
-            .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredMovies)
+        } else {
+            List {
+                ForEach(vm.filteredMovies) { movie in
+                    movieRow(movie, vm: vm)
+                }
+            }
+        }
+    }
+
+    private func movieRow(_ movie: RadarrMovie, vm: RadarrViewModel) -> some View {
+        NavigationLink(value: movie.id) {
+            RadarrMovieRow(
+                movie: movie,
+                hasIssue: vm.queue.contains {
+                    $0.movieId == movie.id && $0.isImportIssueQueueItem
+                }
+            )
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDeleteMovie = movie
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                Task { await vm.toggleMovieMonitored(movie) }
+            } label: {
+                Label(
+                    movie.monitored == true ? "Unmonitor" : "Monitor",
+                    systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                )
+            }
+            .tint(movie.monitored == true ? .orange : .blue)
+
+            if movie.hasFile != true {
+                Button {
+                    Task { await vm.searchMovie(movieId: movie.id) }
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tint(.purple)
+            }
         }
     }
 
@@ -228,7 +264,9 @@ struct RadarrMovieListView: View {
                 Menu {
                     ForEach(RadarrSortOrder.allCases) { order in
                         Button {
-                            vm.sortOrder = order
+                            withAnimation {
+                                vm.sortOrder = order
+                            }
                         } label: {
                             if vm.sortOrder == order {
                                 Label(order.rawValue, systemImage: "checkmark")
@@ -255,11 +293,11 @@ struct RadarrMovieListView: View {
                 if let vm = viewModel {
                     Divider()
                     Button("Refresh All", systemImage: "arrow.clockwise") {
-                        Task { await runRadarrCommand(vm: vm, successMessage: "Radarr is refreshing your library.") { try await vm.refreshMovies() } }
+                        Task { await runRadarrCommand(vm: vm) { try await vm.refreshMovies() } }
                     }
                     .disabled(isRunningCommand)
                     Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
-                        Task { await runRadarrCommand(vm: vm, successMessage: "Radarr is checking indexers for new releases.") { try await vm.rssSync() } }
+                        Task { await runRadarrCommand(vm: vm) { try await vm.rssSync() } }
                     }
                     .disabled(isRunningCommand)
                 }
@@ -299,11 +337,10 @@ struct RadarrMovieListView: View {
         return count == 1 ? "1 movie" : "\(count) movies"
     }
 
-    private func runRadarrCommand(vm: RadarrViewModel, successMessage: String = "Radarr is processing your request.", action: @escaping () async throws -> Void) async {
+    private func runRadarrCommand(vm: RadarrViewModel, action: @escaping () async throws -> Void) async {
         isRunningCommand = true
         do {
             try await action()
-            InAppNotificationCenter.shared.showSuccess(title: "Done", message: successMessage)
         } catch {
             InAppNotificationCenter.shared.showError(title: "Command Failed", message: error.localizedDescription)
         }
@@ -351,6 +388,37 @@ struct RadarrMovieListView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+private struct RadarrMovieTitleSection: Identifiable {
+    let title: String
+    let indexLabel: String
+    let movies: [RadarrMovie]
+
+    var id: String { indexLabel }
+}
+
+private func movieTitleSections(for movies: [RadarrMovie]) -> [RadarrMovieTitleSection] {
+    let grouped = Dictionary(grouping: movies) { movie in
+        listSectionLabel(for: movie.sortTitle ?? movie.title)
+    }
+
+    return grouped.keys.sorted().map { label in
+        RadarrMovieTitleSection(
+            title: label,
+            indexLabel: label,
+            movies: grouped[label] ?? []
+        )
+    }
+}
+
+private func listSectionLabel(for title: String) -> String {
+    guard let scalar = title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.first else {
+        return "#"
+    }
+
+    let label = String(scalar).uppercased()
+    return label.range(of: "[A-Z]", options: .regularExpression) != nil ? label : "#"
 }
 
 // MARK: - Movie Row

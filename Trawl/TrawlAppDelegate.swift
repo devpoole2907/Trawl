@@ -47,8 +47,13 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let title = content.title
         let body = content.body
         if !title.isEmpty || !body.isEmpty {
+            let style = content.userInfo["style"] as? String
             Task { @MainActor in
-                InAppNotificationCenter.shared.showSuccess(title: title, message: body)
+                if style == "error" {
+                    InAppNotificationCenter.shared.showError(title: title, message: body)
+                } else {
+                    InAppNotificationCenter.shared.showSuccess(title: title, message: body)
+                }
             }
         }
         // Still update badge and list, but suppress the system banner/sound

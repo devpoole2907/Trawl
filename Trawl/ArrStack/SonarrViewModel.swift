@@ -252,11 +252,32 @@ final class SonarrViewModel {
 
     @discardableResult
     func searchSeason(seriesId: Int, seasonNumber: Int) async -> Bool {
-        guard let client else { return false }
+        guard let client else {
+            self.error = ArrServiceError.clientNotAvailable.errorDescription
+            return false
+        }
         error = nil
         do {
             _ = try await client.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
             InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for season \(seasonNumber).")
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            return false
+        }
+    }
+
+    @discardableResult
+    func searchSeries(seriesId: Int) async -> Bool {
+        guard let client else {
+            self.error = ArrServiceError.clientNotAvailable.errorDescription
+            return false
+        }
+        error = nil
+        do {
+            _ = try await client.searchSeries(seriesId: seriesId)
+            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching all monitored episodes.")
             return true
         } catch {
             self.error = error.localizedDescription
