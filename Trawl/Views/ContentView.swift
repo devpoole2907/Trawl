@@ -124,12 +124,6 @@ struct ContentView: View {
             }
             await arrServiceManager.initialize(from: arrProfiles)
         }
-        .onChange(of: servers.count) { _, _ in
-            syncWelcomeFlowState()
-        }
-        .onChange(of: arrProfiles.count) { _, _ in
-            syncWelcomeFlowState()
-        }
         .onChange(of: activeServerID) { _, newValue in
             appServices?.syncService.stopPolling()
             if newValue == nil {
@@ -278,7 +272,7 @@ struct ContentView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 10) {
-                Button("Done") {
+                Button("Go") {
                     if hasConfiguredAnyService {
                         isInWelcomeFlow = false
                     }
@@ -557,7 +551,7 @@ struct ContentView: View {
     }
 
     private var shouldShowWelcomeScreen: Bool {
-        isInWelcomeFlow && !hasConfiguredAnyService
+        isInWelcomeFlow
     }
 
     private var isShowingSSHSession: Bool {
@@ -566,12 +560,6 @@ struct ContentView: View {
 
     private var isAccessoryVisible: Bool {
         sshSessionStore.hasSession && !isShowingSSHSession
-    }
-
-    private func syncWelcomeFlowState() {
-        if hasConfiguredAnyService {
-            isInWelcomeFlow = false
-        }
     }
 
     private func initializeServices() {

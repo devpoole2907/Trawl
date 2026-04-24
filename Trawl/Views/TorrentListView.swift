@@ -21,31 +21,7 @@ struct TorrentListView: View {
     }
 
     var body: some View {
-        Group {
-            if let vm = viewModel {
-                torrentList(vm: vm)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .navigationTitle(activeServerName)
-        .navigationSubtitle(navigationSubtitleText)
-        .toolbarTitleMenu {
-            if !editMode.isEditing, servers.count > 1 {
-                ForEach(servers) { server in
-                    Button {
-                        switchToServer(server)
-                    } label: {
-                        if server.isActive {
-                            Label(server.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(server.displayName)
-                        }
-                    }
-                }
-            }
-        }
+        configuredContent
         #if os(iOS)
         .toolbarTitleDisplayMode(.inline)
         #endif
@@ -345,6 +321,42 @@ struct TorrentListView: View {
         servers.first(where: { $0.isActive })?.displayName
             ?? servers.first?.displayName
             ?? title
+    }
+
+    @ViewBuilder
+    private var configuredContent: some View {
+        let baseContent = Group {
+            if let vm = viewModel {
+                torrentList(vm: vm)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .navigationTitle(activeServerName)
+        .navigationSubtitle(navigationSubtitleText)
+
+        if shouldShowServerSwitcher {
+            baseContent.toolbarTitleMenu {
+                ForEach(servers) { server in
+                    Button {
+                        switchToServer(server)
+                    } label: {
+                        if server.isActive {
+                            Label(server.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(server.displayName)
+                        }
+                    }
+                }
+            }
+        } else {
+            baseContent
+        }
+    }
+
+    private var shouldShowServerSwitcher: Bool {
+        !editMode.isEditing && servers.count > 1
     }
 
     private func switchToServer(_ server: ServerProfile) {
