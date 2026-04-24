@@ -562,6 +562,7 @@ enum ArrError: LocalizedError, Sendable {
     case noServiceConfigured
     case connectionFailed
     case unsupportedNotificationsService(String)
+    case commandTimeout(commandId: Int?, lastKnownCommand: ArrCommand?)
 
     var errorDescription: String? {
         switch self {
@@ -583,6 +584,12 @@ enum ArrError: LocalizedError, Sendable {
             "Could not connect. Check the URL and ensure the service is running."
         case .unsupportedNotificationsService(let service):
             "\(service) does not support one-tap notification setup."
+        case .commandTimeout(let commandId, let lastKnownCommand):
+            if let cmd = lastKnownCommand, let status = cmd.status {
+                "Command \(commandId ?? -1) timed out with status '\(status)'."
+            } else {
+                "Command \(commandId ?? -1) did not finish within the timeout period."
+            }
         }
     }
 }
@@ -598,6 +605,13 @@ func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: Str
 
     if normalizedExisting.isEmpty {
         return ""
+    }
+
+    // Guard against path traversal in the server-supplied existingPath.
+    // Reject the rebase if any component is ".." or "." to prevent directory escapes.
+    let existingPathComponents = normalizedExisting.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    guard !existingPathComponents.contains(".."), !existingPathComponents.contains(".") else {
+        return existingPath // Return the original path unchanged rather than producing a traversed result
     }
 
     let suffix: String

@@ -128,6 +128,24 @@ struct SonarrSeriesListView: View {
                     .environment(syncService)
             }
         }
+        .onChange(of: serviceManager.sonarrConnected) { _, isConnected in
+            if !isConnected {
+                viewModel = nil
+                viewModelInstanceID = nil
+            } else {
+                // Connection restored — recreate VM if we don't have one
+                if viewModel == nil {
+                    viewModel = SonarrViewModel(serviceManager: serviceManager)
+                    viewModelInstanceID = serviceManager.activeSonarrInstanceID
+                    Task {
+                        guard let vm = viewModel else { return }
+                        async let loadSeries = vm.loadSeries()
+                        async let loadQueue = vm.loadQueue()
+                        _ = await (loadSeries, loadQueue)
+                    }
+                }
+            }
+        }
         .task(id: serviceManager.activeSonarrInstanceID) {
             guard serviceManager.sonarrConnected else {
                 viewModel = nil

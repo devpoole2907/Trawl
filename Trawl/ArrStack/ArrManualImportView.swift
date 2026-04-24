@@ -389,6 +389,16 @@ private final class ManualImportScanViewModel {
             let command = try await manualImport(files: filesToImport)
             Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
+            // Check if command is still in progress (non-terminal)
+            if !command.isTerminal {
+                Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Import In Progress",
+                    message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running."
+                )
+                return false
+            }
+
             if command.succeeded {
                 // Items were already optimistically removed. Don't reload — rescanning the folder
                 // will find the file again (hardlinks/copies leave the source in place) and undo

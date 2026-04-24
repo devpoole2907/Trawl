@@ -223,6 +223,7 @@ actor ArrAPIClient {
     }
 
     /// Posts a command and polls until it reaches a terminal state (completed/failed) or the timeout elapses.
+    /// Throws ArrError.commandTimeout if the command does not reach a terminal state within the timeout period.
     func postCommandAndWait(name: String, additionalParams: [String: Any]? = nil, timeout: Duration = .seconds(30)) async throws -> ArrCommand {
         let command = try await postCommand(name: name, additionalParams: additionalParams)
         guard let commandId = command.id else { return command }
@@ -240,8 +241,12 @@ actor ArrAPIClient {
                 // Transient network error — continue polling until deadline
             }
         }
-        // Timed out — return last known state
-        return (try? await getCommand(id: commandId)) ?? command
+        // Timed out — fetch final state and throw if non-terminal
+        let finalCommand = (try? await getCommand(id: commandId)) ?? command
+        if !finalCommand.isTerminal {
+            throw ArrError.commandTimeout(commandId: commandId, lastKnownCommand: finalCommand)
+        }
+        return finalCommand
     }
 
     func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {

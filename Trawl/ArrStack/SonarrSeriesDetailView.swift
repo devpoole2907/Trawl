@@ -1329,7 +1329,8 @@ private struct SonarrAddToLibrarySheet: View {
                                 .lineLimit(2)
                             HStack(spacing: 4) {
                                 if let network = series.network { Text(network) }
-                                if let year = series.year { Text("· " + String(year)) }
+                                if series.network != nil && series.year != nil { Text("·") }
+                                if let year = series.year { Text(String(year)) }
                             }
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
