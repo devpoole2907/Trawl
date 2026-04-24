@@ -10,8 +10,9 @@ final class InAppNotificationCenter {
     static let shared = InAppNotificationCenter()
 
     private(set) var currentBanner: InAppBannerItem?
+    private(set) var currentBannerAction: (() -> Void)?
 
-    private var queuedBanners: [InAppBannerItem] = []
+    private var queuedBanners: [(InAppBannerItem, (() -> Void)?)] = []
     private var dismissTask: Task<Void, Never>?
 
     #if os(iOS)
@@ -26,7 +27,7 @@ final class InAppNotificationCenter {
         showSuccess(title: "Download Complete", message: trimmedName)
     }
 
-    func showSuccess(title: String, message: String) {
+    func showSuccess(title: String, message: String, actionLabel: String? = nil, action: (() -> Void)? = nil) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
@@ -40,8 +41,10 @@ final class InAppNotificationCenter {
                 title: trimmedTitle,
                 message: trimmedMessage,
                 systemImage: "checkmark.circle.fill",
-                style: .success
-            )
+                style: .success,
+                actionLabel: actionLabel
+            ),
+            action: action
         )
     }
 
@@ -59,8 +62,10 @@ final class InAppNotificationCenter {
                 title: trimmedTitle,
                 message: trimmedMessage,
                 systemImage: "exclamationmark.triangle.fill",
-                style: .error
-            )
+                style: .error,
+                actionLabel: nil
+            ),
+            action: nil
         )
     }
 
@@ -86,6 +91,7 @@ final class InAppNotificationCenter {
         dismissTask?.cancel()
         dismissTask = nil
         currentBanner = nil
+        currentBannerAction = nil
 
         // Brief delay before showing next banner to allow for dismissal animation
         Task {
@@ -95,9 +101,15 @@ final class InAppNotificationCenter {
         }
     }
 
-    private func enqueue(_ banner: InAppBannerItem) {
-        queuedBanners.append(banner)
-        
+    func fireCurrentBannerAction() {
+        let action = currentBannerAction
+        dismissCurrentBanner()
+        action?()
+    }
+
+    private func enqueue(_ banner: InAppBannerItem, action: (() -> Void)?) {
+        queuedBanners.append((banner, action))
+
         if currentBanner == nil {
             showNext()
         }
@@ -105,12 +117,13 @@ final class InAppNotificationCenter {
 
     private func showNext() {
         guard currentBanner == nil, !queuedBanners.isEmpty else { return }
-        let nextBanner = queuedBanners.removeFirst()
-        present(nextBanner)
+        let (nextBanner, action) = queuedBanners.removeFirst()
+        present(nextBanner, action: action)
     }
 
-    private func present(_ banner: InAppBannerItem) {
+    private func present(_ banner: InAppBannerItem, action: (() -> Void)?) {
         currentBanner = banner
+        currentBannerAction = action
         dismissTask?.cancel()
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3.5))
@@ -131,4 +144,5 @@ struct InAppBannerItem: Identifiable, Equatable, Sendable {
     let message: String
     let systemImage: String
     let style: InAppBannerStyle
+    let actionLabel: String?
 }

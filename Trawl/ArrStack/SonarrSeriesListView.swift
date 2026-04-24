@@ -13,6 +13,7 @@ struct SonarrSeriesListView: View {
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteSeries: SonarrSeries?
+    @State private var isRunningCommand = false
 
     var body: some View {
         Group {
@@ -237,8 +238,28 @@ struct SonarrSeriesListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
-            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                showWantedMissing = true
+
+            Menu {
+                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                    showWantedMissing = true
+                }
+                if let vm = viewModel {
+                    Divider()
+                    Button("Refresh All", systemImage: "arrow.clockwise") {
+                        Task { await runSonarrCommand(vm: vm, successMessage: "Sonarr is refreshing your library.") { try await vm.refreshSeries() } }
+                    }
+                    .disabled(isRunningCommand)
+                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                        Task { await runSonarrCommand(vm: vm, successMessage: "Sonarr is checking indexers for new releases.") { try await vm.rssSync() } }
+                    }
+                    .disabled(isRunningCommand)
+                }
+            } label: {
+                if isRunningCommand {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
 
             if serviceManager.sonarrInstances.count > 1 {
@@ -267,6 +288,17 @@ struct SonarrSeriesListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredSeries.count
         return count == 1 ? "1 series" : "\(count) series"
+    }
+
+    private func runSonarrCommand(vm: SonarrViewModel, successMessage: String = "Sonarr is processing your request.", action: @escaping () async throws -> Void) async {
+        isRunningCommand = true
+        do {
+            try await action()
+            InAppNotificationCenter.shared.showSuccess(title: "Done", message: successMessage)
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Command Failed", message: error.localizedDescription)
+        }
+        isRunningCommand = false
     }
 
     private func filterIcon(for filter: SonarrFilter) -> String {

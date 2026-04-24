@@ -13,6 +13,7 @@ struct RadarrMovieListView: View {
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteMovie: RadarrMovie?
+    @State private var isRunningCommand = false
 
     var body: some View {
         Group {
@@ -246,8 +247,28 @@ struct RadarrMovieListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
-            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                showWantedMissing = true
+
+            Menu {
+                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                    showWantedMissing = true
+                }
+                if let vm = viewModel {
+                    Divider()
+                    Button("Refresh All", systemImage: "arrow.clockwise") {
+                        Task { await runRadarrCommand(vm: vm, successMessage: "Radarr is refreshing your library.") { try await vm.refreshMovies() } }
+                    }
+                    .disabled(isRunningCommand)
+                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                        Task { await runRadarrCommand(vm: vm, successMessage: "Radarr is checking indexers for new releases.") { try await vm.rssSync() } }
+                    }
+                    .disabled(isRunningCommand)
+                }
+            } label: {
+                if isRunningCommand {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
 
             if serviceManager.radarrInstances.count > 1 {
@@ -276,6 +297,17 @@ struct RadarrMovieListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredMovies.count
         return count == 1 ? "1 movie" : "\(count) movies"
+    }
+
+    private func runRadarrCommand(vm: RadarrViewModel, successMessage: String = "Radarr is processing your request.", action: @escaping () async throws -> Void) async {
+        isRunningCommand = true
+        do {
+            try await action()
+            InAppNotificationCenter.shared.showSuccess(title: "Done", message: successMessage)
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Command Failed", message: error.localizedDescription)
+        }
+        isRunningCommand = false
     }
 
     private func filterIcon(for filter: RadarrFilter) -> String {
@@ -344,9 +376,6 @@ struct RadarrMovieRow: View {
 
                 HStack(spacing: 6) {
                     if let year = movie.year { Text(String(year)).font(.caption2) }
-                    if let studio = movie.studio, !studio.isEmpty {
-                        Text("• \(studio)").font(.caption2)
-                    }
                     if let runtime = movie.runtime, runtime > 0 {
                         Text("• \(runtime)m").font(.caption2)
                     }

@@ -42,7 +42,17 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     // Handle foreground notifications
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound, .badge])
+        // Absorb system banners when foregrounded — show via in-app banner instead
+        let content = notification.request.content
+        let title = content.title
+        let body = content.body
+        if !title.isEmpty || !body.isEmpty {
+            Task { @MainActor in
+                InAppNotificationCenter.shared.showSuccess(title: title, message: body)
+            }
+        }
+        // Still update badge and list, but suppress the system banner/sound
+        completionHandler([.list, .badge])
     }
 }
 #endif

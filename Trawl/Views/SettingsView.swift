@@ -594,6 +594,14 @@ private struct MagnetLinkSettingsRow: View {
 
 // MARK: - Destinations
 
+private struct NavigateToSeriesTabKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+private struct NavigateToMoviesTabKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 private struct NavigateToQbittorrentSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -611,6 +619,16 @@ private struct NavigateToProwlarrSettingsKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var navigateToSeriesTab: () -> Void {
+        get { self[NavigateToSeriesTabKey.self] }
+        set { self[NavigateToSeriesTabKey.self] = newValue }
+    }
+
+    var navigateToMoviesTab: () -> Void {
+        get { self[NavigateToMoviesTabKey.self] }
+        set { self[NavigateToMoviesTabKey.self] = newValue }
+    }
+
     var navigateToQbittorrentSettings: () -> Void {
         get { self[NavigateToQbittorrentSettingsKey.self] }
         set { self[NavigateToQbittorrentSettingsKey.self] = newValue }

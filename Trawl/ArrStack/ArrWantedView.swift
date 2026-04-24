@@ -359,21 +359,33 @@ private struct WantedEpisodeRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "tv")
-                .foregroundStyle(.purple)
-                .frame(width: 20)
+            ArrArtworkView(url: episode.series?.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    Image(systemName: "tv")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.purple)
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(episode.series?.title ?? "Unknown Series")
                     .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
 
-                Text(episode.episodeIdentifier)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                if let title = episode.title, !title.isEmpty {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
-                Text(formatDate(episode.airDate))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    wantedStatusChip(episode.episodeIdentifier, color: .purple)
+                    wantedStatusChip(formatDate(episode.airDate), color: .secondary)
+                }
             }
 
             Spacer()
@@ -391,9 +403,11 @@ private struct WantedEpisodeRow: View {
                     }
                 }
                 .labelStyle(.iconOnly)
+                .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func formatDate(_ value: String?) -> String {
@@ -415,20 +429,36 @@ private struct WantedMovieRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: "film")
-                .foregroundStyle(.orange)
-                .frame(width: 20)
+            ArrArtworkView(url: movie.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    Image(systemName: "film")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.orange)
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 3) {
                 Text(movie.title)
                     .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                if let subtitle = movie.sortTitle ?? movie.originalTitle,
+                   subtitle != movie.title {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
                 HStack(spacing: 6) {
-                    if let year = movie.year { Text(String(year)) }
-                    Text(movie.displayStatus)
+                    if let year = movie.year {
+                        wantedStatusChip(String(year), color: .secondary)
+                    }
+                    wantedStatusChip(movie.displayStatus, color: .orange)
                 }
-                .font(.caption)
-                .foregroundStyle(.secondary)
             }
 
             Spacer()
@@ -444,8 +474,19 @@ private struct WantedMovieRow: View {
                     }
                 }
                 .labelStyle(.iconOnly)
+                .contentShape(Rectangle())
             }
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
+}
+
+private func wantedStatusChip(_ text: String, color: Color) -> some View {
+    Text(text)
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.14), in: Capsule())
 }

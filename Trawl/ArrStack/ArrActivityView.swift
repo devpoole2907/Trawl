@@ -8,6 +8,8 @@ struct ArrActivityView: View {
     @State private var radarrQueue: [ArrQueueItem] = []
     @State private var isLoading = false
     @State private var selectedItem: ActivityItem?
+    @State private var manualImportPath: String?
+    @State private var manualImportService: ArrServiceType = .sonarr
 
     private var allItems: [ActivityItem] {
         let sonarr = serviceFilter != .radarr ? sonarrQueue.map { ActivityItem(item: $0, source: .sonarr) } : []
@@ -43,9 +45,26 @@ struct ArrActivityView: View {
             ActivityModePicker(mode: $mode)
         }
         .sheet(item: $selectedItem) { activity in
-            QueueDetailSheet(item: activity)
-                .presentationDetents([.medium])
-                .presentationDragIndicator(.visible)
+            QueueDetailSheet(item: activity) { path, service in
+                selectedItem = nil
+                manualImportService = service
+                manualImportPath = path
+            }
+            .presentationDetents([.medium])
+            .presentationDragIndicator(.visible)
+        }
+        .sheet(isPresented: manualImportSheetPresented) {
+            if let path = manualImportPath {
+                NavigationStack {
+                    ManualImportScanView(
+                        path: path,
+                        service: manualImportService,
+                        serviceManager: serviceManager,
+                        showsCloseButton: true
+                    )
+                    .environment(serviceManager)
+                }
+            }
         }
     }
 
@@ -97,7 +116,19 @@ struct ArrActivityView: View {
                         Button(role: .destructive) {
                             Task { await removeItem(activityItem) }
                         } label: {
-                            Label("Unblock", systemImage: "arrow.uturn.backward")
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                        if let path = activityItem.item.outputPath,
+                           activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                            Button {
+                                manualImportService = activityItem.source
+                                manualImportPath = path
+                            } label: {
+                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                            }
+                            .tint(.blue)
                         }
                     }
                 }
@@ -126,6 +157,13 @@ struct ArrActivityView: View {
 
     private var activityReloadKey: String {
         "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+    }
+
+    private var manualImportSheetPresented: Binding<Bool> {
+        Binding(
+            get: { manualImportPath != nil },
+            set: { if !$0 { manualImportPath = nil } }
+        )
     }
 
     private func loadQueues() async {
@@ -401,6 +439,7 @@ private struct QueueItemRow: View {
 
 private struct QueueDetailSheet: View {
     let item: ActivityItem
+    let onManualImport: (String, ArrServiceType) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -472,6 +511,19 @@ private struct QueueDetailSheet: View {
                             .foregroundStyle(.orange)
                     }
                 }
+            }
+
+            // Manual Import action
+            if let path = item.item.outputPath,
+               item.item.trackedDownloadStatus == "warning" || item.item.trackedDownloadStatus == "error" {
+                Button {
+                    onManualImport(path, item.source)
+                } label: {
+                    Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.blue)
             }
 
             Spacer()

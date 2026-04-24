@@ -46,6 +46,12 @@ struct ContentView: View {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
                     inAppNotificationCenter.dismissCurrentBanner()
+                } onTap: {
+                    if inAppNotificationCenter.currentBannerAction != nil {
+                        inAppNotificationCenter.fireCurrentBannerAction()
+                    } else {
+                        inAppNotificationCenter.dismissCurrentBanner()
+                    }
                 }
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -393,6 +399,12 @@ struct ContentView: View {
                     }
                 )
                     .environment(arrServiceManager)
+                    .environment(\.navigateToSeriesTab) {
+                        selectedTab = .series
+                    }
+                    .environment(\.navigateToMoviesTab) {
+                        selectedTab = .movies
+                    }
                     .environment(\.navigateToQbittorrentSettings) {
                         morePath.append(.qbittorrentSettings)
                     }
@@ -673,27 +685,37 @@ struct ContentView: View {
 private struct InAppNotificationBanner: View {
     let item: InAppBannerItem
     let onDismiss: () -> Void
-    
+    let onTap: () -> Void
+
     @State private var dragOffset: CGFloat = 0
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(item.style == .error ? .red : .green)
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: item.systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(item.style == .error ? .red : .green)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(item.message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(item.message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                if item.actionLabel != nil {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
-
-            Spacer(minLength: 0)
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .glassEffect(.regular.tint((item.style == .error ? Color.red : Color.green).opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))

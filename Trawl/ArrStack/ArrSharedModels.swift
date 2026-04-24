@@ -399,6 +399,12 @@ nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
     let stateChangeTime: String?
     let lastExecutionTime: String?
     let trigger: String?
+    let exception: String?      // error message when status == "failed"
+
+    var isTerminal: Bool {
+        status == "completed" || status == "failed"
+    }
+    var succeeded: Bool { status == "completed" }
 }
 
 // MARK: - Blocklist

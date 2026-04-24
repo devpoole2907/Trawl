@@ -102,16 +102,23 @@ struct RadarrMovieDetailView: View {
         #endif
         .toolbar { toolbarContent }
         .alert("Delete Movie?", isPresented: $showDeleteAlert) {
-            Toggle("Also delete files", isOn: $deleteFiles)
-            Button("Delete", role: .destructive) {
+            Button("Delete & Remove Files", role: .destructive) {
                 if let id = resolvedLibraryId {
+                    deleteFiles = true
+                    Task { await handleDeleteMovie(id: id) }
+                }
+            }
+            Button("Remove from Radarr Only", role: .destructive) {
+                if let id = resolvedLibraryId {
+                    deleteFiles = false
                     Task { await handleDeleteMovie(id: id) }
                 }
             }
             Button("Cancel", role: .cancel) {
-                deleteFiles = false
                 showDeleteAlert = false
             }
+        } message: {
+            Text("Remove from Radarr, or also delete the files from disk?")
         }
         .alert("Delete File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {

@@ -218,6 +218,26 @@ actor ArrAPIClient {
         try await get("/api/v3/update")
     }
 
+    func getCommand(id: Int) async throws -> ArrCommand {
+        return try await get("/api/v3/command/\(id)")
+    }
+
+    /// Posts a command and polls until it reaches a terminal state (completed/failed) or the timeout elapses.
+    func postCommandAndWait(name: String, additionalParams: [String: Any]? = nil, timeout: Duration = .seconds(30)) async throws -> ArrCommand {
+        let command = try await postCommand(name: name, additionalParams: additionalParams)
+        guard let commandId = command.id else { return command }
+
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .seconds(1))
+            try Task.checkCancellation()
+            let updated = try await getCommand(id: commandId)
+            if updated.isTerminal { return updated }
+        }
+        // Timed out — return last known state
+        return (try? await getCommand(id: commandId)) ?? command
+    }
+
     func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
         var body: [String: Any] = ["name": name]
         if let params = additionalParams {
