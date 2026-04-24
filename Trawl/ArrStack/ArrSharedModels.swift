@@ -36,25 +36,25 @@ struct ArrHealthCheck: Codable, Identifiable, Sendable {
 
 // MARK: - Quality Profile
 
-struct ArrQualityProfile: Codable, Identifiable, Sendable {
-    let id: Int
-    let name: String
-    let upgradeAllowed: Bool?
-    let cutoff: Int?
-    let items: [ArrQualityProfileItem]?
+nonisolated struct ArrQualityProfile: Codable, Identifiable, Sendable {
+    var id: Int
+    var name: String
+    var upgradeAllowed: Bool?
+    var cutoff: Int?
+    var items: [ArrQualityProfileItem]?
 }
 
-struct ArrQualityProfileItem: Codable, Sendable {
-    let quality: ArrQuality?
-    let allowed: Bool?
-    let items: [ArrQualityProfileItem]?
+nonisolated struct ArrQualityProfileItem: Codable, Sendable {
+    var quality: ArrQuality?
+    var allowed: Bool?
+    var items: [ArrQualityProfileItem]?
 }
 
-struct ArrQuality: Codable, Sendable {
-    let id: Int?
-    let name: String?
-    let source: String?
-    let resolution: Int?
+nonisolated struct ArrQuality: Codable, Sendable {
+    var id: Int?
+    var name: String?
+    var source: String?
+    var resolution: Int?
 }
 
 // MARK: - Root Folder
@@ -597,12 +597,19 @@ func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: Str
     let suffix: String
     if normalizedExistingRoot.isEmpty {
         suffix = normalizedExisting
-    } else if normalizedExisting.compare(normalizedExistingRoot, options: [.caseInsensitive, .anchored]) == .orderedSame,
+    } else if normalizedExisting.compare(normalizedExistingRoot, options: [.anchored]) == .orderedSame,
               (normalizedExisting.count == normalizedExistingRoot.count ||
                normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
         suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
     } else {
         suffix = normalizedExisting
+    }
+
+    // Guard against path traversal in the server-supplied newRoot.
+    // Reject the rebase if any component is ".." or "." to prevent directory escapes.
+    let newRootComponents = normalizedNewRoot.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+    guard !newRootComponents.contains(".."), !newRootComponents.contains(".") else {
+        return existingPath // Return the original path unchanged rather than producing a traversed result
     }
 
     // Trim only trailing separators from newRoot, not leading

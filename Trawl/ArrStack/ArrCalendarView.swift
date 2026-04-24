@@ -337,7 +337,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                 calendarContent
             }
         }
-        .background(backgroundGradient)
+        .moreDestinationBackground(.calendar)
         .navigationTitle("Calendar")
         .navigationSubtitle(navigationSubtitleText)
         .toolbar {
@@ -470,24 +470,6 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             scrollView.scrollTo(today, anchor: .center)
         }
     }
-
-    private var backgroundGradient: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.blue.opacity(0.16), Color.clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            RadialGradient(
-                colors: [Color.blue.opacity(0.12), Color.clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 260
-            )
-        }
-        .ignoresSafeArea()
-    }
-
     @ViewBuilder
     private func calendarEventLink(for event: CalendarEvent) -> some View {
         switch event {

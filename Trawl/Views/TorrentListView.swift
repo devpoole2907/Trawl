@@ -13,6 +13,7 @@ struct TorrentListView: View {
     @State private var showBatchDeleteConfirm = false
     @State private var batchDeleteFiles = false
     @State private var editMode: EditMode = .inactive
+    @State private var listScrollPosition: String?
     private let title: String
 
     init(title: String = "Trawl") {
@@ -113,8 +114,9 @@ struct TorrentListView: View {
             }
         }
         .onDisappear {
+            // Stop the active sync but keep the viewModel alive so scroll position is preserved
+            // when the user returns to this tab.
             viewModel?.stopSync()
-            viewModel = nil
         }
     }
 
@@ -133,6 +135,8 @@ struct TorrentListView: View {
                     row(for: torrent, vm: vm)
                 }
             }
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredTorrents)
             .listStyle(.plain)
             .onChange(of: vm.selectedFilter) {
                 withAnimation { editMode = .inactive }

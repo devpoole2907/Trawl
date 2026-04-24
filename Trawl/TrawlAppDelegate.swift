@@ -15,7 +15,11 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
         Task {
             let previousToken = try? await KeychainHelper.shared.read(key: NotificationConstants.apnsTokenKey)
-            try? await KeychainHelper.shared.save(key: NotificationConstants.apnsTokenKey, value: tokenString)
+            do {
+                try await KeychainHelper.shared.save(key: NotificationConstants.apnsTokenKey, value: tokenString)
+            } catch {
+                self.logger.error("Failed to persist APNs device token to keychain: \(error.localizedDescription, privacy: .public)")
+            }
 
             if previousToken == tokenString {
                 self.logger.debug("Remote notification token unchanged.")

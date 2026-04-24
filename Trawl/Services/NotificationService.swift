@@ -56,7 +56,15 @@ final class NotificationService: Sendable {
     /// Fetches the current APNs device token from secure storage.
     var deviceToken: String? {
         get async {
-            try? await KeychainHelper.shared.read(key: NotificationConstants.apnsTokenKey)
+            do {
+                return try await KeychainHelper.shared.read(key: NotificationConstants.apnsTokenKey)
+            } catch {
+                // A real keychain error (e.g. access-group mismatch after re-install) is
+                // indistinguishable from "no token" if we use try?, causing silent re-registration
+                // failures. Log it so it's diagnosable.
+                logger.error("Failed to read APNs device token from keychain: \(error.localizedDescription, privacy: .public)")
+                return nil
+            }
         }
     }
 

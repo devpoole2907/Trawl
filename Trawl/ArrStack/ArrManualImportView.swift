@@ -51,6 +51,7 @@ struct ArrManualImportView: View {
             }
         }
         .navigationTitle("Manual Import")
+        .moreDestinationBackground(.manualImport)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -132,6 +133,7 @@ struct ArrManualImportView: View {
             }
         }
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedService)
         .sheet(isPresented: $showAddLocation) {
             AddImportLocationSheet(service: selectedService) { path in
@@ -394,9 +396,17 @@ private func isWindowsDrivePath(_ path: String) -> Bool {
 struct ManualImportScanView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ManualImportScanViewModel
+    let showsCloseButton: Bool
 
-    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil) {
+    init(
+        path: String,
+        service: ArrServiceType,
+        serviceManager: ArrServiceManager,
+        libraryItemID: Int? = nil,
+        showsCloseButton: Bool = false
+    ) {
         _viewModel = State(wrappedValue: ManualImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID))
+        self.showsCloseButton = showsCloseButton
     }
 
     var body: some View {
@@ -460,9 +470,11 @@ struct ManualImportScanView: View {
             await viewModel.loadFiles()
         }
         .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Close") {
-                    dismiss()
+            if showsCloseButton {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") {
+                        dismiss()
+                    }
                 }
             }
 

@@ -405,16 +405,19 @@ final class RadarrViewModel {
 
     // MARK: - Search for existing
 
-    func searchMovie(movieId: Int) async {
-        guard let client else { return }
+    @discardableResult
+    func searchMovie(movieId: Int) async -> Bool {
+        guard let client else { return false }
         error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])
             InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for movie.")
             error = nil
+            return true
         } catch {
             self.error = error.localizedDescription
             InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            return false
         }
     }
 

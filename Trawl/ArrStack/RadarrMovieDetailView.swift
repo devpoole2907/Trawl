@@ -160,7 +160,8 @@ struct RadarrMovieDetailView: View {
                     path: manualImportPath,
                     service: .radarr,
                     serviceManager: serviceManager,
-                    libraryItemID: resolvedLibraryId
+                    libraryItemID: resolvedLibraryId,
+                    showsCloseButton: true
                 )
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
@@ -1554,11 +1555,48 @@ private enum RadarrDiscoverMonitorOption: String, CaseIterable, Identifiable {
 }
 
 struct RadarrMovieSearchView: View {
+    private struct AutomaticSearchFeedback: Equatable {
+        enum Kind {
+            case searching
+            case found
+            case noResults
+        }
+
+        let kind: Kind
+        let message: String
+
+        var title: String {
+            switch kind {
+            case .searching: "Searching"
+            case .found: "Result Found"
+            case .noResults: "No Results Seen"
+            }
+        }
+
+        var icon: String {
+            switch kind {
+            case .searching: "magnifyingglass.circle.fill"
+            case .found: "checkmark.circle.fill"
+            case .noResults: "exclamationmark.circle.fill"
+            }
+        }
+
+        var tint: Color {
+            switch kind {
+            case .searching: .blue
+            case .found: .green
+            case .noResults: .orange
+            }
+        }
+    }
+
     @Bindable var viewModel: RadarrViewModel
     let movie: RadarrMovie
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
+    @State private var automaticSearchFeedback: AutomaticSearchFeedback?
+    @State private var automaticSearchMonitorTask: Task<Void, Never>?
 
     private var queueItem: ArrQueueItem? {
         viewModel.queue.first { $0.movieId == movie.id }
@@ -1570,7 +1608,7 @@ struct RadarrMovieSearchView: View {
                 movieSearchHero
 
                 VStack(spacing: 14) {
-                    automaticSearchButton
+                    automaticSearchSection
                     interactiveSearchButton
                 }
 
@@ -1627,6 +1665,9 @@ struct RadarrMovieSearchView: View {
         .sheet(isPresented: $showInteractiveSearchSheet) {
             RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
         }
+        .onDisappear {
+            automaticSearchMonitorTask?.cancel()
+        }
     }
 
     private var movieSearchHero: some View {
@@ -1663,16 +1704,56 @@ struct RadarrMovieSearchView: View {
             guard !isDispatchingAutomaticSearch else { return }
             isDispatchingAutomaticSearch = true
             Task {
-                await viewModel.searchMovie(movieId: movie.id)
+                let baselineQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
+                withAnimation(.snappy) {
+                    automaticSearchFeedback = AutomaticSearchFeedback(
+                        kind: .searching,
+                        message: "Radarr is searching indexers for \(movie.title)."
+                    )
+                }
+
+                let didStart = await viewModel.searchMovie(movieId: movie.id)
                 isDispatchingAutomaticSearch = false
 
-                if let error = viewModel.error, !error.isEmpty {
+                if !didStart, let error = viewModel.error, !error.isEmpty {
                     InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
                 } else {
                     InAppNotificationCenter.shared.showSuccess(
                         title: "Search Queued",
                         message: "\(movie.title) was sent to Radarr for automatic search."
                     )
+
+                    automaticSearchMonitorTask?.cancel()
+                    automaticSearchMonitorTask = Task {
+                        for _ in 0..<6 {
+                            try? await Task.sleep(for: .seconds(3))
+                            guard !Task.isCancelled else { return }
+                            await viewModel.loadQueue()
+
+                            let currentQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
+                            if !currentQueueIDs.subtracting(baselineQueueIDs).isEmpty {
+                                await MainActor.run {
+                                    withAnimation(.snappy) {
+                                        automaticSearchFeedback = AutomaticSearchFeedback(
+                                            kind: .found,
+                                            message: "A result was queued in Radarr. Check the queue or import status for progress."
+                                        )
+                                    }
+                                }
+                                return
+                            }
+                        }
+
+                        guard !Task.isCancelled else { return }
+                        await MainActor.run {
+                            withAnimation(.snappy) {
+                                automaticSearchFeedback = AutomaticSearchFeedback(
+                                    kind: .noResults,
+                                    message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually."
+                                )
+                            }
+                        }
+                    }
                 }
             }
         } label: {
@@ -1684,6 +1765,20 @@ struct RadarrMovieSearchView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var automaticSearchSection: some View {
+        if let automaticSearchFeedback {
+            movieSearchInfoCard(title: automaticSearchFeedback.title, icon: automaticSearchFeedback.icon) {
+                Text(automaticSearchFeedback.message)
+                    .font(.subheadline)
+                    .foregroundStyle(automaticSearchFeedback.tint)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else {
+            automaticSearchButton
+        }
     }
 
     private var interactiveSearchButton: some View {

@@ -35,7 +35,7 @@ struct QBittorrentCategoriesAndTagsView: View {
             #endif
             .scrollContentBackground(.hidden)
         }
-        .background(backgroundGradient)
+        .moreDestinationBackground(.categoriesAndTags)
         .navigationTitle(selectedTab == 0 ? "Categories" : "Tags")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -154,7 +154,7 @@ struct QBittorrentCategoriesAndTagsView: View {
 
         HStack(spacing: 12) {
             Image(systemName: "tag.fill")
-                .foregroundStyle(.blue)
+                .foregroundStyle(MoreDestinationAccent.categoriesAndTags.color)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -206,7 +206,7 @@ struct QBittorrentCategoriesAndTagsView: View {
     private func tagRow(name: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: "number")
-                .foregroundStyle(.blue)
+                .foregroundStyle(MoreDestinationAccent.categoriesAndTags.color)
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -327,23 +327,5 @@ struct QBittorrentCategoriesAndTagsView: View {
             get: { tagPendingDeletion != nil },
             set: { if !$0 { tagPendingDeletion = nil } }
         )
-    }
-
-    private var backgroundGradient: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.blue.opacity(0.18), Color.clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-
-            RadialGradient(
-                colors: [Color.blue.opacity(0.14), Color.clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 240
-            )
-        }
-        .ignoresSafeArea()
     }
 }

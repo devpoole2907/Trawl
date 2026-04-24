@@ -4,7 +4,6 @@ import OSLog
 protocol SharedArrClient: Actor {
     var base: ArrAPIClient { get }
 }
-
 nonisolated enum JSONValue: Codable, Sendable {
     case string(String)
     case number(Double)
@@ -60,6 +59,9 @@ extension SharedArrClient {
     func getSystemStatus() async throws -> ArrSystemStatus { try await base.getSystemStatus() }
     func getHealth() async throws -> [ArrHealthCheck] { try await base.getHealth() }
     func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.getQualityProfiles() }
+    func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.createQualityProfile(profile) }
+    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.updateQualityProfile(profile) }
+    func deleteQualityProfile(id: Int) async throws { try await base.deleteQualityProfile(id: id) }
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
     func getTags() async throws -> [ArrTag] { try await base.getTags() }
     func getNotifications() async throws -> [ArrNotification] { try await base.getNotifications() }
@@ -136,6 +138,18 @@ actor ArrAPIClient {
 
     func getQualityProfiles() async throws -> [ArrQualityProfile] {
         try await get("/api/v3/qualityprofile")
+    }
+
+    func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile {
+        try await postCodable("/api/v3/qualityprofile", body: profile)
+    }
+
+    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile {
+        try await putCodable("/api/v3/qualityprofile/\(profile.id)", body: profile)
+    }
+
+    func deleteQualityProfile(id: Int) async throws {
+        try await delete("/api/v3/qualityprofile/\(id)")
     }
 
     func getRootFolders() async throws -> [ArrRootFolder] {
@@ -339,12 +353,7 @@ actor ArrAPIClient {
             let body = String(data: data, encoding: .utf8) ?? "No body"
             Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(http.statusCode)")
             
-            #if DEBUG
-            print("--- Arr Request Failure (\(http.statusCode)) ---")
-            print("Path: \(path)")
-            print("Body: \(body)")
-            print("---------------------------------------")
-            #endif
+            Self.logger.debug("Arr request failure body for \(path, privacy: .public): \(body, privacy: .private)")
             
             logReleaseDiagnostics(
                 message: "HTTP error \(http.statusCode)",
@@ -390,3 +399,4 @@ actor ArrAPIClient {
         return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
     }
 }
+

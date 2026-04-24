@@ -12,6 +12,7 @@ struct RadarrEditMovieSheet: View {
     @State private var selectedTags: Set<Int>
     @State private var moveFiles: Bool
     @State private var isSaving = false
+    @State private var qualityProfileForDetails: ArrQualityProfile?
 
     private var rootFolderOptions: [String] {
         let availablePaths = viewModel.rootFolders.map(\.path)
@@ -60,6 +61,14 @@ struct RadarrEditMovieSheet: View {
                         }
                     }
 
+                    if let selectedQualityProfile {
+                        Button {
+                            qualityProfileForDetails = selectedQualityProfile
+                        } label: {
+                            Label("View Selected Profile Details", systemImage: "info.circle")
+                        }
+                    }
+
                     Picker("Minimum Availability", selection: $minimumAvailability) {
                         Text("Announced").tag("announced")
                         Text("In Cinemas").tag("inCinemas")
@@ -69,7 +78,9 @@ struct RadarrEditMovieSheet: View {
 
                     Picker("Root Folder", selection: $rootFolderPath) {
                         ForEach(rootFolderOptions, id: \.self) { path in
-                            Text(path).tag(path)
+                            let freeSpace = viewModel.rootFolders.first(where: { $0.path == path })?.freeSpace
+                            let freeLabel = freeSpace.map { " · " + ByteFormatter.formatRounded(bytes: $0) + " free" } ?? ""
+                            Text(path + freeLabel).tag(path)
                         }
                     }
                     
@@ -104,6 +115,11 @@ struct RadarrEditMovieSheet: View {
                 }
             }
         }
+        .sheet(item: $qualityProfileForDetails) { profile in
+            NavigationStack {
+                ArrQualityProfileDetailView(serviceType: .radarr, profile: profile)
+            }
+        }
     }
 
     private func tagBinding(for tagId: Int) -> Binding<Bool> {
@@ -117,6 +133,10 @@ struct RadarrEditMovieSheet: View {
                 }
             }
         )
+    }
+
+    private var selectedQualityProfile: ArrQualityProfile? {
+        viewModel.qualityProfiles.first { $0.id == qualityProfileId }
     }
 
     private func saveChanges() async {

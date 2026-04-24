@@ -6,6 +6,8 @@ struct SonarrSeriesListView: View {
     @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: SonarrViewModel?
+    @State private var viewModelInstanceID: UUID?
+    @State private var listScrollPosition: Int?
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
@@ -128,10 +130,17 @@ struct SonarrSeriesListView: View {
         .task(id: serviceManager.activeSonarrInstanceID) {
             guard serviceManager.sonarrConnected else {
                 viewModel = nil
+                viewModelInstanceID = nil
                 return
             }
-            let vm = SonarrViewModel(serviceManager: serviceManager)
-            viewModel = vm
+            // Only create a new VM when the active instance changes, not on every tab switch.
+            // This preserves scroll position and avoids a flash back through the loading state.
+            let activeID = serviceManager.activeSonarrInstanceID
+            if viewModel == nil || viewModelInstanceID != activeID {
+                viewModel = SonarrViewModel(serviceManager: serviceManager)
+                viewModelInstanceID = activeID
+            }
+            guard let vm = viewModel else { return }
             async let loadSeries = vm.loadSeries()
             async let loadQueue = vm.loadQueue()
             _ = await (loadSeries, loadQueue)
@@ -181,6 +190,8 @@ struct SonarrSeriesListView: View {
                     }
                 }
             }
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredSeries)
         }
     }
 

@@ -6,6 +6,8 @@ struct RadarrMovieListView: View {
     @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: RadarrViewModel?
+    @State private var viewModelInstanceID: UUID?
+    @State private var listScrollPosition: Int?
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
@@ -128,10 +130,17 @@ struct RadarrMovieListView: View {
         .task(id: serviceManager.activeRadarrInstanceID) {
             guard serviceManager.radarrConnected else {
                 viewModel = nil
+                viewModelInstanceID = nil
                 return
             }
-            let vm = RadarrViewModel(serviceManager: serviceManager)
-            viewModel = vm
+            // Only create a new VM when the active instance changes, not on every tab switch.
+            // This preserves scroll position and avoids a flash back through the loading state.
+            let activeID = serviceManager.activeRadarrInstanceID
+            if viewModel == nil || viewModelInstanceID != activeID {
+                viewModel = RadarrViewModel(serviceManager: serviceManager)
+                viewModelInstanceID = activeID
+            }
+            guard let vm = viewModel else { return }
             async let loadMovies = vm.loadMovies()
             async let loadQueue = vm.loadQueue()
             _ = await (loadMovies, loadQueue)
@@ -190,6 +199,8 @@ struct RadarrMovieListView: View {
                     }
                 }
             }
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredMovies)
         }
     }
 

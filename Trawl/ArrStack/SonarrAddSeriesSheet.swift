@@ -11,6 +11,7 @@ struct SonarrAddSeriesSheet: View {
     @State private var searchForMissing = true
     @State private var optionsExpanded = false
     @State private var isAdding = false
+    @State private var qualityProfileForDetails: ArrQualityProfile?
 
     var body: some View {
         ArrSheetShell(
@@ -68,9 +69,19 @@ struct SonarrAddSeriesSheet: View {
                                 }
                             }
 
+                            if let selectedQualityProfile {
+                                Button {
+                                    qualityProfileForDetails = selectedQualityProfile
+                                } label: {
+                                    Label("View Selected Profile Details", systemImage: "info.circle")
+                                }
+                            }
+
                             Picker("Root Folder", selection: $selectedRootFolderPath) {
                                 ForEach(viewModel.rootFolders, id: \.path) { folder in
-                                    Text(folder.path).tag(Optional(folder.path))
+                                    let freeLabel = folder.freeSpace.map { " · " + ByteFormatter.formatRounded(bytes: $0) + " free" } ?? ""
+                                    Text(folder.path + freeLabel)
+                                        .tag(Optional(folder.path))
                                 }
                             }
 
@@ -84,6 +95,17 @@ struct SonarrAddSeriesSheet: View {
                         }
                     } header: {
                         Text("Add \(selectedSeries.title)")
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("**Monitor** controls which episodes Sonarr tracks and downloads:")
+                            Text("• **All** — every episode, past and future")
+                            Text("• **Future** — only episodes that haven't aired yet")
+                            Text("• **Missing** — existing episodes without files")
+                            Text("• **First / Latest Season** — only that season")
+                            Text("• **None** — nothing is monitored automatically")
+                            Text("**Search for Missing** triggers an immediate search for any monitored episodes that don't have a file yet.")
+                        }
+                        .font(.caption)
                     }
                 }
             }
@@ -91,6 +113,11 @@ struct SonarrAddSeriesSheet: View {
             .task {
                 selectedQualityProfileId = viewModel.qualityProfiles.first?.id
                 selectedRootFolderPath = viewModel.rootFolders.first?.path
+            }
+        }
+        .sheet(item: $qualityProfileForDetails) { profile in
+            NavigationStack {
+                ArrQualityProfileDetailView(serviceType: .sonarr, profile: profile)
             }
         }
     }
@@ -101,6 +128,11 @@ struct SonarrAddSeriesSheet: View {
         selectedRootFolderPath != nil &&
         !isAdding &&
         selectedSeries.map { !isInLibrary($0) } == true
+    }
+
+    private var selectedQualityProfile: ArrQualityProfile? {
+        guard let selectedQualityProfileId else { return nil }
+        return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
     }
 
     private func performSearch() async {

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import Observation
 import SwiftData
 
@@ -16,6 +17,7 @@ final class ArrSetupViewModel {
 
     private let serviceManager: ArrServiceManager
     private var existingProfile: ArrServiceProfile?
+    private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "ArrSetupViewModel")
 
     init(serviceManager: ArrServiceManager) {
         self.serviceManager = serviceManager
@@ -111,14 +113,23 @@ final class ArrSetupViewModel {
                     profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
                     profile.apiVersion = originalApiVersion
 
-                    if let originalAPIKey {
-                        try? await KeychainHelper.shared.save(key: keychainKey, value: originalAPIKey)
-                    } else {
-                        try? await KeychainHelper.shared.delete(key: keychainKey)
+                    do {
+                        if let originalAPIKey {
+                            try await KeychainHelper.shared.save(key: keychainKey, value: originalAPIKey)
+                        } else {
+                            try await KeychainHelper.shared.delete(key: keychainKey)
+                        }
+                    } catch {
+                        // Best-effort rollback — log but don't mask the original save error.
+                        logger.error("Keychain rollback failed after SwiftData save error: \(error.localizedDescription, privacy: .public)")
                     }
                 } else {
                     modelContext.rollback()
-                    try? await KeychainHelper.shared.delete(key: keychainKey)
+                    do {
+                        try await KeychainHelper.shared.delete(key: keychainKey)
+                    } catch {
+                        logger.error("Keychain cleanup failed after SwiftData insert rollback: \(error.localizedDescription, privacy: .public)")
+                    }
                 }
                 throw error
             }

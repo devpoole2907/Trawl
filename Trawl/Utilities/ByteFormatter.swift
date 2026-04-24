@@ -12,6 +12,22 @@ enum ByteFormatter {
         byteCountFormatter.string(fromByteCount: bytes)
     }
 
+    /// Formats byte count rounded to the nearest whole unit (e.g., "234 GB").
+    /// Useful where a short label is needed and sub-unit precision isn't important.
+    static func formatRounded(bytes: Int64) -> String {
+        let tb: Int64 = 1_099_511_627_776
+        let gb: Int64 = 1_073_741_824
+        let mb: Int64 = 1_048_576
+        let kb: Int64 = 1_024
+        switch bytes {
+        case tb...:  return "\(bytes / tb) TB"
+        case gb...:  return "\(bytes / gb) GB"
+        case mb...:  return "\(bytes / mb) MB"
+        case kb...:  return "\(bytes / kb) KB"
+        default:     return "\(bytes) B"
+        }
+    }
+
     /// Formats bytes-per-second to speed string (e.g., "2.3 MB/s")
     static func formatSpeed(bytesPerSecond: Int64) -> String {
         if bytesPerSecond <= 0 { return "0 B/s" }
