@@ -406,8 +406,7 @@ private final class ManualImportScanViewModel {
                 InAppNotificationCenter.shared.showSuccess(
                     title: "Imported",
                     message: "\(count) \(fileWord) imported by \(service.displayName).",
-                    actionLabel: navAction != nil ? "View \(tabName)" : nil,
-                    action: navAction
+                    action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
                 )
                 return true
             } else {

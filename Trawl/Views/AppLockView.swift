@@ -1,7 +1,4 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 #if os(iOS)
 import LocalAuthentication
 #endif
@@ -12,16 +9,12 @@ struct AppLockView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            #if canImport(UIKit)
-            if let uiImage = UIImage(named: "AppIcon") {
-                Image(uiImage: uiImage)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: 96, height: 96)
-                    .clipShape(RoundedRectangle(cornerRadius: 22))
-                    .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
-            }
-            #endif
+            Image("AppIcon")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
 
             VStack(spacing: 8) {
                 Text("Trawl Is Locked")
@@ -54,9 +47,9 @@ struct AppLockView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
         .ignoresSafeArea()
-        .task(id: scenePhase) {
-            guard scenePhase == .active else { return }
-            await controller.authenticate()
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            Task { await controller.authenticate() }
         }
     }
 

@@ -128,7 +128,7 @@ struct AddTorrentSheet: View {
             } header: {
                 Text("Options")
             } footer: {
-                Text("Leave Save Path blank to use the server default. Recent Paths helps you quickly reuse a location. Prioritizing first and last pieces can help with early video previewing.")
+                Text("Leave Save Path blank to use the server default. Recent Paths lets you quickly reuse a location. Enabling first and last pieces first helps with early video previewing.")
             }
 
             if vm.isSubmitting {

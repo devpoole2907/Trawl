@@ -13,6 +13,9 @@ final class TorrentDetailViewModel {
     var actionErrorAlert: ErrorAlertItem?
     private(set) var isUpdatingSequentialDownload = false
     private(set) var isUpdatingFirstLastPiecePriority = false
+    // Optimistic local overrides; nil defers to live torrent state
+    private var optimisticSequentialDownload: Bool? = nil
+    private var optimisticFirstLastPiecePriority: Bool? = nil
 
     private let torrentService: TorrentService
     private let syncService: SyncService
@@ -41,11 +44,11 @@ final class TorrentDetailViewModel {
     }
 
     var isSequentialDownloadEnabled: Bool {
-        torrent?.sequentialDownload ?? false
+        optimisticSequentialDownload ?? torrent?.sequentialDownload ?? false
     }
 
     var isFirstLastPiecePriorityEnabled: Bool {
-        torrent?.firstLastPiecePriority ?? false
+        optimisticFirstLastPiecePriority ?? torrent?.firstLastPiecePriority ?? false
     }
 
     // MARK: - Data Loading
@@ -244,16 +247,27 @@ final class TorrentDetailViewModel {
         }
     }
 
+    // qBittorrent's toggle endpoints flip server state rather than setting a specific value.
+    // We apply an optimistic local change immediately, then refresh and re-check the live
+    // state before calling the toggle to avoid double-toggling if a sync beat us to it.
     func setSequentialDownload(_ enabled: Bool) async {
         guard !isUpdatingSequentialDownload else { return }
         guard isSequentialDownloadEnabled != enabled else { return }
 
         isUpdatingSequentialDownload = true
-        defer { isUpdatingSequentialDownload = false }
+        optimisticSequentialDownload = enabled
+        defer {
+            isUpdatingSequentialDownload = false
+            optimisticSequentialDownload = nil
+        }
 
         do {
-            try await torrentService.toggleSequentialDownload(hashes: [torrentHash])
             await syncService.refreshNow()
+            let liveEnabled = torrent?.sequentialDownload ?? false
+            if liveEnabled != enabled {
+                try await torrentService.toggleSequentialDownload(hashes: [torrentHash])
+                await syncService.refreshNow()
+            }
             actionErrorAlert = nil
         } catch {
             actionErrorAlert = ErrorAlertItem(
@@ -268,11 +282,19 @@ final class TorrentDetailViewModel {
         guard isFirstLastPiecePriorityEnabled != enabled else { return }
 
         isUpdatingFirstLastPiecePriority = true
-        defer { isUpdatingFirstLastPiecePriority = false }
+        optimisticFirstLastPiecePriority = enabled
+        defer {
+            isUpdatingFirstLastPiecePriority = false
+            optimisticFirstLastPiecePriority = nil
+        }
 
         do {
-            try await torrentService.toggleFirstLastPiecePriority(hashes: [torrentHash])
             await syncService.refreshNow()
+            let liveEnabled = torrent?.firstLastPiecePriority ?? false
+            if liveEnabled != enabled {
+                try await torrentService.toggleFirstLastPiecePriority(hashes: [torrentHash])
+                await syncService.refreshNow()
+            }
             actionErrorAlert = nil
         } catch {
             actionErrorAlert = ErrorAlertItem(

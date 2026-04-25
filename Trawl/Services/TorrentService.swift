@@ -203,11 +203,19 @@ final class TorrentService {
         try await apiClient.setTorrentUploadLimit(hashes: hashes, limit: max(0, limit))
     }
 
+    /// Calls the qBittorrent toggle endpoint, which flips the current server state rather than
+    /// setting a specific value. Callers must compare local state with the desired value
+    /// (e.g., `isSequentialDownloadEnabled != desired`) before invoking, and re-check live state
+    /// inside the call site to avoid double-toggling if a sync already applied the change.
     func toggleSequentialDownload(hashes: [String]) async throws {
         guard !hashes.isEmpty else { return }
         try await apiClient.toggleSequentialDownload(hashes: hashes)
     }
 
+    /// Calls the qBittorrent toggle endpoint, which flips the current server state rather than
+    /// setting a specific value. Callers must compare local state with the desired value
+    /// (e.g., `isFirstLastPiecePriorityEnabled != desired`) before invoking, and re-check live
+    /// state inside the call site to avoid double-toggling if a sync already applied the change.
     func toggleFirstLastPiecePriority(hashes: [String]) async throws {
         guard !hashes.isEmpty else { return }
         try await apiClient.toggleFirstLastPiecePriority(hashes: hashes)
