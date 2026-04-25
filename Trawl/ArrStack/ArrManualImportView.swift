@@ -389,21 +389,6 @@ private final class ManualImportScanViewModel {
             let command = try await manualImport(files: filesToImport)
             Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
-
-                let remainingItems = (importableFiles + blockedFiles)
-                    .filter { remainingImportedIDs.contains($0.id) }
-                let rejectionReasons = Array(Set(remainingItems.flatMap(\.rejectionReasons))).prefix(3)
-                let warningReasons = Array(Set(remainingItems.flatMap(\.warningMessages))).prefix(2)
-
-                var reason = "\(count) \(fileWord) were submitted, but \(remainingImportedIDs.count) still appear in the manual-import scan\(detailSuffix)."
-                if !rejectionReasons.isEmpty {
-                    reason += " Reported rejection reason(s): \(rejectionReasons.joined(separator: " | "))."
-                } else if !warningReasons.isEmpty {
-                    reason += " Reported warning(s): \(warningReasons.joined(separator: " | "))."
-                } else {
-                    reason += " \(service.displayName) did not return a specific rejection reason. Check Activity/History for detailed importer logs."
-                }
-
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
                 InAppNotificationCenter.shared.showSuccess(

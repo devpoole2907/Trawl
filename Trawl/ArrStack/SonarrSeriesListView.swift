@@ -178,7 +178,8 @@ struct SonarrSeriesListView: View {
                     continue
                 }
 
-                guard let latestViewModel = viewModel else { break }
+                guard serviceManager.sonarrConnected else { continue }
+                guard let latestViewModel = viewModel else { continue }
                 if latestViewModel !== polledViewModel {
                     polledViewModel = latestViewModel
                     knownQueueIds = Set(polledViewModel.queue.map(\.id))

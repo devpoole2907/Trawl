@@ -160,8 +160,8 @@ struct RadarrMovieListView: View {
                     continue
                 }
 
-                guard serviceManager.radarrConnected else { break }
-                guard let latestViewModel = viewModel else { break }
+                guard serviceManager.radarrConnected else { continue }
+                guard let latestViewModel = viewModel else { continue }
                 if latestViewModel !== polledViewModel {
                     polledViewModel = latestViewModel
                     knownQueueIds = Set(polledViewModel.queue.map(\.id))
