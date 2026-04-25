@@ -111,15 +111,25 @@ struct ContentView: View {
                     pendingMagnetURL = url.absoluteString
                 }
             case "trawl":
-                guard url.host?.lowercased() == "ssh-session", sshSessionStore.hasSession else { return }
-                if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                    .queryItems?
-                    .first(where: { $0.name == "profile" })?
-                    .value,
-                   sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
+                switch url.host?.lowercased() {
+                case "torrents":
+                    selectedTab = .torrents
+                case "calendar":
+                    selectedTab = .more
+                    morePath = [.calendar]
+                case "ssh-session":
+                    guard sshSessionStore.hasSession else { return }
+                    if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                        .queryItems?
+                        .first(where: { $0.name == "profile" })?
+                        .value,
+                       sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
+                        return
+                    }
+                    openSSHSession()
+                default:
                     return
                 }
-                openSSHSession()
             default:
                 return
             }
