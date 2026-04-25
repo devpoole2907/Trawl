@@ -107,26 +107,22 @@ struct CalendarProvider: TimelineProvider {
         guard !events.isEmpty else { return [] }
         let cal = Calendar.current
         let now = Date.now
-        var dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
+        let dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
+
+        // Build per-day entries
+        let perDayEntries = dayStarts.map { dayStart in
+            let remaining = events.filter { $0.date >= dayStart }
+            return CalendarEntry(date: dayStart, events: remaining)
+        }
 
         // Ensure we have an entry at or before now to avoid timeline gaps
         if dayStarts.isEmpty || dayStarts.first! > cal.startOfDay(for: now) {
             // Prepend an entry at now with future events
-            let futureEvents = events.filter { $0.date >= now }
-            return [CalendarEntry(date: now, events: futureEvents)]
-        } else if !dayStarts.contains(where: { $0 <= now }) {
-            // All entries are in the future; prepend current moment
-            let futureEvents = events.filter { $0.date >= now }
-            return [CalendarEntry(date: now, events: futureEvents)] + dayStarts.map { dayStart in
-                let remaining = events.filter { $0.date >= dayStart }
-                return CalendarEntry(date: dayStart, events: remaining)
-            }
+            let nowEntry = CalendarEntry(date: now, events: events.filter { $0.date >= now })
+            return [nowEntry] + perDayEntries
         }
 
-        return dayStarts.map { dayStart in
-            let remaining = events.filter { $0.date >= dayStart }
-            return CalendarEntry(date: dayStart, events: remaining)
-        }
+        return perDayEntries
     }
 }
 
