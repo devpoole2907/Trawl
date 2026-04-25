@@ -167,13 +167,25 @@ struct SonarrSeriesListView: View {
             _ = await (loadSeries, loadQueue)
 
             // Poll queue every 30s; when items are removed (import completed), refresh series.
-            var knownQueueIds = Set(vm.queue.map(\.id))
+            var polledViewModel = vm
+            var knownQueueIds = Set(polledViewModel.queue.map(\.id))
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(30))
-                await vm.loadQueue()
-                let currentIds = Set(vm.queue.map(\.id))
+                do {
+                    try await Task.sleep(for: .seconds(30))
+                } catch {
+                    break
+                }
+
+                guard let latestViewModel = viewModel else { break }
+                if latestViewModel !== polledViewModel {
+                    polledViewModel = latestViewModel
+                    knownQueueIds = Set(polledViewModel.queue.map(\.id))
+                }
+
+                await polledViewModel.loadQueue()
+                let currentIds = Set(polledViewModel.queue.map(\.id))
                 if !knownQueueIds.subtracting(currentIds).isEmpty {
-                    await vm.loadSeries()
+                    await polledViewModel.loadSeries()
                 }
                 knownQueueIds = currentIds
             }
