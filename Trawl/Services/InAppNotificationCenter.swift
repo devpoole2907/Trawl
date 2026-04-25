@@ -11,6 +11,7 @@ final class InAppNotificationCenter {
 
     private(set) var currentBanner: InAppBannerItem?
     private(set) var currentBannerAction: (() -> Void)?
+    var currentBannerHasAction: Bool { currentBannerAction != nil }
 
     private var queuedBanners: [(InAppBannerItem, (() -> Void)?)] = []
     private var dismissTask: Task<Void, Never>?

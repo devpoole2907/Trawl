@@ -281,6 +281,28 @@ struct TorrentDetailView: View {
                 Label("Tags", systemImage: "number")
             }
 
+            Toggle(
+                "Sequential Download",
+                isOn: Binding(
+                    get: { vm.isSequentialDownloadEnabled },
+                    set: { enabled in
+                        Task { await vm.setSequentialDownload(enabled) }
+                    }
+                )
+            )
+            .disabled(vm.isUpdatingSequentialDownload)
+
+            Toggle(
+                "First and Last Pieces First",
+                isOn: Binding(
+                    get: { vm.isFirstLastPiecePriorityEnabled },
+                    set: { enabled in
+                        Task { await vm.setFirstLastPiecePriority(enabled) }
+                    }
+                )
+            )
+            .disabled(vm.isUpdatingFirstLastPiecePriority)
+
             Divider()
 
             Menu {

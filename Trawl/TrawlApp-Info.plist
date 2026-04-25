@@ -45,6 +45,8 @@
 	<string>public.app-category.utilities</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Trawl uses Face ID to lock access to your downloads, library, and connected servers.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

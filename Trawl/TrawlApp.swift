@@ -20,6 +20,7 @@ struct TrawlApp: App {
     @State private var arrServiceManager = ArrServiceManager()
     @State private var sshSessionStore = SSHSessionStore()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
+    @State private var appLockController = AppLockController()
 
     init() {
         try? Libssh2RuntimeBootstrap.bootstrap()
@@ -89,6 +90,10 @@ struct TrawlApp: App {
                 .environment(arrServiceManager)
                 .environment(sshSessionStore)
                 .environment(inAppNotificationCenter)
+                .environment(appLockController)
+                .task {
+                    appLockController.bootstrap()
+                }
         }
         .modelContainer(modelContainer)
     }

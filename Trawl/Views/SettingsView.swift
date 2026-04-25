@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
@@ -216,6 +217,34 @@ struct SettingsView: View {
                 #endif
             }
 
+            #if os(iOS)
+            Section {
+                Toggle(securityToggleTitle, isOn: Binding(
+                    get: { appLockController.isEnabled },
+                    set: { newValue in
+                        Task {
+                            if newValue {
+                                _ = await appLockController.enable()
+                            } else {
+                                _ = await appLockController.disable()
+                            }
+                        }
+                    }
+                ))
+                .disabled(!appLockController.availability.isUsable)
+
+                if case .unavailable = appLockController.availability {
+                    Label("Set up Face ID, Touch ID, Optic ID, or a passcode in System Settings to enable.", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Label("Security", systemImage: "lock.shield")
+            } footer: {
+                Text("Lock Trawl behind \(appLockController.biometryName) when the app opens or returns from the background.")
+            }
+            #endif
+
             Section("Storage") {
                 LabeledContent("Arr Artwork Cache") {
                     Text(viewModel.artworkCacheSizeDescription)
@@ -261,6 +290,21 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private var securityToggleTitle: String {
+        switch appLockController.availability {
+        case .faceID:
+            "Require Face ID"
+        case .touchID:
+            "Require Touch ID"
+        case .opticID:
+            "Require Optic ID"
+        case .passcodeOnly:
+            "Require Passcode"
+        case .unavailable:
+            "Require App Lock"
+        }
+    }
 
     private func serviceRow(icon: String, color: Color, name: String, url: String?, isConnected: Bool, isConfigured: Bool) -> some View {
         HStack(spacing: 12) {

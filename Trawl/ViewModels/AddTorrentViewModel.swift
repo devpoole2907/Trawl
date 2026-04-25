@@ -15,6 +15,7 @@ final class AddTorrentViewModel {
     var selectedCategory: String = ""
     var startPaused: Bool = false
     var sequentialDownload: Bool = false
+    var firstLastPiecePriority: Bool = false
 
     // State
     var isSubmitting: Bool = false
@@ -87,7 +88,8 @@ final class AddTorrentViewModel {
                     savePath: path,
                     category: category,
                     paused: startPaused,
-                    sequentialDownload: sequentialDownload
+                    sequentialDownload: sequentialDownload,
+                    firstLastPiecePriority: firstLastPiecePriority
                 )
             case .file:
                 guard let fileData = torrentFileData, let fileName = torrentFileName else {
@@ -105,7 +107,8 @@ final class AddTorrentViewModel {
                     savePath: path,
                     category: category,
                     paused: startPaused,
-                    sequentialDownload: sequentialDownload
+                    sequentialDownload: sequentialDownload,
+                    firstLastPiecePriority: firstLastPiecePriority
                 )
             }
 

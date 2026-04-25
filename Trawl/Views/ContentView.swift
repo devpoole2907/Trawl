@@ -7,7 +7,9 @@ import CoreServices
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
@@ -27,6 +29,7 @@ struct ContentView: View {
     @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
+    @State private var didEvaluateWelcomeState = false
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -47,12 +50,9 @@ struct ContentView: View {
                 InAppNotificationBanner(item: banner) {
                     inAppNotificationCenter.dismissCurrentBanner()
                 } onTap: {
-                    if inAppNotificationCenter.currentBannerAction != nil {
-                        inAppNotificationCenter.fireCurrentBannerAction()
-                    } else {
-                        inAppNotificationCenter.dismissCurrentBanner()
-                    }
+                    inAppNotificationCenter.fireCurrentBannerAction()
                 }
+                .withActionAffordance(inAppNotificationCenter.currentBannerHasAction)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
@@ -85,6 +85,14 @@ struct ContentView: View {
             ArrSetupSheet(onComplete: refreshArrConfiguration)
                 .environment(arrServiceManager)
         }
+        .overlay {
+            if appLockController.isLocked {
+                AppLockView()
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: appLockController.isLocked)
         #if os(macOS)
         .alert("Handle Magnet Links?", isPresented: $showMagnetHandlerPrompt) {
             Button("Set as Default") { setAsDefaultMagnetHandler() }
@@ -116,6 +124,10 @@ struct ContentView: View {
             }
         }
         .task {
+            if !didEvaluateWelcomeState {
+                isInWelcomeFlow = !hasConfiguredAnyService
+                didEvaluateWelcomeState = true
+            }
             if !servers.isEmpty || !arrProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
@@ -133,6 +145,9 @@ struct ContentView: View {
             } else {
                 initializeServices()
             }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            appLockController.handleScenePhase(newPhase, old: oldPhase)
         }
         .onDisappear {
             appServices?.syncService.stopPolling()
@@ -208,6 +223,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .glassEffect(.regular.interactive(), in: Capsule())
         }
         .padding(32)
         .frame(maxWidth: 440)
@@ -551,7 +567,7 @@ struct ContentView: View {
     }
 
     private var shouldShowWelcomeScreen: Bool {
-        isInWelcomeFlow
+        didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
     }
 
     private var isShowingSSHSession: Bool {
@@ -674,6 +690,7 @@ private struct InAppNotificationBanner: View {
     let item: InAppBannerItem
     let onDismiss: () -> Void
     let onTap: () -> Void
+    var hasAction = false
 
     @State private var dragOffset: CGFloat = 0
 
@@ -696,7 +713,7 @@ private struct InAppNotificationBanner: View {
 
                 Spacer(minLength: 0)
 
-                if item.actionLabel != nil {
+                if hasAction {
                     Image(systemName: "chevron.right")
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.secondary)
@@ -728,6 +745,14 @@ private struct InAppNotificationBanner: View {
                     }
                 }
         )
+    }
+}
+
+private extension InAppNotificationBanner {
+    func withActionAffordance(_ hasAction: Bool) -> InAppNotificationBanner {
+        var copy = self
+        copy.hasAction = hasAction
+        return copy
     }
 }
 

@@ -14,6 +14,8 @@ struct ShareAddTorrentView: View {
     @State private var savePath: String = ""
     @State private var selectedCategory: String = ""
     @State private var startPaused: Bool = false
+    @State private var sequentialDownload: Bool = false
+    @State private var firstLastPiecePriority: Bool = false
     @State private var isSubmitting: Bool = false
     @State private var error: String?
     @State private var availableCategories: [String] = []
@@ -64,6 +66,8 @@ struct ShareAddTorrentView: View {
                     }
 
                     Toggle("Start Paused", isOn: $startPaused)
+                    Toggle("Sequential Download", isOn: $sequentialDownload)
+                    Toggle("First and Last Pieces First", isOn: $firstLastPiecePriority)
                 }
 
                 // Status
@@ -137,7 +141,8 @@ struct ShareAddTorrentView: View {
                         savePath: path,
                         category: category,
                         paused: startPaused,
-                        sequentialDownload: false
+                        sequentialDownload: sequentialDownload,
+                        firstLastPiecePriority: firstLastPiecePriority
                     )
                 } else if let fileData = torrentFileData, let fileName = torrentFileName {
                     try await apiClient.addTorrentFile(
@@ -146,7 +151,8 @@ struct ShareAddTorrentView: View {
                         savePath: path,
                         category: category,
                         paused: startPaused,
-                        sequentialDownload: false
+                        sequentialDownload: sequentialDownload,
+                        firstLastPiecePriority: firstLastPiecePriority
                     )
                 }
 

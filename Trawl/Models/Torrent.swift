@@ -25,6 +25,8 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
     var amountLeft: Int64
     var totalSize: Int64
     var comment: String?
+    var sequentialDownload: Bool
+    var firstLastPiecePriority: Bool
 
     enum CodingKeys: String, CodingKey {
         case hash, name, size, progress, dlspeed, upspeed, priority
@@ -39,6 +41,8 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
         case amountLeft = "amount_left"
         case totalSize = "total_size"
         case comment
+        case sequentialDownload = "seq_dl"
+        case firstLastPiecePriority = "f_l_piece_prio"
     }
 
     /// Creates a torrent with defaults for fields not provided in a sync delta
@@ -65,7 +69,9 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
             uploadedSession: delta.uploadedSession ?? 0,
             amountLeft: delta.amountLeft ?? 0,
             totalSize: delta.totalSize ?? 0,
-            comment: delta.comment
+            comment: delta.comment,
+            sequentialDownload: delta.sequentialDownload ?? false,
+            firstLastPiecePriority: delta.firstLastPiecePriority ?? false
         )
     }
 
@@ -93,7 +99,9 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
             uploadedSession: delta.uploadedSession ?? uploadedSession,
             amountLeft: delta.amountLeft ?? amountLeft,
             totalSize: delta.totalSize ?? totalSize,
-            comment: delta.comment ?? comment
+            comment: delta.comment ?? comment,
+            sequentialDownload: delta.sequentialDownload ?? sequentialDownload,
+            firstLastPiecePriority: delta.firstLastPiecePriority ?? firstLastPiecePriority
         )
     }
 

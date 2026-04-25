@@ -87,6 +87,12 @@ struct TorrentListView: View {
                 )
                 viewModel = vm
                 vm.startSync()
+                await vm.loadAlternativeSpeedMode()
+            }
+        }
+        .onChange(of: activeServerID) { _, _ in
+            Task {
+                await viewModel?.loadAlternativeSpeedMode()
             }
         }
         .onDisappear {
@@ -303,16 +309,38 @@ struct TorrentListView: View {
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if viewModel != nil {
-                    Button("Select") {
-                        withAnimation { editMode = .active }
-                    }
-                }
+                if let vm = viewModel {
+                    Menu {
+                        Toggle(isOn: Binding(
+                            get: { vm.isAlternativeSpeedEnabled },
+                            set: { newValue in
+                                guard newValue != vm.isAlternativeSpeedEnabled else { return }
+                                Task { await vm.toggleAlternativeSpeed() }
+                            }
+                        )) {
+                            Label("Alternative Speed Mode", systemImage: "speedometer")
+                        }
+                        .disabled(vm.isUpdatingAlternativeSpeed)
 
-                Button("Add Torrent", systemImage: "plus") {
-                    showAddSheet = true
+                        Button("Select") {
+                            withAnimation { editMode = .active }
+                        }
+                    } label: {
+                        Label("More Actions", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Torrent Actions")
+                    .accessibilityHint("Shows more torrent list actions")
+
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
+                    }
+                    .labelStyle(.iconOnly)
+                } else {
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
+                    }
+                    .labelStyle(.iconOnly)
                 }
-                .labelStyle(.iconOnly)
             }
         }
     }
@@ -357,6 +385,10 @@ struct TorrentListView: View {
 
     private var shouldShowServerSwitcher: Bool {
         !editMode.isEditing && servers.count > 1
+    }
+
+    private var activeServerID: UUID? {
+        servers.first(where: { $0.isActive })?.id ?? servers.first?.id
     }
 
     private func switchToServer(_ server: ServerProfile) {

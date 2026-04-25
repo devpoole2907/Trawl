@@ -11,6 +11,8 @@ final class TorrentDetailViewModel {
     var isLoading: Bool = false
     var error: String?
     var actionErrorAlert: ErrorAlertItem?
+    private(set) var isUpdatingSequentialDownload = false
+    private(set) var isUpdatingFirstLastPiecePriority = false
 
     private let torrentService: TorrentService
     private let syncService: SyncService
@@ -36,6 +38,14 @@ final class TorrentDetailViewModel {
             .split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
             .filter { !$0.isEmpty }
+    }
+
+    var isSequentialDownloadEnabled: Bool {
+        torrent?.sequentialDownload ?? false
+    }
+
+    var isFirstLastPiecePriorityEnabled: Bool {
+        torrent?.firstLastPiecePriority ?? false
     }
 
     // MARK: - Data Loading
@@ -229,6 +239,44 @@ final class TorrentDetailViewModel {
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Set Upload Limit",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func setSequentialDownload(_ enabled: Bool) async {
+        guard !isUpdatingSequentialDownload else { return }
+        guard isSequentialDownloadEnabled != enabled else { return }
+
+        isUpdatingSequentialDownload = true
+        defer { isUpdatingSequentialDownload = false }
+
+        do {
+            try await torrentService.toggleSequentialDownload(hashes: [torrentHash])
+            await syncService.refreshNow()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Change Sequential Download",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    func setFirstLastPiecePriority(_ enabled: Bool) async {
+        guard !isUpdatingFirstLastPiecePriority else { return }
+        guard isFirstLastPiecePriorityEnabled != enabled else { return }
+
+        isUpdatingFirstLastPiecePriority = true
+        defer { isUpdatingFirstLastPiecePriority = false }
+
+        do {
+            try await torrentService.toggleFirstLastPiecePriority(hashes: [torrentHash])
+            await syncService.refreshNow()
+            actionErrorAlert = nil
+        } catch {
+            actionErrorAlert = ErrorAlertItem(
+                title: "Couldn't Change First and Last Piece Priority",
                 message: error.localizedDescription
             )
         }
