@@ -8,6 +8,7 @@ struct RadarrMovieListView: View {
     @State private var viewModel: RadarrViewModel?
     @State private var viewModelInstanceID: UUID?
     @State private var listScrollPosition: Int?
+    @Namespace private var namespace
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
@@ -115,6 +116,7 @@ struct RadarrMovieListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -297,6 +299,7 @@ struct RadarrMovieListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
+            .matchedTransitionSource(id: "calendar", in: namespace)
 
             Menu {
                 Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {

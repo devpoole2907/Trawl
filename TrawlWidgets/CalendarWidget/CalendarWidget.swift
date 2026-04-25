@@ -113,15 +113,12 @@ struct CalendarProvider: TimelineProvider {
         let now = Date.now
         let dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
 
-        // Build per-day entries
         let perDayEntries = dayStarts.map { dayStart in
             let remaining = events.filter { $0.date >= dayStart }
             return CalendarEntry(date: dayStart, events: remaining)
         }
 
-        // Ensure we have an entry at or before now to avoid timeline gaps
         if dayStarts.isEmpty || dayStarts.first! > cal.startOfDay(for: now) {
-            // Prepend an entry at now with future events
             let nowEntry = CalendarEntry(date: now, events: events.filter { $0.date >= now })
             return [nowEntry] + perDayEntries
         }
@@ -137,6 +134,7 @@ struct CalendarWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     private var maxEvents: Int { family == .systemLarge ? 7 : 3 }
+    private var showPoster: Bool { family == .systemLarge }
 
     var body: some View {
         if entry.events.isEmpty {
@@ -162,11 +160,11 @@ struct CalendarWidgetEntryView: View {
 
     private var eventList: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Header
             HStack(spacing: 6) {
-                Image(systemName: "app.fill")
-                    .font(.system(size: 16))
+                Image(systemName: "calendar")
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.tint)
-                    .frame(width: 20, height: 20)
                 Text("Upcoming")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)
@@ -187,26 +185,32 @@ struct CalendarWidgetEntryView: View {
 
     @ViewBuilder
     private func eventRow(_ event: WidgetCalendarEvent, isLast: Bool) -> some View {
-        let destination = CalendarWidget.trawlCalendarURL
-        Link(destination: destination) {
-            HStack(spacing: family == .systemLarge ? 10 : 8) {
-                if family == .systemLarge {
+        Link(destination: CalendarWidget.trawlCalendarURL) {
+            HStack(spacing: 10) {
+                if showPoster {
                     posterThumbnail(event)
+                } else {
+                    // Type icon matching main app's artwork placeholder style
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(accentColor(for: event.accentColorName).opacity(0.12))
+                        Image(systemName: event.placeholderIcon)
+                            .font(.system(size: 10))
+                            .foregroundStyle(accentColor(for: event.accentColorName))
+                    }
+                    .frame(width: 22, height: 33)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
-                        Circle()
-                            .fill(accentColor(for: event.accentColorName))
-                            .frame(width: 6, height: 6)
                         Text(event.title)
                             .font(.caption.weight(.semibold))
                             .lineLimit(1)
                         if let badge = event.badgeLabel {
                             Text(badge)
-                                .font(.system(size: 9, weight: .medium))
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
+                                .font(.system(size: 9, weight: .bold))
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
                                 .background(accentColor(for: event.accentColorName).opacity(0.15))
                                 .foregroundStyle(accentColor(for: event.accentColorName))
                                 .clipShape(Capsule())
@@ -215,7 +219,7 @@ struct CalendarWidgetEntryView: View {
                         if event.isDownloaded {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 10))
-                                .foregroundStyle(.green.opacity(0.8))
+                                .foregroundStyle(.green)
                         }
                     }
 
@@ -264,13 +268,13 @@ struct CalendarWidgetEntryView: View {
     }
 
     private func placeholderPoster(_ event: WidgetCalendarEvent) -> some View {
-        RoundedRectangle(cornerRadius: 4)
-            .fill(accentColor(for: event.accentColorName).opacity(0.15))
-            .overlay {
-                Image(systemName: event.placeholderIcon)
-                    .font(.system(size: 12))
-                    .foregroundStyle(accentColor(for: event.accentColorName).opacity(0.6))
-            }
+        ZStack {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(accentColor(for: event.accentColorName).opacity(0.12))
+            Image(systemName: event.placeholderIcon)
+                .font(.system(size: 12))
+                .foregroundStyle(accentColor(for: event.accentColorName))
+        }
     }
 
     private func accentColor(for name: String) -> Color {

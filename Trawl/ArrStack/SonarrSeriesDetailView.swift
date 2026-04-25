@@ -135,8 +135,15 @@ struct SonarrSeriesDetailView: View {
             if let id = resolvedSeriesId {
                 await viewModel.loadEpisodes(for: id)
                 await viewModel.loadEpisodeFiles(for: id)
+                var knownQueueIds = Set(viewModel.queue.map(\.id))
                 while !Task.isCancelled {
                     await viewModel.loadQueue()
+                    let currentIds = Set(viewModel.queue.map(\.id))
+                    if !knownQueueIds.subtracting(currentIds).isEmpty {
+                        await viewModel.loadEpisodes(for: id)
+                        await viewModel.loadEpisodeFiles(for: id)
+                    }
+                    knownQueueIds = currentIds
                     try? await Task.sleep(for: .seconds(2))
                 }
             }

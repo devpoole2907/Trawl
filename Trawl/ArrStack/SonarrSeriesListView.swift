@@ -8,6 +8,7 @@ struct SonarrSeriesListView: View {
     @State private var viewModel: SonarrViewModel?
     @State private var viewModelInstanceID: UUID?
     @State private var listScrollPosition: Int?
+    @Namespace private var namespace
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
@@ -115,6 +116,7 @@ struct SonarrSeriesListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -163,6 +165,18 @@ struct SonarrSeriesListView: View {
             async let loadSeries = vm.loadSeries()
             async let loadQueue = vm.loadQueue()
             _ = await (loadSeries, loadQueue)
+
+            // Poll queue every 30s; when items are removed (import completed), refresh series.
+            var knownQueueIds = Set(vm.queue.map(\.id))
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                await vm.loadQueue()
+                let currentIds = Set(vm.queue.map(\.id))
+                if !knownQueueIds.subtracting(currentIds).isEmpty {
+                    await vm.loadSeries()
+                }
+                knownQueueIds = currentIds
+            }
         }
     }
 
@@ -294,6 +308,7 @@ struct SonarrSeriesListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
+            .matchedTransitionSource(id: "calendar", in: namespace)
 
             Menu {
                 Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
