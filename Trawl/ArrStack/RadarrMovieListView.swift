@@ -118,7 +118,7 @@ struct RadarrMovieListView: View {
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
-                ArrWantedView(initialScope: .movies)
+                ArrWantedView(initialScope: .movies, showsCloseButton: true)
                     .environment(serviceManager)
             }
         }
@@ -145,6 +145,18 @@ struct RadarrMovieListView: View {
             async let loadMovies = vm.loadMovies()
             async let loadQueue = vm.loadQueue()
             _ = await (loadMovies, loadQueue)
+
+            // Poll queue every 30s; when items are removed (import completed), refresh movies.
+            var knownQueueIds = Set(vm.queue.map(\.id))
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(30))
+                await vm.loadQueue()
+                let currentIds = Set(vm.queue.map(\.id))
+                if !knownQueueIds.subtracting(currentIds).isEmpty {
+                    await vm.loadMovies()
+                }
+                knownQueueIds = currentIds
+            }
         }
     }
 

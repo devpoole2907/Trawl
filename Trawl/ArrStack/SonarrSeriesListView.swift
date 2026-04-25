@@ -118,7 +118,7 @@ struct SonarrSeriesListView: View {
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
-                ArrWantedView(initialScope: .series)
+                ArrWantedView(initialScope: .series, showsCloseButton: true)
                     .environment(serviceManager)
             }
         }
