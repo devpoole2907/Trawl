@@ -106,7 +106,23 @@ struct CalendarProvider: TimelineProvider {
     private func buildEntries(from events: [WidgetCalendarEvent]) -> [CalendarEntry] {
         guard !events.isEmpty else { return [] }
         let cal = Calendar.current
-        let dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
+        let now = Date.now
+        var dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
+
+        // Ensure we have an entry at or before now to avoid timeline gaps
+        if dayStarts.isEmpty || dayStarts.first! > cal.startOfDay(for: now) {
+            // Prepend an entry at now with future events
+            let futureEvents = events.filter { $0.date >= now }
+            return [CalendarEntry(date: now, events: futureEvents)]
+        } else if !dayStarts.contains(where: { $0 <= now }) {
+            // All entries are in the future; prepend current moment
+            let futureEvents = events.filter { $0.date >= now }
+            return [CalendarEntry(date: now, events: futureEvents)] + dayStarts.map { dayStart in
+                let remaining = events.filter { $0.date >= dayStart }
+                return CalendarEntry(date: dayStart, events: remaining)
+            }
+        }
+
         return dayStarts.map { dayStart in
             let remaining = events.filter { $0.date >= dayStart }
             return CalendarEntry(date: dayStart, events: remaining)
@@ -147,11 +163,10 @@ struct CalendarWidgetEntryView: View {
     private var eventList: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 6) {
-                Image("AppIcon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                Image(systemName: "app.fill")
+                    .font(.system(size: 16))
+                    .foregroundStyle(.tint)
                     .frame(width: 20, height: 20)
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
                 Text("Upcoming")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.secondary)

@@ -9,11 +9,11 @@ struct AppLockView: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            Image("AppIcon")
+            Image(systemName: "lock.app.dashed")
                 .resizable()
-                .aspectRatio(contentMode: .fill)
+                .aspectRatio(contentMode: .fit)
                 .frame(width: 96, height: 96)
-                .clipShape(RoundedRectangle(cornerRadius: 22))
+                .foregroundStyle(.tint)
                 .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
 
             VStack(spacing: 8) {
@@ -47,6 +47,9 @@ struct AppLockView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
         .ignoresSafeArea()
+        .task {
+            await controller.authenticate()
+        }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
             Task { await controller.authenticate() }

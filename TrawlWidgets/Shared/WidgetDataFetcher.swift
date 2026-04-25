@@ -7,11 +7,13 @@ enum WidgetDataFetcher {
     enum WidgetError: LocalizedError {
         case noServerConfigured
         case noArrServicesConfigured
+        case missingCredentials
 
         var errorDescription: String? {
             switch self {
             case .noServerConfigured: "No qBittorrent server configured."
             case .noArrServicesConfigured: "No Sonarr or Radarr services configured."
+            case .missingCredentials: "Server credentials not found in keychain."
             }
         }
     }
@@ -75,6 +77,10 @@ enum WidgetDataFetcher {
 
         let username = try await KeychainHelper.shared.read(key: snapshot.usernameKey) ?? ""
         let password = try await KeychainHelper.shared.read(key: snapshot.passwordKey) ?? ""
+
+        guard !username.isEmpty, !password.isEmpty else {
+            throw WidgetError.missingCredentials
+        }
 
         let authService = AuthService(serverProfileID: snapshot.serverID, allowsUntrustedTLS: snapshot.allowsUntrustedTLS)
         let client = QBittorrentAPIClient(
@@ -217,6 +223,8 @@ enum WidgetDataFetcher {
         let f = DateFormatter()
         f.dateFormat = "yyyy-MM-dd"
         f.timeZone = TimeZone(secondsFromGMT: 0)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.calendar = Calendar(identifier: .gregorian)
         return f.date(from: string)
     }
 }

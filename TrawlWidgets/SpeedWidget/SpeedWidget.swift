@@ -99,11 +99,10 @@ struct SpeedWidgetEntryView: View {
 
     private var smallLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Image("AppIcon")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
+            Image(systemName: "app.fill")
+                .font(.system(size: 28))
+                .foregroundStyle(.tint)
                 .frame(width: 32, height: 32)
-                .clipShape(RoundedRectangle(cornerRadius: 7))
 
             Spacer(minLength: 8)
 
@@ -140,11 +139,10 @@ struct SpeedWidgetEntryView: View {
         HStack(spacing: 0) {
             // Left column: speeds
             VStack(alignment: .leading, spacing: 6) {
-                Image("AppIcon")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
+                Image(systemName: "app.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.tint)
                     .frame(width: 28, height: 28)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
                 Spacer(minLength: 4)
 

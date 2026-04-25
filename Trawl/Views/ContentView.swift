@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var morePath: [MoreDestination] = []
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
+    @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
     @State private var showArrSetup = false
     @State private var showSSHDisconnectConfirm = false
     @State private var showSSHSessionSheet = false
@@ -111,24 +112,36 @@ struct ContentView: View {
                     pendingMagnetURL = url.absoluteString
                 }
             case "trawl":
-                switch url.host?.lowercased() {
-                case "torrents":
-                    selectedTab = .torrents
-                case "calendar":
-                    selectedTab = .more
-                    morePath = [.calendar]
-                case "ssh-session":
-                    guard sshSessionStore.hasSession else { return }
-                    if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                        .queryItems?
-                        .first(where: { $0.name == "profile" })?
-                        .value,
-                       sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
+                if shouldShowWelcomeScreen {
+                    // Store deep link to be applied after welcome screen completes
+                    switch url.host?.lowercased() {
+                    case "torrents":
+                        pendingDeepLink = PendingDeepLink(tab: .torrents, morePath: [])
+                    case "calendar":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
+                    default:
+                        break
+                    }
+                } else {
+                    switch url.host?.lowercased() {
+                    case "torrents":
+                        selectedTab = .torrents
+                    case "calendar":
+                        selectedTab = .more
+                        morePath = [.calendar]
+                    case "ssh-session":
+                        guard sshSessionStore.hasSession else { return }
+                        if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                            .queryItems?
+                            .first(where: { $0.name == "profile" })?
+                            .value,
+                           sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
+                            return
+                        }
+                        openSSHSession()
+                    default:
                         return
                     }
-                    openSSHSession()
-                default:
-                    return
                 }
             default:
                 return
@@ -159,6 +172,13 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             appLockController.handleScenePhase(newPhase, old: oldPhase)
+        }
+        .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
+            if !isShowing, let pending = pendingDeepLink {
+                selectedTab = pending.tab
+                morePath = pending.morePath
+                pendingDeepLink = nil
+            }
         }
         .onDisappear {
             appServices?.syncService.stopPolling()
@@ -771,6 +791,11 @@ private extension InAppNotificationBanner {
 private struct MagnetDeepLink: Identifiable {
     let id = UUID()
     let url: String
+}
+
+private struct PendingDeepLink {
+    let tab: RootTab
+    let morePath: [MoreDestination]
 }
 
 private enum RootTab: Hashable {

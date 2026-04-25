@@ -14,7 +14,7 @@ struct ServerAppEntity: AppEntity {
     init(id: String, name: String) {
         self.id = id
         self.displayRepresentation = DisplayRepresentation(
-            title: LocalizedStringResource(stringLiteral: name)
+            title: "\(name)"
         )
     }
 }
