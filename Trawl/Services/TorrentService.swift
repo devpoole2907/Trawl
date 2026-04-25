@@ -25,19 +25,49 @@ final class TorrentService {
         try await apiClient.getTorrents(filter: filter, category: category, sort: sort)
     }
 
-    func addTorrentURL(url: String, savePath: String?, category: String?, paused: Bool = false, sequentialDownload: Bool = false) async throws {
+    func addTorrentURL(
+        url: String,
+        savePath: String?,
+        category: String?,
+        paused: Bool = false,
+        sequentialDownload: Bool = false,
+        firstLastPiecePriority: Bool = false
+    ) async throws {
         let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
             throw QBError.serverError(statusCode: 0, message: "URL is empty")
         }
-        try await apiClient.addTorrentMagnet(magnetURL: trimmed, savePath: savePath, category: category, paused: paused, sequentialDownload: sequentialDownload)
+        try await apiClient.addTorrentMagnet(
+            magnetURL: trimmed,
+            savePath: savePath,
+            category: category,
+            paused: paused,
+            sequentialDownload: sequentialDownload,
+            firstLastPiecePriority: firstLastPiecePriority
+        )
     }
 
-    func addTorrentFile(fileData: Data, fileName: String, savePath: String?, category: String?, paused: Bool = false, sequentialDownload: Bool = false) async throws {
+    func addTorrentFile(
+        fileData: Data,
+        fileName: String,
+        savePath: String?,
+        category: String?,
+        paused: Bool = false,
+        sequentialDownload: Bool = false,
+        firstLastPiecePriority: Bool = false
+    ) async throws {
         guard !fileData.isEmpty else {
             throw QBError.serverError(statusCode: 0, message: "Torrent file data is empty")
         }
-        try await apiClient.addTorrentFile(fileData: fileData, fileName: fileName, savePath: savePath, category: category, paused: paused, sequentialDownload: sequentialDownload)
+        try await apiClient.addTorrentFile(
+            fileData: fileData,
+            fileName: fileName,
+            savePath: savePath,
+            category: category,
+            paused: paused,
+            sequentialDownload: sequentialDownload,
+            firstLastPiecePriority: firstLastPiecePriority
+        )
     }
 
     func deleteTorrents(hashes: [String], deleteFiles: Bool) async throws {
@@ -171,5 +201,15 @@ final class TorrentService {
     func setTorrentUploadLimit(hashes: [String], limit: Int64) async throws {
         guard !hashes.isEmpty else { return }
         try await apiClient.setTorrentUploadLimit(hashes: hashes, limit: max(0, limit))
+    }
+
+    func toggleSequentialDownload(hashes: [String]) async throws {
+        guard !hashes.isEmpty else { return }
+        try await apiClient.toggleSequentialDownload(hashes: hashes)
+    }
+
+    func toggleFirstLastPiecePriority(hashes: [String]) async throws {
+        guard !hashes.isEmpty else { return }
+        try await apiClient.toggleFirstLastPiecePriority(hashes: hashes)
     }
 }

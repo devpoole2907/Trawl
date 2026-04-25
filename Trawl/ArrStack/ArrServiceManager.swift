@@ -127,7 +127,11 @@ final class ArrServiceManager {
         var components = URLComponents(string: normalizedWorkerURL)
 
         var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
-        pathParts.removeAll { $0.lowercased() == "push" }
+        // Only strip a trailing "push" segment — leaving any "push" components elsewhere
+        // in the path untouched (e.g. a hostname or sub-path that legitimately contains "push").
+        if pathParts.last?.lowercased() == "push" {
+            pathParts.removeLast()
+        }
         pathParts.append("push")
         components?.path = "/" + pathParts.joined(separator: "/")
 
@@ -137,6 +141,31 @@ final class ArrServiceManager {
 
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
+
+        // Check if the existing webhook already matches the full expected config.
+        // If so, skip the write to avoid unnecessary API churn.
+        if let existing {
+            let urlMatches: Bool = {
+                guard case .string(let u) = existing.fields.first(where: { $0.name == "url" })?.value else { return false }
+                return u == pushURL
+            }()
+            let methodMatches: Bool = {
+                guard case .number(let m) = existing.fields.first(where: { $0.name == "method" })?.value else { return false }
+                return m == 1
+            }()
+            let tokenMatches: Bool = {
+                guard case .array(let headers) = existing.fields.first(where: { $0.name == "headers" })?.value,
+                      headers.count == 1,
+                      case .object(let header) = headers.first,
+                      case .string(let k) = header["Key"],
+                      case .string(let t) = header["Value"] else { return false }
+                return k == "X-Trawl-Token" && t == deviceToken
+            }()
+            let triggersMatch = existing.onGrab && existing.onDownload
+            if urlMatches && methodMatches && tokenMatches && triggersMatch {
+                return // Already up to date — no API write needed
+            }
+        }
 
         let fields = [
             ArrNotificationField(name: "url", value: .string(pushURL)),
@@ -624,10 +653,13 @@ final class ArrServiceManager {
         guard let components = URLComponents(string: normalizedCandidate),
               let host = components.host,
               !host.isEmpty,
-              isAllowedScheme(components) else {
+              isAllowedScheme(components),
+              // Return the URL rebuilt from parsed components so the caller always
+              // receives a canonical string, not the raw (possibly unclean) input.
+              let canonicalURL = components.url?.absoluteString else {
             throw ArrError.invalidURL
         }
 
-        return normalizedCandidate
+        return canonicalURL
     }
 }

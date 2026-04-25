@@ -124,10 +124,11 @@ struct AddTorrentSheet: View {
 
                 Toggle("Start Paused", isOn: $vm.startPaused)
                 Toggle("Sequential Download", isOn: $vm.sequentialDownload)
+                Toggle("First and Last Pieces First", isOn: $vm.firstLastPiecePriority)
             } header: {
                 Text("Options")
             } footer: {
-                Text("Leave Save Path blank to use the server default. Recent Paths helps you quickly reuse a location.")
+                Text("Leave Save Path blank to use the server default. Recent Paths helps you quickly reuse a location. Prioritizing first and last pieces can help with early video previewing.")
             }
 
             if vm.isSubmitting {

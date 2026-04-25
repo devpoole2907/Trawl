@@ -7,7 +7,9 @@ import CoreServices
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
@@ -27,6 +29,8 @@ struct ContentView: View {
     @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
+    @State private var didEvaluateWelcomeState = false
+    @State private var servicesTask: Task<Void, Never>?
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -46,7 +50,10 @@ struct ContentView: View {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
                     inAppNotificationCenter.dismissCurrentBanner()
+                } onTap: {
+                    inAppNotificationCenter.fireCurrentBannerAction()
                 }
+                .withActionAffordance(inAppNotificationCenter.currentBannerHasAction)
                 .padding(.top, 8)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
@@ -79,6 +86,14 @@ struct ContentView: View {
             ArrSetupSheet(onComplete: refreshArrConfiguration)
                 .environment(arrServiceManager)
         }
+        .overlay {
+            if appLockController.isLocked {
+                AppLockView()
+                    .transition(.opacity)
+                    .zIndex(2)
+            }
+        }
+        .animation(.easeOut(duration: 0.18), value: appLockController.isLocked)
         #if os(macOS)
         .alert("Handle Magnet Links?", isPresented: $showMagnetHandlerPrompt) {
             Button("Set as Default") { setAsDefaultMagnetHandler() }
@@ -110,6 +125,10 @@ struct ContentView: View {
             }
         }
         .task {
+            if !didEvaluateWelcomeState {
+                isInWelcomeFlow = !hasConfiguredAnyService
+                didEvaluateWelcomeState = true
+            }
             if !servers.isEmpty || !arrProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
@@ -117,12 +136,6 @@ struct ContentView: View {
                 initializeServices()
             }
             await arrServiceManager.initialize(from: arrProfiles)
-        }
-        .onChange(of: servers.count) { _, _ in
-            syncWelcomeFlowState()
-        }
-        .onChange(of: arrProfiles.count) { _, _ in
-            syncWelcomeFlowState()
         }
         .onChange(of: activeServerID) { _, newValue in
             appServices?.syncService.stopPolling()
@@ -133,6 +146,9 @@ struct ContentView: View {
             } else {
                 initializeServices()
             }
+        }
+        .onChange(of: scenePhase) { oldPhase, newPhase in
+            appLockController.handleScenePhase(newPhase, old: oldPhase)
         }
         .onDisappear {
             appServices?.syncService.stopPolling()
@@ -208,6 +224,7 @@ struct ContentView: View {
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            .glassEffect(.regular.interactive(), in: Capsule())
         }
         .padding(32)
         .frame(maxWidth: 440)
@@ -272,7 +289,7 @@ struct ContentView: View {
             Spacer(minLength: 0)
 
             VStack(spacing: 10) {
-                Button("Done") {
+                Button("Go") {
                     if hasConfiguredAnyService {
                         isInWelcomeFlow = false
                     }
@@ -393,6 +410,12 @@ struct ContentView: View {
                     }
                 )
                     .environment(arrServiceManager)
+                    .environment(\.navigateToSeriesTab) {
+                        selectedTab = .series
+                    }
+                    .environment(\.navigateToMoviesTab) {
+                        selectedTab = .movies
+                    }
                     .environment(\.navigateToQbittorrentSettings) {
                         morePath.append(.qbittorrentSettings)
                     }
@@ -545,7 +568,7 @@ struct ContentView: View {
     }
 
     private var shouldShowWelcomeScreen: Bool {
-        isInWelcomeFlow && !hasConfiguredAnyService
+        didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
     }
 
     private var isShowingSSHSession: Bool {
@@ -556,13 +579,9 @@ struct ContentView: View {
         sshSessionStore.hasSession && !isShowingSSHSession
     }
 
-    private func syncWelcomeFlowState() {
-        if hasConfiguredAnyService {
-            isInWelcomeFlow = false
-        }
-    }
-
     private func initializeServices() {
+        servicesTask?.cancel()
+
         guard let server = activeServer else {
             appServices?.syncService.stopPolling()
             appServices = nil
@@ -571,18 +590,17 @@ struct ContentView: View {
             return
         }
 
-        let initiatingServerID = server.id
         let previousServices = appServices
         isConnecting = true
         connectionError = nil
 
-        Task {
+        servicesTask = Task {
             do {
                 let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
                 guard !username.isEmpty, !password.isEmpty else {
-                    guard activeServerID == initiatingServerID else { return }
+                    guard !Task.isCancelled else { return }
                     previousServices?.syncService.stopPolling()
                     appServices = nil
                     connectionError = "Credentials not found. Please re-enter your server details."
@@ -591,13 +609,13 @@ struct ContentView: View {
                 }
 
                 let services = try await AppServices.build(from: server, username: username, password: password)
-                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
                 previousServices?.syncService.stopPolling()
                 await services.syncService.refreshNow()
-                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
@@ -614,7 +632,7 @@ struct ContentView: View {
                     )
                 }
 
-                guard activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
@@ -637,7 +655,7 @@ struct ContentView: View {
                     pendingMagnetURL = nil
                 }
             } catch {
-                guard activeServerID == initiatingServerID else { return }
+                guard !Task.isCancelled else { return }
                 previousServices?.syncService.stopPolling()
                 appServices = nil
                 connectionError = error.localizedDescription
@@ -673,27 +691,38 @@ struct ContentView: View {
 private struct InAppNotificationBanner: View {
     let item: InAppBannerItem
     let onDismiss: () -> Void
-    
+    let onTap: () -> Void
+    var hasAction = false
+
     @State private var dragOffset: CGFloat = 0
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(systemName: item.systemImage)
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(item.style == .error ? .red : .green)
+        Button(action: onTap) {
+            HStack(spacing: 12) {
+                Image(systemName: item.systemImage)
+                    .font(.title3.weight(.semibold))
+                    .foregroundStyle(item.style == .error ? .red : .green)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(item.message)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(item.message)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                }
+
+                Spacer(minLength: 0)
+
+                if hasAction {
+                    Image(systemName: "chevron.right")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
             }
-
-            Spacer(minLength: 0)
         }
+        .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
         .glassEffect(.regular.tint((item.style == .error ? Color.red : Color.green).opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
@@ -718,6 +747,14 @@ private struct InAppNotificationBanner: View {
                     }
                 }
         )
+    }
+}
+
+private extension InAppNotificationBanner {
+    func withActionAffordance(_ hasAction: Bool) -> InAppNotificationBanner {
+        var copy = self
+        copy.hasAction = hasAction
+        return copy
     }
 }
 

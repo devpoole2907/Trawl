@@ -241,8 +241,9 @@ private struct CalendarMonthLoadError: LocalizedError {
 }
 
 extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
-    init() {
+    init(showsCloseButton: Bool = false) {
         self.init(
+            showsCloseButton: showsCloseButton,
             seriesNavigationValue: { $0 },
             movieNavigationValue: { Int64($0) }
         )
@@ -252,14 +253,18 @@ extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
 struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(\.dismiss) private var dismiss
     
+    let showsCloseButton: Bool
     let seriesNavigationValue: (Int) -> SeriesDest
     let movieNavigationValue: (Int) -> MovieDest
 
     init(
+        showsCloseButton: Bool = false,
         seriesNavigationValue: @escaping (Int) -> SeriesDest,
         movieNavigationValue: @escaping (Int) -> MovieDest
     ) {
+        self.showsCloseButton = showsCloseButton
         self.seriesNavigationValue = seriesNavigationValue
         self.movieNavigationValue = movieNavigationValue
     }
@@ -337,10 +342,19 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                 calendarContent
             }
         }
-        .background(backgroundGradient)
+        .moreDestinationBackground(.calendar)
         .navigationTitle("Calendar")
         .navigationSubtitle(navigationSubtitleText)
         .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Today") {
                     scrollToToday()
@@ -470,24 +484,6 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             scrollView.scrollTo(today, anchor: .center)
         }
     }
-
-    private var backgroundGradient: some View {
-        ZStack {
-            LinearGradient(
-                colors: [Color.blue.opacity(0.16), Color.clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            RadialGradient(
-                colors: [Color.blue.opacity(0.12), Color.clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 260
-            )
-        }
-        .ignoresSafeArea()
-    }
-
     @ViewBuilder
     private func calendarEventLink(for event: CalendarEvent) -> some View {
         switch event {

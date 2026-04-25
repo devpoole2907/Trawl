@@ -12,6 +12,7 @@ struct RadarrAddMovieSheet: View {
     @State private var searchForMovie = true
     @State private var optionsExpanded = false
     @State private var isAdding = false
+    @State private var qualityProfileForDetails: ArrQualityProfile?
 
     var body: some View {
         ArrSheetShell(
@@ -69,9 +70,19 @@ struct RadarrAddMovieSheet: View {
                                 }
                             }
 
+                            if let selectedQualityProfile {
+                                Button {
+                                    qualityProfileForDetails = selectedQualityProfile
+                                } label: {
+                                    Label("View Selected Profile Details", systemImage: "info.circle")
+                                }
+                            }
+
                             Picker("Root Folder", selection: $selectedRootFolderPath) {
                                 ForEach(viewModel.rootFolders, id: \.path) { folder in
-                                    Text(folder.path).tag(Optional(folder.path))
+                                    let freeLabel = folder.freeSpace.map { " · " + ByteFormatter.formatRounded(bytes: $0) + " free" } ?? ""
+                                    Text(folder.path + freeLabel)
+                                        .tag(Optional(folder.path))
                                 }
                             }
 
@@ -91,6 +102,13 @@ struct RadarrAddMovieSheet: View {
                         }
                     } header: {
                         Text("Add \(selectedMovie.title)")
+                    } footer: {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("**Minimum Availability** sets when Radarr considers a release eligible for download (Announced → In Cinemas → Released).")
+                            Text("**Monitor** controls what Radarr tracks: Movie Only monitors this film; Movie and Collection also monitors the collection it belongs to; None disables monitoring.")
+                            Text("**Search for Missing** triggers an immediate search after adding if the movie is not yet available.")
+                        }
+                        .font(.caption)
                     }
                 }
             }
@@ -98,6 +116,11 @@ struct RadarrAddMovieSheet: View {
             .task {
                 selectedQualityProfileId = viewModel.qualityProfiles.first?.id
                 selectedRootFolderPath = viewModel.rootFolders.first?.path
+            }
+        }
+        .sheet(item: $qualityProfileForDetails) { profile in
+            NavigationStack {
+                ArrQualityProfileDetailView(serviceType: .radarr, profile: profile)
             }
         }
     }
@@ -108,6 +131,11 @@ struct RadarrAddMovieSheet: View {
         selectedRootFolderPath != nil &&
         !isAdding &&
         selectedMovie.map { !isInLibrary($0) } == true
+    }
+
+    private var selectedQualityProfile: ArrQualityProfile? {
+        guard let selectedQualityProfileId else { return nil }
+        return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
     }
 
     private func performSearch() async {

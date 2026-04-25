@@ -60,6 +60,8 @@ struct SyncTorrentData: Codable, Sendable {
     let amountLeft: Int64?
     let totalSize: Int64?
     let comment: String?
+    let sequentialDownload: Bool?
+    let firstLastPiecePriority: Bool?
 
     enum CodingKeys: String, CodingKey {
         case name, size, progress, dlspeed, upspeed, priority
@@ -74,6 +76,8 @@ struct SyncTorrentData: Codable, Sendable {
         case amountLeft = "amount_left"
         case totalSize = "total_size"
         case comment
+        case sequentialDownload = "seq_dl"
+        case firstLastPiecePriority = "f_l_piece_prio"
     }
 }
 

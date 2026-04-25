@@ -65,7 +65,14 @@ actor QBittorrentAPIClient {
         return try decode([Torrent].self, from: data)
     }
 
-    func addTorrentMagnet(magnetURL: String, savePath: String?, category: String?, paused: Bool, sequentialDownload: Bool) async throws {
+    func addTorrentMagnet(
+        magnetURL: String,
+        savePath: String?,
+        category: String?,
+        paused: Bool,
+        sequentialDownload: Bool,
+        firstLastPiecePriority: Bool
+    ) async throws {
         let boundary = UUID().uuidString
         var request = try buildRequest(path: "/api/v2/torrents/add", method: "POST")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -76,6 +83,7 @@ actor QBittorrentAPIClient {
         if let category { body.appendMultipartField(boundary: boundary, name: "category", value: category) }
         if paused { body.appendMultipartField(boundary: boundary, name: "stopped", value: "true") }
         if sequentialDownload { body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true") }
+        if firstLastPiecePriority { body.appendMultipartField(boundary: boundary, name: "firstLastPiecePrio", value: "true") }
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
         request.httpBody = body
 
@@ -85,7 +93,15 @@ actor QBittorrentAPIClient {
         }
     }
 
-    func addTorrentFile(fileData: Data, fileName: String, savePath: String?, category: String?, paused: Bool, sequentialDownload: Bool) async throws {
+    func addTorrentFile(
+        fileData: Data,
+        fileName: String,
+        savePath: String?,
+        category: String?,
+        paused: Bool,
+        sequentialDownload: Bool,
+        firstLastPiecePriority: Bool
+    ) async throws {
         let boundary = UUID().uuidString
         var request = try buildRequest(path: "/api/v2/torrents/add", method: "POST")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
@@ -107,6 +123,9 @@ actor QBittorrentAPIClient {
         }
         if sequentialDownload {
             body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true")
+        }
+        if firstLastPiecePriority {
+            body.appendMultipartField(boundary: boundary, name: "firstLastPiecePrio", value: "true")
         }
 
         body.append("--\(boundary)--\r\n".data(using: .utf8)!)
@@ -357,6 +376,22 @@ actor QBittorrentAPIClient {
             ]
         )
         try await performSuccessfulMutation(request, failureMessage: "Failed to update torrent upload limit")
+    }
+
+    func toggleSequentialDownload(hashes: [String]) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/toggleSequentialDownload",
+            params: ["hashes": hashes.joined(separator: "|")]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to toggle sequential download")
+    }
+
+    func toggleFirstLastPiecePriority(hashes: [String]) async throws {
+        let request = try buildFormRequest(
+            path: "/api/v2/torrents/toggleFirstLastPiecePrio",
+            params: ["hashes": hashes.joined(separator: "|")]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to toggle first and last piece priority")
     }
 
     // MARK: - Sync

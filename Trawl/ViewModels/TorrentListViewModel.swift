@@ -41,6 +41,7 @@ final class TorrentListViewModel {
     var syncError: QBError? { syncService.lastError }
     var categories: [String] { syncService.sortedCategoryNames }
     var isAlternativeSpeedEnabled: Bool = false
+    private(set) var isUpdatingAlternativeSpeed = false
 
     // MARK: - Selection Actions
 
@@ -145,6 +146,7 @@ final class TorrentListViewModel {
     }
 
     func loadAlternativeSpeedMode() async {
+        guard !isUpdatingAlternativeSpeed else { return }
         do {
             isAlternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()
             actionErrorAlert = nil
@@ -157,6 +159,10 @@ final class TorrentListViewModel {
     }
 
     func toggleAlternativeSpeed() async {
+        guard !isUpdatingAlternativeSpeed else { return }
+        isUpdatingAlternativeSpeed = true
+        defer { isUpdatingAlternativeSpeed = false }
+
         do {
             try await torrentService.toggleAlternativeSpeed()
             isAlternativeSpeedEnabled = try await torrentService.isAlternativeSpeedEnabled()

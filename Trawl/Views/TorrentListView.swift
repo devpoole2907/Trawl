@@ -13,6 +13,7 @@ struct TorrentListView: View {
     @State private var showBatchDeleteConfirm = false
     @State private var batchDeleteFiles = false
     @State private var editMode: EditMode = .inactive
+    @State private var listScrollPosition: String?
     private let title: String
 
     init(title: String = "Trawl") {
@@ -20,31 +21,7 @@ struct TorrentListView: View {
     }
 
     var body: some View {
-        Group {
-            if let vm = viewModel {
-                torrentList(vm: vm)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
-        .navigationTitle(activeServerName)
-        .navigationSubtitle(navigationSubtitleText)
-        .toolbarTitleMenu {
-            if !editMode.isEditing, servers.count > 1 {
-                ForEach(servers) { server in
-                    Button {
-                        switchToServer(server)
-                    } label: {
-                        if server.isActive {
-                            Label(server.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(server.displayName)
-                        }
-                    }
-                }
-            }
-        }
+        configuredContent
         #if os(iOS)
         .toolbarTitleDisplayMode(.inline)
         #endif
@@ -110,11 +87,18 @@ struct TorrentListView: View {
                 )
                 viewModel = vm
                 vm.startSync()
+                await vm.loadAlternativeSpeedMode()
+            }
+        }
+        .onChange(of: activeServerID) { _, _ in
+            Task {
+                await viewModel?.loadAlternativeSpeedMode()
             }
         }
         .onDisappear {
+            // Stop the active sync but keep the viewModel alive so scroll position is preserved
+            // when the user returns to this tab.
             viewModel?.stopSync()
-            viewModel = nil
         }
     }
 
@@ -133,6 +117,8 @@ struct TorrentListView: View {
                     row(for: torrent, vm: vm)
                 }
             }
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredTorrents.map(\.id))
             .listStyle(.plain)
             .onChange(of: vm.selectedFilter) {
                 withAnimation { editMode = .inactive }
@@ -323,16 +309,38 @@ struct TorrentListView: View {
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
-                if viewModel != nil {
-                    Button("Select") {
-                        withAnimation { editMode = .active }
-                    }
-                }
+                if let vm = viewModel {
+                    Menu {
+                        Toggle(isOn: Binding(
+                            get: { vm.isAlternativeSpeedEnabled },
+                            set: { newValue in
+                                guard newValue != vm.isAlternativeSpeedEnabled else { return }
+                                Task { await vm.toggleAlternativeSpeed() }
+                            }
+                        )) {
+                            Label("Alternative Speed Mode", systemImage: "speedometer")
+                        }
+                        .disabled(vm.isUpdatingAlternativeSpeed)
 
-                Button("Add Torrent", systemImage: "plus") {
-                    showAddSheet = true
+                        Button("Select") {
+                            withAnimation { editMode = .active }
+                        }
+                    } label: {
+                        Label("More Actions", systemImage: "ellipsis.circle")
+                    }
+                    .accessibilityLabel("Torrent Actions")
+                    .accessibilityHint("Shows more torrent list actions")
+
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
+                    }
+                    .labelStyle(.iconOnly)
+                } else {
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
+                    }
+                    .labelStyle(.iconOnly)
                 }
-                .labelStyle(.iconOnly)
             }
         }
     }
@@ -341,6 +349,46 @@ struct TorrentListView: View {
         servers.first(where: { $0.isActive })?.displayName
             ?? servers.first?.displayName
             ?? title
+    }
+
+    @ViewBuilder
+    private var configuredContent: some View {
+        let baseContent = Group {
+            if let vm = viewModel {
+                torrentList(vm: vm)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .navigationTitle(activeServerName)
+        .navigationSubtitle(navigationSubtitleText)
+
+        if shouldShowServerSwitcher {
+            baseContent.toolbarTitleMenu {
+                ForEach(servers) { server in
+                    Button {
+                        switchToServer(server)
+                    } label: {
+                        if server.isActive {
+                            Label(server.displayName, systemImage: "checkmark")
+                        } else {
+                            Text(server.displayName)
+                        }
+                    }
+                }
+            }
+        } else {
+            baseContent
+        }
+    }
+
+    private var shouldShowServerSwitcher: Bool {
+        !editMode.isEditing && servers.count > 1
+    }
+
+    private var activeServerID: UUID? {
+        servers.first(where: { $0.isActive })?.id ?? servers.first?.id
     }
 
     private func switchToServer(_ server: ServerProfile) {

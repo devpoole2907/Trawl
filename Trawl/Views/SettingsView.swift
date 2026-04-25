@@ -11,6 +11,7 @@ struct SettingsView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
@@ -216,6 +217,34 @@ struct SettingsView: View {
                 #endif
             }
 
+            #if os(iOS)
+            Section {
+                Toggle(securityToggleTitle, isOn: Binding(
+                    get: { appLockController.isEnabled },
+                    set: { newValue in
+                        Task {
+                            if newValue {
+                                _ = await appLockController.enable()
+                            } else {
+                                _ = await appLockController.disable()
+                            }
+                        }
+                    }
+                ))
+                .disabled(!appLockController.availability.isUsable)
+
+                if case .unavailable = appLockController.availability {
+                    Label("Set up Face ID, Touch ID, Optic ID, or a passcode in System Settings to enable.", systemImage: "exclamationmark.triangle")
+                        .font(.subheadline)
+                        .foregroundStyle(.orange)
+                }
+            } header: {
+                Label("Security", systemImage: "lock.shield")
+            } footer: {
+                Text("Lock Trawl behind \(appLockController.biometryName) when the app opens or returns from the background.")
+            }
+            #endif
+
             Section("Storage") {
                 LabeledContent("Arr Artwork Cache") {
                     Text(viewModel.artworkCacheSizeDescription)
@@ -242,15 +271,6 @@ struct SettingsView: View {
                 }
             }
             
-            // TODO: Remove before release
-            Section("Debug") {
-                Button("Test Success Notification") {
-                    inAppNotificationCenter.showSuccess(title: "Test Success", message: "This is a test success notification.")
-                }
-                Button("Test Error Notification") {
-                    inAppNotificationCenter.showError(title: "Test Error", message: "This is a test error notification.")
-                }
-            }
         }
         #if os(macOS)
         .formStyle(.grouped)
@@ -261,6 +281,21 @@ struct SettingsView: View {
     }
 
     // MARK: - Helpers
+
+    private var securityToggleTitle: String {
+        switch appLockController.availability {
+        case .faceID:
+            "Require Face ID"
+        case .touchID:
+            "Require Touch ID"
+        case .opticID:
+            "Require Optic ID"
+        case .passcodeOnly:
+            "Require Passcode"
+        case .unavailable:
+            "Require App Lock"
+        }
+    }
 
     private func serviceRow(icon: String, color: Color, name: String, url: String?, isConnected: Bool, isConfigured: Bool) -> some View {
         HStack(spacing: 12) {
@@ -594,6 +629,14 @@ private struct MagnetLinkSettingsRow: View {
 
 // MARK: - Destinations
 
+private struct NavigateToSeriesTabKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+private struct NavigateToMoviesTabKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 private struct NavigateToQbittorrentSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -611,6 +654,16 @@ private struct NavigateToProwlarrSettingsKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
+    var navigateToSeriesTab: () -> Void {
+        get { self[NavigateToSeriesTabKey.self] }
+        set { self[NavigateToSeriesTabKey.self] = newValue }
+    }
+
+    var navigateToMoviesTab: () -> Void {
+        get { self[NavigateToMoviesTabKey.self] }
+        set { self[NavigateToMoviesTabKey.self] = newValue }
+    }
+
     var navigateToQbittorrentSettings: () -> Void {
         get { self[NavigateToQbittorrentSettingsKey.self] }
         set { self[NavigateToQbittorrentSettingsKey.self] = newValue }

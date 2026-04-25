@@ -15,7 +15,11 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
         Task {
             let previousToken = try? await KeychainHelper.shared.read(key: NotificationConstants.apnsTokenKey)
-            try? await KeychainHelper.shared.save(key: NotificationConstants.apnsTokenKey, value: tokenString)
+            do {
+                try await KeychainHelper.shared.save(key: NotificationConstants.apnsTokenKey, value: tokenString)
+            } catch {
+                self.logger.error("Failed to persist APNs device token to keychain: \(error.localizedDescription, privacy: .public)")
+            }
 
             if previousToken == tokenString {
                 self.logger.debug("Remote notification token unchanged.")
@@ -38,7 +42,22 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     // Handle foreground notifications
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound, .badge])
+        // Absorb system banners when foregrounded — show via in-app banner instead
+        let content = notification.request.content
+        let title = content.title
+        let body = content.body
+        if !title.isEmpty || !body.isEmpty {
+            let style = content.userInfo["style"] as? String
+            Task { @MainActor in
+                if style == "error" {
+                    InAppNotificationCenter.shared.showError(title: title, message: body)
+                } else {
+                    InAppNotificationCenter.shared.showSuccess(title: title, message: body)
+                }
+            }
+        }
+        // Still update badge and list, but suppress the system banner/sound
+        completionHandler([.list, .badge])
     }
 }
 #endif

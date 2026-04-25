@@ -6,11 +6,14 @@ struct SonarrSeriesListView: View {
     @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: SonarrViewModel?
+    @State private var viewModelInstanceID: UUID?
+    @State private var listScrollPosition: Int?
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteSeries: SonarrSeries?
+    @State private var isRunningCommand = false
 
     var body: some View {
         Group {
@@ -108,7 +111,7 @@ struct SonarrSeriesListView: View {
         }
         .sheet(isPresented: $showCalendar) {
             NavigationStack {
-                ArrCalendarView()
+                ArrCalendarView(showsCloseButton: true)
                     .environment(serviceManager)
                     .environment(syncService)
             }
@@ -125,13 +128,38 @@ struct SonarrSeriesListView: View {
                     .environment(syncService)
             }
         }
+        .onChange(of: serviceManager.sonarrConnected) { _, isConnected in
+            if !isConnected {
+                viewModel = nil
+                viewModelInstanceID = nil
+            } else {
+                // Connection restored — recreate VM if we don't have one
+                if viewModel == nil {
+                    viewModel = SonarrViewModel(serviceManager: serviceManager)
+                    viewModelInstanceID = serviceManager.activeSonarrInstanceID
+                    Task {
+                        guard let vm = viewModel else { return }
+                        async let loadSeries = vm.loadSeries()
+                        async let loadQueue = vm.loadQueue()
+                        _ = await (loadSeries, loadQueue)
+                    }
+                }
+            }
+        }
         .task(id: serviceManager.activeSonarrInstanceID) {
             guard serviceManager.sonarrConnected else {
                 viewModel = nil
+                viewModelInstanceID = nil
                 return
             }
-            let vm = SonarrViewModel(serviceManager: serviceManager)
-            viewModel = vm
+            // Only create a new VM when the active instance changes, not on every tab switch.
+            // This preserves scroll position and avoids a flash back through the loading state.
+            let activeID = serviceManager.activeSonarrInstanceID
+            if viewModel == nil || viewModelInstanceID != activeID {
+                viewModel = SonarrViewModel(serviceManager: serviceManager)
+                viewModelInstanceID = activeID
+            }
+            guard let vm = viewModel else { return }
             async let loadSeries = vm.loadSeries()
             async let loadQueue = vm.loadQueue()
             _ = await (loadSeries, loadQueue)
@@ -151,35 +179,73 @@ struct SonarrSeriesListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
-                ForEach(vm.filteredSeries) { show in
-                    NavigationLink(value: show.id) {
-                        SonarrSeriesRow(
-                            series: show,
-                            hasIssue: vm.queue.contains {
-                                $0.seriesId == show.id && $0.isImportIssueQueueItem
+            seriesList(vm: vm)
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredSeries)
+        }
+    }
+
+    @ViewBuilder
+    private func seriesList(vm: SonarrViewModel) -> some View {
+        if vm.sortOrder == .title {
+            let sections = seriesTitleSections(for: vm.filteredSeries)
+            if #available(iOS 26.0, *) {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.series) { show in
+                                seriesRow(show, vm: vm)
                             }
-                        )
-                    }
-                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                        Button {
-                            Task { await vm.toggleSeriesMonitored(show) }
-                        } label: {
-                            Label(
-                                show.monitored == true ? "Unmonitor" : "Monitor",
-                                systemImage: show.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                            )
                         }
-                        .tint(show.monitored == true ? .orange : .blue)
+                        .sectionIndexLabel(Text(section.indexLabel))
                     }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            pendingDeleteSeries = show
-                        } label: {
-                            Label("Delete", systemImage: "trash")
+                }
+                .listSectionIndexVisibility(.visible)
+            } else {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.series) { show in
+                                seriesRow(show, vm: vm)
+                            }
                         }
                     }
                 }
+            }
+        } else {
+            List {
+                ForEach(vm.filteredSeries) { show in
+                    seriesRow(show, vm: vm)
+                }
+            }
+        }
+    }
+
+    private func seriesRow(_ show: SonarrSeries, vm: SonarrViewModel) -> some View {
+        NavigationLink(value: show.id) {
+            SonarrSeriesRow(
+                series: show,
+                hasIssue: vm.queue.contains {
+                    $0.seriesId == show.id && $0.isImportIssueQueueItem
+                }
+            )
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button {
+                Task { await vm.toggleSeriesMonitored(show) }
+            } label: {
+                Label(
+                    show.monitored == true ? "Unmonitor" : "Monitor",
+                    systemImage: show.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                )
+            }
+            .tint(show.monitored == true ? .orange : .blue)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDeleteSeries = show
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }
@@ -207,7 +273,9 @@ struct SonarrSeriesListView: View {
                 Menu {
                     ForEach(SonarrSortOrder.allCases) { order in
                         Button {
-                            vm.sortOrder = order
+                            withAnimation {
+                                vm.sortOrder = order
+                            }
                         } label: {
                             if vm.sortOrder == order {
                                 Label(order.rawValue, systemImage: "checkmark")
@@ -226,8 +294,28 @@ struct SonarrSeriesListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
-            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                showWantedMissing = true
+
+            Menu {
+                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                    showWantedMissing = true
+                }
+                if let vm = viewModel {
+                    Divider()
+                    Button("Refresh All", systemImage: "arrow.clockwise") {
+                        Task { await runSonarrCommand(vm: vm) { try await vm.refreshSeries() } }
+                    }
+                    .disabled(isRunningCommand)
+                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                        Task { await runSonarrCommand(vm: vm) { try await vm.rssSync() } }
+                    }
+                    .disabled(isRunningCommand)
+                }
+            } label: {
+                if isRunningCommand {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
 
             if serviceManager.sonarrInstances.count > 1 {
@@ -256,6 +344,16 @@ struct SonarrSeriesListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredSeries.count
         return count == 1 ? "1 series" : "\(count) series"
+    }
+
+    private func runSonarrCommand(vm: SonarrViewModel, action: @escaping () async throws -> Void) async {
+        isRunningCommand = true
+        do {
+            try await action()
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Command Failed", message: error.localizedDescription)
+        }
+        isRunningCommand = false
     }
 
     private func filterIcon(for filter: SonarrFilter) -> String {
@@ -299,6 +397,37 @@ struct SonarrSeriesListView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+private struct SonarrSeriesTitleSection: Identifiable {
+    let title: String
+    let indexLabel: String
+    let series: [SonarrSeries]
+
+    var id: String { indexLabel }
+}
+
+private func seriesTitleSections(for series: [SonarrSeries]) -> [SonarrSeriesTitleSection] {
+    let grouped = Dictionary(grouping: series) { show in
+        sonarrListSectionLabel(for: show.sortTitle ?? show.title)
+    }
+
+    return grouped.keys.sorted().map { label in
+        SonarrSeriesTitleSection(
+            title: label,
+            indexLabel: label,
+            series: grouped[label] ?? []
+        )
+    }
+}
+
+private func sonarrListSectionLabel(for title: String) -> String {
+    guard let scalar = title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.first else {
+        return "#"
+    }
+
+    let label = String(scalar).uppercased()
+    return label.range(of: "[A-Z]", options: .regularExpression) != nil ? label : "#"
 }
 
 // MARK: - Series Row

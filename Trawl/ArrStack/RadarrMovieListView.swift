@@ -6,11 +6,14 @@ struct RadarrMovieListView: View {
     @Environment(SyncService.self) private var syncService
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: RadarrViewModel?
+    @State private var viewModelInstanceID: UUID?
+    @State private var listScrollPosition: Int?
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
     @State private var pendingDeleteMovie: RadarrMovie?
+    @State private var isRunningCommand = false
 
     var body: some View {
         Group {
@@ -108,7 +111,7 @@ struct RadarrMovieListView: View {
         }
         .sheet(isPresented: $showCalendar) {
             NavigationStack {
-                ArrCalendarView()
+                ArrCalendarView(showsCloseButton: true)
                     .environment(serviceManager)
                     .environment(syncService)
             }
@@ -128,10 +131,17 @@ struct RadarrMovieListView: View {
         .task(id: serviceManager.activeRadarrInstanceID) {
             guard serviceManager.radarrConnected else {
                 viewModel = nil
+                viewModelInstanceID = nil
                 return
             }
-            let vm = RadarrViewModel(serviceManager: serviceManager)
-            viewModel = vm
+            // Only create a new VM when the active instance changes, not on every tab switch.
+            // This preserves scroll position and avoids a flash back through the loading state.
+            let activeID = serviceManager.activeRadarrInstanceID
+            if viewModel == nil || viewModelInstanceID != activeID {
+                viewModel = RadarrViewModel(serviceManager: serviceManager)
+                viewModelInstanceID = activeID
+            }
+            guard let vm = viewModel else { return }
             async let loadMovies = vm.loadMovies()
             async let loadQueue = vm.loadQueue()
             _ = await (loadMovies, loadQueue)
@@ -151,44 +161,82 @@ struct RadarrMovieListView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
-                ForEach(vm.filteredMovies) { movie in
-                    NavigationLink(value: movie.id) {
-                        RadarrMovieRow(
-                            movie: movie,
-                            hasIssue: vm.queue.contains {
-                                $0.movieId == movie.id && $0.isImportIssueQueueItem
-                            }
-                        )
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            pendingDeleteMovie = movie
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                    .swipeActions(edge: .leading) {
-                        Button {
-                            Task { await vm.toggleMovieMonitored(movie) }
-                        } label: {
-                            Label(
-                                movie.monitored == true ? "Unmonitor" : "Monitor",
-                                systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                            )
-                        }
-                        .tint(movie.monitored == true ? .orange : .blue)
+            movieList(vm: vm)
+            .scrollPosition(id: $listScrollPosition)
+            .animation(.default, value: vm.filteredMovies)
+        }
+    }
 
-                        if movie.hasFile != true {
-                            Button {
-                                Task { await vm.searchMovie(movieId: movie.id) }
-                            } label: {
-                                Label("Search", systemImage: "magnifyingglass")
+    @ViewBuilder
+    private func movieList(vm: RadarrViewModel) -> some View {
+        if vm.sortOrder == .title {
+            let sections = movieTitleSections(for: vm.filteredMovies)
+            if #available(iOS 26.0, *) {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.movies) { movie in
+                                movieRow(movie, vm: vm)
                             }
-                            .tint(.purple)
+                        }
+                        .sectionIndexLabel(Text(section.indexLabel))
+                    }
+                }
+                .listSectionIndexVisibility(.visible)
+            } else {
+                List {
+                    ForEach(sections) { section in
+                        Section(section.title) {
+                            ForEach(section.movies) { movie in
+                                movieRow(movie, vm: vm)
+                            }
                         }
                     }
                 }
+            }
+        } else {
+            List {
+                ForEach(vm.filteredMovies) { movie in
+                    movieRow(movie, vm: vm)
+                }
+            }
+        }
+    }
+
+    private func movieRow(_ movie: RadarrMovie, vm: RadarrViewModel) -> some View {
+        NavigationLink(value: movie.id) {
+            RadarrMovieRow(
+                movie: movie,
+                hasIssue: vm.queue.contains {
+                    $0.movieId == movie.id && $0.isImportIssueQueueItem
+                }
+            )
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDeleteMovie = movie
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
+        .swipeActions(edge: .leading) {
+            Button {
+                Task { await vm.toggleMovieMonitored(movie) }
+            } label: {
+                Label(
+                    movie.monitored == true ? "Unmonitor" : "Monitor",
+                    systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                )
+            }
+            .tint(movie.monitored == true ? .orange : .blue)
+
+            if movie.hasFile != true {
+                Button {
+                    Task { await vm.searchMovie(movieId: movie.id) }
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+                .tint(.purple)
             }
         }
     }
@@ -216,7 +264,9 @@ struct RadarrMovieListView: View {
                 Menu {
                     ForEach(RadarrSortOrder.allCases) { order in
                         Button {
-                            vm.sortOrder = order
+                            withAnimation {
+                                vm.sortOrder = order
+                            }
                         } label: {
                             if vm.sortOrder == order {
                                 Label(order.rawValue, systemImage: "checkmark")
@@ -235,8 +285,28 @@ struct RadarrMovieListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
-            Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                showWantedMissing = true
+
+            Menu {
+                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                    showWantedMissing = true
+                }
+                if let vm = viewModel {
+                    Divider()
+                    Button("Refresh All", systemImage: "arrow.clockwise") {
+                        Task { await runRadarrCommand(vm: vm) { try await vm.refreshMovies() } }
+                    }
+                    .disabled(isRunningCommand)
+                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                        Task { await runRadarrCommand(vm: vm) { try await vm.rssSync() } }
+                    }
+                    .disabled(isRunningCommand)
+                }
+            } label: {
+                if isRunningCommand {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Image(systemName: "ellipsis.circle")
+                }
             }
 
             if serviceManager.radarrInstances.count > 1 {
@@ -265,6 +335,16 @@ struct RadarrMovieListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredMovies.count
         return count == 1 ? "1 movie" : "\(count) movies"
+    }
+
+    private func runRadarrCommand(vm: RadarrViewModel, action: @escaping () async throws -> Void) async {
+        isRunningCommand = true
+        do {
+            try await action()
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Command Failed", message: error.localizedDescription)
+        }
+        isRunningCommand = false
     }
 
     private func filterIcon(for filter: RadarrFilter) -> String {
@@ -310,6 +390,37 @@ struct RadarrMovieListView: View {
     }
 }
 
+private struct RadarrMovieTitleSection: Identifiable {
+    let title: String
+    let indexLabel: String
+    let movies: [RadarrMovie]
+
+    var id: String { indexLabel }
+}
+
+private func movieTitleSections(for movies: [RadarrMovie]) -> [RadarrMovieTitleSection] {
+    let grouped = Dictionary(grouping: movies) { movie in
+        listSectionLabel(for: movie.sortTitle ?? movie.title)
+    }
+
+    return grouped.keys.sorted().map { label in
+        RadarrMovieTitleSection(
+            title: label,
+            indexLabel: label,
+            movies: grouped[label] ?? []
+        )
+    }
+}
+
+private func listSectionLabel(for title: String) -> String {
+    guard let scalar = title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.first else {
+        return "#"
+    }
+
+    let label = String(scalar).uppercased()
+    return label.range(of: "[A-Z]", options: .regularExpression) != nil ? label : "#"
+}
+
 // MARK: - Movie Row
 
 struct RadarrMovieRow: View {
@@ -333,9 +444,6 @@ struct RadarrMovieRow: View {
 
                 HStack(spacing: 6) {
                     if let year = movie.year { Text(String(year)).font(.caption2) }
-                    if let studio = movie.studio, !studio.isEmpty {
-                        Text("• \(studio)").font(.caption2)
-                    }
                     if let runtime = movie.runtime, runtime > 0 {
                         Text("• \(runtime)m").font(.caption2)
                     }

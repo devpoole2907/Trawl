@@ -26,6 +26,26 @@ enum MoreDestination: Hashable {
     case manualImportScan(path: String, service: ArrServiceType)
 }
 
+enum MoreDestinationAccent {
+    case calendar
+    case manualImport
+    case categoriesAndTags
+    case transferStats
+
+    var color: Color {
+        switch self {
+        case .calendar:
+            return .purple
+        case .manualImport:
+            return .blue
+        case .categoriesAndTags:
+            return .brown
+        case .transferStats:
+            return .mint
+        }
+    }
+}
+
 struct MoreView: View {
     @Query private var servers: [ServerProfile]
     let appServices: AppServices?
@@ -70,7 +90,7 @@ struct MoreView: View {
                     }
 
                     NavigationLink(value: MoreDestination.calendar) {
-                        moreRow(icon: "calendar", color: .purple,
+                        moreRow(icon: "calendar", color: MoreDestinationAccent.calendar.color,
                                 title: "Calendar", subtitle: "Upcoming releases and air dates")
                     }
 
@@ -80,7 +100,7 @@ struct MoreView: View {
                     }
 
                     NavigationLink(value: MoreDestination.manualImport) {
-                        moreRow(icon: "tray.and.arrow.down.fill", color: .blue,
+                        moreRow(icon: "tray.and.arrow.down.fill", color: MoreDestinationAccent.manualImport.color,
                                 title: "Manual Import", subtitle: "Browse and import files from root folders")
                     }
 
@@ -97,7 +117,7 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink(value: MoreDestination.categoriesAndTags) {
-                        moreRow(icon: "tag.fill", color: .blue,
+                        moreRow(icon: "tag.fill", color: MoreDestinationAccent.categoriesAndTags.color,
                                 title: "Categories & Tags", subtitle: "Manage your torrent organization")
                     }
                     
@@ -107,7 +127,7 @@ struct MoreView: View {
                     }
 
                     NavigationLink(value: MoreDestination.transferStats) {
-                        moreRow(icon: "chart.line.uptrend.xyaxis", color: .blue,
+                        moreRow(icon: "chart.line.uptrend.xyaxis", color: MoreDestinationAccent.transferStats.color,
                                 title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
                     }
                 }
@@ -411,7 +431,29 @@ struct MoreView: View {
     }
 }
 
-private extension View {
+struct MoreDestinationGradientBackground: View {
+    let accent: MoreDestinationAccent
+
+    var body: some View {
+        ZStack {
+            LinearGradient(
+                colors: [accent.color.opacity(0.18), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+
+            RadialGradient(
+                colors: [accent.color.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 240
+            )
+        }
+        .ignoresSafeArea()
+    }
+}
+
+extension View {
     @ViewBuilder
     func moreDestinationTitleStyle() -> some View {
         #if os(iOS)
@@ -419,6 +461,10 @@ private extension View {
         #else
         self
         #endif
+    }
+
+    func moreDestinationBackground(_ accent: MoreDestinationAccent) -> some View {
+        background(MoreDestinationGradientBackground(accent: accent))
     }
 
     @ViewBuilder

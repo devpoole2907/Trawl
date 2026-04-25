@@ -180,6 +180,14 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.post("/api/v3/command", jsonBody: params)
     }
 
+    func searchSeries(seriesId: Int) async throws -> ArrCommand {
+        let params: [String: Any] = [
+            "name": SonarrCommand.seriesSearch.rawValue,
+            "seriesId": seriesId
+        ]
+        return try await base.post("/api/v3/command", jsonBody: params)
+    }
+
     func searchAllMissing() async throws -> ArrCommand {
         try await base.postCommand(name: SonarrCommand.missingEpisodeSearch.rawValue)
     }
@@ -206,13 +214,13 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/manualimport", queryItems: params)
     }
 
-    /// Perform a manual import of specific files
-    func manualImport(files: [JSONValue], importMode: String = "move") async throws {
+    /// Perform a manual import of specific files, waiting for the command to complete.
+    func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
         let additionalParams: [String: Any] = [
             "files": files.map { $0.rawValue },
             "importMode": importMode
         ]
-        _ = try await base.postCommand(name: "ManualImport", additionalParams: additionalParams)
+        return try await base.postCommandAndWait(name: "ManualImport", additionalParams: additionalParams)
     }
 }
 
