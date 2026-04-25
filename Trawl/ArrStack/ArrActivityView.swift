@@ -372,19 +372,9 @@ private struct QueueItemRow: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(item.friendlyTitle)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-
-                    Text(source.displayName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(source == .sonarr ? Color.purple : Color.orange)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((source == .sonarr ? Color.purple : Color.orange).opacity(0.14))
-                        .clipShape(Capsule())
-                }
+                Text(item.friendlyTitle)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
 
                 HStack(spacing: 4) {
                     if let status = item.trackedDownloadState ?? item.status {

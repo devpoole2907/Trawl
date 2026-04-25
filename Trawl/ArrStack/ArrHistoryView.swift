@@ -234,20 +234,14 @@ private struct HistoryRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 8) {
-                    Text(item.record.sourceTitle ?? "Unknown")
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
+            Image(systemName: serviceSymbol)
+                .foregroundStyle(serviceColor)
+                .frame(width: 20)
 
-                    Text(item.source.displayName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(serviceColor)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background(serviceColor.opacity(0.14))
-                        .clipShape(Capsule())
-                }
+            VStack(alignment: .leading, spacing: 4) {
+                Text(item.record.sourceTitle ?? "Unknown")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
 
                 HStack(spacing: 6) {
                     if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
@@ -305,6 +299,14 @@ private struct HistoryRow: View {
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
+        }
+    }
+
+    private var serviceSymbol: String {
+        switch item.source {
+        case .sonarr: "tv"
+        case .radarr: "film"
+        case .prowlarr: "network"
         }
     }
 }

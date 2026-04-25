@@ -231,19 +231,9 @@ private struct BlocklistRow: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(entry.item.sourceTitle ?? "Unknown Release")
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(2)
-
-                    Text(entry.source.displayName)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(entry.source == ArrServiceType.sonarr ? Color.purple : Color.orange)
-                        .padding(.horizontal, 7)
-                        .padding(.vertical, 3)
-                        .background((entry.source == ArrServiceType.sonarr ? Color.purple : Color.orange).opacity(0.14))
-                        .clipShape(Capsule())
-                }
+                Text(entry.item.sourceTitle ?? "Unknown Release")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
 
                 HStack(spacing: 4) {
                     let hasIndexer = entry.item.indexer?.isEmpty == false
