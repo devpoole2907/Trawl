@@ -172,8 +172,10 @@ struct SonarrSeriesListView: View {
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: .seconds(30))
-                } catch {
+                } catch is CancellationError {
                     break
+                } catch {
+                    continue
                 }
 
                 guard let latestViewModel = viewModel else { break }
