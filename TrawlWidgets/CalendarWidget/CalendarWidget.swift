@@ -182,12 +182,12 @@ struct CalendarWidgetEntryView: View {
         }
         .padding(14)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(URL(string: "trawl://calendar"))
+        .widgetURL(CalendarWidget.trawlCalendarURL)
     }
 
     @ViewBuilder
     private func eventRow(_ event: WidgetCalendarEvent, isLast: Bool) -> some View {
-        let destination = URL(string: "trawl://calendar")!
+        let destination = CalendarWidget.trawlCalendarURL
         Link(destination: destination) {
             HStack(spacing: family == .systemLarge ? 10 : 8) {
                 if family == .systemLarge {
@@ -288,6 +288,8 @@ struct CalendarWidgetEntryView: View {
 
 struct CalendarWidget: Widget {
     let kind = "com.poole.james.Trawl.CalendarWidget"
+
+    static let trawlCalendarURL = URL(string: "trawl://calendar")!
 
     var body: some WidgetConfiguration {
         StaticConfiguration(kind: kind, provider: CalendarProvider()) { entry in
