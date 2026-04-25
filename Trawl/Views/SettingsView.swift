@@ -222,6 +222,7 @@ struct SettingsView: View {
                 Toggle(securityToggleTitle, isOn: Binding(
                     get: { appLockController.isEnabled },
                     set: { newValue in
+                        guard !appLockController.isAuthenticating else { return }
                         Task {
                             if newValue {
                                 _ = await appLockController.enable()
@@ -231,7 +232,7 @@ struct SettingsView: View {
                         }
                     }
                 ))
-                .disabled(!appLockController.availability.isUsable)
+                .disabled(!appLockController.availability.isUsable || appLockController.isAuthenticating)
 
                 if case .unavailable = appLockController.availability {
                     Label("Set up Face ID, Touch ID, Optic ID, or a passcode in System Settings to enable.", systemImage: "exclamationmark.triangle")
@@ -282,6 +283,7 @@ struct SettingsView: View {
 
     // MARK: - Helpers
 
+    #if os(iOS)
     private var securityToggleTitle: String {
         switch appLockController.availability {
         case .faceID:
@@ -296,6 +298,7 @@ struct SettingsView: View {
             "Require App Lock"
         }
     }
+    #endif
 
     private func serviceRow(icon: String, color: Color, name: String, url: String?, isConnected: Bool, isConfigured: Bool) -> some View {
         HStack(spacing: 12) {

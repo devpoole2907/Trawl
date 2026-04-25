@@ -10,10 +10,9 @@ final class InAppNotificationCenter {
     static let shared = InAppNotificationCenter()
 
     private(set) var currentBanner: InAppBannerItem?
-    private(set) var currentBannerAction: (() -> Void)?
-    var currentBannerHasAction: Bool { currentBannerAction != nil }
+    var currentBannerHasAction: Bool { currentBanner?.action != nil }
 
-    private var queuedBanners: [(InAppBannerItem, (() -> Void)?)] = []
+    private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
 
     #if os(iOS)
@@ -28,7 +27,7 @@ final class InAppNotificationCenter {
         showSuccess(title: "Download Complete", message: trimmedName)
     }
 
-    func showSuccess(title: String, message: String, actionLabel: String? = nil, action: (() -> Void)? = nil) {
+    func showSuccess(title: String, message: String, action: InAppBannerAction? = nil) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
@@ -37,16 +36,13 @@ final class InAppNotificationCenter {
         notificationGenerator.notificationOccurred(.success)
         #endif
 
-        enqueue(
-            InAppBannerItem(
-                title: trimmedTitle,
-                message: trimmedMessage,
-                systemImage: "checkmark.circle.fill",
-                style: .success,
-                actionLabel: actionLabel
-            ),
+        enqueue(InAppBannerItem(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            systemImage: "checkmark.circle.fill",
+            style: .success,
             action: action
-        )
+        ))
     }
 
     func showError(title: String, message: String) {
@@ -58,16 +54,13 @@ final class InAppNotificationCenter {
         notificationGenerator.notificationOccurred(.error)
         #endif
 
-        enqueue(
-            InAppBannerItem(
-                title: trimmedTitle,
-                message: trimmedMessage,
-                systemImage: "exclamationmark.triangle.fill",
-                style: .error,
-                actionLabel: nil
-            ),
+        enqueue(InAppBannerItem(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            systemImage: "exclamationmark.triangle.fill",
+            style: .error,
             action: nil
-        )
+        ))
     }
 
     func triggerImpact() {
@@ -100,7 +93,6 @@ final class InAppNotificationCenter {
         dismissTask?.cancel()
         dismissTask = nil
         currentBanner = nil
-        currentBannerAction = nil
 
         // Brief delay before showing next banner to allow for dismissal animation
         Task {
@@ -111,13 +103,13 @@ final class InAppNotificationCenter {
     }
 
     func fireCurrentBannerAction() {
-        let action = currentBannerAction
+        let action = currentBanner?.action
         dismissCurrentBanner()
-        action?()
+        action?.handler()
     }
 
-    private func enqueue(_ banner: InAppBannerItem, action: (() -> Void)?) {
-        queuedBanners.append((banner, action))
+    private func enqueue(_ banner: InAppBannerItem) {
+        queuedBanners.append(banner)
 
         if currentBanner == nil {
             showNext()
@@ -126,13 +118,11 @@ final class InAppNotificationCenter {
 
     private func showNext() {
         guard currentBanner == nil, !queuedBanners.isEmpty else { return }
-        let (nextBanner, action) = queuedBanners.removeFirst()
-        present(nextBanner, action: action)
+        present(queuedBanners.removeFirst())
     }
 
-    private func present(_ banner: InAppBannerItem, action: (() -> Void)?) {
+    private func present(_ banner: InAppBannerItem) {
         currentBanner = banner
-        currentBannerAction = action
         dismissTask?.cancel()
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3.5))
@@ -142,16 +132,27 @@ final class InAppNotificationCenter {
     }
 }
 
+struct InAppBannerAction {
+    let label: String
+    let handler: () -> Void
+}
+
 enum InAppBannerStyle: Sendable {
     case success
     case error
 }
 
-struct InAppBannerItem: Identifiable, Equatable, Sendable {
+struct InAppBannerItem: Identifiable, @unchecked Sendable {
     let id = UUID()
     let title: String
     let message: String
     let systemImage: String
     let style: InAppBannerStyle
-    let actionLabel: String?
+    let action: InAppBannerAction?
+}
+
+extension InAppBannerItem: Equatable {
+    static func == (lhs: InAppBannerItem, rhs: InAppBannerItem) -> Bool {
+        lhs.id == rhs.id
+    }
 }

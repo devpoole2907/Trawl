@@ -379,17 +379,21 @@ actor QBittorrentAPIClient {
     }
 
     func toggleSequentialDownload(hashes: [String]) async throws {
+        let sanitized = hashes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !sanitized.isEmpty else { return }
         let request = try buildFormRequest(
             path: "/api/v2/torrents/toggleSequentialDownload",
-            params: ["hashes": hashes.joined(separator: "|")]
+            params: ["hashes": sanitized.joined(separator: "|")]
         )
         try await performSuccessfulMutation(request, failureMessage: "Failed to toggle sequential download")
     }
 
     func toggleFirstLastPiecePriority(hashes: [String]) async throws {
+        let sanitized = hashes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !sanitized.isEmpty else { return }
         let request = try buildFormRequest(
             path: "/api/v2/torrents/toggleFirstLastPiecePrio",
-            params: ["hashes": hashes.joined(separator: "|")]
+            params: ["hashes": sanitized.joined(separator: "|")]
         )
         try await performSuccessfulMutation(request, failureMessage: "Failed to toggle first and last piece priority")
     }

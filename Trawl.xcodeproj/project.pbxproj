@@ -11,6 +11,7 @@
 		7C8E12A62F908FD800D5EBFA /* CSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A52F908FD800D5EBFA /* CSSH */; };
 		CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC100000CC100000CC100000 /* TrawlShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DD000021DD000021DD000021 /* SSHLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = DD100000DD100000DD100000 /* SSHLiveActivity.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		FF000021FF000021FF000021 /* TrawlWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = FF100000FF100000FF100000 /* TrawlWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -42,6 +43,13 @@
 			remoteGlobalIDString = DD000005DD000005DD000005;
 			remoteInfo = SSHLiveActivity;
 		};
+		FF900000FF900000FF900000 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7C724A122F81D5920073A650 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = FF000003FF000003FF000003;
+			remoteInfo = TrawlWidgets;
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -53,6 +61,7 @@
 			files = (
 				CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */,
 				DD000021DD000021DD000021 /* SSHLiveActivity.appex in Embed App Extensions */,
+				FF000021FF000021FF000021 /* TrawlWidgets.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -65,6 +74,7 @@
 		7C724A332F81D5940073A650 /* TrawlUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC100000CC100000CC100000 /* TrawlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD100000DD100000DD100000 /* SSHLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SSHLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF100000FF100000FF100000 /* TrawlWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE000001EE000001EE000001 /* TrawlMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrawlMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -166,6 +176,86 @@
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
 		};
+		FFB00000FFB00000FFB00000 /* Exceptions for "Trawl" folder in "TrawlWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrArtworkView.swift,
+				ArrStack/ArrBlocklistView.swift,
+				ArrStack/ArrCalendarView.swift,
+				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrHistoryView.swift,
+				ArrStack/ArrManualImportView.swift,
+				ArrStack/ArrNotificationModels.swift,
+				ArrStack/ArrServiceManager.swift,
+				ArrStack/ArrServicesSettingsView.swift,
+				ArrStack/ArrSetupSheet.swift,
+				ArrStack/ArrSetupViewModel.swift,
+				ArrStack/ArrSharedModels.swift,
+				ArrStack/ArrSheetShell.swift,
+				ArrStack/ArrWantedView.swift,
+				ArrStack/ProwlarrAddIndexerSheet.swift,
+				ArrStack/ProwlarrAPIClient.swift,
+				ArrStack/ProwlarrIndexerDetailView.swift,
+				ArrStack/ProwlarrIndexerListView.swift,
+				ArrStack/ProwlarrModels.swift,
+				ArrStack/ProwlarrSearchView.swift,
+				ArrStack/ProwlarrStatsView.swift,
+				ArrStack/ProwlarrViewModel.swift,
+				ArrStack/RadarrAddMovieSheet.swift,
+				ArrStack/RadarrEditMovieSheet.swift,
+				ArrStack/RadarrMovieDetailView.swift,
+				ArrStack/RadarrMovieListView.swift,
+				ArrStack/RadarrViewModel.swift,
+				ArrStack/SonarrAddSeriesSheet.swift,
+				ArrStack/SonarrEditSeriesSheet.swift,
+				ArrStack/SonarrSeriesDetailView.swift,
+				ArrStack/SonarrSeriesListView.swift,
+				ArrStack/SonarrViewModel.swift,
+				ArrStack/TMDbClient.swift,
+				Assets.xcassets,
+				CLAUDE_CODE_GUIDE.md,
+				Info.plist,
+				Services/AppServices.swift,
+				Services/ArtworkCache.swift,
+				Services/NotificationService.swift,
+				Services/SyncService.swift,
+				Services/TorrentService.swift,
+				SSH/SSHBackgroundService.swift,
+				SSH/SSHConnection.swift,
+				SSH/SSHProfileEditSheet.swift,
+				SSH/SSHProfileListView.swift,
+				SSH/SSHSessionView.swift,
+				SSH/SSHTerminalView.swift,
+				"TrawlApp-Info.plist",
+				TrawlApp.swift,
+				"TrawlMac-Info.plist",
+				ViewModels/AddTorrentViewModel.swift,
+				ViewModels/OnboardingViewModel.swift,
+				ViewModels/SettingsViewModel.swift,
+				ViewModels/TorrentDetailViewModel.swift,
+				ViewModels/TorrentListViewModel.swift,
+				Views/AddTorrentSheet.swift,
+				Views/ContentView.swift,
+				Views/DocumentPicker.swift,
+				Views/FileListView.swift,
+				Views/MoreView.swift,
+				Views/OnboardingSheet.swift,
+				Views/QBittorrentCategoriesAndTagsView.swift,
+				Views/QBittorrentCategoriesView.swift,
+				Views/QBittorrentRSSView.swift,
+				Views/QBittorrentTagsView.swift,
+				Views/SearchView.swift,
+				Views/ServerListView.swift,
+				Views/SettingsView.swift,
+				Views/TorrentDetailView.swift,
+				Views/TorrentListView.swift,
+				Views/TorrentRowView.swift,
+				Views/TorrentStatsView.swift,
+				Views/TrackerListView.swift,
+			);
+			target = FF000003FF000003FF000003 /* TrawlWidgets */;
+		};
 		DD000001DD000001DD000001 /* Exceptions for "TrawlLiveActivity" folder in "SSHLiveActivity" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -266,6 +356,19 @@
 			path = Trawl;
 			sourceTree = "<group>";
 		};
+		FF000013FF000013FF000013 /* Trawl */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FFB00000FFB00000FFB00000 /* Exceptions for "Trawl" folder in "TrawlWidgets" target */,
+			);
+			path = Trawl;
+			sourceTree = "<group>";
+		};
+		FF000014FF000014FF000014 /* TrawlWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = TrawlWidgets;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -313,6 +416,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FF400000FF400000FF400000 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -323,6 +433,7 @@
 				7C724A2C2F81D5940073A650 /* TrawlTests */,
 				7C724A362F81D5940073A650 /* TrawlUITests */,
 				DD000002DD000002DD000002 /* TrawlLiveActivity */,
+				FF000014FF000014FF000014 /* TrawlWidgets */,
 				7C724A1B2F81D5920073A650 /* Products */,
 				7C724DEA2F81E0170073A650 /* Recovered References */,
 			);
@@ -337,6 +448,7 @@
 				7C724A332F81D5940073A650 /* TrawlUITests.xctest */,
 				CC100000CC100000CC100000 /* TrawlShare.appex */,
 				DD100000DD100000DD100000 /* SSHLiveActivity.appex */,
+				FF100000FF100000FF100000 /* TrawlWidgets.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -346,6 +458,7 @@
 			children = (
 				CC000013CC000013CC000013 /* Trawl */,
 				EE000006EE000006EE000006 /* Trawl */,
+				FF000013FF000013FF000013 /* Trawl */,
 			);
 			name = "Recovered References";
 			sourceTree = "<group>";
@@ -367,6 +480,7 @@
 			dependencies = (
 				CCA00000CCA00000CCA00000 /* PBXTargetDependency */,
 				DDA00000DDA00000DDA00000 /* PBXTargetDependency */,
+				FFA00000FFA00000FFA00000 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				7C724A1C2F81D5920073A650 /* Trawl */,
@@ -492,6 +606,29 @@
 			productReference = EE000001EE000001EE000001 /* TrawlMac.app */;
 			productType = "com.apple.product-type.application";
 		};
+		FF000003FF000003FF000003 /* TrawlWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = FF800000FF800000FF800000 /* Build configuration list for PBXNativeTarget "TrawlWidgets" */;
+			buildPhases = (
+				FF300000FF300000FF300000 /* Sources */,
+				FF400000FF400000FF400000 /* Frameworks */,
+				FF500000FF500000FF500000 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				FF000013FF000013FF000013 /* Trawl */,
+				FF000014FF000014FF000014 /* TrawlWidgets */,
+			);
+			name = TrawlWidgets;
+			packageProductDependencies = (
+			);
+			productName = TrawlWidgets;
+			productReference = FF100000FF100000FF100000 /* TrawlWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -545,6 +682,7 @@
 				CC000003CC000003CC000003 /* TrawlShare */,
 				DD000005DD000005DD000005 /* SSHLiveActivity */,
 				EE000005EE000005EE000005 /* TrawlMac */,
+				FF000003FF000003FF000003 /* TrawlWidgets */,
 			);
 		};
 /* End PBXProject section */
@@ -586,6 +724,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		EE000004EE000004EE000004 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FF500000FF500000FF500000 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -637,6 +782,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		FF300000FF300000FF300000 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -659,6 +811,11 @@
 			isa = PBXTargetDependency;
 			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
 			targetProxy = DD900000DD900000DD900000 /* PBXContainerItemProxy */;
+		};
+		FFA00000FFA00000FFA00000 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = FF000003FF000003FF000003 /* TrawlWidgets */;
+			targetProxy = FF900000FF900000FF900000 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1126,6 +1283,66 @@
 			};
 			name = Release;
 		};
+		FF600000FF600000FF600000 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TrawlWidgets/TrawlWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TrawlWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl.TrawlWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		FF700000FF700000FF700000 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = TrawlWidgets/TrawlWidgets.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = L9DB7QA9DE;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = TrawlWidgets/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.poole.james.Trawl.TrawlWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -1188,6 +1405,15 @@
 			buildConfigurations = (
 				EE000008EE000008EE000008 /* Debug */,
 				EE000009EE000009EE000009 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		FF800000FF800000FF800000 /* Build configuration list for PBXNativeTarget "TrawlWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				FF600000FF600000FF600000 /* Debug */,
+				FF700000FF700000FF700000 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

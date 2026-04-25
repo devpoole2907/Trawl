@@ -9,7 +9,10 @@ import LocalAuthentication
 @Observable
 final class AppLockController {
     @ObservationIgnored
-    @AppStorage("appLock.enabled") private var storedEnabled: Bool = false
+    private var storedEnabled: Bool {
+        get { UserDefaults.standard.bool(forKey: "appLock.enabled") }
+        set { UserDefaults.standard.set(newValue, forKey: "appLock.enabled") }
+    }
 
     private(set) var isEnabled = false
     private(set) var isLocked = false
@@ -20,6 +23,14 @@ final class AppLockController {
 
     init() {
         refreshAvailability()
+        #if os(iOS)
+        isEnabled = storedEnabled
+        isLocked = storedEnabled
+        #else
+        isEnabled = false
+        isLocked = false
+        #endif
+        lastError = nil
     }
 
     func bootstrap() {
@@ -38,9 +49,7 @@ final class AppLockController {
     func handleScenePhase(_ new: ScenePhase, old: ScenePhase) {
         #if os(iOS)
         guard isEnabled else { return }
-        guard old == .active || new == .background else { return }
-
-        if new == .inactive || new == .background {
+        if new != .active {
             isLocked = true
         }
         #endif
@@ -70,8 +79,12 @@ final class AppLockController {
     func enable() async -> Bool {
         #if os(iOS)
         guard !isEnabled else { return true }
+        guard !isAuthenticating else { return false }
         refreshAvailability()
         guard availability.isUsable else { return false }
+
+        isAuthenticating = true
+        defer { isAuthenticating = false }
 
         switch await BiometricAuthService.authenticate(reason: "Enable app lock for Trawl.") {
         case .success:
@@ -81,9 +94,6 @@ final class AppLockController {
             lastError = nil
             return true
         case .failure(let error):
-            storedEnabled = false
-            isEnabled = false
-            isLocked = false
             lastError = error
             return false
         }
@@ -95,8 +105,12 @@ final class AppLockController {
     func disable() async -> Bool {
         #if os(iOS)
         guard isEnabled else { return true }
+        guard !isAuthenticating else { return false }
         refreshAvailability()
         guard availability.isUsable else { return false }
+
+        isAuthenticating = true
+        defer { isAuthenticating = false }
 
         switch await BiometricAuthService.authenticate(reason: "Disable app lock for Trawl.") {
         case .success:

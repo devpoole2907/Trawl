@@ -4,19 +4,19 @@ import SwiftData
 /// Represents a configured *arr service instance (Sonarr or Radarr).
 /// API key is stored in Keychain, not here.
 @Model
-final class ArrServiceProfile {
-    @Attribute(.unique) var id: UUID
-    var displayName: String
-    var hostURL: String              // e.g. "http://192.168.1.100:8989"
+public final class ArrServiceProfile {
+    @Attribute(.unique) public var id: UUID
+    public var displayName: String
+    public var hostURL: String              // e.g. "http://192.168.1.100:8989"
     private var allowsUntrustedTLSValue: Bool?
-    var serviceType: String          // "sonarr", "radarr", or "prowlarr"
-    var isEnabled: Bool
-    var dateAdded: Date
-    var lastSynced: Date?
-    var apiVersion: String?          // Populated from /api/v3/system/status
-    var importFolders: [String] = [] // Custom folders for manual importing
+    public var serviceType: String          // "sonarr", "radarr", or "prowlarr"
+    public var isEnabled: Bool
+    public var dateAdded: Date
+    public var lastSynced: Date?
+    public var apiVersion: String?          // Populated from /api/v3/system/status
+    public var importFolders: [String] = [] // Custom folders for manual importing
 
-    init(displayName: String, hostURL: String, serviceType: ArrServiceType, allowsUntrustedTLS: Bool = false) {
+    public init(displayName: String, hostURL: String, serviceType: ArrServiceType, allowsUntrustedTLS: Bool = false) {
         self.id = UUID()
         self.displayName = displayName
         self.hostURL = hostURL
@@ -26,27 +26,27 @@ final class ArrServiceProfile {
         self.dateAdded = .now
     }
 
-    var allowsUntrustedTLS: Bool {
+    public var allowsUntrustedTLS: Bool {
         get { allowsUntrustedTLSValue ?? false }
         set { allowsUntrustedTLSValue = newValue }
     }
 
     /// Keychain key for the API key
-    var apiKeyKeychainKey: String { "arr_\(id.uuidString)_apikey" }
+    public var apiKeyKeychainKey: String { "arr_\(id.uuidString)_apikey" }
 
-    var resolvedServiceType: ArrServiceType? {
+    public var resolvedServiceType: ArrServiceType? {
         ArrServiceType(rawValue: serviceType)
     }
 }
 
-enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
+public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
     case sonarr
     case radarr
     case prowlarr
 
-    var id: String { rawValue }
+    public var id: String { rawValue }
 
-    var displayName: String {
+    public var displayName: String {
         switch self {
         case .sonarr: "Sonarr"
         case .radarr: "Radarr"
@@ -54,7 +54,7 @@ enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var defaultPort: Int {
+    public var defaultPort: Int {
         switch self {
         case .sonarr: 8989
         case .radarr: 7878
@@ -62,7 +62,7 @@ enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
+    public var systemImage: String {
         switch self {
         case .sonarr: "tv"
         case .radarr: "film"
