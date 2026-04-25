@@ -1,9 +1,12 @@
 import Foundation
+import OSLog
 import SwiftData
 
 /// One-shot data helpers for WidgetKit timeline providers.
 /// Follows the same SwiftData + Keychain pattern as the Share extension.
 enum WidgetDataFetcher {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "WidgetDataFetcher")
+
     enum WidgetError: LocalizedError {
         case noServerConfigured
         case noArrServicesConfigured
@@ -117,13 +120,14 @@ enum WidgetDataFetcher {
 
         guard !profiles.isEmpty else { throw WidgetError.noArrServicesConfigured }
 
-        let now = Date()
-        let end = Calendar.current.date(byAdding: .day, value: days, to: now) ?? now
+        let apiStart = Date()
+        let filterStart = Calendar.current.startOfDay(for: apiStart)
+        let end = Calendar.current.date(byAdding: .day, value: days, to: apiStart) ?? apiStart
         var events: [WidgetCalendarEvent] = []
 
         await withTaskGroup(of: [WidgetCalendarEvent].self) { group in
             for profile in profiles {
-                group.addTask { await fetchArrEvents(profile: profile, start: now, end: end) }
+                group.addTask { await fetchArrEvents(profile: profile, apiStart: apiStart, filterStart: filterStart, end: end) }
             }
             for await batch in group {
                 events.append(contentsOf: batch)
@@ -137,12 +141,16 @@ enum WidgetDataFetcher {
 
     private static func fetchArrEvents(
         profile: ArrProfileSnapshot,
-        start: Date,
+        apiStart: Date,
+        filterStart: Date,
         end: Date
     ) async -> [WidgetCalendarEvent] {
         do {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
-                  !apiKey.isEmpty else { return [] }
+                  !apiKey.isEmpty else {
+                logger.error("Missing ARR API key for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public)")
+                return []
+            }
 
             switch profile.serviceType {
             case .sonarr:
@@ -151,10 +159,10 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let episodes = try await client.getCalendar(start: start, end: end, unmonitored: false, includeSeries: true)
+                let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: false, includeSeries: true)
                 return episodes.compactMap { ep -> WidgetCalendarEvent? in
                     guard let date = parseISO(ep.airDateUtc) ?? parseDayDate(ep.airDate),
-                          date >= start else { return nil }
+                          date >= filterStart else { return nil }
                     return WidgetCalendarEvent(
                         id: "ep-\(ep.id)",
                         date: date,
@@ -174,7 +182,7 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let movies = try await client.getCalendar(start: start, end: end, unmonitored: false)
+                let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: false)
                 return movies.flatMap { movie -> [WidgetCalendarEvent] in
                     let releases: [(String?, String, String)] = [
                         (movie.digitalRelease, "Digital", "blue"),
@@ -184,7 +192,7 @@ enum WidgetDataFetcher {
                     return releases.compactMap { (dateStr, label, color) in
                         guard let dateStr,
                               let date = parseISO(dateStr),
-                              date >= start else { return nil }
+                              date >= filterStart else { return nil }
                         return WidgetCalendarEvent(
                             id: "movie-\(movie.id)-\(label)",
                             date: date,
@@ -203,6 +211,7 @@ enum WidgetDataFetcher {
                 return []
             }
         } catch {
+            logger.error("ARR fetch failed for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
             return []
         }
     }

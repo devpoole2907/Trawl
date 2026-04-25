@@ -82,8 +82,12 @@ struct CalendarProvider: TimelineProvider {
             do {
                 let allEvents = try await WidgetDataFetcher.fetchUpcomingReleases(days: 14)
                 let entries = buildEntries(from: allEvents)
-                // After 14 days, re-fetch
-                let nextUpdate = Calendar.current.date(byAdding: .day, value: 14, to: .now) ?? .now
+                let nextUpdate: Date
+                if entries.isEmpty {
+                    nextUpdate = Calendar.current.date(byAdding: .hour, value: 6, to: .now) ?? .now
+                } else {
+                    nextUpdate = Calendar.current.date(byAdding: .day, value: 14, to: .now) ?? .now
+                }
                 completion(Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate)))
             } catch {
                 let nextUpdate = Calendar.current.date(byAdding: .hour, value: 12, to: .now) ?? .now
@@ -183,7 +187,7 @@ struct CalendarWidgetEntryView: View {
 
     @ViewBuilder
     private func eventRow(_ event: WidgetCalendarEvent, isLast: Bool) -> some View {
-        let destination = URL(string: "trawl://calendar") ?? URL(string: "trawl://")!
+        let destination = URL(string: "trawl://calendar")!
         Link(destination: destination) {
             HStack(spacing: family == .systemLarge ? 10 : 8) {
                 if family == .systemLarge {
