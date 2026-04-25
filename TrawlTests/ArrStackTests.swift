@@ -831,3 +831,398 @@ struct MiscellaneousParsingTests {
         #expect(tag.label == "4k")
     }
 }
+
+// MARK: - New tests for PR: ArrStack quality-profile CRUD, command polling, manual-import helpers
+
+@Suite("ArrCommand Computed Property Tests")
+struct ArrCommandTests {
+    private func makeCommand(status: String?) throws -> ArrCommand {
+        var json: [String: Any] = ["id": 42]
+        if let status { json["status"] = status }
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(ArrCommand.self, from: data)
+    }
+
+    // isTerminal — all five terminal statuses
+    @Test("isTerminal returns true for terminal statuses", arguments: [
+        "completed", "failed", "aborted", "cancelled", "orphaned"
+    ])
+    func isTerminalForTerminalStatuses(status: String) throws {
+        let command = try makeCommand(status: status)
+        #expect(command.isTerminal == true)
+    }
+
+    // isTerminal — non-terminal statuses
+    @Test("isTerminal returns false for non-terminal statuses", arguments: [
+        "queued" as String?, "started", nil
+    ])
+    func isNotTerminalForNonTerminalStatuses(status: String?) throws {
+        let command = try makeCommand(status: status)
+        #expect(command.isTerminal == false)
+    }
+
+    // succeeded — only "completed" maps to true
+    @Test("succeeded is true only for completed", arguments: [
+        ("completed", true),
+        ("failed", false),
+        ("aborted", false),
+        ("cancelled", false),
+        ("orphaned", false),
+        ("queued", false)
+    ])
+    func succeededForStatus(status: String, expected: Bool) throws {
+        let command = try makeCommand(status: status)
+        #expect(command.succeeded == expected)
+    }
+
+    @Test("succeeded is false when status is nil")
+    func succeededWhenStatusNil() throws {
+        let command = try makeCommand(status: nil)
+        #expect(command.succeeded == false)
+    }
+
+    @Test("ArrCommand decodes id and exception fields")
+    func decodesIdAndException() throws {
+        let json = #"{"id":7,"name":"ManualImport","status":"failed","exception":"File not found"}"#
+        let data = try #require(json.data(using: .utf8))
+        let command = try JSONDecoder().decode(ArrCommand.self, from: data)
+        #expect(command.id == 7)
+        #expect(command.exception == "File not found")
+        #expect(command.isTerminal == true)
+        #expect(command.succeeded == false)
+    }
+
+    @Test("ArrCommand with nil id decodes without crashing")
+    func nilIdDecodes() throws {
+        let json = #"{"status":"queued"}"#
+        let data = try #require(json.data(using: .utf8))
+        let command = try JSONDecoder().decode(ArrCommand.self, from: data)
+        #expect(command.id == nil)
+        #expect(command.isTerminal == false)
+    }
+
+    @Test("ArrCommand round-trip encode/decode preserves status")
+    func roundTripEncoding() throws {
+        let original = try makeCommand(status: "completed")
+        let encoded = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(ArrCommand.self, from: encoded)
+        #expect(decoded.status == "completed")
+        #expect(decoded.isTerminal == true)
+        #expect(decoded.succeeded == true)
+    }
+}
+
+@Suite("ArrError commandTimeout Description Tests")
+struct ArrErrorCommandTimeoutTests {
+    @Test("commandTimeout with status in lastKnownCommand")
+    func descriptionWithStatus() throws {
+        let json = #"{"id":99,"status":"failed"}"#
+        let data = try #require(json.data(using: .utf8))
+        let command = try JSONDecoder().decode(ArrCommand.self, from: data)
+        let error = ArrError.commandTimeout(commandId: 99, lastKnownCommand: command)
+        let desc = try #require(error.errorDescription)
+        #expect(desc.contains("99"))
+        #expect(desc.contains("failed"))
+        #expect(desc.contains("timed out"))
+    }
+
+    @Test("commandTimeout without lastKnownCommand")
+    func descriptionWithoutCommand() {
+        let error = ArrError.commandTimeout(commandId: 5, lastKnownCommand: nil)
+        let desc = error.errorDescription ?? ""
+        #expect(desc.contains("5"))
+        #expect(desc.contains("did not finish") || desc.contains("timeout"))
+    }
+
+    @Test("commandTimeout with nil commandId")
+    func descriptionWithNilCommandId() {
+        let error = ArrError.commandTimeout(commandId: nil, lastKnownCommand: nil)
+        let desc = error.errorDescription ?? ""
+        // Should not crash; should contain a sentinel like -1
+        #expect(!desc.isEmpty)
+    }
+
+    @Test("commandTimeout with command having nil status")
+    func descriptionWithCommandNilStatus() throws {
+        let json = #"{"id":12}"#
+        let data = try #require(json.data(using: .utf8))
+        let command = try JSONDecoder().decode(ArrCommand.self, from: data)
+        let error = ArrError.commandTimeout(commandId: 12, lastKnownCommand: command)
+        let desc = error.errorDescription ?? ""
+        // When status is nil, falls back to the "did not finish" message
+        #expect(desc.contains("did not finish") || desc.contains("timeout") || desc.contains("12"))
+    }
+}
+
+@Suite("ArrQualityProfile Encoding Tests (CRUD)")
+struct ArrQualityProfileCRUDTests {
+    private func makeProfile(id: Int = 1, name: String = "HD-1080p", upgradeAllowed: Bool = true, cutoff: Int = 5) -> ArrQualityProfile {
+        ArrQualityProfile(id: id, name: name, upgradeAllowed: upgradeAllowed, cutoff: cutoff, items: nil)
+    }
+
+    @Test("ArrQualityProfile encodes id and name (required for PUT body)")
+    func encodesIdAndName() throws {
+        let profile = makeProfile(id: 3, name: "4K-HDR")
+        let data = try JSONEncoder().encode(profile)
+        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        #expect(dict?["id"] as? Int == 3)
+        #expect(dict?["name"] as? String == "4K-HDR")
+    }
+
+    @Test("ArrQualityProfile round-trip preserves all fields")
+    func roundTrip() throws {
+        let json = #"{"id":7,"name":"WEB-DL","upgradeAllowed":false,"cutoff":3,"items":[]}"#
+        let data = try #require(json.data(using: .utf8))
+        let profile = try JSONDecoder().decode(ArrQualityProfile.self, from: data)
+        #expect(profile.id == 7)
+        #expect(profile.name == "WEB-DL")
+        #expect(profile.upgradeAllowed == false)
+        #expect(profile.cutoff == 3)
+        #expect(profile.items?.isEmpty == true)
+
+        let reencoded = try JSONEncoder().encode(profile)
+        let redict = try JSONSerialization.jsonObject(with: reencoded) as? [String: Any]
+        #expect(redict?["id"] as? Int == 7)
+        #expect(redict?["name"] as? String == "WEB-DL")
+    }
+
+    @Test("ArrQualityProfile with nested quality items encodes items array")
+    func encodesItems() throws {
+        let quality = ArrQuality(id: 10, name: "Bluray-1080p", source: nil, resolution: 1080)
+        let item = ArrQualityProfileItem(quality: quality, allowed: true, items: nil)
+        let profile = ArrQualityProfile(id: 2, name: "Bluray", upgradeAllowed: true, cutoff: 10, items: [item])
+        let data = try JSONEncoder().encode(profile)
+        let dict = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        let items = dict?["items"] as? [[String: Any]]
+        #expect(items?.count == 1)
+        #expect(items?.first?["allowed"] as? Bool == true)
+    }
+
+    @Test("ArrQualityProfile id mutability allows update flow")
+    func idMutability() {
+        var profile = makeProfile(id: 0, name: "New Profile")
+        // Simulates server assigning an id after create
+        profile.id = 99
+        #expect(profile.id == 99)
+    }
+
+    @Test("ArrQualityProfile decoding with missing optional fields")
+    func decodingMissingOptionals() throws {
+        let json = #"{"id":1,"name":"Any"}"#
+        let data = try #require(json.data(using: .utf8))
+        let profile = try JSONDecoder().decode(ArrQualityProfile.self, from: data)
+        #expect(profile.name == "Any")
+        #expect(profile.upgradeAllowed == nil)
+        #expect(profile.cutoff == nil)
+        #expect(profile.items == nil)
+    }
+}
+
+@Suite("JSONValue Codable Tests")
+struct JSONValueTests {
+    @Test("Decodes string")
+    func decodesString() throws {
+        let json = #""hello""#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .string(let s) = value else {
+            Issue.record("Expected .string, got \(value)")
+            return
+        }
+        #expect(s == "hello")
+    }
+
+    @Test("Decodes number")
+    func decodesNumber() throws {
+        let json = #"3.14"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .number(let n) = value else {
+            Issue.record("Expected .number, got \(value)")
+            return
+        }
+        #expect(abs(n - 3.14) < 0.0001)
+    }
+
+    @Test("Decodes bool true and false", arguments: [
+        (#"true"#, true),
+        (#"false"#, false)
+    ])
+    func decodesBool(json: String, expected: Bool) throws {
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .bool(let b) = value else {
+            Issue.record("Expected .bool, got \(value)")
+            return
+        }
+        #expect(b == expected)
+    }
+
+    @Test("Decodes null")
+    func decodesNull() throws {
+        let json = #"null"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .null = value else {
+            Issue.record("Expected .null, got \(value)")
+            return
+        }
+    }
+
+    @Test("Decodes object")
+    func decodesObject() throws {
+        let json = #"{"key":"value","count":42}"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .object(let dict) = value else {
+            Issue.record("Expected .object, got \(value)")
+            return
+        }
+        #expect(dict.count == 2)
+        if case .string(let s) = dict["key"] { #expect(s == "value") } else { Issue.record("Missing 'key'") }
+        if case .number(let n) = dict["count"] { #expect(Int(n) == 42) } else { Issue.record("Missing 'count'") }
+    }
+
+    @Test("Decodes array")
+    func decodesArray() throws {
+        let json = #"["a",1,true,null]"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .array(let arr) = value else {
+            Issue.record("Expected .array, got \(value)")
+            return
+        }
+        #expect(arr.count == 4)
+        guard case .string(let s) = arr[0] else { Issue.record("arr[0] not string"); return }
+        #expect(s == "a")
+        guard case .null = arr[3] else { Issue.record("arr[3] not null"); return }
+    }
+
+    @Test("Encodes and decodes string round-trip")
+    func stringRoundTrip() throws {
+        let original = JSONValue.string("round-trip test")
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .string(let s) = decoded else { Issue.record("Expected .string"); return }
+        #expect(s == "round-trip test")
+    }
+
+    @Test("Encodes and decodes null round-trip")
+    func nullRoundTrip() throws {
+        let original = JSONValue.null
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .null = decoded else { Issue.record("Expected .null"); return }
+    }
+
+    @Test("Encodes and decodes object round-trip")
+    func objectRoundTrip() throws {
+        let original = JSONValue.object(["name": .string("Sonarr"), "port": .number(8989), "enabled": .bool(true)])
+        let data = try JSONEncoder().encode(original)
+        let decoded = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .object(let dict) = decoded else { Issue.record("Expected .object"); return }
+        #expect(dict.count == 3)
+        if case .string(let s) = dict["name"] { #expect(s == "Sonarr") } else { Issue.record("name mismatch") }
+        if case .number(let n) = dict["port"] { #expect(Int(n) == 8989) } else { Issue.record("port mismatch") }
+        if case .bool(let b) = dict["enabled"] { #expect(b == true) } else { Issue.record("enabled mismatch") }
+    }
+
+    @Test("rawValue returns correct Swift types")
+    func rawValues() {
+        #expect(JSONValue.string("x").rawValue as? String == "x")
+        #expect(JSONValue.number(2.5).rawValue as? Double == 2.5)
+        #expect(JSONValue.bool(false).rawValue as? Bool == false)
+        #expect(JSONValue.null.rawValue is NSNull)
+        let arr = JSONValue.array([.string("a")])
+        #expect((arr.rawValue as? [Any])?.count == 1)
+        let obj = JSONValue.object(["k": .string("v")])
+        #expect((obj.rawValue as? [String: Any])?["k"] as? String == "v")
+    }
+
+    @Test("Nested object with array decodes correctly")
+    func nestedObjectWithArray() throws {
+        let json = #"{"files":[{"path":"/media/movie.mkv","size":1234567890}]}"#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .object(let outer) = value,
+              case .array(let files) = outer["files"],
+              case .object(let file) = files.first,
+              case .string(let path) = file["path"] else {
+            Issue.record("Unexpected structure")
+            return
+        }
+        #expect(path == "/media/movie.mkv")
+    }
+
+    @Test("importJSON-style mutation: sets movieId key in object")
+    func objectKeyMutation() throws {
+        // Simulate the importJSON(service:) logic for Radarr
+        let json = #"{"path":"/media/movie.mkv","size":100}"#
+        let data = try #require(json.data(using: .utf8))
+        let original = try JSONDecoder().decode(JSONValue.self, from: data)
+        guard case .object(var dict) = original else {
+            Issue.record("Expected .object")
+            return
+        }
+        let mediaID = 42
+        dict["movieId"] = .number(Double(mediaID))
+        let mutated = JSONValue.object(dict)
+
+        guard case .object(let result) = mutated,
+              case .number(let n) = result["movieId"] else {
+            Issue.record("movieId not set")
+            return
+        }
+        #expect(Int(n) == 42)
+    }
+}
+
+@Suite("ArrError unsupportedNotificationsService Tests")
+struct ArrErrorUnsupportedNotificationsTests {
+    @Test("unsupportedNotificationsService includes service name in description")
+    func includesServiceName() {
+        let error = ArrError.unsupportedNotificationsService("Prowlarr")
+        let desc = error.errorDescription ?? ""
+        #expect(desc.contains("Prowlarr"))
+        #expect(desc.contains("not support") || desc.contains("does not support"))
+    }
+}
+
+@Suite("ArrQueueItem outputPath Tests")
+struct ArrQueueItemOutputPathTests {
+    @Test("outputPath decodes when present")
+    func decodesOutputPath() throws {
+        let json = #"{"id":1,"outputPath":"/downloads/Movie.2024"}"#
+        let data = try #require(json.data(using: .utf8))
+        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
+        #expect(item.outputPath == "/downloads/Movie.2024")
+    }
+
+    @Test("outputPath is nil when absent")
+    func nilWhenAbsent() throws {
+        let json = #"{"id":2}"#
+        let data = try #require(json.data(using: .utf8))
+        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
+        #expect(item.outputPath == nil)
+    }
+
+    @Test("items with warning trackedDownloadStatus and outputPath are import candidates")
+    func warningStatusWithOutputPath() throws {
+        let json = #"{"id":3,"trackedDownloadStatus":"warning","outputPath":"/downloads/Show.S01E01"}"#
+        let data = try #require(json.data(using: .utf8))
+        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
+        #expect(item.trackedDownloadStatus == "warning")
+        #expect(item.outputPath == "/downloads/Show.S01E01")
+        #expect(item.isImportIssueQueueItem == true)
+    }
+
+    @Test("items with error trackedDownloadStatus and outputPath are import candidates")
+    func errorStatusWithOutputPath() throws {
+        let json = #"{"id":4,"trackedDownloadStatus":"error","outputPath":"/downloads/Movie"}"#
+        let data = try #require(json.data(using: .utf8))
+        let item = try JSONDecoder().decode(ArrQueueItem.self, from: data)
+        #expect(item.trackedDownloadStatus == "error")
+        #expect(item.outputPath == "/downloads/Movie")
+        #expect(item.isImportIssueQueueItem == true)
+    }
+}
