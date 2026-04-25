@@ -86,7 +86,7 @@ struct CalendarProvider: TimelineProvider {
                 if entries.isEmpty {
                     nextUpdate = Calendar.current.date(byAdding: .hour, value: 6, to: .now) ?? .now
                 } else {
-                    nextUpdate = Calendar.current.date(byAdding: .day, value: 14, to: .now) ?? .now
+                    nextUpdate = Calendar.current.date(byAdding: .hour, value: 5, to: .now) ?? .now
                 }
                 completion(Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate)))
             } catch {

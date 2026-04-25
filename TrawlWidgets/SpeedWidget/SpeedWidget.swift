@@ -205,9 +205,9 @@ struct SpeedWidgetEntryView: View {
             Text(label)
                 .font(.caption2)
                 .foregroundStyle(.tertiary)
-            Text(limit == 0 ? "Unlimited" : ByteFormatter.formatSpeed(bytesPerSecond: limit))
+            Text(limit <= 0 ? "Unlimited" : ByteFormatter.formatSpeed(bytesPerSecond: limit))
                 .font(.caption.weight(.medium))
-                .foregroundStyle(limit == 0 ? .secondary : color)
+                .foregroundStyle(limit <= 0 ? .secondary : color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
         }

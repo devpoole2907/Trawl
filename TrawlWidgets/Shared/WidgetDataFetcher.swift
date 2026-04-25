@@ -62,8 +62,7 @@ enum WidgetDataFetcher {
             let server: ServerProfile?
             if let serverID, let id = UUID(uuidString: serverID) {
                 server = all.first(where: { $0.id == id })
-                    ?? all.first(where: { $0.isActive })
-                    ?? all.first
+                guard server != nil else { throw WidgetError.noServerConfigured }
             } else {
                 server = all.first(where: { $0.isActive }) ?? all.first
             }
@@ -152,6 +151,8 @@ enum WidgetDataFetcher {
                 return []
             }
 
+            let profileQualifier = profile.hostURL.replacingOccurrences(of: "://", with: "-").replacingOccurrences(of: "/", with: "-")
+
             switch profile.serviceType {
             case .sonarr:
                 let client = SonarrAPIClient(
@@ -164,7 +165,7 @@ enum WidgetDataFetcher {
                     guard let date = parseISO(ep.airDateUtc) ?? parseDayDate(ep.airDate),
                           date >= filterStart else { return nil }
                     return WidgetCalendarEvent(
-                        id: "ep-\(ep.id)",
+                        id: "ep-\(profileQualifier)-\(ep.id)",
                         date: date,
                         title: ep.series?.title ?? "Unknown Series",
                         subtitle: ep.episodeIdentifier,
@@ -194,7 +195,7 @@ enum WidgetDataFetcher {
                               let date = parseISO(dateStr),
                               date >= filterStart else { return nil }
                         return WidgetCalendarEvent(
-                            id: "movie-\(movie.id)-\(label)",
+                            id: "movie-\(profileQualifier)-\(movie.id)-\(label)",
                             date: date,
                             title: movie.title,
                             subtitle: movie.year.map(String.init),
