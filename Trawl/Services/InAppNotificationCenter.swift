@@ -76,6 +76,14 @@ final class InAppNotificationCenter {
         #endif
     }
 
+    func reportFailure(_ action: String, error: Error) {
+        showError(title: "\(action) Failed", message: error.localizedDescription)
+    }
+
+    func reportFailure(_ action: String, message: String) {
+        showError(title: "\(action) Failed", message: message)
+    }
+
     func showMonitoringChanged(itemName: String, itemType: String, isMonitoring: Bool) {
         let trimmedName = itemName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedType = itemType.trimmingCharacters(in: .whitespacesAndNewlines)

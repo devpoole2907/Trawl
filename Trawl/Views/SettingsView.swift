@@ -271,15 +271,6 @@ struct SettingsView: View {
                 }
             }
             
-            // TODO: Remove before release
-            Section("Debug") {
-                Button("Test Success Notification") {
-                    inAppNotificationCenter.showSuccess(title: "Test Success", message: "This is a test success notification.")
-                }
-                Button("Test Error Notification") {
-                    inAppNotificationCenter.showError(title: "Test Error", message: "This is a test error notification.")
-                }
-            }
         }
         #if os(macOS)
         .formStyle(.grouped)

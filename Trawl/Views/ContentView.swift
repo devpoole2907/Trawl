@@ -30,6 +30,7 @@ struct ContentView: View {
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
     @State private var didEvaluateWelcomeState = false
+    @State private var servicesTask: Task<Void, Never>?
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -579,6 +580,8 @@ struct ContentView: View {
     }
 
     private func initializeServices() {
+        servicesTask?.cancel()
+
         guard let server = activeServer else {
             appServices?.syncService.stopPolling()
             appServices = nil
@@ -587,18 +590,17 @@ struct ContentView: View {
             return
         }
 
-        let initiatingServerID = server.id
         let previousServices = appServices
         isConnecting = true
         connectionError = nil
 
-        Task {
+        servicesTask = Task {
             do {
                 let username = try await KeychainHelper.shared.read(key: server.usernameKey) ?? ""
                 let password = try await KeychainHelper.shared.read(key: server.passwordKey) ?? ""
 
                 guard !username.isEmpty, !password.isEmpty else {
-                    guard activeServerID == initiatingServerID else { return }
+                    guard !Task.isCancelled else { return }
                     previousServices?.syncService.stopPolling()
                     appServices = nil
                     connectionError = "Credentials not found. Please re-enter your server details."
@@ -607,13 +609,13 @@ struct ContentView: View {
                 }
 
                 let services = try await AppServices.build(from: server, username: username, password: password)
-                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
                 previousServices?.syncService.stopPolling()
                 await services.syncService.refreshNow()
-                guard !Task.isCancelled, activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
@@ -630,7 +632,7 @@ struct ContentView: View {
                     )
                 }
 
-                guard activeServerID == initiatingServerID else {
+                guard !Task.isCancelled else {
                     services.syncService.stopPolling()
                     return
                 }
@@ -653,7 +655,7 @@ struct ContentView: View {
                     pendingMagnetURL = nil
                 }
             } catch {
-                guard activeServerID == initiatingServerID else { return }
+                guard !Task.isCancelled else { return }
                 previousServices?.syncService.stopPolling()
                 appServices = nil
                 connectionError = error.localizedDescription

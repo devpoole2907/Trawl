@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 #if os(iOS)
 import LocalAuthentication
 #endif
@@ -9,6 +12,7 @@ struct AppLockView: View {
 
     var body: some View {
         VStack(spacing: 24) {
+            #if canImport(UIKit)
             if let uiImage = UIImage(named: "AppIcon") {
                 Image(uiImage: uiImage)
                     .resizable()
@@ -17,6 +21,7 @@ struct AppLockView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 22))
                     .shadow(color: .black.opacity(0.14), radius: 18, y: 8)
             }
+            #endif
 
             VStack(spacing: 8) {
                 Text("Trawl Is Locked")
