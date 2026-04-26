@@ -343,15 +343,31 @@ private final class ManualImportScanViewModel {
 
             importableFiles = []
             blockedFiles = []
+
+            var nextImportableBatch: [ManualImportItem] = []
+            var nextBlockedBatch: [ManualImportItem] = []
+
             for (index, file) in scannedFiles.enumerated() {
                 if file.isImportable {
-                    importableFiles.append(file)
+                    nextImportableBatch.append(file)
                 } else {
-                    blockedFiles.append(file)
+                    nextBlockedBatch.append(file)
                 }
 
-                if index > 0 && index.isMultiple(of: progressiveRevealBatchSize) {
-                    try await Task.sleep(for: progressiveRevealDelay)
+                let reachedBatchBoundary = index > 0 && index.isMultiple(of: progressiveRevealBatchSize)
+                let isLastItem = index == scannedFiles.indices.last
+
+                if reachedBatchBoundary || isLastItem {
+                    withAnimation(.snappy) {
+                        importableFiles.append(contentsOf: nextImportableBatch)
+                        blockedFiles.append(contentsOf: nextBlockedBatch)
+                    }
+                    nextImportableBatch.removeAll(keepingCapacity: true)
+                    nextBlockedBatch.removeAll(keepingCapacity: true)
+
+                    if !isLastItem {
+                        try await Task.sleep(for: progressiveRevealDelay)
+                    }
                 }
             }
 
