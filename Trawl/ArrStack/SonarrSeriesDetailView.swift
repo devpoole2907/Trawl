@@ -140,11 +140,16 @@ struct SonarrSeriesDetailView: View {
                     await viewModel.loadQueue()
                     let currentIds = Set(viewModel.queue.map(\.id))
                     if !knownQueueIds.subtracting(currentIds).isEmpty {
+                        guard !Task.isCancelled else { break }
                         await viewModel.loadEpisodes(for: id)
                         await viewModel.loadEpisodeFiles(for: id)
                     }
                     knownQueueIds = currentIds
-                    try? await Task.sleep(for: .seconds(2))
+                    do {
+                        try await Task.sleep(for: .seconds(30))
+                    } catch is CancellationError {
+                        break
+                    }
                 }
             }
         }
