@@ -254,6 +254,8 @@ struct AddImportLocationSheet: View {
 @MainActor
 private final class ManualImportScanViewModel {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrManualImportView")
+    private let progressiveRevealBatchSize = 25
+    private let progressiveRevealDelay: Duration = .milliseconds(16)
 
     let path: String
     let service: ArrServiceType
@@ -338,8 +340,37 @@ private final class ManualImportScanViewModel {
         do {
             let jsonValues = try await getManualImport(folder: path)
             let scannedFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
-            importableFiles = scannedFiles.filter(\.isImportable)
-            blockedFiles = scannedFiles.filter { !$0.isImportable }
+
+            importableFiles = []
+            blockedFiles = []
+
+            var nextImportableBatch: [ManualImportItem] = []
+            var nextBlockedBatch: [ManualImportItem] = []
+
+            for (index, file) in scannedFiles.enumerated() {
+                if file.isImportable {
+                    nextImportableBatch.append(file)
+                } else {
+                    nextBlockedBatch.append(file)
+                }
+
+                let reachedBatchBoundary = index > 0 && index.isMultiple(of: progressiveRevealBatchSize)
+                let isLastItem = index == scannedFiles.indices.last
+
+                if reachedBatchBoundary || isLastItem {
+                    withAnimation(.snappy) {
+                        importableFiles.append(contentsOf: nextImportableBatch)
+                        blockedFiles.append(contentsOf: nextBlockedBatch)
+                    }
+                    nextImportableBatch.removeAll(keepingCapacity: true)
+                    nextBlockedBatch.removeAll(keepingCapacity: true)
+
+                    if !isLastItem {
+                        try await Task.sleep(for: progressiveRevealDelay)
+                    }
+                }
+            }
+
             let availableIDs = Set(importableFiles.map(\.id))
             selectedFiles = selectedFiles.intersection(availableIDs)
             let blockedIDs = Set(blockedFiles.map(\.id))
@@ -389,7 +420,6 @@ private final class ManualImportScanViewModel {
             let command = try await manualImport(files: filesToImport)
             Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
-            // Check if command is still in progress (non-terminal)
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
                 InAppNotificationCenter.shared.showSuccess(

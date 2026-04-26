@@ -96,20 +96,24 @@ struct SpeedWidgetEntryView: View {
         }
     }
 
-    // MARK: Small — icon + DL + UL + server name
+    // MARK: Small
 
     private var smallLayout: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Image(systemName: "app.fill")
-                .font(.system(size: 28))
-                .foregroundStyle(.tint)
-                .frame(width: 32, height: 32)
+            HStack(spacing: 4) {
+                Image(systemName: "arrow.down.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.blue)
+                Image(systemName: "arrow.up.circle")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.green)
+            }
 
             Spacer(minLength: 8)
 
             speedRow(
                 icon: "arrow.down.circle.fill",
-                color: .green,
+                color: .blue,
                 speed: entry.dlSpeed,
                 font: .title3.weight(.semibold)
             )
@@ -117,7 +121,7 @@ struct SpeedWidgetEntryView: View {
 
             speedRow(
                 icon: "arrow.up.circle.fill",
-                color: .blue,
+                color: .green,
                 speed: entry.upSpeed,
                 font: .title3.weight(.semibold)
             )
@@ -134,21 +138,25 @@ struct SpeedWidgetEntryView: View {
         .widgetURL(URL(string: "trawl://torrents"))
     }
 
-    // MARK: Medium — speeds left, limits + status right
+    // MARK: Medium
 
     private var mediumLayout: some View {
         HStack(spacing: 0) {
             // Left column: speeds
             VStack(alignment: .leading, spacing: 6) {
-                Image(systemName: "app.fill")
-                    .font(.system(size: 24))
-                    .foregroundStyle(.tint)
-                    .frame(width: 28, height: 28)
+                HStack(spacing: 4) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.blue)
+                    Image(systemName: "arrow.up.circle")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.green)
+                }
 
                 Spacer(minLength: 4)
 
-                speedRow(icon: "arrow.down.circle.fill", color: .green, speed: entry.dlSpeed, font: .headline.weight(.semibold))
-                speedRow(icon: "arrow.up.circle.fill", color: .blue, speed: entry.upSpeed, font: .headline.weight(.semibold))
+                speedRow(icon: "arrow.down.circle.fill", color: .blue, speed: entry.dlSpeed, font: .headline.weight(.semibold))
+                speedRow(icon: "arrow.up.circle.fill", color: .green, speed: entry.upSpeed, font: .headline.weight(.semibold))
 
                 Spacer(minLength: 4)
 
@@ -165,8 +173,8 @@ struct SpeedWidgetEntryView: View {
 
             // Right column: limits + activity
             VStack(alignment: .leading, spacing: 6) {
-                limitRow(label: "DL Limit", limit: entry.dlLimit, color: .green)
-                limitRow(label: "UL Limit", limit: entry.upLimit, color: .blue)
+                limitRow(label: "DL Limit", limit: entry.dlLimit, color: .blue)
+                limitRow(label: "UL Limit", limit: entry.upLimit, color: .green)
 
                 Spacer(minLength: 4)
 
@@ -195,6 +203,7 @@ struct SpeedWidgetEntryView: View {
                 .font(font)
             Text(ByteFormatter.formatSpeed(bytesPerSecond: speed))
                 .font(font.monospaced())
+                .monospacedDigit()
                 .lineLimit(1)
                 .minimumScaleFactor(0.7)
         }
@@ -207,6 +216,7 @@ struct SpeedWidgetEntryView: View {
                 .foregroundStyle(.tertiary)
             Text(limit <= 0 ? "Unlimited" : ByteFormatter.formatSpeed(bytesPerSecond: limit))
                 .font(.caption.weight(.medium))
+                .monospacedDigit()
                 .foregroundStyle(limit <= 0 ? .secondary : color)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)

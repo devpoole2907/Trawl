@@ -194,8 +194,14 @@ struct RadarrMovieDetailView: View {
         .task(id: resolvedLibraryId) {
             guard let id = resolvedLibraryId else { return }
             await viewModel.loadMovieFiles(movieId: id)
+            var knownQueueIds = Set(viewModel.queue.map(\.id))
             while !Task.isCancelled {
                 await viewModel.loadQueue()
+                let currentIds = Set(viewModel.queue.map(\.id))
+                if !knownQueueIds.subtracting(currentIds).isEmpty {
+                    await viewModel.loadMovieFiles(movieId: id)
+                }
+                knownQueueIds = currentIds
                 try? await Task.sleep(for: .seconds(2))
             }
         }

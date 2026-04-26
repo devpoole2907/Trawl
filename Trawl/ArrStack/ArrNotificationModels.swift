@@ -1,6 +1,6 @@
 import Foundation
 
-struct ArrNotification: Codable, Identifiable, Sendable {
+nonisolated struct ArrNotification: Codable, Identifiable, Sendable {
     let id: Int?
     let name: String
     let onGrab: Bool
@@ -26,7 +26,7 @@ struct ArrNotification: Codable, Identifiable, Sendable {
     let tags: [Int]
 }
 
-struct ArrNotificationField: Codable, Sendable {
+nonisolated struct ArrNotificationField: Codable, Sendable {
     let name: String
     let value: JSONValue?
 }

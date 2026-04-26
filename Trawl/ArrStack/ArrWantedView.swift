@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ArrWantedView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(\.dismiss) private var dismiss
 
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
@@ -10,8 +11,11 @@ struct ArrWantedView: View {
     @State private var showSearchAllConfirm = false
     @State private var isSearchingAll = false
 
-    init(initialScope: ArrWantedScope = .all) {
+    let showsCloseButton: Bool
+
+    init(initialScope: ArrWantedScope = .all, showsCloseButton: Bool = false) {
         _scope = State(initialValue: initialScope)
+        self.showsCloseButton = showsCloseButton
     }
 
     private var hasConfiguredService: Bool {
@@ -153,6 +157,15 @@ struct ArrWantedView: View {
         }
         .navigationTitle("Wanted / Missing")
         .toolbar {
+            if showsCloseButton {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 if isSearchingAll {
                     ProgressView()

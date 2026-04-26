@@ -8,6 +8,7 @@ struct RadarrMovieListView: View {
     @State private var viewModel: RadarrViewModel?
     @State private var viewModelInstanceID: UUID?
     @State private var listScrollPosition: Int?
+    @Namespace private var namespace
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
@@ -115,10 +116,11 @@ struct RadarrMovieListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
-                ArrWantedView(initialScope: .movies)
+                ArrWantedView(initialScope: .movies, showsCloseButton: true)
                     .environment(serviceManager)
             }
         }
@@ -145,6 +147,33 @@ struct RadarrMovieListView: View {
             async let loadMovies = vm.loadMovies()
             async let loadQueue = vm.loadQueue()
             _ = await (loadMovies, loadQueue)
+
+            // Poll queue every 30s; when items are removed (import completed), refresh movies.
+            var polledViewModel = vm
+            var knownQueueIds = Set(polledViewModel.queue.map(\.id))
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(30))
+                } catch is CancellationError {
+                    break
+                } catch {
+                    continue
+                }
+
+                guard serviceManager.radarrConnected else { continue }
+                guard let latestViewModel = viewModel else { continue }
+                if latestViewModel !== polledViewModel {
+                    polledViewModel = latestViewModel
+                    knownQueueIds = Set(polledViewModel.queue.map(\.id))
+                }
+
+                await polledViewModel.loadQueue()
+                let currentIds = Set(polledViewModel.queue.map(\.id))
+                if !knownQueueIds.subtracting(currentIds).isEmpty {
+                    await polledViewModel.loadMovies()
+                }
+                knownQueueIds = currentIds
+            }
         }
     }
 
@@ -285,6 +314,7 @@ struct RadarrMovieListView: View {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
+            .matchedTransitionSource(id: "calendar", in: namespace)
 
             Menu {
                 Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {

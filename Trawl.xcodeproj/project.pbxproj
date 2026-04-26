@@ -186,12 +186,10 @@
 				ArrStack/ArrDiskSpaceView.swift,
 				ArrStack/ArrHistoryView.swift,
 				ArrStack/ArrManualImportView.swift,
-				ArrStack/ArrNotificationModels.swift,
 				ArrStack/ArrServiceManager.swift,
 				ArrStack/ArrServicesSettingsView.swift,
 				ArrStack/ArrSetupSheet.swift,
 				ArrStack/ArrSetupViewModel.swift,
-				ArrStack/ArrSharedModels.swift,
 				ArrStack/ArrSheetShell.swift,
 				ArrStack/ArrWantedView.swift,
 				ArrStack/ProwlarrAddIndexerSheet.swift,
@@ -262,6 +260,13 @@
 				Info.plist,
 			);
 			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
+		};
+		FF000015FF000015FF000015 /* Exceptions for "TrawlWidgets" folder in "TrawlWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FF000003FF000003FF000003 /* TrawlWidgets */;
 		};
 		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
@@ -366,6 +371,9 @@
 		};
 		FF000014FF000014FF000014 /* TrawlWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				FF000015FF000015FF000015 /* Exceptions for "TrawlWidgets" folder in "TrawlWidgets" target */,
+			);
 			path = TrawlWidgets;
 			sourceTree = "<group>";
 		};
