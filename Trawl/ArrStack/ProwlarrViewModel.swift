@@ -290,3 +290,125 @@ final class ProwlarrViewModel {
         isLoadingStats = false
     }
 }
+
+@MainActor
+@Observable
+final class ProwlarrApplicationsViewModel {
+    private let serviceManager: ArrServiceManager
+
+    private(set) var applications: [ProwlarrApplication] = []
+    private(set) var schemaApplications: [ProwlarrApplication] = []
+    private(set) var availableTags: [ArrTag] = []
+    private(set) var isLoadingApplications = false
+    private(set) var isLoadingSchema = false
+    private(set) var errorMessage: String?
+
+    init(serviceManager: ArrServiceManager) {
+        self.serviceManager = serviceManager
+    }
+
+    private var client: ProwlarrAPIClient? { serviceManager.prowlarrClient }
+
+    var supportedApplications: [ProwlarrApplication] {
+        applications
+            .filter { $0.linkedAppType != nil }
+            .sorted { ($0.name ?? "") < ($1.name ?? "") }
+    }
+
+    var supportedSchemas: [ProwlarrApplication] {
+        schemaApplications
+            .filter { $0.linkedAppType != nil }
+            .sorted { ($0.name ?? "") < ($1.name ?? "") }
+    }
+
+    func schema(for type: ProwlarrLinkedAppType) -> ProwlarrApplication? {
+        supportedSchemas.first(where: { $0.linkedAppType == type })
+    }
+
+    func loadApplications() async {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return
+        }
+
+        isLoadingApplications = true
+        errorMessage = nil
+        defer { isLoadingApplications = false }
+
+        do {
+            async let loadedApplications = client.getApplications()
+            async let loadedTags = client.getTags()
+            let (apps, tags) = try await (loadedApplications, loadedTags)
+            applications = apps
+            availableTags = tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSchemaIfNeeded() async {
+        guard schemaApplications.isEmpty else { return }
+        await reloadSchema()
+    }
+
+    func reloadSchema() async {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return
+        }
+
+        isLoadingSchema = true
+        errorMessage = nil
+        defer { isLoadingSchema = false }
+
+        do {
+            schemaApplications = try await client.getApplicationSchema()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func saveApplication(_ application: ProwlarrApplication) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        errorMessage = nil
+
+        do {
+            if application.id == 0 {
+                _ = try await client.createApplication(application)
+            } else {
+                _ = try await client.updateApplication(application)
+            }
+            await loadApplications()
+            return errorMessage == nil
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteApplication(_ application: ProwlarrApplication) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        errorMessage = nil
+
+        do {
+            try await client.deleteApplication(id: application.id)
+            applications.removeAll { $0.id == application.id }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+}

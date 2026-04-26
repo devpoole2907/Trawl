@@ -7,10 +7,16 @@ struct ArrSetupSheet: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var viewModel: ArrSetupViewModel?
     let initialServiceType: ArrServiceType?
+    let existingProfile: ArrServiceProfile?
     let onComplete: () -> Void
 
-    init(initialServiceType: ArrServiceType? = nil, onComplete: @escaping () -> Void) {
+    init(
+        initialServiceType: ArrServiceType? = nil,
+        existingProfile: ArrServiceProfile? = nil,
+        onComplete: @escaping () -> Void
+    ) {
         self.initialServiceType = initialServiceType
+        self.existingProfile = existingProfile
         self.onComplete = onComplete
     }
 
@@ -23,7 +29,7 @@ struct ArrSetupSheet: View {
                     ProgressView()
                 }
             }
-            .navigationTitle(initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service")
+            .navigationTitle(existingProfile != nil ? "Edit Service" : (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -45,7 +51,9 @@ struct ArrSetupSheet: View {
             .task {
                 if viewModel == nil {
                     let vm = ArrSetupViewModel(serviceManager: serviceManager)
-                    if let initialServiceType {
+                    if let existingProfile {
+                        await vm.loadExisting(existingProfile)
+                    } else if let initialServiceType {
                         vm.serviceType = initialServiceType
                     }
                     viewModel = vm

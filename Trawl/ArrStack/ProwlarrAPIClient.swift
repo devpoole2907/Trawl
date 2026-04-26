@@ -132,6 +132,32 @@ actor ProwlarrAPIClient {
         try await base.get("/api/v1/indexerstatus")
     }
 
+    // MARK: - Applications
+
+    func getApplications() async throws -> [ProwlarrApplication] {
+        try await base.get("/api/v1/applications")
+    }
+
+    func getApplicationSchema() async throws -> [ProwlarrApplication] {
+        try await base.get("/api/v1/applications/schema")
+    }
+
+    func createApplication(_ application: ProwlarrApplication) async throws -> ProwlarrApplication {
+        try await base.postCodable("/api/v1/applications", body: application)
+    }
+
+    func updateApplication(_ application: ProwlarrApplication) async throws -> ProwlarrApplication {
+        try await base.putCodable("/api/v1/applications/\(application.id)", body: application)
+    }
+
+    func deleteApplication(id: Int) async throws {
+        try await base.delete("/api/v1/applications/\(id)")
+    }
+
+    func testApplication(_ application: ProwlarrApplication) async throws {
+        try await base.postVoidCodable("/api/v1/applications/test", body: application)
+    }
+
     // MARK: - Tags
 
     func getTags() async throws -> [ArrTag] {

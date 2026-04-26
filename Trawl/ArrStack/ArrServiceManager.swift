@@ -56,6 +56,7 @@ final class ArrServiceManager {
 
     // MARK: - Prowlarr (single instance)
     private(set) var prowlarrClient: ProwlarrAPIClient?
+    private(set) var activeProwlarrProfileID: UUID?
     private(set) var prowlarrConnected: Bool = false
     private(set) var prowlarrIsConnecting: Bool = false
     private(set) var prowlarrConnectionError: String?
@@ -391,6 +392,7 @@ final class ArrServiceManager {
                 )
                 _ = try await client.getSystemStatus()
                 prowlarrClient = client
+                activeProwlarrProfileID = profile.id
                 prowlarrConnected = true
                 prowlarrConnectionError = nil
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
@@ -408,6 +410,7 @@ final class ArrServiceManager {
         activeSonarrProfileID = nil
         activeRadarrProfileID = nil
         prowlarrClient = nil
+        activeProwlarrProfileID = nil
         prowlarrConnected = false
         prowlarrIsConnecting = false
         prowlarrConnectionError = nil
@@ -454,6 +457,9 @@ final class ArrServiceManager {
             }
         case .prowlarr:
             prowlarrClient = nil
+            if profileID == nil || activeProwlarrProfileID == profileID {
+                activeProwlarrProfileID = nil
+            }
             prowlarrConnected = false
             prowlarrConnectionError = nil
             if let id = profileID {
@@ -625,6 +631,9 @@ final class ArrServiceManager {
                 radarrInstances[idx].isConnected = false
             }
         case .prowlarr:
+            if activeProwlarrProfileID == id {
+                prowlarrClient = nil
+            }
             prowlarrConnectionError = message
             prowlarrConnected = false
         }

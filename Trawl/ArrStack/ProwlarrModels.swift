@@ -442,3 +442,312 @@ nonisolated struct ProwlarrIndexerStatus: Codable, Identifiable, Sendable {
         return date > Date()
     }
 }
+
+// MARK: - Applications
+
+nonisolated enum ProwlarrApplicationSyncLevel: String, Codable, CaseIterable, Identifiable, Sendable {
+    case disabled
+    case addOnly
+    case fullSync
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .disabled:
+            "Disabled"
+        case .addOnly:
+            "Add and Remove Only"
+        case .fullSync:
+            "Full Sync"
+        }
+    }
+
+    var detailText: String {
+        switch self {
+        case .disabled:
+            "Do not sync indexers to this application."
+        case .addOnly:
+            "When indexers are added or removed from Prowlarr, update this remote app."
+        case .fullSync:
+            "Keep this app's indexers fully in sync with Prowlarr."
+        }
+    }
+}
+
+nonisolated enum ProwlarrLinkedAppType: String, CaseIterable, Identifiable, Sendable {
+    case sonarr
+    case radarr
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .sonarr:
+            "Sonarr"
+        case .radarr:
+            "Radarr"
+        }
+    }
+
+    var implementationName: String { displayName }
+
+    var configContract: String {
+        switch self {
+        case .sonarr:
+            "SonarrSettings"
+        case .radarr:
+            "RadarrSettings"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .sonarr:
+            "tv"
+        case .radarr:
+            "film"
+        }
+    }
+}
+
+nonisolated struct ProwlarrApplication: Codable, Identifiable, Sendable {
+    var id: Int
+    var name: String?
+    var fields: [ProwlarrApplicationField]?
+    var implementationName: String?
+    var implementation: String?
+    var configContract: String?
+    var infoLink: String?
+    var message: ProwlarrProviderMessage?
+    var tags: [Int]?
+    var presets: [ProwlarrApplication]?
+    var syncLevel: ProwlarrApplicationSyncLevel?
+    var testCommand: String?
+
+    init(
+        id: Int,
+        name: String?,
+        fields: [ProwlarrApplicationField]?,
+        implementationName: String?,
+        implementation: String?,
+        configContract: String?,
+        infoLink: String?,
+        message: ProwlarrProviderMessage?,
+        tags: [Int]?,
+        presets: [ProwlarrApplication]?,
+        syncLevel: ProwlarrApplicationSyncLevel?,
+        testCommand: String?
+    ) {
+        self.id = id
+        self.name = name
+        self.fields = fields
+        self.implementationName = implementationName
+        self.implementation = implementation
+        self.configContract = configContract
+        self.infoLink = infoLink
+        self.message = message
+        self.tags = tags
+        self.presets = presets
+        self.syncLevel = syncLevel
+        self.testCommand = testCommand
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        fields = try container.decodeIfPresent([ProwlarrApplicationField].self, forKey: .fields)
+        implementationName = try container.decodeIfPresent(String.self, forKey: .implementationName)
+        implementation = try container.decodeIfPresent(String.self, forKey: .implementation)
+        configContract = try container.decodeIfPresent(String.self, forKey: .configContract)
+        infoLink = try container.decodeIfPresent(String.self, forKey: .infoLink)
+        message = try container.decodeIfPresent(ProwlarrProviderMessage.self, forKey: .message)
+        tags = try container.decodeIfPresent([Int].self, forKey: .tags)
+        presets = try container.decodeIfPresent([ProwlarrApplication].self, forKey: .presets)
+        syncLevel = try container.decodeIfPresent(ProwlarrApplicationSyncLevel.self, forKey: .syncLevel)
+        testCommand = try container.decodeIfPresent(String.self, forKey: .testCommand)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case fields
+        case implementationName
+        case implementation
+        case configContract
+        case infoLink
+        case message
+        case tags
+        case presets
+        case syncLevel
+        case testCommand
+    }
+
+    var linkedAppType: ProwlarrLinkedAppType? {
+        if implementation == ProwlarrLinkedAppType.sonarr.implementationName ||
+            implementationName == ProwlarrLinkedAppType.sonarr.implementationName ||
+            configContract == ProwlarrLinkedAppType.sonarr.configContract {
+            return .sonarr
+        }
+
+        if implementation == ProwlarrLinkedAppType.radarr.implementationName ||
+            implementationName == ProwlarrLinkedAppType.radarr.implementationName ||
+            configContract == ProwlarrLinkedAppType.radarr.configContract {
+            return .radarr
+        }
+
+        return nil
+    }
+
+    func stringFieldValue(named name: String) -> String? {
+        fields?
+            .first(where: { $0.name == name })?
+            .value?
+            .displayString
+    }
+
+    func updatingField(named fieldName: String, with value: ProwlarrApplicationValue) -> ProwlarrApplication {
+        var updated = self
+
+        if let fields = updated.fields, let index = fields.firstIndex(where: { $0.name == fieldName }) {
+            var nextFields = fields
+            let field = fields[index]
+            nextFields[index] = ProwlarrApplicationField(
+                name: field.name,
+                label: field.label,
+                value: value,
+                type: field.type,
+                advanced: field.advanced,
+                hidden: field.hidden,
+                selectOptions: field.selectOptions
+            )
+            updated.fields = nextFields
+            return updated
+        }
+
+        var nextFields = updated.fields ?? []
+        nextFields.append(
+            ProwlarrApplicationField(
+                name: fieldName,
+                label: nil,
+                value: value,
+                type: nil,
+                advanced: nil,
+                hidden: nil,
+                selectOptions: nil
+            )
+        )
+        updated.fields = nextFields
+        return updated
+    }
+}
+
+nonisolated struct ProwlarrApplicationField: Codable, Sendable {
+    var name: String?
+    var label: String?
+    var value: ProwlarrApplicationValue?
+    var type: String?
+    var advanced: Bool?
+    var hidden: String?
+    var selectOptions: [ProwlarrApplicationSelectOption]?
+}
+
+nonisolated struct ProwlarrApplicationSelectOption: Codable, Identifiable, Sendable {
+    var name: String?
+    var value: ProwlarrApplicationValue?
+    var order: Int?
+    var hint: String?
+
+    var id: String {
+        if let value, let display = value.displayString {
+            return "val-\(display)"
+        }
+
+        return "opt-\(name ?? "")-\(order ?? 0)"
+    }
+}
+
+nonisolated enum ProwlarrApplicationValue: Codable, Sendable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case array([ProwlarrApplicationValue])
+    case object([String: ProwlarrApplicationValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: ProwlarrApplicationValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([ProwlarrApplicationValue].self) {
+            self = .array(value)
+        } else {
+            self = .null
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .int(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
+    }
+
+    var displayString: String? {
+        switch self {
+        case .string(let value):
+            return value.isEmpty ? nil : value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "Yes" : "No"
+        case .array(let value):
+            let flattened = value.compactMap(\.displayString)
+            return flattened.isEmpty ? nil : flattened.joined(separator: ", ")
+        case .object(let value):
+            let flattened = value
+                .sorted { $0.key < $1.key }
+                .compactMap { key, nestedValue -> String? in
+                    guard let display = nestedValue.displayString, !display.isEmpty else { return nil }
+                    return "\(key): \(display)"
+                }
+            return flattened.isEmpty ? nil : flattened.joined(separator: ", ")
+        case .null:
+            return nil
+        }
+    }
+}
+
+nonisolated struct ProwlarrProviderMessage: Codable, Sendable {
+    var message: String?
+    var type: String?
+}
