@@ -254,6 +254,8 @@ struct AddImportLocationSheet: View {
 @MainActor
 private final class ManualImportScanViewModel {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrManualImportView")
+    private let progressiveRevealBatchSize = 25
+    private let progressiveRevealDelay: Duration = .milliseconds(16)
 
     let path: String
     let service: ArrServiceType
@@ -338,8 +340,21 @@ private final class ManualImportScanViewModel {
         do {
             let jsonValues = try await getManualImport(folder: path)
             let scannedFiles = jsonValues.compactMap { ManualImportItem(json: $0) }
-            importableFiles = scannedFiles.filter(\.isImportable)
-            blockedFiles = scannedFiles.filter { !$0.isImportable }
+
+            importableFiles = []
+            blockedFiles = []
+            for (index, file) in scannedFiles.enumerated() {
+                if file.isImportable {
+                    importableFiles.append(file)
+                } else {
+                    blockedFiles.append(file)
+                }
+
+                if index > 0 && index.isMultiple(of: progressiveRevealBatchSize) {
+                    try await Task.sleep(for: progressiveRevealDelay)
+                }
+            }
+
             let availableIDs = Set(importableFiles.map(\.id))
             selectedFiles = selectedFiles.intersection(availableIDs)
             let blockedIDs = Set(blockedFiles.map(\.id))
