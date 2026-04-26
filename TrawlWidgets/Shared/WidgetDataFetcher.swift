@@ -41,7 +41,7 @@ enum WidgetDataFetcher {
 
     // MARK: - Container
 
-    static func makeModelContainer() throws -> ModelContainer {
+    nonisolated static func makeModelContainer() throws -> ModelContainer {
         let schema = Schema([ServerProfile.self, ArrServiceProfile.self])
         let config = ModelConfiguration(
             schema: schema,

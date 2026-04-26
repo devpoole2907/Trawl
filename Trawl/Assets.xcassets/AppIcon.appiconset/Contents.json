@@ -29,12 +29,6 @@
       "size" : "1024x1024"
     },
     {
-      "filename" : "1024.png",
-      "idiom" : "universal",
-      "platform" : "mac",
-      "size" : "1024x1024"
-    },
-    {
       "filename" : "16.png",
       "idiom" : "mac",
       "scale" : "1x",
