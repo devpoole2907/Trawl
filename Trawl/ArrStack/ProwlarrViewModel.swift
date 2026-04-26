@@ -412,3 +412,262 @@ final class ProwlarrApplicationsViewModel {
         errorMessage = nil
     }
 }
+
+@MainActor
+@Observable
+final class ArrIndexerManagementViewModel {
+    private let serviceManager: ArrServiceManager
+
+    private(set) var sonarrIndexersByProfileID: [UUID: [ArrManagedIndexer]] = [:]
+    private(set) var radarrIndexersByProfileID: [UUID: [ArrManagedIndexer]] = [:]
+    private(set) var schemaByProfileID: [UUID: [ArrManagedIndexer]] = [:]
+    private(set) var errorsByProfileID: [UUID: String] = [:]
+    private(set) var schemaErrorsByProfileID: [UUID: String] = [:]
+    private(set) var loadingProfileIDs: Set<UUID> = []
+    private(set) var loadingSchemaProfileIDs: Set<UUID> = []
+    private(set) var testResult: String?
+    private(set) var testSucceeded: Bool?
+    private(set) var isTesting = false
+
+    init(serviceManager: ArrServiceManager) {
+        self.serviceManager = serviceManager
+    }
+
+    func loadAllIndexers() async {
+        await withTaskGroup(of: Void.self) { group in
+            for entry in serviceManager.sonarrInstances where entry.isConnected {
+                group.addTask { await self.loadIndexers(for: entry.id, serviceType: .sonarr) }
+            }
+            for entry in serviceManager.radarrInstances where entry.isConnected {
+                group.addTask { await self.loadIndexers(for: entry.id, serviceType: .radarr) }
+            }
+        }
+    }
+
+    func loadIndexers(for profileID: UUID, serviceType: ArrServiceType) async {
+        guard serviceType != .prowlarr else { return }
+        loadingProfileIDs.insert(profileID)
+        errorsByProfileID[profileID] = nil
+        defer { loadingProfileIDs.remove(profileID) }
+
+        do {
+            let indexers = try await fetchIndexers(for: profileID, serviceType: serviceType)
+                .sorted { ($0.name ?? "") < ($1.name ?? "") }
+            assign(indexers, to: profileID, serviceType: serviceType)
+        } catch {
+            errorsByProfileID[profileID] = error.localizedDescription
+        }
+    }
+
+    func loadSchema(for profileID: UUID, serviceType: ArrServiceType, force: Bool = false) async {
+        guard serviceType != .prowlarr else { return }
+        if !force, schemaByProfileID[profileID] != nil {
+            return
+        }
+
+        loadingSchemaProfileIDs.insert(profileID)
+        schemaErrorsByProfileID[profileID] = nil
+        defer { loadingSchemaProfileIDs.remove(profileID) }
+
+        do {
+            let schema = try await fetchSchema(for: profileID, serviceType: serviceType)
+                .sorted { ($0.name ?? "") < ($1.name ?? "") }
+            schemaByProfileID[profileID] = schema
+        } catch {
+            schemaErrorsByProfileID[profileID] = error.localizedDescription
+        }
+    }
+
+    func indexers(for profileID: UUID, serviceType: ArrServiceType) -> [ArrManagedIndexer] {
+        switch serviceType {
+        case .sonarr:
+            sonarrIndexersByProfileID[profileID] ?? []
+        case .radarr:
+            radarrIndexersByProfileID[profileID] ?? []
+        case .prowlarr:
+            []
+        }
+    }
+
+    func schema(for profileID: UUID) -> [ArrManagedIndexer] {
+        schemaByProfileID[profileID] ?? []
+    }
+
+    func error(for profileID: UUID) -> String? {
+        errorsByProfileID[profileID]
+    }
+
+    func schemaError(for profileID: UUID) -> String? {
+        schemaErrorsByProfileID[profileID]
+    }
+
+    func isLoadingIndexers(for profileID: UUID) -> Bool {
+        loadingProfileIDs.contains(profileID)
+    }
+
+    func isLoadingSchema(for profileID: UUID) -> Bool {
+        loadingSchemaProfileIDs.contains(profileID)
+    }
+
+    func addIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async -> Bool {
+        do {
+            let created = try await createIndexer(indexer, for: profileID, serviceType: serviceType)
+            upsert(created, for: profileID, serviceType: serviceType)
+            errorsByProfileID[profileID] = nil
+            return true
+        } catch {
+            errorsByProfileID[profileID] = error.localizedDescription
+            return false
+        }
+    }
+
+    func updateIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async -> Bool {
+        do {
+            let updated = try await updateIndexerRequest(indexer, for: profileID, serviceType: serviceType)
+            upsert(updated, for: profileID, serviceType: serviceType)
+            errorsByProfileID[profileID] = nil
+            return true
+        } catch {
+            errorsByProfileID[profileID] = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async -> Bool {
+        do {
+            try await deleteIndexerRequest(id: indexer.id, for: profileID, serviceType: serviceType)
+            remove(indexerID: indexer.id, from: profileID, serviceType: serviceType)
+            errorsByProfileID[profileID] = nil
+            return true
+        } catch {
+            errorsByProfileID[profileID] = error.localizedDescription
+            return false
+        }
+    }
+
+    func testIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async {
+        isTesting = true
+        testResult = nil
+        testSucceeded = nil
+        defer { isTesting = false }
+
+        do {
+            try await testIndexerRequest(indexer, for: profileID, serviceType: serviceType)
+            testResult = "\(indexer.name ?? "Indexer") passed."
+            testSucceeded = true
+        } catch {
+            testResult = "\(indexer.name ?? "Indexer") failed: \(error.localizedDescription)"
+            testSucceeded = false
+        }
+    }
+
+    func clearTestResult() {
+        testResult = nil
+        testSucceeded = nil
+    }
+
+    private func fetchIndexers(for profileID: UUID, serviceType: ArrServiceType) async throws -> [ArrManagedIndexer] {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.getIndexers()
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.getIndexers()
+        case .prowlarr:
+            return []
+        }
+    }
+
+    private func fetchSchema(for profileID: UUID, serviceType: ArrServiceType) async throws -> [ArrManagedIndexer] {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.getIndexerSchema()
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.getIndexerSchema()
+        case .prowlarr:
+            return []
+        }
+    }
+
+    private func createIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws -> ArrManagedIndexer {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.createIndexer(indexer)
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.createIndexer(indexer)
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func updateIndexerRequest(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws -> ArrManagedIndexer {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.updateIndexer(indexer)
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            return try await client.updateIndexer(indexer)
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func deleteIndexerRequest(id: Int, for profileID: UUID, serviceType: ArrServiceType) async throws {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            try await client.deleteIndexer(id: id)
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            try await client.deleteIndexer(id: id)
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func testIndexerRequest(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws {
+        switch serviceType {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            try await client.testIndexer(indexer)
+        case .radarr:
+            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+            try await client.testIndexer(indexer)
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func assign(_ indexers: [ArrManagedIndexer], to profileID: UUID, serviceType: ArrServiceType) {
+        switch serviceType {
+        case .sonarr:
+            sonarrIndexersByProfileID[profileID] = indexers
+        case .radarr:
+            radarrIndexersByProfileID[profileID] = indexers
+        case .prowlarr:
+            break
+        }
+    }
+
+    private func upsert(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) {
+        var items = indexers(for: profileID, serviceType: serviceType)
+        if let index = items.firstIndex(where: { $0.id == indexer.id }) {
+            items[index] = indexer
+        } else {
+            items.append(indexer)
+        }
+        items.sort { ($0.name ?? "") < ($1.name ?? "") }
+        assign(items, to: profileID, serviceType: serviceType)
+    }
+
+    private func remove(indexerID: Int, from profileID: UUID, serviceType: ArrServiceType) {
+        let items = indexers(for: profileID, serviceType: serviceType).filter { $0.id != indexerID }
+        assign(items, to: profileID, serviceType: serviceType)
+    }
+}

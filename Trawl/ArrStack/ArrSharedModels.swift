@@ -74,6 +74,315 @@ struct ArrTag: Codable, Identifiable, Sendable {
     let label: String
 }
 
+// MARK: - Indexers
+
+nonisolated enum ArrIndexerProtocol: String, Codable, Sendable {
+    case unknown
+    case usenet
+    case torrent
+
+    var displayName: String {
+        switch self {
+        case .unknown: "Other"
+        case .usenet: "Usenet"
+        case .torrent: "Torrent"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .unknown: "questionmark.circle"
+        case .usenet: "envelope.circle"
+        case .torrent: "arrow.down.circle"
+        }
+    }
+
+    var sectionTitle: String {
+        switch self {
+        case .torrent: "Torrent"
+        case .usenet: "Usenet"
+        case .unknown: "Other"
+        }
+    }
+}
+
+nonisolated struct ArrManagedIndexer: Codable, Identifiable, Sendable {
+    let id: Int
+    var name: String?
+    let fields: [ArrIndexerField]?
+    let implementationName: String?
+    let implementation: String?
+    let configContract: String?
+    let infoLink: String?
+    let message: ArrProviderMessage?
+    var tags: [Int]?
+    let presets: [ArrManagedIndexer]?
+    var enableRss: Bool
+    var enableAutomaticSearch: Bool
+    var enableInteractiveSearch: Bool
+    let supportsRss: Bool?
+    let supportsSearch: Bool?
+    let `protocol`: ArrIndexerProtocol?
+    var priority: Int?
+    var seasonSearchMaximumSingleEpisodeAge: Int?
+    var downloadClientId: Int?
+    private let _schemaListID: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case fields
+        case implementationName
+        case implementation
+        case configContract
+        case infoLink
+        case message
+        case tags
+        case presets
+        case enableRss
+        case enableAutomaticSearch
+        case enableInteractiveSearch
+        case supportsRss
+        case supportsSearch
+        case `protocol`
+        case priority
+        case seasonSearchMaximumSingleEpisodeAge
+        case downloadClientId
+    }
+
+    init(
+        id: Int,
+        name: String?,
+        fields: [ArrIndexerField]?,
+        implementationName: String?,
+        implementation: String?,
+        configContract: String?,
+        infoLink: String?,
+        message: ArrProviderMessage?,
+        tags: [Int]?,
+        presets: [ArrManagedIndexer]?,
+        enableRss: Bool,
+        enableAutomaticSearch: Bool,
+        enableInteractiveSearch: Bool,
+        supportsRss: Bool?,
+        supportsSearch: Bool?,
+        protocol: ArrIndexerProtocol?,
+        priority: Int?,
+        seasonSearchMaximumSingleEpisodeAge: Int?,
+        downloadClientId: Int?
+    ) {
+        self.id = id
+        self.name = name
+        self.fields = fields
+        self.implementationName = implementationName
+        self.implementation = implementation
+        self.configContract = configContract
+        self.infoLink = infoLink
+        self.message = message
+        self.tags = tags
+        self.presets = presets
+        self.enableRss = enableRss
+        self.enableAutomaticSearch = enableAutomaticSearch
+        self.enableInteractiveSearch = enableInteractiveSearch
+        self.supportsRss = supportsRss
+        self.supportsSearch = supportsSearch
+        self.protocol = `protocol`
+        self.priority = priority
+        self.seasonSearchMaximumSingleEpisodeAge = seasonSearchMaximumSingleEpisodeAge
+        self.downloadClientId = downloadClientId
+        self._schemaListID = Self.computeSchemaListID(
+            id: id,
+            implementation: implementation,
+            configContract: configContract,
+            implementationName: implementationName,
+            name: name
+        )
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        fields = try container.decodeIfPresent([ArrIndexerField].self, forKey: .fields)
+        implementationName = try container.decodeIfPresent(String.self, forKey: .implementationName)
+        implementation = try container.decodeIfPresent(String.self, forKey: .implementation)
+        configContract = try container.decodeIfPresent(String.self, forKey: .configContract)
+        infoLink = try container.decodeIfPresent(String.self, forKey: .infoLink)
+        message = try container.decodeIfPresent(ArrProviderMessage.self, forKey: .message)
+        tags = try container.decodeIfPresent([Int].self, forKey: .tags)
+        presets = try container.decodeIfPresent([ArrManagedIndexer].self, forKey: .presets)
+        enableRss = try container.decodeIfPresent(Bool.self, forKey: .enableRss) ?? false
+        enableAutomaticSearch = try container.decodeIfPresent(Bool.self, forKey: .enableAutomaticSearch) ?? false
+        enableInteractiveSearch = try container.decodeIfPresent(Bool.self, forKey: .enableInteractiveSearch) ?? false
+        supportsRss = try container.decodeIfPresent(Bool.self, forKey: .supportsRss)
+        supportsSearch = try container.decodeIfPresent(Bool.self, forKey: .supportsSearch)
+        let protocolValue = try container.decodeIfPresent(String.self, forKey: .protocol)
+        `protocol` = protocolValue.flatMap(ArrIndexerProtocol.init(rawValue:))
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
+        seasonSearchMaximumSingleEpisodeAge = try container.decodeIfPresent(Int.self, forKey: .seasonSearchMaximumSingleEpisodeAge)
+        downloadClientId = try container.decodeIfPresent(Int.self, forKey: .downloadClientId)
+        _schemaListID = Self.computeSchemaListID(
+            id: id,
+            implementation: implementation,
+            configContract: configContract,
+            implementationName: implementationName,
+            name: name
+        )
+    }
+
+    var schemaListID: String { _schemaListID }
+
+    var isEnabled: Bool {
+        enableRss || enableAutomaticSearch || enableInteractiveSearch
+    }
+
+    private static func computeSchemaListID(
+        id: Int,
+        implementation: String?,
+        configContract: String?,
+        implementationName: String?,
+        name: String?
+    ) -> String {
+        if id != 0 {
+            return "indexer-\(id)"
+        }
+
+        let components = [implementation, configContract, implementationName, name]
+            .compactMap { value in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+
+        return components.isEmpty
+            ? "template-unknown-\(UUID().uuidString)"
+            : "template-" + components.joined(separator: "::")
+    }
+}
+
+nonisolated struct ArrIndexerField: Codable, Sendable {
+    let order: Int?
+    let name: String?
+    let label: String?
+    let unit: String?
+    let helpText: String?
+    let helpTextWarning: String?
+    let helpLink: String?
+    let value: ArrIndexerFieldValue?
+    let type: String?
+    let advanced: Bool?
+    let selectOptions: [ArrIndexerSelectOption]?
+    let selectOptionsProviderAction: String?
+    let section: String?
+    let hidden: String?
+    let placeholder: String?
+    let isFloat: Bool?
+}
+
+nonisolated struct ArrIndexerSelectOption: Codable, Identifiable, Sendable {
+    let value: Int?
+    let name: String?
+    let order: Int?
+    let hint: String?
+
+    var id: String {
+        "opt-\(value ?? order ?? 0)-\(name ?? "")"
+    }
+}
+
+nonisolated struct ArrProviderMessage: Codable, Sendable {
+    let message: String?
+    let type: String?
+}
+
+nonisolated enum ArrIndexerFieldValue: Codable, Sendable {
+    case string(String)
+    case int(Int)
+    case double(Double)
+    case bool(Bool)
+    case array([ArrIndexerFieldValue])
+    case object([String: ArrIndexerFieldValue])
+    case null
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Int.self) {
+            self = .int(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .double(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([String: ArrIndexerFieldValue].self) {
+            self = .object(value)
+        } else if let value = try? container.decode([ArrIndexerFieldValue].self) {
+            self = .array(value)
+        } else {
+            self = .null
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let value):
+            try container.encode(value)
+        case .int(let value):
+            try container.encode(value)
+        case .double(let value):
+            try container.encode(value)
+        case .bool(let value):
+            try container.encode(value)
+        case .array(let value):
+            try container.encode(value)
+        case .object(let value):
+            try container.encode(value)
+        case .null:
+            try container.encodeNil()
+        }
+    }
+
+    var displayString: String? {
+        switch self {
+        case .string(let value):
+            return value.isEmpty ? nil : value
+        case .int(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .bool(let value):
+            return value ? "Yes" : "No"
+        case .array(let value):
+            return value.isEmpty ? nil : value.compactMap(\.displayString).joined(separator: ", ")
+        case .object(let value):
+            let entries = value
+                .sorted { $0.key < $1.key }
+                .compactMap { key, value -> String? in
+                    guard let display = value.displayString, !display.isEmpty else { return nil }
+                    return "\(key): \(display)"
+                }
+            return entries.isEmpty ? nil : entries.joined(separator: ", ")
+        case .null:
+            return nil
+        }
+    }
+
+    var intValue: Int? {
+        switch self {
+        case .int(let value):
+            return value
+        case .double(let value):
+            return Int(value)
+        case .string(let value):
+            return Int(value)
+        default:
+            return nil
+        }
+    }
+}
+
 // MARK: - Release Sort
 
 enum ArrReleaseSortKey: String, CaseIterable, Identifiable, Codable {

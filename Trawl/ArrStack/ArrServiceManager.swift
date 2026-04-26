@@ -102,6 +102,25 @@ final class ArrServiceManager {
     var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
 
+    func sonarrClient(for profileID: UUID) -> SonarrAPIClient? {
+        sonarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func radarrClient(for profileID: UUID) -> RadarrAPIClient? {
+        radarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func isConnected(_ serviceType: ArrServiceType, profileID: UUID) -> Bool {
+        switch serviceType {
+        case .sonarr:
+            sonarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
+        case .radarr:
+            radarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
+        case .prowlarr:
+            activeProwlarrProfileID == profileID && prowlarrConnected
+        }
+    }
+
     func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
         guard let serviceType = profile.resolvedServiceType else {
             throw ArrError.noServiceConfigured

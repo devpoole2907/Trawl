@@ -88,6 +88,36 @@ actor RadarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/release", queryItems: params)
     }
 
+    // MARK: - Indexers
+
+    func getIndexers() async throws -> [ArrManagedIndexer] {
+        try await base.get("/api/v3/indexer")
+    }
+
+    func getIndexer(id: Int) async throws -> ArrManagedIndexer {
+        try await base.get("/api/v3/indexer/\(id)")
+    }
+
+    func getIndexerSchema() async throws -> [ArrManagedIndexer] {
+        try await base.get("/api/v3/indexer/schema")
+    }
+
+    func createIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer {
+        try await base.postCodable("/api/v3/indexer", body: indexer)
+    }
+
+    func updateIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer {
+        try await base.putCodable("/api/v3/indexer/\(indexer.id)", body: indexer)
+    }
+
+    func deleteIndexer(id: Int) async throws {
+        try await base.delete("/api/v3/indexer/\(id)")
+    }
+
+    func testIndexer(_ indexer: ArrManagedIndexer) async throws {
+        try await base.postVoidCodable("/api/v3/indexer/test", body: indexer)
+    }
+
     func grabRelease(_ release: ArrRelease) async throws {
         guard let guid = release.guid, let indexerId = release.indexerId else {
             throw ArrError.invalidResponse

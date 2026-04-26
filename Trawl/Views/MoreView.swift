@@ -106,7 +106,7 @@ struct MoreView: View {
 
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
-                                title: "Indexers", subtitle: "Manage Prowlarr indexers")
+                                title: "Indexers", subtitle: "Manage indexers across your services")
                     }
 
                     NavigationLink(value: MoreDestination.diskSpace) {
@@ -261,29 +261,33 @@ struct MoreView: View {
 
     @ViewBuilder
     private var prowlarrIndexersDestination: some View {
-        if arrServiceManager.prowlarrConnected {
+        if arrServiceManager.prowlarrConnected || arrServiceManager.sonarrConnected || arrServiceManager.radarrConnected {
             ProwlarrIndexerListView()
                 .environment(arrServiceManager)
-        } else if arrServiceManager.hasProwlarrInstance {
+        } else if arrServiceManager.hasProwlarrInstance || arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance {
             ContentUnavailableView {
-                Label("Unable to Reach Prowlarr", systemImage: "network.slash")
+                Label("No Connected Indexer Sources", systemImage: "network.slash")
             } description: {
-                if let error = arrServiceManager.prowlarrConnectionError {
+                if let error = arrServiceManager.prowlarrConnectionError ?? arrServiceManager.sonarrConnectionError ?? arrServiceManager.radarrConnectionError {
                     Text(error)
                 } else {
-                    Text("The Prowlarr server is currently unreachable.")
+                    Text("Your configured Prowlarr, Sonarr, or Radarr services are currently unreachable.")
                 }
             } actions: {
                 Button("Retry Connection") {
-                    Task { await arrServiceManager.retry(.prowlarr) }
+                    Task {
+                        await arrServiceManager.retry(.prowlarr)
+                        await arrServiceManager.retry(.sonarr)
+                        await arrServiceManager.retry(.radarr)
+                    }
                 }
                 .buttonStyle(.bordered)
             }
         } else {
             ContentUnavailableView {
-                Label("Prowlarr Not Set Up", systemImage: "magnifyingglass.circle")
+                Label("Indexers Not Set Up", systemImage: "magnifyingglass.circle")
             } description: {
-                Text("Add a Prowlarr server in Settings to manage your indexers.")
+                Text("Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.")
             }
         }
     }

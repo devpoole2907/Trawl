@@ -1,19 +1,25 @@
+import SwiftData
 import SwiftUI
 
 struct ProwlarrIndexerListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
-    @State private var viewModel: ProwlarrViewModel?
-    @State private var indexerToDelete: ProwlarrIndexer?
-    @State private var showTestAllConfirm = false
-    @State private var showAddSheet = false
+    @Query private var allProfiles: [ArrServiceProfile]
+
+    @State private var prowlarrViewModel: ProwlarrViewModel?
+    @State private var directViewModel: ArrIndexerManagementViewModel?
+    @State private var applicationsViewModel: ProwlarrApplicationsViewModel?
+    @State private var deleteTarget: UnifiedIndexerDeleteTarget?
+    @State private var addDestination: AddIndexerDestination?
     @State private var searchText = ""
-    @State private var isSearchActive = false
-    @State private var showIndexerFilter = false
 
     var body: some View {
         Group {
-            if let vm = viewModel {
-                mainContent(vm: vm)
+            if let prowlarrViewModel, let directViewModel {
+                content(
+                    prowlarrViewModel: prowlarrViewModel,
+                    directViewModel: directViewModel,
+                    applicationsViewModel: applicationsViewModel
+                )
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -24,232 +30,119 @@ struct ProwlarrIndexerListView: View {
         .navigationBarTitleDisplayMode(.large)
         #endif
         .task {
-            if viewModel == nil {
-                viewModel = ProwlarrViewModel(serviceManager: serviceManager)
+            if prowlarrViewModel == nil {
+                prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
             }
-            await viewModel?.loadIndexers()
-        }
-        .sheet(isPresented: $showAddSheet) {
-            if let vm = viewModel {
-                ProwlarrAddIndexerSheet(viewModel: vm)
+            if directViewModel == nil {
+                directViewModel = ArrIndexerManagementViewModel(serviceManager: serviceManager)
             }
+            if applicationsViewModel == nil {
+                applicationsViewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
+            }
+            await reloadData()
         }
-        .searchable(text: $searchText, isPresented: $isSearchActive, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search releases…")
-        .onSubmit(of: .search) {
-            guard let vm = viewModel else { return }
-            vm.searchQuery = searchText
-            Task { await vm.performSearch() }
-        }
-        .onChange(of: isSearchActive) { _, active in
-            if !active {
-                searchText = ""
-                viewModel?.clearSearch()
+        .sheet(item: $addDestination) { destination in
+            switch destination {
+            case .prowlarr:
+                if let prowlarrViewModel {
+                    ProwlarrAddIndexerSheet(viewModel: prowlarrViewModel)
+                }
+            case .direct(let profileID, let serviceType):
+                if let directViewModel, let profile = profile(for: profileID) {
+                    DirectIndexerSchemaPickerSheet(
+                        profile: profile,
+                        serviceType: serviceType,
+                        viewModel: directViewModel,
+                        linkedApplication: linkedApplication(for: profile, serviceType: serviceType)
+                    )
+                }
             }
         }
     }
 
-    // MARK: - Main content (hosts alerts so they work in both modes)
-
     @ViewBuilder
-    private func mainContent(vm: ProwlarrViewModel) -> some View {
-        @Bindable var vm = vm
-        Group {
-            if isSearchActive {
-                searchContent(vm: vm)
-            } else {
-                indexerList(vm: vm)
+    private func content(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel,
+        applicationsViewModel: ProwlarrApplicationsViewModel?
+    ) -> some View {
+        List {
+            if let stats = prowlarrViewModel.indexerStats, serviceManager.prowlarrConnected {
+                prowlarrStatsOverviewSection(stats: stats)
             }
-        }
-        .alert("Delete Indexer?", isPresented: .init(
-            get: { indexerToDelete != nil },
-            set: { if !$0 { indexerToDelete = nil } }
-        )) {
-            Button("Delete", role: .destructive) {
-                guard let indexer = indexerToDelete else { return }
-                let name = indexer.name ?? "Indexer"
-                indexerToDelete = nil
-                Task {
-                    let deleted = await vm.deleteIndexer(indexer)
-                    if let error = vm.indexerError {
-                        InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
-                        vm.clearIndexerError()
-                    } else if deleted && !vm.containsIndexer(id: indexer.id) {
-                        InAppNotificationCenter.shared.showSuccess(title: "Indexer Deleted", message: "\(name) has been removed.")
+
+            if !unavailableSources.isEmpty {
+                Section("Unavailable") {
+                    ForEach(unavailableSources) { source in
+                        unavailableRow(source)
                     }
                 }
             }
-            Button("Cancel", role: .cancel) { indexerToDelete = nil }
-        } message: {
-            Text("This removes \"\(indexerToDelete?.name ?? "this indexer")\" from Prowlarr.")
-        }
-        .alert("Test All Indexers?", isPresented: $showTestAllConfirm) {
-            Button("Test All") {
-                Task { await vm.testAllIndexers() }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            let count = vm.indexers.count
-            Text("This will send a test request to all \(count) \(count == 1 ? "indexer" : "indexers"). It may take a moment.")
-        }
-        .onChange(of: vm.testResult) { _, result in
-            guard let result else { return }
-            if vm.testSucceeded == true {
-                InAppNotificationCenter.shared.showSuccess(title: "Test Complete", message: result)
-            } else {
-                InAppNotificationCenter.shared.showError(title: "Test Failed", message: result)
-            }
-            vm.clearTestResult()
-        }
-        .sheet(isPresented: $showIndexerFilter) {
-            IndexerFilterSheet(
-                indexers: vm.indexers,
-                selectedIds: $vm.selectedIndexerIds,
-                onSelectionChanged: {
-                    guard !vm.searchQuery.isEmpty else { return }
-                    Task { await vm.performSearch() }
-                }
-            )
-        }
-    }
 
-    // MARK: - Indexer list
-
-    @ViewBuilder
-    private func indexerList(vm: ProwlarrViewModel) -> some View {
-        List {
-            if vm.isLoadingIndexers && vm.indexers.isEmpty {
+            if isLoadingInitialData(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel) && combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel).isEmpty {
                 loadingRows
-            } else if vm.indexers.isEmpty {
+            } else if combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel).isEmpty {
                 emptyState
             } else {
-                if let stats = vm.indexerStats {
-                    statsOverviewSection(stats: stats)
-                }
-                indexerSections(vm: vm)
+                sections(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
             }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        .refreshable { await vm.loadIndexers() }
-        .toolbar { toolbarContent(vm: vm) }
-    }
-
-    // MARK: - Search content
-
-    @ViewBuilder
-    private func searchContent(vm: ProwlarrViewModel) -> some View {
-        @Bindable var vm = vm
-        VStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(ProwlarrSearchType.allCases) { type in
-                        Button {
-                            vm.searchType = type
-                            if !vm.searchQuery.isEmpty {
-                                Task { await vm.performSearch() }
-                            }
-                        } label: {
-                            Label(type.displayName, systemImage: type.systemImage)
-                                .font(.subheadline.weight(.medium))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(vm.searchType == type ? .white : .primary)
-                        .background(
-                            vm.searchType == type ? Color.yellow : Color.secondary.opacity(0.12),
-                            in: Capsule()
-                        )
-                        .animation(.easeInOut(duration: 0.15), value: vm.searchType)
-                    }
-
-                    Divider().frame(height: 20)
-
-                    Button {
-                        showIndexerFilter = true
-                    } label: {
-                        HStack(spacing: 4) {
-                            Image(systemName: "line.3.horizontal.decrease.circle")
-                            Text(vm.selectedIndexerIds.isEmpty
-                                 ? "All Indexers"
-                                 : "\(vm.selectedIndexerIds.count) selected")
-                        }
-                        .font(.subheadline.weight(.medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(vm.selectedIndexerIds.isEmpty ? Color.primary : Color.white)
-                    .background(
-                        vm.selectedIndexerIds.isEmpty ? Color.secondary.opacity(0.12) : Color.yellow,
-                        in: Capsule()
-                    )
-                }
-                .padding(.horizontal, 16)
+        .refreshable { await reloadData() }
+        .searchable(text: $searchText, prompt: "Search indexers")
+        .toolbar { toolbarContent(prowlarrViewModel: prowlarrViewModel) }
+        .alert(
+            "Delete Indexer?",
+            isPresented: Binding(
+                get: { deleteTarget != nil },
+                set: { if !$0 { deleteTarget = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let deleteTarget else { return }
+                self.deleteTarget = nil
+                Task { await delete(deleteTarget, prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel) }
             }
-            .padding(.vertical, 10)
-
-            Divider()
-
-            searchResultsContent(vm: vm)
+            Button("Cancel", role: .cancel) {
+                deleteTarget = nil
+            }
+        } message: {
+            Text(deleteTarget?.deleteMessage ?? "This indexer will be removed.")
         }
-        .background(backgroundGradient)
-    }
-
-    @ViewBuilder
-    private func searchResultsContent(vm: ProwlarrViewModel) -> some View {
-        if vm.isSearching {
-            VStack(spacing: 16) {
-                ProgressView().controlSize(.large)
-                Text("Searching…").foregroundStyle(.secondary)
+        .onChange(of: prowlarrViewModel.testResult) { _, result in
+            guard let result else { return }
+            if prowlarrViewModel.testSucceeded == true {
+                InAppNotificationCenter.shared.showSuccess(title: "Test Complete", message: result)
+            } else {
+                InAppNotificationCenter.shared.showError(title: "Test Failed", message: result)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error = vm.searchError {
-            ContentUnavailableView {
-                Label("Search Failed", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
+            prowlarrViewModel.clearTestResult()
+        }
+        .onChange(of: directViewModel.testResult) { _, result in
+            guard let result else { return }
+            if directViewModel.testSucceeded == true {
+                InAppNotificationCenter.shared.showSuccess(title: "Test Complete", message: result)
+            } else {
+                InAppNotificationCenter.shared.showError(title: "Test Failed", message: result)
             }
-        } else if vm.searchResults.isEmpty && !vm.searchQuery.isEmpty {
-            ContentUnavailableView.search(text: vm.searchQuery)
-        } else if vm.searchResults.isEmpty {
-            ContentUnavailableView {
-                Label("Search Releases", systemImage: "magnifyingglass")
-            } description: {
-                Text("Enter a term and tap Return to search across your indexers.")
-            }
-        } else {
-            List {
-                Section {
-                    Text("\(vm.searchResults.count) results")
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 0, trailing: 16))
-
-                ForEach(vm.searchResults) { result in
-                    SearchResultRow(result: result)
-                }
-            }
-            .listStyle(.plain)
+            directViewModel.clearTestResult()
         }
     }
 
-    // MARK: - Indexer sections
-
     @ViewBuilder
-    private func statsOverviewSection(stats: ProwlarrIndexerStats) -> some View {
+    private func prowlarrStatsOverviewSection(stats: ProwlarrIndexerStats) -> some View {
         let entries = stats.indexers ?? []
         let totalQueries = entries.reduce(0) { $0 + ($1.numberOfQueries ?? 0) }
         let totalGrabs = entries.reduce(0) { $0 + ($1.numberOfGrabs ?? 0) }
         let totalFailed = entries.reduce(0) { $0 + ($1.numberOfFailedQueries ?? 0) }
 
-        Section("Overview") {
+        Section("Prowlarr Overview") {
             LabeledContent("Queries", value: "\(totalQueries)")
             LabeledContent("Grabs", value: "\(totalGrabs)")
             LabeledContent("Failed", value: "\(totalFailed)")
+
             if totalQueries > 0 {
                 let rate = Double(totalQueries - totalFailed) / Double(totalQueries) * 100
                 LabeledContent("Success Rate", value: String(format: "%.0f%%", rate))
@@ -258,115 +151,529 @@ struct ProwlarrIndexerListView: View {
     }
 
     @ViewBuilder
-    private func indexerSections(vm: ProwlarrViewModel) -> some View {
-        if !vm.torrentIndexers.isEmpty {
-            Section("Torrent") {
-                ForEach(vm.torrentIndexers) { indexer in
-                    indexerRow(indexer, vm: vm)
-                }
-            }
-        }
-        if !vm.usenetIndexers.isEmpty {
-            Section("Usenet") {
-                ForEach(vm.usenetIndexers) { indexer in
-                    indexerRow(indexer, vm: vm)
-                }
-            }
-        }
-        if !vm.otherIndexers.isEmpty {
-            Section("Other") {
-                ForEach(vm.otherIndexers) { indexer in
-                    indexerRow(indexer, vm: vm)
+    private func sections(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) -> some View {
+        ForEach(IndexerListSection.allCases) { section in
+            let items = combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
+                .filter { $0.section == section }
+
+            if !items.isEmpty {
+                Section(section.title) {
+                    ForEach(items) { item in
+                        row(for: item, prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
+                    }
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func indexerRow(_ indexer: ProwlarrIndexer, vm: ProwlarrViewModel) -> some View {
-        NavigationLink {
-            ProwlarrIndexerDetailView(indexer: indexer, viewModel: vm)
-        } label: {
-            IndexerRowView(
-                indexer: indexer,
-                status: vm.statusForIndexer(id: indexer.id),
-                stats: vm.statsForIndexer(id: indexer.id)
-            )
-        }
-        .swipeActions(edge: .leading) {
-            Button {
-                Task {
-                    await vm.testIndexer(indexer)
-                    // result flows through onChange(of: vm.testResult)
+    private func row(
+        for item: UnifiedIndexerListItem,
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) -> some View {
+        switch item.kind {
+        case .prowlarr(let indexer):
+            NavigationLink {
+                ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
+            } label: {
+                UnifiedIndexerRowView(
+                    title: indexer.name ?? "Unknown",
+                    subtitle: subtitle(for: item),
+                    sourceLabel: item.sourceLabel,
+                    barColor: item.barColor,
+                    priority: indexer.priority,
+                    isEnabled: indexer.enable,
+                    warningState: item.warningState
+                )
+            }
+            .swipeActions(edge: .leading) {
+                Button {
+                    Task { await prowlarrViewModel.testIndexer(indexer) }
+                } label: {
+                    Label("Test", systemImage: "checkmark.circle")
                 }
-            } label: {
-                Label("Test", systemImage: "checkmark.circle")
+                .tint(.blue)
             }
-            .tint(.blue)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                indexerToDelete = indexer
-            } label: {
-                Label("Delete", systemImage: "trash")
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deleteTarget = .prowlarr(indexer)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
-        }
-        .contextMenu {
-            Button {
-                let wasEnabled = indexer.enable
-                let name = indexer.name ?? "Indexer"
-                Task {
-                    await vm.toggleIndexer(indexer)
-                    if let error = vm.indexerError {
-                        InAppNotificationCenter.shared.showError(title: "Update Failed", message: error)
-                        vm.clearIndexerError()
-                    } else {
-                        InAppNotificationCenter.shared.showSuccess(
-                            title: wasEnabled ? "Indexer Disabled" : "Indexer Enabled",
-                            message: "\(name) has been \(wasEnabled ? "disabled" : "enabled")."
+            .contextMenu {
+                Button {
+                    Task {
+                        await prowlarrViewModel.toggleIndexer(indexer)
+                        if let error = prowlarrViewModel.indexerError {
+                            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error)
+                            prowlarrViewModel.clearIndexerError()
+                        }
+                    }
+                } label: {
+                    Label(indexer.enable ? "Disable" : "Enable", systemImage: indexer.enable ? "pause.circle" : "play.circle")
+                }
+
+                Button {
+                    Task { await prowlarrViewModel.testIndexer(indexer) }
+                } label: {
+                    Label("Test", systemImage: "checkmark.circle")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    deleteTarget = .prowlarr(indexer)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+
+        case .direct(let ownedIndexer):
+            NavigationLink {
+                DirectIndexerEditorView(
+                    profile: ownedIndexer.profile,
+                    serviceType: ownedIndexer.serviceType,
+                    viewModel: directViewModel,
+                    mode: .edit(ownedIndexer.indexer),
+                    linkedApplication: linkedApplication(for: ownedIndexer.profile, serviceType: ownedIndexer.serviceType)
+                )
+            } label: {
+                UnifiedIndexerRowView(
+                    title: ownedIndexer.indexer.name ?? "Unknown",
+                    subtitle: subtitle(for: item),
+                    sourceLabel: item.sourceLabel,
+                    barColor: item.barColor,
+                    priority: ownedIndexer.indexer.priority,
+                    isEnabled: ownedIndexer.indexer.isEnabled,
+                    warningState: item.warningState
+                )
+            }
+            .swipeActions(edge: .leading) {
+                Button {
+                    Task {
+                        await directViewModel.testIndexer(
+                            ownedIndexer.indexer,
+                            for: ownedIndexer.profile.id,
+                            serviceType: ownedIndexer.serviceType
                         )
                     }
+                } label: {
+                    Label("Test", systemImage: "checkmark.circle")
                 }
-            } label: {
-                Label(indexer.enable ? "Disable" : "Enable",
-                      systemImage: indexer.enable ? "pause.circle" : "play.circle")
+                .tint(.blue)
             }
-            Button {
-                Task { await vm.testIndexer(indexer) }
-            } label: {
-                Label("Test", systemImage: "checkmark.circle")
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    deleteTarget = .direct(ownedIndexer)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
-            Divider()
-            Button(role: .destructive) {
-                indexerToDelete = indexer
-            } label: {
-                Label("Delete", systemImage: "trash")
+            .contextMenu {
+                Button {
+                    Task {
+                        await directViewModel.testIndexer(
+                            ownedIndexer.indexer,
+                            for: ownedIndexer.profile.id,
+                            serviceType: ownedIndexer.serviceType
+                        )
+                    }
+                } label: {
+                    Label("Test", systemImage: "checkmark.circle")
+                }
+
+                Divider()
+
+                Button(role: .destructive) {
+                    deleteTarget = .direct(ownedIndexer)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
             }
         }
     }
 
-    // MARK: - Toolbar
-
     @ToolbarContentBuilder
-    private func toolbarContent(vm: ProwlarrViewModel) -> some ToolbarContent {
+    private func toolbarContent(prowlarrViewModel: ProwlarrViewModel) -> some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
-            Button {
-                showAddSheet = true
+            Menu {
+                if serviceManager.prowlarrConnected {
+                    Button("Add to Prowlarr", systemImage: "magnifyingglass.circle") {
+                        addDestination = .prowlarr
+                    }
+                }
+
+                addSubmenu(
+                    title: "Add to Sonarr",
+                    systemImage: "tv",
+                    profiles: connectedProfiles(for: .sonarr),
+                    serviceType: .sonarr
+                )
+
+                addSubmenu(
+                    title: "Add to Radarr",
+                    systemImage: "film",
+                    profiles: connectedProfiles(for: .radarr),
+                    serviceType: .radarr
+                )
             } label: {
                 Label("Add Indexer", systemImage: "plus")
             }
         }
-        ToolbarItem(placement: .primaryAction) {
-            Button {
-                showTestAllConfirm = true
-            } label: {
-                Label("Test All", systemImage: "checkmark.circle.badge.questionmark")
+
+        if serviceManager.prowlarrConnected {
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
+                    Task { await prowlarrViewModel.testAllIndexers() }
+                } label: {
+                    Label("Test All Prowlarr Indexers", systemImage: "checkmark.circle.badge.questionmark")
+                }
+                .disabled(prowlarrViewModel.isTesting || prowlarrViewModel.indexers.isEmpty)
             }
-            .disabled(vm.isTesting || vm.indexers.isEmpty)
         }
     }
 
-    // MARK: - Empty / loading states
+    @ViewBuilder
+    private func addSubmenu(
+        title: String,
+        systemImage: String,
+        profiles: [ArrServiceProfile],
+        serviceType: ArrServiceType
+    ) -> some View {
+        if profiles.count == 1, let profile = profiles.first {
+            Button(title, systemImage: systemImage) {
+                addDestination = .direct(profileID: profile.id, serviceType: serviceType)
+            }
+        } else if !profiles.isEmpty {
+            Menu(title) {
+                ForEach(profiles) { profile in
+                    Button(profile.displayName) {
+                        addDestination = .direct(profileID: profile.id, serviceType: serviceType)
+                    }
+                }
+            }
+        }
+    }
+
+    private func subtitle(for item: UnifiedIndexerListItem) -> String {
+        var parts: [String] = [item.sourceLabel]
+
+        if let implementationName = item.implementationName, !implementationName.isEmpty {
+            parts.append(implementationName)
+        }
+
+        if let protocolLabel = item.protocolDisplayName {
+            parts.append(protocolLabel)
+        }
+
+        return parts.joined(separator: " · ")
+    }
+
+    private func delete(
+        _ target: UnifiedIndexerDeleteTarget,
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) async {
+        switch target {
+        case .prowlarr(let indexer):
+            let name = indexer.name ?? "Indexer"
+            let deleted = await prowlarrViewModel.deleteIndexer(indexer)
+            if let error = prowlarrViewModel.indexerError {
+                InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
+                prowlarrViewModel.clearIndexerError()
+            } else if deleted && !prowlarrViewModel.containsIndexer(id: indexer.id) {
+                InAppNotificationCenter.shared.showSuccess(title: "Indexer Deleted", message: "\(name) has been removed from Prowlarr.")
+            }
+
+        case .direct(let ownedIndexer):
+            let deleted = await directViewModel.deleteIndexer(
+                ownedIndexer.indexer,
+                for: ownedIndexer.profile.id,
+                serviceType: ownedIndexer.serviceType
+            )
+
+            if deleted {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Indexer Deleted",
+                    message: "\(ownedIndexer.indexer.name ?? "Indexer") has been removed from \(ownedIndexer.profile.displayName)."
+                )
+            } else if let error = directViewModel.error(for: ownedIndexer.profile.id) {
+                InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error)
+            }
+        }
+    }
+
+    private func reloadData() async {
+        if let prowlarrViewModel {
+            await prowlarrViewModel.loadIndexers()
+        }
+        if let directViewModel {
+            await directViewModel.loadAllIndexers()
+        }
+        if let applicationsViewModel, serviceManager.prowlarrConnected {
+            await applicationsViewModel.loadApplications()
+        }
+    }
+
+    private func connectedProfiles(for serviceType: ArrServiceType) -> [ArrServiceProfile] {
+        allProfiles
+            .filter { $0.resolvedServiceType == serviceType && $0.isEnabled && serviceManager.isConnected(serviceType, profileID: $0.id) }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    private func profile(for id: UUID) -> ArrServiceProfile? {
+        allProfiles.first { $0.id == id }
+    }
+
+    private func ownerLabel(for profile: ArrServiceProfile) -> String {
+        guard let serviceType = profile.resolvedServiceType else { return profile.displayName }
+        let count = allProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }.count
+        if count > 1 && serviceType != .prowlarr {
+            return "\(serviceType.displayName) · \(profile.displayName)"
+        }
+        return serviceType.displayName
+    }
+
+    private func currentProwlarrProfile() -> ArrServiceProfile? {
+        if let activeID = serviceManager.activeProwlarrProfileID,
+           let active = allProfiles.first(where: { $0.id == activeID }) {
+            return active
+        }
+
+        return allProfiles
+            .filter { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
+            .sorted { $0.dateAdded > $1.dateAdded }
+            .first
+    }
+
+    private func combinedItems(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) -> [UnifiedIndexerListItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        var items: [UnifiedIndexerListItem] = []
+
+        if serviceManager.prowlarrConnected {
+            let prowlarrItems = prowlarrViewModel.indexers.map { indexer in
+                UnifiedIndexerListItem(
+                    kind: .prowlarr(indexer),
+                    title: indexer.name ?? "Unknown",
+                    implementationName: indexer.implementationName ?? indexer.implementation,
+                    protocolName: indexer.protocol?.displayName,
+                    sourceLabel: "Prowlarr",
+                    barColor: color(for: .prowlarr),
+                    warningState: indexer.enable ? .connected : .disabled,
+                    section: section(for: indexer.protocol?.rawValue)
+                )
+            }
+            items.append(contentsOf: prowlarrItems)
+        }
+
+        for profile in connectedProfiles(for: .sonarr) {
+            let ownedIndexers = directViewModel.indexers(for: profile.id, serviceType: .sonarr)
+                .filter { !shouldHideAsProwlarrMirror($0) }
+                .map { indexer in
+                let warningState: UnifiedIndexerRowWarningState = indexer.isEnabled ? .connected : .disabled
+                return UnifiedIndexerListItem(
+                    kind: .direct(OwnedDirectIndexer(indexer: indexer, profile: profile, serviceType: .sonarr)),
+                    title: indexer.name ?? "Unknown",
+                    implementationName: indexer.implementationName ?? indexer.implementation,
+                    protocolName: indexer.protocol?.displayName,
+                    sourceLabel: ownerLabel(for: profile),
+                    barColor: color(for: .sonarr),
+                    warningState: warningState,
+                    section: section(for: indexer.protocol?.rawValue)
+                )
+            }
+            items.append(contentsOf: ownedIndexers)
+        }
+
+        for profile in connectedProfiles(for: .radarr) {
+            let ownedIndexers = directViewModel.indexers(for: profile.id, serviceType: .radarr)
+                .filter { !shouldHideAsProwlarrMirror($0) }
+                .map { indexer in
+                let warningState: UnifiedIndexerRowWarningState = indexer.isEnabled ? .connected : .disabled
+                return UnifiedIndexerListItem(
+                    kind: .direct(OwnedDirectIndexer(indexer: indexer, profile: profile, serviceType: .radarr)),
+                    title: indexer.name ?? "Unknown",
+                    implementationName: indexer.implementationName ?? indexer.implementation,
+                    protocolName: indexer.protocol?.displayName,
+                    sourceLabel: ownerLabel(for: profile),
+                    barColor: color(for: .radarr),
+                    warningState: warningState,
+                    section: section(for: indexer.protocol?.rawValue)
+                )
+            }
+            items.append(contentsOf: ownedIndexers)
+        }
+
+        let filteredItems: [UnifiedIndexerListItem]
+        if query.isEmpty {
+            filteredItems = items
+        } else {
+            filteredItems = items.filter { item in
+                item.title.localizedCaseInsensitiveContains(query)
+                    || item.sourceLabel.localizedCaseInsensitiveContains(query)
+                    || (item.implementationName?.localizedCaseInsensitiveContains(query) ?? false)
+            }
+        }
+
+        return filteredItems.sorted { lhs, rhs in
+            if lhs.section == rhs.section {
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return lhs.section.sortOrder < rhs.section.sortOrder
+        }
+    }
+
+    private func color(for serviceType: ArrServiceType) -> Color {
+        switch serviceType {
+        case .prowlarr:
+            .yellow
+        case .sonarr:
+            .blue
+        case .radarr:
+            .orange
+        }
+    }
+
+    private func section(for protocolValue: String?) -> IndexerListSection {
+        switch protocolValue {
+        case ArrIndexerProtocol.torrent.rawValue, ProwlarrIndexerProtocol.torrent.rawValue:
+            .torrent
+        case ArrIndexerProtocol.usenet.rawValue, ProwlarrIndexerProtocol.usenet.rawValue:
+            .usenet
+        default:
+            .other
+        }
+    }
+
+    private func isLoadingInitialData(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) -> Bool {
+        prowlarrViewModel.isLoadingIndexers || connectedProfiles(for: .sonarr).contains(where: { directViewModel.isLoadingIndexers(for: $0.id) })
+            || connectedProfiles(for: .radarr).contains(where: { directViewModel.isLoadingIndexers(for: $0.id) })
+    }
+
+    private var unavailableSources: [UnavailableIndexerSource] {
+        allProfiles
+            .filter {
+                guard let serviceType = $0.resolvedServiceType else { return false }
+                if serviceType == .prowlarr, serviceManager.prowlarrConnected {
+                    return false
+                }
+                return $0.isEnabled
+                    && [.prowlarr, .sonarr, .radarr].contains(serviceType)
+                    && !serviceManager.isConnected(serviceType, profileID: $0.id)
+            }
+            .map { profile in
+                let error: String?
+                switch profile.resolvedServiceType {
+                case .prowlarr:
+                    error = serviceManager.prowlarrConnectionError
+                case .sonarr:
+                    error = serviceManager.sonarrInstances.first(where: { $0.id == profile.id })?.connectionError
+                case .radarr:
+                    error = serviceManager.radarrInstances.first(where: { $0.id == profile.id })?.connectionError
+                case .none:
+                    error = nil
+                }
+
+                return UnavailableIndexerSource(profile: profile, error: error ?? "Connection unavailable.")
+            }
+            .sorted { $0.profile.displayName.localizedCaseInsensitiveCompare($1.profile.displayName) == .orderedAscending }
+    }
+
+    private func shouldHideAsProwlarrMirror(_ indexer: ArrManagedIndexer) -> Bool {
+        guard serviceManager.prowlarrConnected else { return false }
+
+        let lowercasedName = (indexer.name ?? "").lowercased()
+        if lowercasedName.contains("(prowlarr)") || lowercasedName.contains("[prowlarr]") {
+            return true
+        }
+
+        guard let prowlarrProfile = currentProwlarrProfile() else { return false }
+        let normalizedProwlarrURL = normalizedMirrorURL(from: prowlarrProfile.hostURL)
+        let prowlarrHost = URL(string: prowlarrProfile.hostURL)?.host?.lowercased()
+
+        for field in indexer.fields ?? [] {
+            guard let name = field.name?.lowercased() else { continue }
+            guard name.contains("url") || name.contains("base") || name.contains("api") else { continue }
+            guard let value = field.value?.displayString?.lowercased(), !value.isEmpty else { continue }
+
+            if let normalizedProwlarrURL, value.contains(normalizedProwlarrURL) {
+                return true
+            }
+
+            if let prowlarrHost, value.contains(prowlarrHost) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    private func normalizedMirrorURL(from rawURL: String) -> String? {
+        let trimmed = rawURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+        guard !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
+    private func linkedApplication(for profile: ArrServiceProfile, serviceType: ArrServiceType) -> ProwlarrApplication? {
+        guard serviceManager.prowlarrConnected,
+              let applicationsViewModel else { return nil }
+
+        let expectedType: ProwlarrLinkedAppType
+        switch serviceType {
+        case .sonarr:
+            expectedType = .sonarr
+        case .radarr:
+            expectedType = .radarr
+        case .prowlarr:
+            return nil
+        }
+
+        let profileURL = normalizedMirrorURL(from: profile.hostURL)
+        let profileHost = URL(string: profile.hostURL)?.host?.lowercased()
+
+        return applicationsViewModel.supportedApplications.first { application in
+            guard application.linkedAppType == expectedType else { return false }
+            guard let baseURL = application.stringFieldValue(named: "baseUrl"), !baseURL.isEmpty else { return false }
+
+            let normalizedBaseURL = normalizedMirrorURL(from: baseURL)
+            let baseHost = URL(string: baseURL)?.host?.lowercased()
+
+            if let profileURL, let normalizedBaseURL, normalizedBaseURL == profileURL {
+                return true
+            }
+
+            if let profileHost, let baseHost, profileHost == baseHost {
+                return true
+            }
+
+            return false
+        }
+    }
+
+    @ViewBuilder
+    private func unavailableRow(_ source: UnavailableIndexerSource) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(source.profile.displayName)
+                .font(.body.weight(.medium))
+
+            Text(source.error)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
 
     private var loadingRows: some View {
         ForEach(0..<5, id: \.self) { _ in
@@ -374,13 +681,15 @@ struct ProwlarrIndexerListView: View {
                 RoundedRectangle(cornerRadius: 6)
                     .fill(Color.secondary.opacity(0.2))
                     .frame(width: 8, height: 36)
+
                 VStack(alignment: .leading, spacing: 6) {
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.secondary.opacity(0.2))
-                        .frame(width: 140, height: 14)
+                        .frame(width: 160, height: 14)
+
                     RoundedRectangle(cornerRadius: 4)
                         .fill(Color.secondary.opacity(0.15))
-                        .frame(width: 90, height: 11)
+                        .frame(width: 120, height: 11)
                 }
             }
             .padding(.vertical, 4)
@@ -391,7 +700,7 @@ struct ProwlarrIndexerListView: View {
         ContentUnavailableView(
             "No Indexers",
             systemImage: "magnifyingglass.circle",
-            description: Text("Tap + to add your first indexer.")
+            description: Text("Use the add button to create an indexer in Prowlarr, Sonarr, or Radarr.")
         )
         .listRowBackground(Color.clear)
     }
@@ -399,12 +708,13 @@ struct ProwlarrIndexerListView: View {
     private var backgroundGradient: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.yellow.opacity(0.15), Color.clear],
+                colors: [Color.yellow.opacity(0.08), Color.blue.opacity(0.06), Color.orange.opacity(0.04), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
+
             RadialGradient(
-                colors: [Color.yellow.opacity(0.12), Color.clear],
+                colors: [Color.yellow.opacity(0.10), Color.clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 240
@@ -414,248 +724,687 @@ struct ProwlarrIndexerListView: View {
     }
 }
 
-// MARK: - Indexer row view
+private enum IndexerListSection: CaseIterable, Identifiable {
+    case torrent
+    case usenet
+    case other
 
-private struct IndexerRowView: View {
-    let indexer: ProwlarrIndexer
-    let status: ProwlarrIndexerStatus?
-    let stats: ProwlarrIndexerStatEntry?
+    var id: String { title }
+    var title: String {
+        switch self {
+        case .torrent: "Torrent"
+        case .usenet: "Usenet"
+        case .other: "Other"
+        }
+    }
+
+    var sortOrder: Int {
+        switch self {
+        case .torrent: 0
+        case .usenet: 1
+        case .other: 2
+        }
+    }
+}
+
+private struct OwnedDirectIndexer: Identifiable {
+    let indexer: ArrManagedIndexer
+    let profile: ArrServiceProfile
+    let serviceType: ArrServiceType
+
+    var id: String { "\(serviceType.rawValue)-\(profile.id.uuidString)-\(indexer.id)" }
+}
+
+private enum UnifiedIndexerDeleteTarget {
+    case prowlarr(ProwlarrIndexer)
+    case direct(OwnedDirectIndexer)
+
+    var deleteMessage: String {
+        switch self {
+        case .prowlarr(let indexer):
+            "This removes \"\(indexer.name ?? "this indexer")\" from Prowlarr."
+        case .direct(let ownedIndexer):
+            "This removes \"\(ownedIndexer.indexer.name ?? "this indexer")\" from \(ownedIndexer.profile.displayName)."
+        }
+    }
+}
+
+private enum AddIndexerDestination: Identifiable {
+    case prowlarr
+    case direct(profileID: UUID, serviceType: ArrServiceType)
+
+    var id: String {
+        switch self {
+        case .prowlarr:
+            "prowlarr"
+        case .direct(let profileID, let serviceType):
+            "\(serviceType.rawValue)-\(profileID.uuidString)"
+        }
+    }
+}
+
+private struct UnavailableIndexerSource: Identifiable {
+    let profile: ArrServiceProfile
+    let error: String
+
+    var id: UUID { profile.id }
+}
+
+private struct UnifiedIndexerListItem: Identifiable {
+    enum Kind {
+        case prowlarr(ProwlarrIndexer)
+        case direct(OwnedDirectIndexer)
+    }
+
+    let kind: Kind
+    let title: String
+    let implementationName: String?
+    let protocolName: String?
+    let sourceLabel: String
+    let barColor: Color
+    let warningState: UnifiedIndexerRowWarningState
+    let section: IndexerListSection
+
+    var id: String {
+        switch kind {
+        case .prowlarr(let indexer):
+            "prowlarr-\(indexer.id)"
+        case .direct(let ownedIndexer):
+            ownedIndexer.id
+        }
+    }
+
+    var protocolDisplayName: String? { protocolName }
+}
+
+private enum UnifiedIndexerRowWarningState {
+    case connected
+    case disabled
+}
+
+private struct UnifiedIndexerRowView: View {
+    let title: String
+    let subtitle: String
+    let sourceLabel: String
+    let barColor: Color
+    let priority: Int?
+    let isEnabled: Bool
+    let warningState: UnifiedIndexerRowWarningState
 
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 3)
                 .fill(statusColor)
-                .frame(width: 4, height: 40)
+                .frame(width: 4, height: 42)
 
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
-                    Text(indexer.name ?? "Unknown")
+                    Text(title)
                         .font(.body.weight(.medium))
-                        .foregroundStyle(indexer.enable ? .primary : .secondary)
+                        .foregroundStyle(isEnabled ? .primary : .secondary)
 
-                    if let priority = indexer.priority, priority != 25 {
+                    if let priority, priority != 25 {
                         Text("P\(priority)")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(.white)
                             .padding(.horizontal, 5)
                             .padding(.vertical, 2)
-                            .background(Color.yellow.opacity(0.8), in: Capsule())
+                            .background(barColor.opacity(0.9), in: Capsule())
                     }
                 }
 
-                HStack(spacing: 6) {
-                    if let impl = indexer.implementationName ?? indexer.implementation {
-                        Text(impl).font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if let proto = indexer.protocol {
-                        Text("·").foregroundStyle(.tertiary)
-                        Label(proto.displayName, systemImage: proto.systemImage)
-                            .font(.caption).foregroundStyle(.tertiary).labelStyle(.titleAndIcon)
-                    }
-                    if let grabs = stats?.numberOfGrabs, grabs > 0 {
-                        Text("·").foregroundStyle(.tertiary)
-                        Text("\(grabs) grabs").font(.caption).foregroundStyle(.green)
-                    }
-                    if let rate = stats?.successRate {
-                        Text("·").foregroundStyle(.tertiary)
-                        Text(String(format: "%.0f%%", rate * 100))
-                            .font(.caption)
-                            .foregroundStyle(rate > 0.9 ? .green : rate > 0.7 ? .orange : .red)
-                    }
-                }
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
             }
 
             Spacer()
 
-            if status?.isDisabled == true {
-                Image(systemName: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
-            } else if indexer.enable {
-                Image(systemName: "circle.fill").font(.caption2).foregroundStyle(.green)
-            } else {
-                Image(systemName: "circle").font(.caption2).foregroundStyle(.secondary)
-            }
+            Image(systemName: warningIcon)
+                .font(.caption)
+                .foregroundStyle(warningIconColor)
         }
         .padding(.vertical, 4)
-        .opacity(indexer.enable ? 1.0 : 0.6)
+        .opacity(isEnabled ? 1.0 : 0.65)
     }
 
     private var statusColor: Color {
-        if status?.isDisabled == true { return .orange }
-        return indexer.enable ? .yellow : .secondary.opacity(0.4)
+        isEnabled ? barColor : .secondary.opacity(0.4)
+    }
+
+    private var warningIcon: String {
+        switch warningState {
+        case .connected:
+            "circle.fill"
+        case .disabled:
+            "circle"
+        }
+    }
+
+    private var warningIconColor: Color {
+        switch warningState {
+        case .connected:
+            .green
+        case .disabled:
+            .secondary
+        }
     }
 }
 
-// MARK: - Search result row
-
-private struct SearchResultRow: View {
-    let result: ProwlarrSearchResult
-    @State private var showActionSheet = false
-    @State private var showAddTorrentSheet = false
-    @State private var downloadedTorrentURL: String?
-
-    var body: some View {
-        Button {
-            showActionSheet = true
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .top, spacing: 8) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(result.title ?? "Unknown")
-                            .font(.subheadline.weight(.medium))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
-                            .lineLimit(2)
-
-                        HStack(spacing: 6) {
-                            if let indexer = result.indexer {
-                                Text(indexer).font(.caption).foregroundStyle(.yellow)
-                            }
-                            if let age = result.ageDescription {
-                                Text("·").foregroundStyle(.tertiary)
-                                Text(age).font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-
-                    Spacer(minLength: 8)
-
-                    VStack(alignment: .trailing, spacing: 3) {
-                        if let size = result.size {
-                            Text(ByteFormatter.format(bytes: size))
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                        }
-                        if result.isFreeleech {
-                            Text("FL")
-                                .font(.caption2.weight(.bold))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 5)
-                                .padding(.vertical, 2)
-                                .background(.green, in: Capsule())
-                        }
-                    }
-                }
-
-                if let seeders = result.seeders, result.isTorrent {
-                    HStack(spacing: 10) {
-                        Label("\(seeders)", systemImage: "arrow.up.circle.fill").foregroundStyle(.green)
-                        if let leechers = result.leechers {
-                            Label("\(leechers)", systemImage: "arrow.down.circle.fill").foregroundStyle(.secondary)
-                        }
-                    }
-                    .font(.caption)
-                }
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .confirmationDialog(result.title ?? "Download", isPresented: $showActionSheet, titleVisibility: .visible) {
-            if let url = result.downloadUrl {
-                if result.isMagnet {
-                    Button("Add to qBittorrent") { openMagnet(url) }
-                } else if result.isTorrent {
-                    Button("Add to qBittorrent") {
-                        downloadedTorrentURL = url
-                        showAddTorrentSheet = true
-                    }
-                } else {
-                    Text("Usenet — not supported in Trawl")
-                }
-                Button("Copy Link") { copyToClipboard(url) }
-            }
-            if let infoUrl = result.infoUrl, !infoUrl.isEmpty, let url = URL(string: infoUrl) {
-                Button("Open Info Page") { openURL(url) }
-            }
-            Button("Cancel", role: .cancel) {}
-        }
-        .sheet(isPresented: $showAddTorrentSheet) {
-            if let urlString = downloadedTorrentURL {
-                AddTorrentSheet(initialMagnetURL: urlString)
-            }
-        }
-    }
-
-    private func copyToClipboard(_ urlString: String) {
-        #if os(iOS)
-        UIPasteboard.general.string = urlString
-        #elseif os(macOS)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(urlString, forType: .string)
-        #endif
-        InAppNotificationCenter.shared.showSuccess(title: "Link Copied", message: "The download link has been copied to your clipboard.")
-    }
-
-    private func openURL(_ url: URL) {
-        #if os(iOS)
-        UIApplication.shared.open(url)
-        #elseif os(macOS)
-        NSWorkspace.shared.open(url)
-        #endif
-    }
-
-    private func openMagnet(_ urlString: String) {
-        guard let url = URL(string: urlString) else { return }
-        #if os(iOS)
-        UIApplication.shared.open(url)
-        #elseif os(macOS)
-        NSWorkspace.shared.open(url)
-        #endif
-    }
-}
-
-// MARK: - Indexer filter sheet
-
-private struct IndexerFilterSheet: View {
-    let indexers: [ProwlarrIndexer]
-    @Binding var selectedIds: Set<Int>
-    let onSelectionChanged: () -> Void
+private struct DirectIndexerSchemaPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
 
+    let profile: ArrServiceProfile
+    let serviceType: ArrServiceType
+    let viewModel: ArrIndexerManagementViewModel
+    let linkedApplication: ProwlarrApplication?
+
+    @State private var searchText = ""
+
+    private var filteredSchema: [ArrManagedIndexer] {
+        let schema = viewModel.schema(for: profile.id)
+        guard !searchText.isEmpty else { return schema }
+        return schema.filter {
+            ($0.name ?? "").localizedCaseInsensitiveContains(searchText)
+                || ($0.implementationName ?? "").localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
     var body: some View {
-        NavigationStack {
-            List {
-                Section {
-                    Button("All Indexers") {
-                        selectedIds = []
-                        onSelectionChanged()
-                        dismiss()
+        ArrSheetShell(title: "Add Indexer") {
+            Group {
+                if viewModel.isLoadingSchema(for: profile.id) {
+                    ProgressView("Loading indexer types…")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let error = viewModel.schemaError(for: profile.id) {
+                    ContentUnavailableView {
+                        Label("Failed to Load", systemImage: "exclamationmark.triangle")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            Task { await viewModel.loadSchema(for: profile.id, serviceType: serviceType, force: true) }
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
-                    .foregroundStyle(selectedIds.isEmpty ? .yellow : .primary)
+                } else if filteredSchema.isEmpty && !searchText.isEmpty {
+                    ContentUnavailableView(
+                        "No Results",
+                        systemImage: "magnifyingglass",
+                        description: Text("No indexers match \"\(searchText)\".")
+                    )
+                } else if filteredSchema.isEmpty {
+                    ContentUnavailableView(
+                        "No Indexers",
+                        systemImage: "magnifyingglass",
+                        description: Text("No indexer schemas were returned by \(profile.displayName).")
+                    )
+                } else {
+                    List(filteredSchema, id: \.schemaListID) { schema in
+                        NavigationLink {
+                            DirectIndexerEditorView(
+                                profile: profile,
+                                serviceType: serviceType,
+                                viewModel: viewModel,
+                                mode: .add(schema),
+                                linkedApplication: linkedApplication,
+                                onSaved: { dismiss() }
+                            )
+                        } label: {
+                            schemaRow(schema)
+                        }
+                    }
+                    .listStyle(.insetGrouped)
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search indexers")
+            .task {
+                await viewModel.loadSchema(for: profile.id, serviceType: serviceType)
+            }
+        }
+    }
+
+    private func schemaRow(_ schema: ArrManagedIndexer) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(schema.name ?? schema.implementationName ?? "Unknown")
+                .font(.body)
+
+            HStack(spacing: 6) {
+                if let implementationName = schema.implementationName {
+                    Text(implementationName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
-                Section("Select Indexers") {
-                    ForEach(indexers) { indexer in
-                        Button {
-                            if selectedIds.contains(indexer.id) {
-                                selectedIds.remove(indexer.id)
-                            } else {
-                                selectedIds.insert(indexer.id)
-                            }
-                            onSelectionChanged()
-                        } label: {
-                            HStack {
-                                Text(indexer.name ?? "Unknown").foregroundStyle(.primary)
-                                Spacer()
-                                if selectedIds.contains(indexer.id) {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.yellow)
-                                        .fontWeight(.semibold)
-                                }
-                            }
+                if let protocolValue = schema.protocol {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+
+                    Label(protocolValue.displayName, systemImage: protocolValue.systemImage)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct DirectIndexerEditorView: View {
+    enum Mode {
+        case add(ArrManagedIndexer)
+        case edit(ArrManagedIndexer)
+
+        var seed: ArrManagedIndexer {
+            switch self {
+            case .add(let schema), .edit(let schema):
+                schema
+            }
+        }
+
+        var buttonTitle: String {
+            switch self {
+            case .add:
+                "Add"
+            case .edit:
+                "Save"
+            }
+        }
+
+        var navigationTitle: String {
+            switch self {
+            case .add(let schema):
+                schema.name ?? "Add Indexer"
+            case .edit(let indexer):
+                indexer.name ?? "Edit Indexer"
+            }
+        }
+    }
+
+    let profile: ArrServiceProfile
+    let serviceType: ArrServiceType
+    let viewModel: ArrIndexerManagementViewModel
+    let mode: Mode
+    let linkedApplication: ProwlarrApplication?
+    var onSaved: (() -> Void)?
+
+    @State private var indexerName: String
+    @State private var priority: Int
+    @State private var enableRss: Bool
+    @State private var enableAutomaticSearch: Bool
+    @State private var enableInteractiveSearch: Bool
+    @State private var showAdvanced = false
+    @State private var fieldValues: [String: ArrIndexerFieldValue]
+    @State private var isSaving = false
+
+    init(
+        profile: ArrServiceProfile,
+        serviceType: ArrServiceType,
+        viewModel: ArrIndexerManagementViewModel,
+        mode: Mode,
+        linkedApplication: ProwlarrApplication? = nil,
+        onSaved: (() -> Void)? = nil
+    ) {
+        self.profile = profile
+        self.serviceType = serviceType
+        self.viewModel = viewModel
+        self.mode = mode
+        self.linkedApplication = linkedApplication
+        self.onSaved = onSaved
+
+        let seed = mode.seed
+        _indexerName = State(initialValue: seed.name ?? "")
+        _priority = State(initialValue: seed.priority ?? 25)
+        _enableRss = State(initialValue: seed.enableRss)
+        _enableAutomaticSearch = State(initialValue: seed.enableAutomaticSearch)
+        _enableInteractiveSearch = State(initialValue: seed.enableInteractiveSearch)
+
+        var defaults: [String: ArrIndexerFieldValue] = [:]
+        for field in seed.fields ?? [] {
+            if let name = field.name, let value = field.value {
+                defaults[name] = value
+            }
+        }
+        _fieldValues = State(initialValue: defaults)
+    }
+
+    private var visibleFields: [ArrIndexerField] {
+        (mode.seed.fields ?? []).filter { field in
+            guard field.hidden != "hidden", field.type != "info" else { return false }
+            if !showAdvanced && field.advanced == true {
+                return false
+            }
+            return true
+        }
+    }
+
+    private var infoFields: [ArrIndexerField] {
+        (mode.seed.fields ?? []).filter { $0.type == "info" && $0.hidden != "hidden" }
+    }
+
+    private var hasAdvancedFields: Bool {
+        (mode.seed.fields ?? []).contains { $0.advanced == true && $0.hidden != "hidden" && $0.type != "info" }
+    }
+
+    var body: some View {
+        Form {
+            if let linkedApplication {
+                Section {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("Managed by Prowlarr", systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+
+                        Text(linkedApplicationWarningText(for: linkedApplication))
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+
+            Section {
+                LabeledContent("Name") {
+                    TextField("Indexer name", text: $indexerName)
+                        .multilineTextAlignment(.trailing)
+                }
+
+                Stepper("Priority: \(priority)", value: $priority, in: 1...50)
+
+                Toggle("RSS", isOn: $enableRss)
+                Toggle("Automatic Search", isOn: $enableAutomaticSearch)
+                Toggle("Interactive Search", isOn: $enableInteractiveSearch)
+            } header: {
+                Text("General")
+            } footer: {
+                Text("These switches control how \(profile.displayName) uses this indexer.")
+            }
+
+            if !infoFields.isEmpty {
+                Section {
+                    ForEach(Array(infoFields.enumerated()), id: \.offset) { _, field in
+                        if let text = field.value?.displayString {
+                            Text(text)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
             }
-            .navigationTitle("Filter Indexers")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Done") { dismiss() }
+
+            if !visibleFields.isEmpty {
+                Section("Configuration") {
+                    ForEach(Array(visibleFields.enumerated()), id: \.offset) { _, field in
+                        DirectIndexerFieldRow(
+                            field: field,
+                            fieldValues: $fieldValues
+                        )
+                    }
+                }
+            }
+
+            if hasAdvancedFields {
+                Section {
+                    Toggle("Show Advanced Settings", isOn: $showAdvanced)
+                }
+            }
+
+            if let error = viewModel.error(for: profile.id) {
+                Section {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                        .font(.footnote)
                 }
             }
         }
+        .navigationTitle(mode.navigationTitle)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button(mode.buttonTitle) {
+                        Task { await save() }
+                    }
+                    .disabled(indexerName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func linkedApplicationWarningText(for application: ProwlarrApplication) -> String {
+        let appName = application.name ?? linkedApplicationDisplayName
+        let syncLevel = application.syncLevel?.displayName ?? "Sync"
+        return "\(appName) is linked to Prowlarr with \(syncLevel). Local indexer changes in \(profile.displayName) may be overwritten the next time Prowlarr syncs."
+    }
+
+    private var linkedApplicationDisplayName: String {
+        switch serviceType {
+        case .sonarr:
+            "Sonarr"
+        case .radarr:
+            "Radarr"
+        case .prowlarr:
+            "Prowlarr"
+        }
+    }
+
+    private func save() async {
+        guard !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        let updatedFields = (mode.seed.fields ?? []).map { field -> ArrIndexerField in
+            guard let name = field.name, let newValue = fieldValues[name] else { return field }
+            return ArrIndexerField(
+                order: field.order,
+                name: field.name,
+                label: field.label,
+                unit: field.unit,
+                helpText: field.helpText,
+                helpTextWarning: field.helpTextWarning,
+                helpLink: field.helpLink,
+                value: newValue,
+                type: field.type,
+                advanced: field.advanced,
+                selectOptions: field.selectOptions,
+                selectOptionsProviderAction: field.selectOptionsProviderAction,
+                section: field.section,
+                hidden: field.hidden,
+                placeholder: field.placeholder,
+                isFloat: field.isFloat
+            )
+        }
+
+        let candidate = ArrManagedIndexer(
+            id: mode.seed.id,
+            name: indexerName.trimmingCharacters(in: .whitespacesAndNewlines),
+            fields: updatedFields,
+            implementationName: mode.seed.implementationName,
+            implementation: mode.seed.implementation,
+            configContract: mode.seed.configContract,
+            infoLink: mode.seed.infoLink,
+            message: mode.seed.message,
+            tags: mode.seed.tags ?? [],
+            presets: mode.seed.presets,
+            enableRss: enableRss,
+            enableAutomaticSearch: enableAutomaticSearch,
+            enableInteractiveSearch: enableInteractiveSearch,
+            supportsRss: mode.seed.supportsRss,
+            supportsSearch: mode.seed.supportsSearch,
+            protocol: mode.seed.protocol,
+            priority: priority,
+            seasonSearchMaximumSingleEpisodeAge: mode.seed.seasonSearchMaximumSingleEpisodeAge,
+            downloadClientId: mode.seed.downloadClientId
+        )
+
+        let saved: Bool
+        switch mode {
+        case .add:
+            saved = await viewModel.addIndexer(candidate, for: profile.id, serviceType: serviceType)
+            if saved {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Indexer Added",
+                    message: "\(candidate.name ?? "Indexer") has been added to \(profile.displayName)."
+                )
+            }
+        case .edit:
+            saved = await viewModel.updateIndexer(candidate, for: profile.id, serviceType: serviceType)
+            if saved {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Indexer Updated",
+                    message: "\(candidate.name ?? "Indexer") has been updated in \(profile.displayName)."
+                )
+            }
+        }
+
+        if saved {
+            onSaved?()
+        }
+    }
+}
+
+private struct DirectIndexerFieldRow: View {
+    let field: ArrIndexerField
+    @Binding var fieldValues: [String: ArrIndexerFieldValue]
+
+    var body: some View {
+        let label = field.label ?? field.name ?? ""
+        let key = field.name ?? ""
+
+        VStack(alignment: .leading, spacing: 6) {
+            switch field.type {
+            case "checkbox":
+                Toggle(label, isOn: boolBinding(for: key))
+
+            case "select":
+                if let options = field.selectOptions, !options.isEmpty {
+                    Picker(label, selection: intBinding(for: key)) {
+                        ForEach(options) { option in
+                            Text(option.name ?? "Unknown")
+                                .tag(option.value ?? 0)
+                        }
+                    }
+                }
+
+            case "password":
+                LabeledContent(label) {
+                    SecureField(field.placeholder ?? label, text: stringBinding(for: key))
+                        .multilineTextAlignment(.trailing)
+                }
+
+            case "number":
+                LabeledContent(label) {
+                    TextField(field.placeholder ?? label, text: numberStringBinding(for: key, isFloat: field.isFloat == true))
+                        .multilineTextAlignment(.trailing)
+                        #if os(iOS)
+                        .keyboardType(field.isFloat == true ? .decimalPad : .numberPad)
+                        #endif
+                }
+
+            default:
+                LabeledContent(label) {
+                    TextField(field.placeholder ?? label, text: stringBinding(for: key))
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                }
+            }
+
+            if let helpText = field.helpText?.trawlStrippingHTML, !helpText.isEmpty {
+                Text(helpText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func stringBinding(for key: String) -> Binding<String> {
+        Binding(
+            get: {
+                if case .string(let value) = fieldValues[key] {
+                    return value
+                }
+                return fieldValues[key]?.displayString ?? ""
+            },
+            set: { fieldValues[key] = .string($0) }
+        )
+    }
+
+    private func boolBinding(for key: String) -> Binding<Bool> {
+        Binding(
+            get: {
+                if case .bool(let value) = fieldValues[key] {
+                    return value
+                }
+                return false
+            },
+            set: { fieldValues[key] = .bool($0) }
+        )
+    }
+
+    private func intBinding(for key: String) -> Binding<Int> {
+        Binding(
+            get: {
+                fieldValues[key]?.intValue ?? 0
+            },
+            set: { fieldValues[key] = .int($0) }
+        )
+    }
+
+    private func numberStringBinding(for key: String, isFloat: Bool) -> Binding<String> {
+        Binding(
+            get: {
+                switch fieldValues[key] {
+                case .int(let value):
+                    return value == 0 ? "" : String(value)
+                case .double(let value):
+                    return value == 0 ? "" : String(value)
+                case .string(let value):
+                    return value
+                default:
+                    return ""
+                }
+            },
+            set: { value in
+                if isFloat {
+                    if let parsed = Double(value) {
+                        fieldValues[key] = .double(parsed)
+                    } else if value.isEmpty {
+                        fieldValues[key] = .double(0)
+                    }
+                } else {
+                    if let parsed = Int(value) {
+                        fieldValues[key] = .int(parsed)
+                    } else if value.isEmpty {
+                        fieldValues[key] = .int(0)
+                    }
+                }
+            }
+        )
+    }
+}
+
+private extension String {
+    var trawlStrippingHTML: String {
+        var text = self
+        text = text.replacingOccurrences(of: "<br\\s*/?>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "</?p>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "</?div>", with: "\n", options: [.regularExpression, .caseInsensitive])
+        text = text.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+        text = text.replacingOccurrences(of: "&amp;", with: "&", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&lt;", with: "<", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&gt;", with: ">", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&nbsp;", with: " ", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&quot;", with: "\"", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "&#39;", with: "'", options: .caseInsensitive)
+        text = text.replacingOccurrences(of: "\n{3,}", with: "\n\n", options: .regularExpression)
+        return text.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
