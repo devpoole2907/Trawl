@@ -637,7 +637,8 @@ struct ProwlarrIndexerListView: View {
                 if fieldPath == prowlarrPath {
                     return true
                 }
-                if fieldPath.hasPrefix(prowlarrPath) {
+                // Guard against empty/root prowlarrPath: "".hasPrefix("") is always true
+                if !prowlarrPath.isEmpty, prowlarrPath != "/", fieldPath.hasPrefix(prowlarrPath) {
                     return true
                 }
                 // Only treat prowlarrPath as prefix when it is non-trivial
