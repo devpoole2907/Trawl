@@ -442,7 +442,7 @@ final class ArrServiceManager {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 _ = try await client.getSystemStatus()
-                if activeProwlarrProfileID == nil {
+                if activeProwlarrProfileID == nil || activeProwlarrProfileID == profile.id {
                     prowlarrClient = client
                     activeProwlarrProfileID = profile.id
                     prowlarrConnected = true
@@ -688,6 +688,7 @@ final class ArrServiceManager {
                 prowlarrClient = nil
                 prowlarrConnectionError = message
                 prowlarrConnected = false
+                activeProwlarrProfileID = nil
             }
         }
     }

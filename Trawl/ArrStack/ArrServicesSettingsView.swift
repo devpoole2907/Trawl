@@ -30,7 +30,7 @@ struct ArrServiceSettingsView: View {
     #endif
 
     private var profile: ArrServiceProfile? {
-        serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: false)
+        serviceManager.resolvedProfile(for: serviceType, in: allProfiles)
     }
 
     private var isConnected: Bool {

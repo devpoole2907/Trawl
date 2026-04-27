@@ -601,9 +601,10 @@ struct ProwlarrIndexerListView: View {
 
         guard let prowlarrProfile = currentProwlarrProfile() else { return false }
         let normalizedProwlarrURL = normalizedMirrorURL(from: prowlarrProfile.hostURL)
-        let prowlarrHost = URL(string: prowlarrProfile.hostURL)?.host?.lowercased()
-        let prowlarrURLComponents = URL(string: prowlarrProfile.hostURL).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
-        let prowlarrPath = prowlarrURLComponents?.path
+        let prowlarrBaseURL = URL(string: prowlarrProfile.hostURL)
+        let prowlarrHost = prowlarrBaseURL?.host?.lowercased()
+        let prowlarrPort = prowlarrBaseURL?.port
+        let prowlarrPath = prowlarrBaseURL.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }?.path
 
         for field in indexer.fields ?? [] {
             guard let fieldName = field.name else { continue }
@@ -626,8 +627,9 @@ struct ProwlarrIndexerListView: View {
             guard let fieldURL = URL(string: rawValue),
                   let fieldHost = fieldURL.host?.lowercased() else { continue }
 
-            // Host must match
+            // Host AND port must match (services often share a hostname)
             guard let prowlarrHost, fieldHost == prowlarrHost else { continue }
+            guard fieldURL.port == prowlarrPort else { continue }
 
             // Check if the path matches or is a prefix
             let fieldPath = fieldURL.path
@@ -638,13 +640,14 @@ struct ProwlarrIndexerListView: View {
                 if fieldPath.hasPrefix(prowlarrPath) {
                     return true
                 }
-                if prowlarrPath.hasPrefix(fieldPath) {
+                // Only treat prowlarrPath as prefix when it is non-trivial
+                if !fieldPath.isEmpty, fieldPath != "/", prowlarrPath.hasPrefix(fieldPath) {
                     return true
                 }
             }
 
-            // Check for Prowlarr API segments
-            if fieldPath.contains("/api") || fieldPath.range(of: "/\\d+/api", options: .regularExpression) != nil {
+            // Only the /{n}/api pattern is Prowlarr-specific; drop the broad /api fallback
+            if fieldPath.range(of: "/\\d+/api", options: .regularExpression) != nil {
                 return true
             }
         }
@@ -673,20 +676,24 @@ struct ProwlarrIndexerListView: View {
         }
 
         let profileURL = normalizedMirrorURL(from: profile.hostURL)
-        let profileHost = URL(string: profile.hostURL)?.host?.lowercased()
+        let profileParsed = URL(string: profile.hostURL)
+        let profileHost = profileParsed?.host?.lowercased()
+        let profilePort = profileParsed?.port
 
         return applicationsViewModel.supportedApplications.first { application in
             guard application.linkedAppType == expectedType else { return false }
             guard let baseURL = application.stringFieldValue(named: "baseUrl"), !baseURL.isEmpty else { return false }
 
             let normalizedBaseURL = normalizedMirrorURL(from: baseURL)
-            let baseHost = URL(string: baseURL)?.host?.lowercased()
-
             if let profileURL, let normalizedBaseURL, normalizedBaseURL == profileURL {
                 return true
             }
 
-            if let profileHost, let baseHost, profileHost == baseHost {
+            // Fallback: compare host AND port to avoid aliasing across same-host services
+            let baseParsed = URL(string: baseURL)
+            let baseHost = baseParsed?.host?.lowercased()
+            let basePort = baseParsed?.port
+            if let profileHost, let baseHost, profileHost == baseHost, profilePort == basePort {
                 return true
             }
 
