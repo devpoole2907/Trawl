@@ -375,6 +375,7 @@ final class ProwlarrApplicationsViewModel {
         }
 
         errorMessage = nil
+        var saveSucceeded = false
 
         do {
             if application.id == 0 {
@@ -382,12 +383,20 @@ final class ProwlarrApplicationsViewModel {
             } else {
                 _ = try await client.updateApplication(application)
             }
-            await loadApplications()
-            return errorMessage == nil
+            saveSucceeded = true
         } catch {
             errorMessage = error.localizedDescription
             return false
         }
+
+        // Refresh the application list, but don't let refresh errors affect save result
+        do {
+            await loadApplications()
+        } catch {
+            // loadApplications sets errorMessage on failure, but we still return saveSucceeded
+        }
+
+        return saveSucceeded
     }
 
     func deleteApplication(_ application: ProwlarrApplication) async -> Bool {
@@ -601,7 +610,7 @@ final class ArrIndexerManagementViewModel {
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.createIndexer(indexer)
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 
@@ -614,7 +623,7 @@ final class ArrIndexerManagementViewModel {
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.updateIndexer(indexer)
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 
@@ -627,7 +636,7 @@ final class ArrIndexerManagementViewModel {
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             try await client.deleteIndexer(id: id)
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 
@@ -640,7 +649,7 @@ final class ArrIndexerManagementViewModel {
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             try await client.testIndexer(indexer)
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 

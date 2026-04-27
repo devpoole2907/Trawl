@@ -601,10 +601,19 @@ nonisolated struct ProwlarrApplication: Codable, Identifiable, Sendable {
     }
 
     func stringFieldValue(named name: String) -> String? {
-        fields?
-            .first(where: { $0.name == name })?
-            .value?
-            .displayString
+        guard let field = fields?.first(where: { $0.name == name }),
+              let value = field.value else {
+            return nil
+        }
+
+        // Extract raw string value instead of using displayString
+        // so empty strings are preserved
+        switch value {
+        case .string(let str):
+            return str
+        default:
+            return value.displayString
+        }
     }
 
     func updatingField(named fieldName: String, with value: ProwlarrApplicationValue) -> ProwlarrApplication {

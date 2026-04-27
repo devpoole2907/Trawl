@@ -1431,35 +1431,30 @@ private struct ServiceProfileRow: View {
 struct ProwlarrApplicationsListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
-    @State private var viewModel: ProwlarrApplicationsViewModel?
+    @State private var viewModel: ProwlarrApplicationsViewModel
     @State private var editorContext: ProwlarrApplicationEditorContext?
     @State private var applicationPendingDelete: ProwlarrApplication?
 
+    init() {
+        // Initialize viewModel synchronously in init to ensure it's available for .sheet(item:)
+        let placeholder = ProwlarrApplicationsViewModel(serviceManager: ArrServiceManager())
+        _viewModel = State(initialValue: placeholder)
+    }
+
     var body: some View {
-        Group {
-            if let viewModel {
-                content(viewModel: viewModel)
-            } else {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        content(viewModel: viewModel)
         .navigationTitle("Linked Apps")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task {
-            if viewModel == nil {
-                self.viewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
-            }
-
-            await viewModel?.loadApplications()
-            await viewModel?.loadSchemaIfNeeded()
+            // Replace placeholder with actual service manager
+            viewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
+            await viewModel.loadApplications()
+            await viewModel.loadSchemaIfNeeded()
         }
         .sheet(item: $editorContext) { context in
-            if let viewModel {
-                ProwlarrApplicationEditorSheet(viewModel: viewModel, context: context)
-            }
+            ProwlarrApplicationEditorSheet(viewModel: viewModel, context: context)
         }
         .alert(
             "Remove Linked App?",
@@ -1492,7 +1487,6 @@ struct ProwlarrApplicationsListView: View {
         }
     }
 
-    @ViewBuilder
     private func content(viewModel: ProwlarrApplicationsViewModel) -> some View {
         List {
             if viewModel.isLoadingApplications && viewModel.supportedApplications.isEmpty {
@@ -1834,8 +1828,10 @@ struct ProwlarrApplicationEditorSheet: View {
             .task {
                 await loadInitialStateIfNeeded()
             }
-            .onChange(of: selectedRemoteProfileID) { _, _ in
+            .onChange(of: selectedRemoteProfileID) { _, newProfileID in
                 guard hasLoadedInitialState else { return }
+                // Only apply if API key is empty (user hasn't edited it yet)
+                guard apiKey.isEmpty else { return }
                 Task { await applySelectedRemoteProfile() }
             }
         }
@@ -1858,7 +1854,11 @@ struct ProwlarrApplicationEditorSheet: View {
             remoteURL = application.stringFieldValue(named: "baseUrl") ?? ""
             apiKey = application.stringFieldValue(named: "apiKey") ?? ""
 
-            if let matchingProfile = remoteProfiles.first(where: { $0.hostURL == remoteURL }) {
+            let normalizedRemoteURL = try? ServerURLValidator.normalizedURLString(from: remoteURL)
+            if let matchingProfile = remoteProfiles.first(where: { profile in
+                let normalizedProfileURL = try? ServerURLValidator.normalizedURLString(from: profile.hostURL)
+                return normalizedRemoteURL != nil && normalizedProfileURL == normalizedRemoteURL
+            }) {
                 selectedRemoteProfileID = matchingProfile.id.uuidString
             } else {
                 selectedRemoteProfileID = Self.customProfileID

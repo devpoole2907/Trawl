@@ -652,9 +652,9 @@ final class ArrServiceManager {
         case .prowlarr:
             if activeProwlarrProfileID == id {
                 prowlarrClient = nil
+                prowlarrConnectionError = message
+                prowlarrConnected = false
             }
-            prowlarrConnectionError = message
-            prowlarrConnected = false
         }
     }
 

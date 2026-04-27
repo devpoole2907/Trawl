@@ -602,17 +602,49 @@ struct ProwlarrIndexerListView: View {
         guard let prowlarrProfile = currentProwlarrProfile() else { return false }
         let normalizedProwlarrURL = normalizedMirrorURL(from: prowlarrProfile.hostURL)
         let prowlarrHost = URL(string: prowlarrProfile.hostURL)?.host?.lowercased()
+        let prowlarrURLComponents = URL(string: prowlarrProfile.hostURL).flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false) }
+        let prowlarrPath = prowlarrURLComponents?.path
 
         for field in indexer.fields ?? [] {
-            guard let name = field.name?.lowercased() else { continue }
-            guard name.contains("url") || name.contains("base") || name.contains("api") else { continue }
-            guard let value = field.value?.displayString?.lowercased(), !value.isEmpty else { continue }
+            guard let fieldName = field.name else { continue }
+            guard let rawValue = field.value?.displayString, !rawValue.isEmpty else { continue }
 
-            if let normalizedProwlarrURL, value.contains(normalizedProwlarrURL) {
-                return true
+            // Exact match for baseUrl field
+            if fieldName.lowercased() == "baseurl" {
+                if let normalizedFieldURL = normalizedMirrorURL(from: rawValue),
+                   let normalizedProwlarrURL,
+                   normalizedFieldURL == normalizedProwlarrURL {
+                    return true
+                }
             }
 
-            if let prowlarrHost, value.contains(prowlarrHost) {
+            // For other URL-like fields, use stricter URL parsing
+            let lowerFieldName = fieldName.lowercased()
+            guard lowerFieldName.contains("url") || lowerFieldName.contains("base") || lowerFieldName.contains("api") else { continue }
+
+            // Parse the field value as a URL
+            guard let fieldURL = URL(string: rawValue),
+                  let fieldHost = fieldURL.host?.lowercased() else { continue }
+
+            // Host must match
+            guard let prowlarrHost, fieldHost == prowlarrHost else { continue }
+
+            // Check if the path matches or is a prefix
+            let fieldPath = fieldURL.path
+            if let prowlarrPath {
+                if fieldPath == prowlarrPath {
+                    return true
+                }
+                if fieldPath.hasPrefix(prowlarrPath) {
+                    return true
+                }
+                if prowlarrPath.hasPrefix(fieldPath) {
+                    return true
+                }
+            }
+
+            // Check for Prowlarr API segments
+            if fieldPath.contains("/api") || fieldPath.range(of: "/\\d+/api", options: .regularExpression) != nil {
                 return true
             }
         }
@@ -1222,6 +1254,14 @@ private struct DirectIndexerEditorView: View {
             )
         }
 
+        let tagsValue: [Int]?
+        switch mode {
+        case .add:
+            tagsValue = []
+        case .edit:
+            tagsValue = mode.seed.tags
+        }
+
         let candidate = ArrManagedIndexer(
             id: mode.seed.id,
             name: indexerName.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1231,7 +1271,7 @@ private struct DirectIndexerEditorView: View {
             configContract: mode.seed.configContract,
             infoLink: mode.seed.infoLink,
             message: mode.seed.message,
-            tags: mode.seed.tags ?? [],
+            tags: tagsValue,
             presets: mode.seed.presets,
             enableRss: enableRss,
             enableAutomaticSearch: enableAutomaticSearch,
@@ -1373,17 +1413,15 @@ private struct DirectIndexerFieldRow: View {
                 }
             },
             set: { value in
-                if isFloat {
+                if value.isEmpty {
+                    fieldValues[key] = nil
+                } else if isFloat {
                     if let parsed = Double(value) {
                         fieldValues[key] = .double(parsed)
-                    } else if value.isEmpty {
-                        fieldValues[key] = .double(0)
                     }
                 } else {
                     if let parsed = Int(value) {
                         fieldValues[key] = .int(parsed)
-                    } else if value.isEmpty {
-                        fieldValues[key] = .int(0)
                     }
                 }
             }

@@ -254,7 +254,7 @@ nonisolated struct ArrManagedIndexer: Codable, Identifiable, Sendable {
             }
 
         return components.isEmpty
-            ? "template-unknown-\(UUID().uuidString)"
+            ? "template-unknown"
             : "template-" + components.joined(separator: "::")
     }
 }
@@ -374,7 +374,7 @@ nonisolated enum ArrIndexerFieldValue: Codable, Sendable {
         case .int(let value):
             return value
         case .double(let value):
-            return Int(value)
+            return value.isFinite ? Int(value) : nil
         case .string(let value):
             return Int(value)
         default:
@@ -871,6 +871,7 @@ enum ArrError: LocalizedError, Sendable {
     case noServiceConfigured
     case connectionFailed
     case unsupportedNotificationsService(String)
+    case unsupportedIndexerService(String)
     case commandTimeout(commandId: Int?, lastKnownCommand: ArrCommand?)
 
     var errorDescription: String? {
@@ -893,6 +894,8 @@ enum ArrError: LocalizedError, Sendable {
             "Could not connect. Check the URL and ensure the service is running."
         case .unsupportedNotificationsService(let service):
             "\(service) does not support one-tap notification setup."
+        case .unsupportedIndexerService(let service):
+            "\(service) does not support direct indexer management."
         case .commandTimeout(let commandId, let lastKnownCommand):
             if let cmd = lastKnownCommand, let status = cmd.status {
                 "Command \(commandId ?? -1) timed out with status '\(status)'."
