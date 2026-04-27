@@ -1808,9 +1808,9 @@ struct ProwlarrApplicationEditorSheet: View {
                 guard hasLoadedInitialState else { return }
                 if let application, newProfileID == Self.customProfileID {
                     remoteURL = application.stringFieldValue(named: "baseUrl") ?? remoteURL
-                    if apiKey.isEmpty {
-                        apiKey = application.stringFieldValue(named: "apiKey") ?? ""
-                    }
+                    let restoredKey = application.stringFieldValue(named: "apiKey") ?? ""
+                    apiKey = restoredKey
+                    seededAPIKey = restoredKey
                     return
                 }
                 Task { await applySelectedRemoteProfile() }
