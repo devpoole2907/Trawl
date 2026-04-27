@@ -1635,6 +1635,7 @@ struct ProwlarrApplicationEditorSheet: View {
     @State private var selectedRemoteProfileID = Self.customProfileID
     @State private var remoteURL = ""
     @State private var apiKey = ""
+    @State private var seededAPIKey = ""
     @State private var isSaving = false
     @State private var localErrorMessage: String?
     @State private var hasLoadedInitialState = false
@@ -1833,6 +1834,7 @@ struct ProwlarrApplicationEditorSheet: View {
             prowlarrURL = application.stringFieldValue(named: "prowlarrUrl") ?? currentProwlarrProfile?.hostURL ?? ""
             remoteURL = application.stringFieldValue(named: "baseUrl") ?? ""
             apiKey = application.stringFieldValue(named: "apiKey") ?? ""
+            seededAPIKey = apiKey
 
             let normalizedRemoteURL = try? ServerURLValidator.normalizedURLString(from: remoteURL)
             if let matchingProfile = remoteProfiles.first(where: { profile in
@@ -1869,12 +1871,19 @@ struct ProwlarrApplicationEditorSheet: View {
         }
 
         remoteURL = selectedRemoteProfile.hostURL
-        guard apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+
+        // Only preserve apiKey if the user manually edited it away from the last seeded value.
+        // When the picker switches to a different profile, refresh the key for that profile.
+        let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmedKey.isEmpty || trimmedKey == seededAPIKey.trimmingCharacters(in: .whitespacesAndNewlines) else { return }
 
         do {
-            apiKey = try await KeychainHelper.shared.read(key: selectedRemoteProfile.apiKeyKeychainKey) ?? ""
+            let loaded = try await KeychainHelper.shared.read(key: selectedRemoteProfile.apiKeyKeychainKey) ?? ""
+            apiKey = loaded
+            seededAPIKey = loaded
         } catch {
             apiKey = ""
+            seededAPIKey = ""
             localErrorMessage = "Couldn't load the saved API key: \(error.localizedDescription)"
         }
     }
