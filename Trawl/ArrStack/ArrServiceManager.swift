@@ -138,7 +138,10 @@ final class ArrServiceManager {
         }()
 
         if let activeID, let activeProfile = profiles.first(where: { $0.id == activeID }) {
-            return activeProfile
+            let activeHasError = connectionErrors[activeProfile.id.uuidString] != nil
+            if allowErroredFallback || !activeHasError {
+                return activeProfile
+            }
         }
 
         let matches = profiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
