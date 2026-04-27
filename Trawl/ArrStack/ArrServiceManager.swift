@@ -101,6 +101,9 @@ final class ArrServiceManager {
     var hasProwlarrInstance: Bool { storedProfiles.contains { $0.resolvedServiceType == .prowlarr && $0.isEnabled } }
     var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
+    var hasAnyConnectedSonarrInstance: Bool { sonarrInstances.contains { $0.isConnected } }
+    var hasAnyConnectedRadarrInstance: Bool { radarrInstances.contains { $0.isConnected } }
+    var hasAnyConnectedProwlarrInstance: Bool { prowlarrConnected }
 
     func sonarrClient(for profileID: UUID) -> SonarrAPIClient? {
         sonarrInstances.first(where: { $0.id == profileID })?.client
@@ -119,6 +122,32 @@ final class ArrServiceManager {
         case .prowlarr:
             activeProwlarrProfileID == profileID && prowlarrConnected
         }
+    }
+
+    func resolvedProfile(
+        for serviceType: ArrServiceType,
+        in profiles: [ArrServiceProfile],
+        allowErroredFallback: Bool = true
+    ) -> ArrServiceProfile? {
+        let activeID: UUID? = {
+            switch serviceType {
+            case .sonarr: return activeSonarrInstanceID
+            case .radarr: return activeRadarrInstanceID
+            case .prowlarr: return activeProwlarrProfileID
+            }
+        }()
+
+        if let activeID, let activeProfile = profiles.first(where: { $0.id == activeID }) {
+            return activeProfile
+        }
+
+        let matches = profiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
+        if let connectedMatch = matches.first(where: { connectionErrors[$0.id.uuidString] == nil }) {
+            return connectedMatch
+        }
+
+        guard allowErroredFallback else { return nil }
+        return matches.sorted { $0.dateAdded > $1.dateAdded }.first
     }
 
     func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
@@ -410,10 +439,12 @@ final class ArrServiceManager {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 _ = try await client.getSystemStatus()
-                prowlarrClient = client
-                activeProwlarrProfileID = profile.id
-                prowlarrConnected = true
-                prowlarrConnectionError = nil
+                if activeProwlarrProfileID == nil {
+                    prowlarrClient = client
+                    activeProwlarrProfileID = profile.id
+                    prowlarrConnected = true
+                    prowlarrConnectionError = nil
+                }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
             }
         } catch {
@@ -475,12 +506,12 @@ final class ArrServiceManager {
                 activeRadarrProfileID = nil
             }
         case .prowlarr:
-            prowlarrClient = nil
             if profileID == nil || activeProwlarrProfileID == profileID {
+                prowlarrClient = nil
                 activeProwlarrProfileID = nil
+                prowlarrConnected = false
+                prowlarrConnectionError = nil
             }
-            prowlarrConnected = false
-            prowlarrConnectionError = nil
             if let id = profileID {
                 connectionErrors.removeValue(forKey: id.uuidString)
             }

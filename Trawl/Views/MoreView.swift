@@ -261,7 +261,9 @@ struct MoreView: View {
 
     @ViewBuilder
     private var prowlarrIndexersDestination: some View {
-        if arrServiceManager.prowlarrConnected || arrServiceManager.sonarrConnected || arrServiceManager.radarrConnected {
+        if arrServiceManager.hasAnyConnectedProwlarrInstance ||
+            arrServiceManager.hasAnyConnectedSonarrInstance ||
+            arrServiceManager.hasAnyConnectedRadarrInstance {
             ProwlarrIndexerListView()
                 .environment(arrServiceManager)
         } else if arrServiceManager.hasProwlarrInstance || arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance {
@@ -276,9 +278,10 @@ struct MoreView: View {
             } actions: {
                 Button("Retry Connection") {
                     Task {
-                        await arrServiceManager.retry(.prowlarr)
-                        await arrServiceManager.retry(.sonarr)
-                        await arrServiceManager.retry(.radarr)
+                        async let prowlarrRetry: Void = arrServiceManager.retry(.prowlarr)
+                        async let sonarrRetry: Void = arrServiceManager.retry(.sonarr)
+                        async let radarrRetry: Void = arrServiceManager.retry(.radarr)
+                        _ = await (prowlarrRetry, sonarrRetry, radarrRetry)
                     }
                 }
                 .buttonStyle(.bordered)

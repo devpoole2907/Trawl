@@ -29,7 +29,7 @@ struct ArrSetupSheet: View {
                     ProgressView()
                 }
             }
-            .navigationTitle(existingProfile != nil ? "Edit Service" : (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"))
+            .navigationTitle(existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" } ?? (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"))
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -48,16 +48,14 @@ struct ArrSetupSheet: View {
                 }
             }
             .presentationDetents([.medium, .large])
-            .task {
-                if viewModel == nil {
-                    let vm = ArrSetupViewModel(serviceManager: serviceManager)
-                    if let existingProfile {
-                        await vm.loadExisting(existingProfile)
-                    } else if let initialServiceType {
-                        vm.serviceType = initialServiceType
-                    }
-                    viewModel = vm
+            .task(id: existingProfile?.id) {
+                let vm = ArrSetupViewModel(serviceManager: serviceManager)
+                if let existingProfile {
+                    await vm.loadExisting(existingProfile)
+                } else if let initialServiceType {
+                    vm.serviceType = initialServiceType
                 }
+                viewModel = vm
             }
         }
     }
@@ -66,7 +64,7 @@ struct ArrSetupSheet: View {
     private func setupForm(vm: ArrSetupViewModel) -> some View {
         @Bindable var vm = vm
         Form {
-            if initialServiceType == nil {
+            if initialServiceType == nil && existingProfile == nil {
                 Section("Service Type") {
                     Picker("Type", selection: $vm.serviceType) {
                         ForEach(ArrServiceType.allCases) { type in

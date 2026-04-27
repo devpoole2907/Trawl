@@ -30,24 +30,7 @@ struct ArrServiceSettingsView: View {
     #endif
 
     private var profile: ArrServiceProfile? {
-        let activeID: UUID? = {
-            switch serviceType {
-            case .sonarr: return serviceManager.activeSonarrInstanceID
-            case .radarr: return serviceManager.activeRadarrInstanceID
-            case .prowlarr: return serviceManager.activeProwlarrProfileID
-            }
-        }()
-        
-        if let activeID {
-            return allProfiles.first { $0.id == activeID }
-        }
-
-        let matches = allProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
-        if let connectedMatch = matches.first(where: { serviceManager.connectionErrors[$0.id.uuidString] == nil }) {
-            return connectedMatch
-        }
-
-        return matches.sorted { $0.dateAdded > $1.dateAdded }.first
+        serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: false)
     }
 
     private var isConnected: Bool {
@@ -1682,15 +1665,7 @@ struct ProwlarrApplicationEditorSheet: View {
     }
 
     private var currentProwlarrProfile: ArrServiceProfile? {
-        if let activeID = serviceManager.activeProwlarrProfileID,
-           let activeProfile = allProfiles.first(where: { $0.id == activeID }) {
-            return activeProfile
-        }
-
-        return allProfiles
-            .filter { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
-            .sorted { $0.dateAdded > $1.dateAdded }
-            .first
+        serviceManager.resolvedProfile(for: .prowlarr, in: allProfiles)
     }
 
     private var selectedRemoteProfile: ArrServiceProfile? {
@@ -1830,8 +1805,13 @@ struct ProwlarrApplicationEditorSheet: View {
             }
             .onChange(of: selectedRemoteProfileID) { _, newProfileID in
                 guard hasLoadedInitialState else { return }
-                // Only apply if API key is empty (user hasn't edited it yet)
-                guard apiKey.isEmpty else { return }
+                if let application, newProfileID == Self.customProfileID {
+                    remoteURL = application.stringFieldValue(named: "baseUrl") ?? remoteURL
+                    if apiKey.isEmpty {
+                        apiKey = application.stringFieldValue(named: "apiKey") ?? ""
+                    }
+                    return
+                }
                 Task { await applySelectedRemoteProfile() }
             }
         }
@@ -1879,7 +1859,9 @@ struct ProwlarrApplicationEditorSheet: View {
         localErrorMessage = nil
 
         guard let selectedRemoteProfile else {
-            remoteURL = ""
+            if application == nil {
+                remoteURL = ""
+            }
             if application == nil {
                 apiKey = ""
             }
@@ -1887,6 +1869,7 @@ struct ProwlarrApplicationEditorSheet: View {
         }
 
         remoteURL = selectedRemoteProfile.hostURL
+        guard apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         do {
             apiKey = try await KeychainHelper.shared.read(key: selectedRemoteProfile.apiKeyKeychainKey) ?? ""
