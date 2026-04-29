@@ -10,7 +10,7 @@ struct ArrServiceSettingsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var allProfiles: [ArrServiceProfile]
-    @State private var showAddSheet = false
+    @State private var editorContext: ArrServiceEditorContext?
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
@@ -23,7 +23,9 @@ struct ArrServiceSettingsView: View {
     @State private var isRunningCommand = false
     @State private var isSettingUpNotifications = false
     @State private var notificationSetupMessage: String?
+    @State private var notificationSetupStatus: ArrNotificationSetupStatus?
     @State private var isViewActive = false
+    @State private var prowlarrViewModel: ProwlarrViewModel?
     
     #if os(iOS)
     @State private var deviceToken: String?
@@ -31,6 +33,12 @@ struct ArrServiceSettingsView: View {
 
     private var profile: ArrServiceProfile? {
         serviceManager.resolvedProfile(for: serviceType, in: allProfiles)
+    }
+
+    private var serviceProfiles: [ArrServiceProfile] {
+        allProfiles
+            .filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
 
     private var isConnected: Bool {
@@ -103,11 +111,11 @@ struct ArrServiceSettingsView: View {
                             .foregroundStyle(.red)
                     }
                     Button("Edit Server", systemImage: "pencil") {
-                        showAddSheet = true
+                        editorContext = .edit(profile)
                     }
                 } else {
                     Button {
-                        showAddSheet = true
+                        editorContext = .create(serviceType)
                     } label: {
                         Label("Add \(serviceType.displayName) Server", systemImage: "plus")
                     }
@@ -121,6 +129,68 @@ struct ArrServiceSettingsView: View {
             }
 
             if profile != nil {
+                if serviceType != .prowlarr, serviceProfiles.count > 1 {
+                    Section {
+                        ForEach(serviceProfiles) { serviceProfile in
+                            Button {
+                                if isProfileConnected(serviceProfile.id) {
+                                    setActiveProfile(serviceProfile.id)
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(serviceProfile.displayName)
+                                            .font(.subheadline.weight(.medium))
+                                            .foregroundStyle(.primary)
+                                        Text(serviceProfile.hostURL)
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                    }
+
+                                    Spacer()
+
+                                    if serviceProfile.id == activeProfileID {
+                                        Label("Active", systemImage: "checkmark")
+                                            .font(.caption)
+                                            .foregroundStyle(serviceColor)
+                                    } else {
+                                        Image(systemName: isProfileConnected(serviceProfile.id) ? "circle.fill" : "circle")
+                                            .font(.caption)
+                                            .foregroundStyle(isProfileConnected(serviceProfile.id) ? .green : .red)
+                                    }
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(!isProfileConnected(serviceProfile.id))
+                            .contextMenu {
+                                Button("Make Active", systemImage: "checkmark.circle") {
+                                    if isProfileConnected(serviceProfile.id) {
+                                        setActiveProfile(serviceProfile.id)
+                                    }
+                                }
+                                .disabled(!isProfileConnected(serviceProfile.id))
+
+                                Button("Edit", systemImage: "pencil") {
+                                    editorContext = .edit(serviceProfile)
+                                }
+
+                                Button("Remove", systemImage: "trash", role: .destructive) {
+                                    Task { await deleteProfile(serviceProfile) }
+                                }
+                            }
+                        }
+
+                        Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
+                            editorContext = .create(serviceType)
+                        }
+                    } header: {
+                        Text("Instances")
+                    } footer: {
+                        Text("Choose which \(serviceType.displayName) instance is active throughout Trawl.")
+                    }
+                }
+
                 if let systemStatus {
                     Section("System Status") {
                         if let instanceName = systemStatus.instanceName ?? systemStatus.appName {
@@ -190,10 +260,8 @@ struct ArrServiceSettingsView: View {
                         }
                         #endif
 
-                        if let notificationSetupMessage {
-                            Label(notificationSetupMessage, systemImage: "checkmark.circle.fill")
-                                .font(.caption2)
-                                .foregroundStyle(.green)
+                        if let notificationSetupStatus {
+                            notificationSetupStatusRow(notificationSetupStatus)
                         }
                     }
                 }
@@ -206,6 +274,13 @@ struct ArrServiceSettingsView: View {
                         } label: {
                             Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
                         }
+
+                        Button {
+                            Task { await syncAllProwlarrIndexers() }
+                        } label: {
+                            Label("Sync All Indexers", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .disabled(prowlarrViewModel?.isSyncingApplications == true)
                     } header: {
                         Text("Automation")
                     } footer: {
@@ -230,6 +305,26 @@ struct ArrServiceSettingsView: View {
                         Text("Library Defaults")
                     } footer: {
                         Text("Review what each profile allows before assigning it to series or movies.")
+                    }
+                }
+
+                if supportsCommands, isConnected {
+                    Section {
+                        NavigationLink {
+                            ArrDownloadClientListView(serviceType: serviceType)
+                        } label: {
+                            Label("Download Clients", systemImage: "arrow.down.circle")
+                        }
+
+                        NavigationLink {
+                            ArrRemotePathMappingListView(serviceType: serviceType)
+                        } label: {
+                            Label("Remote Path Mappings", systemImage: "arrow.triangle.swap")
+                        }
+                    } header: {
+                        Text("Download")
+                    } footer: {
+                        Text("Manage download clients and remote path mappings configured in \(serviceType.displayName).")
                     }
                 }
 
@@ -343,11 +438,10 @@ struct ArrServiceSettingsView: View {
                 }
 
                 Section {
-                    Button("Remove \(serviceType.displayName)", systemImage: "trash", role: .destructive) {
+                    Button(removeButtonTitle, systemImage: "trash", role: .destructive) {
                         if let profile {
                             Task {
-                                let vm = ArrSetupViewModel(serviceManager: serviceManager)
-                                await vm.deleteProfile(profile, modelContext: modelContext)
+                                await deleteProfile(profile)
                             }
                         }
                     }
@@ -361,8 +455,8 @@ struct ArrServiceSettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         #endif
-        .sheet(isPresented: $showAddSheet) {
-            ArrSetupSheet(initialServiceType: serviceType, existingProfile: profile, onComplete: {
+        .sheet(item: $editorContext) { context in
+            ArrSetupSheet(initialServiceType: context.initialServiceType, existingProfile: context.profile, onComplete: {
                 Task { await serviceManager.refreshConfiguration() }
             })
             .environment(serviceManager)
@@ -385,6 +479,9 @@ struct ArrServiceSettingsView: View {
         }
         .onAppear {
             isViewActive = true
+            if serviceType == .prowlarr, prowlarrViewModel == nil {
+                prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
+            }
         }
         .onDisappear {
             isViewActive = false
@@ -396,11 +493,13 @@ struct ArrServiceSettingsView: View {
             #if os(iOS)
             deviceToken = await NotificationService.shared.deviceToken
             #endif
+            await loadNotificationSetupStatus()
         }
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
             if let token = notification.object as? String {
                 deviceToken = token
+                Task { await loadNotificationSetupStatus() }
             }
         }
         #endif
@@ -433,6 +532,53 @@ struct ArrServiceSettingsView: View {
             diskSpaces = []
             diskSpaceError = error.localizedDescription
         }
+    }
+
+    private func syncAllProwlarrIndexers() async {
+        guard let prowlarrViewModel else { return }
+
+        do {
+            try await prowlarrViewModel.syncApplications()
+        } catch {
+            inAppNotificationCenter.showError(title: "Sync Failed", message: error.localizedDescription)
+        }
+    }
+
+    private var activeProfileID: UUID? {
+        switch serviceType {
+        case .sonarr:
+            serviceManager.activeSonarrInstanceID
+        case .radarr:
+            serviceManager.activeRadarrInstanceID
+        case .prowlarr:
+            serviceManager.activeProwlarrProfileID
+        }
+    }
+
+    private func isProfileConnected(_ profileID: UUID) -> Bool {
+        serviceManager.isConnected(serviceType, profileID: profileID)
+    }
+
+    private func setActiveProfile(_ profileID: UUID) {
+        switch serviceType {
+        case .sonarr:
+            serviceManager.setActiveSonarr(profileID)
+        case .radarr:
+            serviceManager.setActiveRadarr(profileID)
+        case .prowlarr:
+            break
+        }
+    }
+
+    private func deleteProfile(_ profile: ArrServiceProfile) async {
+        let viewModel = ArrSetupViewModel(serviceManager: serviceManager)
+        await viewModel.deleteProfile(profile, modelContext: modelContext)
+    }
+
+    private var removeButtonTitle: String {
+        guard let profile else { return "Remove \(serviceType.displayName)" }
+        guard serviceType != .prowlarr, serviceProfiles.count > 1 else { return "Remove \(serviceType.displayName)" }
+        return "Remove \(profile.displayName)"
     }
 
     private func loadSystemStatus() async {
@@ -513,17 +659,70 @@ struct ArrServiceSettingsView: View {
             
             do {
                 try await serviceManager.setupNotifications(for: profile, workerURL: url, deviceToken: token)
-                notificationSetupMessage = "Webhook configured for \(serviceType.displayName)."
+                notificationSetupStatus = .configured
                 if isViewActive {
                     inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
                 }
             } catch {
-                notificationSetupMessage = nil
+                await loadNotificationSetupStatus()
                 if isViewActive {
                     inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
                 }
+                isSettingUpNotifications = false
+                return
             }
+            await loadNotificationSetupStatus()
             isSettingUpNotifications = false
+        }
+    }
+
+    private func loadNotificationSetupStatus() async {
+        guard serviceType != .prowlarr, isConnected, let profile else {
+            notificationSetupStatus = nil
+            return
+        }
+
+        #if os(iOS)
+        let token = if let deviceToken {
+            deviceToken
+        } else {
+            await NotificationService.shared.deviceToken
+        }
+        #else
+        let token: String? = nil
+        #endif
+
+        guard let token, !token.isEmpty else {
+            notificationSetupStatus = nil
+            return
+        }
+
+        do {
+            notificationSetupStatus = try await serviceManager.notificationSetupStatus(
+                for: profile,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+        } catch {
+            notificationSetupStatus = nil
+        }
+    }
+
+    @ViewBuilder
+    private func notificationSetupStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
+        switch status {
+        case .configured:
+            Label("Trawl webhook is configured.", systemImage: "checkmark.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.green)
+        case .needsUpdate:
+            Label("Trawl webhook exists but needs updating.", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+        case .notAdded:
+            Label("Trawl webhook has not been added yet.", systemImage: "minus.circle.fill")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -601,6 +800,38 @@ struct ArrServiceSettingsView: View {
             try await viewModel.installUpdate()
         case .prowlarr:
             break
+        }
+    }
+}
+
+private enum ArrServiceEditorContext: Identifiable {
+    case create(ArrServiceType)
+    case edit(ArrServiceProfile)
+
+    var id: String {
+        switch self {
+        case .create(let serviceType):
+            "create-\(serviceType.rawValue)"
+        case .edit(let profile):
+            "edit-\(profile.id.uuidString)"
+        }
+    }
+
+    var initialServiceType: ArrServiceType? {
+        switch self {
+        case .create(let serviceType):
+            serviceType
+        case .edit:
+            nil
+        }
+    }
+
+    var profile: ArrServiceProfile? {
+        switch self {
+        case .create:
+            nil
+        case .edit(let profile):
+            profile
         }
     }
 }
@@ -715,11 +946,7 @@ struct ArrServicesSettingsView: View {
 
     private func isConnected(_ profile: ArrServiceProfile) -> Bool {
         guard let serviceType = profile.resolvedServiceType else { return false }
-        switch serviceType {
-        case .sonarr: return serviceManager.sonarrConnected
-        case .radarr: return serviceManager.radarrConnected
-        case .prowlarr: return serviceManager.prowlarrConnected
-        }
+        return serviceManager.isConnected(serviceType, profileID: profile.id)
     }
 
     private func deleteProfiles(at offsets: IndexSet) {
@@ -777,27 +1004,26 @@ private struct ArrQualityProfilesListView: View {
                     } label: {
                         ArrQualityProfileSummaryRow(profile: profile)
                     }
-                    .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            profilePendingDelete = profile
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+
                         Button {
                             editorSession = .duplicate(from: profile)
                         } label: {
                             Label("Duplicate", systemImage: "plus.square.on.square")
                         }
                         .tint(.blue)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+
                         Button {
                             editorSession = .edit(profile)
                         } label: {
                             Label("Edit", systemImage: "pencil")
                         }
-                        .tint(.orange)
-
-                        Button(role: .destructive) {
-                            profilePendingDelete = profile
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+                        .tint(.indigo)
                     }
                     .contextMenu {
                         Button("Edit", systemImage: "pencil") {
@@ -1447,7 +1673,7 @@ struct ProwlarrApplicationsListView: View {
             )
         ) {
             Button("Remove", role: .destructive) {
-                guard let applicationPendingDelete, let viewModel else { return }
+                guard let applicationPendingDelete else { return }
                 let name = applicationPendingDelete.name ?? applicationPendingDelete.linkedAppType?.displayName ?? "Application"
                 self.applicationPendingDelete = nil
 
@@ -1491,6 +1717,7 @@ struct ProwlarrApplicationsListView: View {
                             editorContext = .edit(application)
                         } label: {
                             ProwlarrApplicationRow(application: application)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -1499,6 +1726,13 @@ struct ProwlarrApplicationsListView: View {
                             } label: {
                                 Label("Remove", systemImage: "trash")
                             }
+
+                            Button {
+                                editorContext = .edit(application)
+                            } label: {
+                                Label("Edit", systemImage: "pencil")
+                            }
+                            .tint(.indigo)
                         }
                         .contextMenu {
                             Button("Edit", systemImage: "pencil") {

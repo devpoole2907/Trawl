@@ -81,15 +81,27 @@ struct SettingsView: View {
     }
 
     private var sonarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .sonarr })
+        arrServiceManager.resolvedProfile(for: .sonarr, in: arrProfiles)
     }
 
     private var radarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .radarr })
+        arrServiceManager.resolvedProfile(for: .radarr, in: arrProfiles)
     }
 
     private var prowlarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .prowlarr })
+        arrServiceManager.resolvedProfile(for: .prowlarr, in: arrProfiles)
+    }
+
+    private var sonarrProfiles: [ArrServiceProfile] {
+        arrProfiles.filter { $0.resolvedServiceType == .sonarr && $0.isEnabled }
+    }
+
+    private var radarrProfiles: [ArrServiceProfile] {
+        arrProfiles.filter { $0.resolvedServiceType == .radarr && $0.isEnabled }
+    }
+
+    private var prowlarrProfiles: [ArrServiceProfile] {
+        arrProfiles.filter { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
     }
 
     private var arrProfilesSyncKey: String {
@@ -121,8 +133,8 @@ struct SettingsView: View {
                 Button(action: navigateToSonarrSettings) {
                     serviceRow(
                         icon: "tv.fill", color: .purple,
-                        name: sonarrProfile?.displayName ?? "Sonarr",
-                        url: sonarrProfile?.hostURL,
+                        name: serviceRowTitle(defaultName: "Sonarr", profile: sonarrProfile, count: sonarrProfiles.count),
+                        url: serviceRowSubtitle(profile: sonarrProfile, count: sonarrProfiles.count),
                         isConnected: arrServiceManager.sonarrConnected,
                         isConfigured: sonarrProfile != nil
                     )
@@ -133,8 +145,8 @@ struct SettingsView: View {
                 Button(action: navigateToRadarrSettings) {
                     serviceRow(
                         icon: "film.fill", color: .orange,
-                        name: radarrProfile?.displayName ?? "Radarr",
-                        url: radarrProfile?.hostURL,
+                        name: serviceRowTitle(defaultName: "Radarr", profile: radarrProfile, count: radarrProfiles.count),
+                        url: serviceRowSubtitle(profile: radarrProfile, count: radarrProfiles.count),
                         isConnected: arrServiceManager.radarrConnected,
                         isConfigured: radarrProfile != nil
                     )
@@ -145,8 +157,8 @@ struct SettingsView: View {
                 Button(action: navigateToProwlarrSettings) {
                     serviceRow(
                         icon: "magnifyingglass.circle.fill", color: .yellow,
-                        name: prowlarrProfile?.displayName ?? "Prowlarr",
-                        url: prowlarrProfile?.hostURL,
+                        name: serviceRowTitle(defaultName: "Prowlarr", profile: prowlarrProfile, count: prowlarrProfiles.count),
+                        url: serviceRowSubtitle(profile: prowlarrProfile, count: prowlarrProfiles.count),
                         isConnected: arrServiceManager.prowlarrConnected,
                         isConfigured: prowlarrProfile != nil
                     )
@@ -332,6 +344,18 @@ struct SettingsView: View {
         }
     }
 
+    private func serviceRowTitle(defaultName: String, profile: ArrServiceProfile?, count: Int) -> String {
+        let baseName = profile?.displayName ?? defaultName
+        guard count > 1 else { return baseName }
+        return "\(baseName) (\(count) instances)"
+    }
+
+    private func serviceRowSubtitle(profile: ArrServiceProfile?, count: Int) -> String? {
+        guard let profile else { return nil }
+        guard count > 1 else { return profile.hostURL }
+        return "Active: \(profile.hostURL)"
+    }
+
     private func settingsInfoRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
@@ -353,14 +377,17 @@ struct QBittorrentSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var viewModel = SettingsViewModel()
     @State private var globalDownloadLimit: Int64 = 0
     @State private var globalUploadLimit: Int64 = 0
     @State private var alternativeSpeedEnabled = false
     @State private var appPreferences: AppPreferences?
+    @State private var defaultSavePath = ""
     @State private var didLoadSpeedLimits = false
     @State private var speedLimitErrorAlert: ErrorAlertItem?
     @State private var isUpdatingAlternativeSpeed = false
+    @State private var isUpdatingDefaultSavePath = false
 
     var body: some View {
         Form {
@@ -410,6 +437,29 @@ struct QBittorrentSettingsView: View {
                 .onChange(of: viewModel.pollingInterval) {
                     viewModel.updatePollingInterval()
                 }
+            }
+
+            Section {
+                TextField("/downloads", text: $defaultSavePath)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .disabled(isUpdatingDefaultSavePath)
+
+                Button {
+                    Task { await updateDefaultSavePath() }
+                } label: {
+                    if isUpdatingDefaultSavePath {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("Update Save Location")
+                    }
+                }
+                .disabled(!canUpdateDefaultSavePath)
+            } header: {
+                Text("Default Save Location")
+            } footer: {
+                Text("Sets qBittorrent's server-wide default save path for new torrents.")
             }
 
             Section {
@@ -506,6 +556,7 @@ struct QBittorrentSettingsView: View {
             globalUploadLimit = try await uploadLimit
             alternativeSpeedEnabled = try await altMode
             appPreferences = try await preferences
+            defaultSavePath = appPreferences?.savePath ?? ""
             speedLimitErrorAlert = nil
 
             // Defer setting didLoadSpeedLimits to avoid triggering onChange handlers
@@ -568,6 +619,49 @@ struct QBittorrentSettingsView: View {
             alternativeSpeedEnabled = (try? await torrentService.isAlternativeSpeedEnabled()) ?? alternativeSpeedEnabled
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Toggle Alternative Speed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private var canUpdateDefaultSavePath: Bool {
+        let trimmedPath = defaultSavePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        let currentPath = appPreferences?.savePath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !isUpdatingDefaultSavePath && !trimmedPath.isEmpty && trimmedPath != currentPath
+    }
+
+    private func updateDefaultSavePath() async {
+        guard !isUpdatingDefaultSavePath else { return }
+
+        let trimmedPath = defaultSavePath.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Save Location Required",
+                message: "Enter a default save location before saving."
+            )
+            return
+        }
+
+        isUpdatingDefaultSavePath = true
+        defer { isUpdatingDefaultSavePath = false }
+
+        do {
+            try await torrentService.setDefaultSavePath(path: trimmedPath)
+            let refreshedPreferences = try await torrentService.getPreferences()
+            appPreferences = refreshedPreferences
+            let confirmedPath = refreshedPreferences.savePath ?? trimmedPath
+            defaultSavePath = confirmedPath
+            syncService.defaultSavePath = confirmedPath
+            viewModel.serverProfile?.defaultSavePath = confirmedPath
+            try? modelContext.save()
+            speedLimitErrorAlert = nil
+            inAppNotificationCenter.showSuccess(
+                title: "Save Location Updated",
+                message: confirmedPath
+            )
+        } catch {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Couldn't Update Save Location",
                 message: error.localizedDescription
             )
         }

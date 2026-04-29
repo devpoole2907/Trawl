@@ -17,6 +17,7 @@ final class ProwlarrViewModel {
     private(set) var testResult: String?
     private(set) var testSucceeded: Bool?
     private(set) var isTesting = false
+    private(set) var isSyncingApplications = false
 
     // MARK: - Schema State
     private(set) var schemaIndexers: [ProwlarrIndexer] = []
@@ -203,6 +204,51 @@ final class ProwlarrViewModel {
             testSucceeded = false
         }
         isTesting = false
+    }
+
+    func syncApplications() async throws {
+        guard let client else {
+            throw ArrError.noServiceConfigured
+        }
+
+        let linkedApplications = try await client.getApplications()
+            .filter { $0.linkedAppType == .sonarr || $0.linkedAppType == .radarr }
+        guard !linkedApplications.isEmpty else {
+            throw NSError(
+                domain: "ProwlarrSync",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Link Sonarr or Radarr in Prowlarr before running an indexer sync."]
+            )
+        }
+
+        let appNames = linkedApplications
+            .compactMap { $0.name ?? $0.linkedAppType?.displayName }
+            .sorted()
+        let targetSummary = appNames.formatted(.list(type: .and))
+
+        isSyncingApplications = true
+        defer { isSyncingApplications = false }
+
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Sync Started",
+            message: "Syncing Prowlarr indexers to \(targetSummary)."
+        )
+
+        let command = try await client.syncApplications()
+        guard command.succeeded else {
+            throw NSError(
+                domain: "ProwlarrSync",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: command.exception ?? "Prowlarr did not complete the application sync."]
+            )
+        }
+
+        await loadIndexers()
+
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Sync Complete",
+            message: "Prowlarr indexers synced to \(targetSummary)."
+        )
     }
 
     func statusForIndexer(id: Int) -> ProwlarrIndexerStatus? {

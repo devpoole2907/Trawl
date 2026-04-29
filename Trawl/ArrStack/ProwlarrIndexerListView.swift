@@ -329,11 +329,33 @@ struct ProwlarrIndexerListView: View {
         if serviceManager.prowlarrConnected {
             ToolbarItem(placement: .secondaryAction) {
                 Button {
+                    Task {
+                        await syncAllProwlarrIndexers(
+                            prowlarrViewModel: prowlarrViewModel,
+                            directViewModel: directViewModel,
+                            applicationsViewModel: applicationsViewModel
+                        )
+                    }
+                } label: {
+                    Label("Sync All Indexers", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(
+                    prowlarrViewModel.isSyncingApplications
+                        || applicationsViewModel?.supportedApplications.isEmpty != false
+                )
+            }
+
+            ToolbarItem(placement: .secondaryAction) {
+                Button {
                     Task { await prowlarrViewModel.testAllIndexers() }
                 } label: {
                     Label("Test All Prowlarr Indexers", systemImage: "checkmark.circle.badge.questionmark")
                 }
-                .disabled(prowlarrViewModel.isTesting || prowlarrViewModel.indexers.isEmpty)
+                .disabled(
+                    prowlarrViewModel.isTesting
+                        || prowlarrViewModel.isSyncingApplications
+                        || prowlarrViewModel.indexers.isEmpty
+                )
             }
         }
     }
@@ -417,6 +439,24 @@ struct ProwlarrIndexerListView: View {
         }
         if let applicationsViewModel, serviceManager.prowlarrConnected {
             await applicationsViewModel.loadApplications()
+        }
+    }
+
+    private func syncAllProwlarrIndexers(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel?,
+        applicationsViewModel: ProwlarrApplicationsViewModel?
+    ) async {
+        guard let directViewModel else { return }
+
+        do {
+            try await prowlarrViewModel.syncApplications()
+            await directViewModel.loadAllIndexers()
+            if let applicationsViewModel, serviceManager.prowlarrConnected {
+                await applicationsViewModel.loadApplications()
+            }
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Sync Failed", message: error.localizedDescription)
         }
     }
 
@@ -563,32 +603,51 @@ struct ProwlarrIndexerListView: View {
     }
 
     private var unavailableSources: [UnavailableIndexerSource] {
-        allProfiles
-            .filter {
-                guard let serviceType = $0.resolvedServiceType else { return false }
-                if serviceType == .prowlarr, serviceManager.prowlarrConnected {
-                    return false
-                }
-                return $0.isEnabled
-                    && [.prowlarr, .sonarr, .radarr].contains(serviceType)
-                    && !serviceManager.isConnected(serviceType, profileID: $0.id)
-            }
-            .map { profile in
-                let error: String?
-                switch profile.resolvedServiceType {
-                case .prowlarr:
-                    error = serviceManager.prowlarrConnectionError
-                case .sonarr:
-                    error = serviceManager.sonarrInstances.first(where: { $0.id == profile.id })?.connectionError
-                case .radarr:
-                    error = serviceManager.radarrInstances.first(where: { $0.id == profile.id })?.connectionError
-                case .none:
-                    error = nil
-                }
+        guard !serviceManager.isInitializing else { return [] }
 
-                return UnavailableIndexerSource(profile: profile, error: error ?? "Connection unavailable.")
+        var sources: [UnavailableIndexerSource] = []
+
+        for profile in allProfiles where shouldShowUnavailableSource(profile) {
+            let error: String?
+            switch profile.resolvedServiceType {
+            case .prowlarr:
+                error = serviceManager.prowlarrConnectionError
+            case .sonarr:
+                error = serviceManager.sonarrInstances.first(where: { $0.id == profile.id })?.connectionError
+            case .radarr:
+                error = serviceManager.radarrInstances.first(where: { $0.id == profile.id })?.connectionError
+            case .none:
+                error = nil
             }
-            .sorted { $0.profile.displayName.localizedCaseInsensitiveCompare($1.profile.displayName) == .orderedAscending }
+
+            let source = UnavailableIndexerSource(
+                profile: profile,
+                error: error ?? "Connection unavailable."
+            )
+            sources.append(source)
+        }
+
+        return sources.sorted {
+            $0.profile.displayName.localizedCaseInsensitiveCompare($1.profile.displayName) == .orderedAscending
+        }
+    }
+
+    private func shouldShowUnavailableSource(_ profile: ArrServiceProfile) -> Bool {
+        guard let serviceType = profile.resolvedServiceType else { return false }
+        guard profile.isEnabled, [.prowlarr, .sonarr, .radarr].contains(serviceType) else { return false }
+
+        switch serviceType {
+        case .prowlarr:
+            guard !serviceManager.prowlarrIsConnecting, !serviceManager.prowlarrConnected else { return false }
+            let resolvedProfile = serviceManager.resolvedProfile(for: .prowlarr, in: allProfiles)
+            return resolvedProfile?.id == profile.id
+        case .sonarr:
+            let isConnecting = serviceManager.sonarrInstances.contains { $0.id == profile.id && $0.isConnecting }
+            return !isConnecting && !serviceManager.isConnected(.sonarr, profileID: profile.id)
+        case .radarr:
+            let isConnecting = serviceManager.radarrInstances.contains { $0.id == profile.id && $0.isConnecting }
+            return !isConnecting && !serviceManager.isConnected(.radarr, profileID: profile.id)
+        }
     }
 
     private func shouldHideAsProwlarrMirror(_ indexer: ArrManagedIndexer) -> Bool {

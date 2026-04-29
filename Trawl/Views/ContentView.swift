@@ -147,7 +147,7 @@ struct ContentView: View {
                 return
             }
         }
-        .task {
+        .task(id: arrProfilesSyncKey) {
             if !didEvaluateWelcomeState {
                 isInWelcomeFlow = !hasConfiguredAnyService
                 didEvaluateWelcomeState = true
@@ -582,19 +582,26 @@ struct ContentView: View {
     }
 
     private var sonarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .sonarr })
+        arrServiceManager.resolvedProfile(for: .sonarr, in: arrProfiles)
     }
 
     private var radarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .radarr })
+        arrServiceManager.resolvedProfile(for: .radarr, in: arrProfiles)
     }
 
     private var prowlarrProfile: ArrServiceProfile? {
-        arrProfiles.first(where: { $0.resolvedServiceType == .prowlarr })
+        arrServiceManager.resolvedProfile(for: .prowlarr, in: arrProfiles)
     }
 
     private var hasConfiguredAnyService: Bool {
         activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil
+    }
+
+    private var arrProfilesSyncKey: String {
+        arrProfiles
+            .map { "\($0.id.uuidString):\($0.serviceType):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
     }
 
     private var shouldShowWelcomeScreen: Bool {

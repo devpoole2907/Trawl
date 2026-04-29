@@ -19,6 +19,14 @@ final class TorrentService {
         try await apiClient.getPreferences()
     }
 
+    func setDefaultSavePath(path: String) async throws {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else {
+            throw QBError.serverError(statusCode: 0, message: "Save location cannot be empty")
+        }
+        try await apiClient.setDefaultSavePath(trimmedPath)
+    }
+
     // MARK: - Torrents
 
     func getTorrents(filter: String? = nil, category: String? = nil, sort: String? = nil) async throws -> [Torrent] {

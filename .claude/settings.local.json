@@ -44,7 +44,12 @@
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'id=00008130-001068543421001C' -allowProvisioningUpdates)",
       "Bash(ios-deploy --id 00008130-001068543421001C --bundle \"/Users/jamespoole/Library/Developer/Xcode/DerivedData/Trawl-bxtrgapxrgbigxbcceuhctfjtvoa/Build/Products/Debug-iphoneos/Trawl.app\" --justlaunch)",
       "Bash(xcrun devicectl:*)",
-      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'id=47004A65-AF74-5697-87D0-551D09EC309E' -configuration Debug install)"
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'id=47004A65-AF74-5697-87D0-551D09EC309E' -configuration Debug install)",
+      "mcp__XcodeBuildMCP__session_show_defaults",
+      "mcp__XcodeBuildMCP__discover_projs",
+      "mcp__XcodeBuildMCP__session_set_defaults",
+      "mcp__XcodeBuildMCP__build_sim",
+      "Bash(python3 -)"
     ]
   }
 }

@@ -5,6 +5,7 @@ struct ArrSetupSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: ArrSetupViewModel?
     let initialServiceType: ArrServiceType?
     let existingProfile: ArrServiceProfile?
@@ -60,6 +61,17 @@ struct ArrSetupSheet: View {
         }
     }
 
+    private var canCreateProwlarr: Bool {
+        existingProfile?.resolvedServiceType == .prowlarr
+            || !profiles.contains { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
+    }
+
+    private var availableServiceTypes: [ArrServiceType] {
+        ArrServiceType.allCases.filter { type in
+            type != .prowlarr || canCreateProwlarr
+        }
+    }
+
     @ViewBuilder
     private func setupForm(vm: ArrSetupViewModel) -> some View {
         @Bindable var vm = vm
@@ -67,7 +79,7 @@ struct ArrSetupSheet: View {
             if initialServiceType == nil && existingProfile == nil {
                 Section("Service Type") {
                     Picker("Type", selection: $vm.serviceType) {
-                        ForEach(ArrServiceType.allCases) { type in
+                        ForEach(availableServiceTypes) { type in
                             Label(type.displayName, systemImage: type.systemImage).tag(type)
                         }
                     }
@@ -93,6 +105,12 @@ struct ArrSetupSheet: View {
                 Text("Find your API key in \(vm.serviceType.displayName) under Settings → General → Security. Enable self-signed certificates only for services you manage yourself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+
+                if vm.serviceType == .prowlarr {
+                    Text("Trawl supports a single Prowlarr server. Saving Prowlarr settings updates the existing server.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             if vm.isValidating {

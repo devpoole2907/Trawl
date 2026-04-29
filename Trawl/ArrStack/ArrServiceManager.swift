@@ -38,6 +38,12 @@ struct RadarrClientEntry: Identifiable {
     }
 }
 
+enum ArrNotificationSetupStatus: Sendable {
+    case notAdded
+    case needsUpdate
+    case configured
+}
+
 // MARK: - Service Manager
 
 /// Central coordinator for all configured *arr services.
@@ -154,69 +160,14 @@ final class ArrServiceManager {
     }
 
     func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
-        guard let serviceType = profile.resolvedServiceType else {
-            throw ArrError.noServiceConfigured
-        }
-
-        let client: any SharedArrClient
-        switch serviceType {
-        case .sonarr:
-            guard let resolvedClient = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
-                throw ArrError.noServiceConfigured
-            }
-            client = resolvedClient
-        case .radarr:
-            guard let resolvedClient = radarrInstances.first(where: { $0.id == profile.id })?.client else {
-                throw ArrError.noServiceConfigured
-            }
-            client = resolvedClient
-        case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
-        }
-
-        let notificationName = "Trawl (\(profile.displayName))"
-        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
-        var components = URLComponents(string: normalizedWorkerURL)
-
-        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
-        // Only strip a trailing "push" segment — leaving any "push" components elsewhere
-        // in the path untouched (e.g. a hostname or sub-path that legitimately contains "push").
-        if pathParts.last?.lowercased() == "push" {
-            pathParts.removeLast()
-        }
-        pathParts.append("push")
-        components?.path = "/" + pathParts.joined(separator: "/")
-
-        guard let pushURL = components?.url?.absoluteString else {
-            throw ArrError.invalidURL
-        }
-
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
 
-        // Check if the existing webhook already matches the full expected config.
-        // If so, skip the write to avoid unnecessary API churn.
-        if let existing {
-            let urlMatches: Bool = {
-                guard case .string(let u) = existing.fields.first(where: { $0.name == "url" })?.value else { return false }
-                return u == pushURL
-            }()
-            let methodMatches: Bool = {
-                guard case .number(let m) = existing.fields.first(where: { $0.name == "method" })?.value else { return false }
-                return m == 1
-            }()
-            let tokenMatches: Bool = {
-                guard case .array(let headers) = existing.fields.first(where: { $0.name == "headers" })?.value,
-                      headers.count == 1,
-                      case .object(let header) = headers.first,
-                      case .string(let k) = header["Key"],
-                      case .string(let t) = header["Value"] else { return false }
-                return k == "X-Trawl-Token" && t == deviceToken
-            }()
-            let triggersMatch = existing.onGrab && existing.onDownload
-            if urlMatches && methodMatches && tokenMatches && triggersMatch {
-                return // Already up to date — no API write needed
-            }
+        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) {
+            return
         }
 
         let fields = [
@@ -266,6 +217,25 @@ final class ArrServiceManager {
         } else {
             _ = try await client.createNotification(newNotification)
         }
+    }
+
+    func notificationSetupStatus(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> ArrNotificationSetupStatus {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+
+        guard let existing = notifications.first(where: { $0.name == notificationName }) else {
+            return .notAdded
+        }
+
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken)
+            ? .configured
+            : .needsUpdate
     }
 
     // MARK: - Backward-compatible Sonarr computed properties
@@ -403,6 +373,9 @@ final class ArrServiceManager {
                     entry.tags = fetchedTags
                     sonarrInstances.append(entry)
                 }
+                if activeSonarrProfileID == nil {
+                    activeSonarrProfileID = profile.id
+                }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
             case .radarr:
@@ -432,6 +405,9 @@ final class ArrServiceManager {
                     entry.rootFolders = folders
                     entry.tags = fetchedTags
                     radarrInstances.append(entry)
+                }
+                if activeRadarrProfileID == nil {
+                    activeRadarrProfileID = profile.id
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
@@ -489,6 +465,12 @@ final class ArrServiceManager {
                     sonarrInstances[idx].tags = []
                 }
                 connectionErrors.removeValue(forKey: id.uuidString)
+                if activeSonarrProfileID == id {
+                    activeSonarrProfileID = sonarrInstances
+                        .filter { $0.id != id }
+                        .first(where: { $0.isConnected })?
+                        .id ?? sonarrInstances.first(where: { $0.id != id })?.id
+                }
             } else {
                 sonarrInstances = []
                 activeSonarrProfileID = nil
@@ -504,6 +486,12 @@ final class ArrServiceManager {
                     radarrInstances[idx].tags = []
                 }
                 connectionErrors.removeValue(forKey: id.uuidString)
+                if activeRadarrProfileID == id {
+                    activeRadarrProfileID = radarrInstances
+                        .filter { $0.id != id }
+                        .first(where: { $0.isConnected })?
+                        .id ?? radarrInstances.first(where: { $0.id != id })?.id
+                }
             } else {
                 radarrInstances = []
                 activeRadarrProfileID = nil
@@ -724,5 +712,106 @@ final class ArrServiceManager {
         }
 
         return canonicalURL
+    }
+
+    private func notificationClient(for profile: ArrServiceProfile) throws -> any SharedArrClient {
+        guard let serviceType = profile.resolvedServiceType else {
+            throw ArrError.noServiceConfigured
+        }
+
+        switch serviceType {
+        case .sonarr:
+            guard let client = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            return client
+        case .radarr:
+            guard let client = radarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            return client
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func notificationName(for profile: ArrServiceProfile) -> String {
+        "Trawl (\(profile.displayName))"
+    }
+
+    private func pushNotificationURL(from workerURL: String) throws -> String {
+        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
+        var components = URLComponents(string: normalizedWorkerURL)
+
+        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
+        if pathParts.last?.lowercased() == "push" {
+            pathParts.removeLast()
+        }
+        pathParts.append("push")
+        components?.path = "/" + pathParts.joined(separator: "/")
+
+        guard let pushURL = components?.url?.absoluteString else {
+            throw ArrError.invalidURL
+        }
+
+        return pushURL
+    }
+
+    private func trawlNotificationMatches(
+        _ notification: ArrNotification,
+        pushURL: String,
+        deviceToken: String
+    ) -> Bool {
+        let urlMatches: Bool = {
+            guard case .string(let url) = notification.fields.first(where: { $0.name == "url" })?.value else { return false }
+            return normalizedNotificationComparisonURL(url) == normalizedNotificationComparisonURL(pushURL)
+        }()
+        let methodMatches: Bool = {
+            guard let methodValue = notification.fields.first(where: { $0.name == "method" })?.value else { return true }
+            switch methodValue {
+            case .number(let method):
+                return method == 1
+            case .string(let method):
+                let normalized = method.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized == "1" || normalized == "post"
+            default:
+                return false
+            }
+        }()
+        let tokenMatches: Bool = {
+            guard case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value else { return false }
+            return headers.contains { headerValue in
+                guard case .object(let header) = headerValue else { return false }
+
+                let key: String? = {
+                    if case .string(let value) = header["Key"] { return value }
+                    if case .string(let value) = header["key"] { return value }
+                    return nil
+                }()
+
+                let value: String? = {
+                    if case .string(let storedValue) = header["Value"] { return storedValue }
+                    if case .string(let storedValue) = header["value"] { return storedValue }
+                    return nil
+                }()
+
+                return key == "X-Trawl-Token" && value == deviceToken
+            }
+        }()
+        let triggersMatch = notification.onGrab && notification.onDownload
+
+        return urlMatches && methodMatches && tokenMatches && triggersMatch
+    }
+
+    private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {
+        guard var components = URLComponents(string: rawValue) else {
+            return rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+
+        return components.url?.absoluteString ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

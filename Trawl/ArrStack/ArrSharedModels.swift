@@ -859,6 +859,98 @@ struct ArrUpdateInfo: Codable, Identifiable, Sendable {
     }
 }
 
+// MARK: - Download Client
+
+nonisolated struct ArrDownloadClient: Codable, Identifiable, Sendable {
+    let id: Int
+    var name: String?
+    var fields: [ArrIndexerField]?
+    let implementationName: String?
+    let implementation: String?
+    let configContract: String?
+    let infoLink: String?
+    let message: ArrProviderMessage?
+    var tags: [Int]?
+    var enable: Bool
+    let supportsCategories: Bool?
+    var priority: Int?
+    var removeCompletedDownloads: Bool?
+    var removeFailedDownloads: Bool?
+    let `protocol`: ArrIndexerProtocol?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, fields, implementationName, implementation, configContract
+        case infoLink, message, tags, enable, supportsCategories, priority
+        case removeCompletedDownloads, removeFailedDownloads
+        case `protocol`
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        fields = try container.decodeIfPresent([ArrIndexerField].self, forKey: .fields)
+        implementationName = try container.decodeIfPresent(String.self, forKey: .implementationName)
+        implementation = try container.decodeIfPresent(String.self, forKey: .implementation)
+        configContract = try container.decodeIfPresent(String.self, forKey: .configContract)
+        infoLink = try container.decodeIfPresent(String.self, forKey: .infoLink)
+        message = try container.decodeIfPresent(ArrProviderMessage.self, forKey: .message)
+        tags = try container.decodeIfPresent([Int].self, forKey: .tags)
+        enable = try container.decodeIfPresent(Bool.self, forKey: .enable) ?? false
+        supportsCategories = try container.decodeIfPresent(Bool.self, forKey: .supportsCategories)
+        priority = try container.decodeIfPresent(Int.self, forKey: .priority)
+        removeCompletedDownloads = try container.decodeIfPresent(Bool.self, forKey: .removeCompletedDownloads)
+        removeFailedDownloads = try container.decodeIfPresent(Bool.self, forKey: .removeFailedDownloads)
+        let protocolValue = try container.decodeIfPresent(String.self, forKey: .protocol)
+        `protocol` = protocolValue.flatMap(ArrIndexerProtocol.init(rawValue:))
+    }
+
+    var hostDisplayValue: String? {
+        fields?.first(where: { ["host", "hostname"].contains($0.name?.lowercased()) })?.value?.displayString
+    }
+
+    var portDisplayValue: String? {
+        fields?.first(where: { $0.name?.lowercased() == "port" })?.value?.displayString
+    }
+
+    func updatingField(named fieldName: String, with value: ArrIndexerFieldValue) -> ArrDownloadClient {
+        var updated = self
+        var nextFields = updated.fields ?? []
+        if let index = nextFields.firstIndex(where: { $0.name == fieldName }) {
+            let existing = nextFields[index]
+            nextFields[index] = ArrIndexerField(
+                order: existing.order, name: existing.name, label: existing.label,
+                unit: existing.unit, helpText: existing.helpText,
+                helpTextWarning: existing.helpTextWarning, helpLink: existing.helpLink,
+                value: value, type: existing.type, advanced: existing.advanced,
+                selectOptions: existing.selectOptions,
+                selectOptionsProviderAction: existing.selectOptionsProviderAction,
+                section: existing.section, hidden: existing.hidden,
+                placeholder: existing.placeholder, isFloat: existing.isFloat
+            )
+        } else {
+            nextFields.append(ArrIndexerField(
+                order: nil, name: fieldName, label: nil, unit: nil,
+                helpText: nil, helpTextWarning: nil, helpLink: nil,
+                value: value, type: nil, advanced: nil, selectOptions: nil,
+                selectOptionsProviderAction: nil, section: nil, hidden: nil,
+                placeholder: nil, isFloat: nil
+            ))
+        }
+        updated.fields = nextFields
+        return updated
+    }
+}
+
+// MARK: - Remote Path Mapping
+
+nonisolated struct ArrRemotePathMapping: Codable, Identifiable, Sendable {
+    var id: Int
+    var host: String
+    var remotePath: String
+    var localPath: String
+}
+
 // MARK: - Arr Error
 
 enum ArrError: LocalizedError, Sendable {

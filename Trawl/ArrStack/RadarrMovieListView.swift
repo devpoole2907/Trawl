@@ -17,7 +17,7 @@ struct RadarrMovieListView: View {
     @State private var isRunningCommand = false
 
     var body: some View {
-        Group {
+        let baseContent = Group {
             if let vm = viewModel {
                 movieContent(vm: vm)
             } else if isShowingConnectingState {
@@ -57,7 +57,7 @@ struct RadarrMovieListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Movies")
+        .navigationTitle(navigationTitleText)
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
@@ -175,6 +175,25 @@ struct RadarrMovieListView: View {
                 knownQueueIds = currentIds
             }
         }
+
+        if shouldShowInstanceTitleMenu {
+            baseContent.toolbarTitleMenu {
+                ForEach(radarrProfiles) { profile in
+                    Button {
+                        serviceManager.setActiveRadarr(profile.id)
+                    } label: {
+                        if profile.id == serviceManager.activeRadarrInstanceID {
+                            Label(instanceDisplayName(for: profile), systemImage: "checkmark")
+                        } else {
+                            Text(instanceDisplayName(for: profile))
+                        }
+                    }
+                    .disabled(!serviceManager.isConnected(.radarr, profileID: profile.id))
+                }
+            }
+        } else {
+            baseContent
+        }
     }
 
     @ViewBuilder
@@ -247,8 +266,7 @@ struct RadarrMovieListView: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
-        }
-        .swipeActions(edge: .leading) {
+
             Button {
                 Task { await vm.toggleMovieMonitored(movie) }
             } label: {
@@ -258,15 +276,6 @@ struct RadarrMovieListView: View {
                 )
             }
             .tint(movie.monitored == true ? .orange : .blue)
-
-            if movie.hasFile != true {
-                Button {
-                    Task { await vm.searchMovie(movieId: movie.id) }
-                } label: {
-                    Label("Search", systemImage: "magnifyingglass")
-                }
-                .tint(.purple)
-            }
         }
     }
 
@@ -389,11 +398,51 @@ struct RadarrMovieListView: View {
     }
 
     private var radarrProfile: ArrServiceProfile? {
-        profiles.first(where: { $0.resolvedServiceType == .radarr })
+        serviceManager.resolvedProfile(for: .radarr, in: profiles)
+    }
+
+    private var radarrProfiles: [ArrServiceProfile] {
+        profiles
+            .filter { $0.resolvedServiceType == .radarr && $0.isEnabled }
+            .sorted { lhs, rhs in
+                if lhs.dateAdded == rhs.dateAdded {
+                    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                }
+                return lhs.dateAdded < rhs.dateAdded
+            }
+    }
+
+    private var shouldShowInstanceTitleMenu: Bool {
+        radarrProfiles.count > 1
+    }
+
+    private var navigationTitleText: String {
+        guard shouldShowInstanceTitleMenu, let radarrProfile else { return "Movies" }
+        return instanceDisplayName(for: radarrProfile)
     }
 
     private var isShowingConnectingState: Bool {
         radarrProfile != nil && (serviceManager.isInitializing || serviceManager.radarrIsConnecting)
+    }
+
+    private func instanceDisplayName(for profile: ArrServiceProfile) -> String {
+        let baseName = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchingNames = radarrProfiles.filter {
+            $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(baseName) == .orderedSame
+        }
+
+        if !baseName.isEmpty,
+           baseName.localizedCaseInsensitiveCompare(ArrServiceType.radarr.displayName) != .orderedSame,
+           matchingNames.count == 1 {
+            return baseName
+        }
+
+        if let index = radarrProfiles.firstIndex(where: { $0.id == profile.id }) {
+            return "\(ArrServiceType.radarr.displayName) (\(index + 1))"
+        }
+
+        return ArrServiceType.radarr.displayName
     }
 
     private var connectingContent: some View {

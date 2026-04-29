@@ -60,13 +60,26 @@ final class ArrSetupViewModel {
             // Save or update profile
             let name = displayName.isEmpty ? (status.instanceName ?? serviceType.displayName) : displayName
 
+            let allProfiles = try modelContext.fetch(FetchDescriptor<ArrServiceProfile>())
+            let activeProwlarrProfileID = serviceManager.activeProwlarrProfileID
+            let existingProwlarrProfiles = allProfiles.filter { $0.resolvedServiceType == .prowlarr }
+            let existingProwlarrProfile =
+                existingProwlarrProfiles.first(where: { $0.id == activeProwlarrProfileID })
+                ?? existingProwlarrProfiles.first(where: { $0.isEnabled })
+                ?? existingProwlarrProfiles.sorted { $0.dateAdded > $1.dateAdded }.first
+
             let profile: ArrServiceProfile
-            let isEditing = existingProfile != nil
+            let isEditing: Bool
             let originalAPIKey: String?
 
             if let existing = existingProfile {
                 originalAPIKey = try await KeychainHelper.shared.read(key: existing.apiKeyKeychainKey)
                 profile = existing
+                isEditing = true
+            } else if serviceType == .prowlarr, let existingProwlarrProfile {
+                originalAPIKey = try await KeychainHelper.shared.read(key: existingProwlarrProfile.apiKeyKeychainKey)
+                profile = existingProwlarrProfile
+                isEditing = true
             } else {
                 originalAPIKey = nil
                 profile = ArrServiceProfile(
@@ -76,6 +89,7 @@ final class ArrSetupViewModel {
                     allowsUntrustedTLS: allowsUntrustedTLS
                 )
                 profile.apiVersion = status.version
+                isEditing = false
             }
 
             let originalDisplayName = profile.displayName
@@ -96,11 +110,18 @@ final class ArrSetupViewModel {
             profile.displayName = name
             profile.hostURL = trimmedURL
             profile.serviceType = serviceType.rawValue
+            profile.isEnabled = true
             profile.allowsUntrustedTLS = allowsUntrustedTLS
             profile.apiVersion = status.version
 
             if !isEditing {
                 modelContext.insert(profile)
+            }
+
+            if serviceType == .prowlarr {
+                for existing in allProfiles where existing.id != profile.id && existing.resolvedServiceType == .prowlarr {
+                    existing.isEnabled = false
+                }
             }
 
             do {

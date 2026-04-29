@@ -17,7 +17,7 @@ struct SonarrSeriesListView: View {
     @State private var isRunningCommand = false
 
     var body: some View {
-        Group {
+        let baseContent = Group {
             if let vm = viewModel {
                 seriesContent(vm: vm)
             } else if isShowingConnectingState {
@@ -57,7 +57,7 @@ struct SonarrSeriesListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Series")
+        .navigationTitle(navigationTitleText)
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
@@ -193,6 +193,25 @@ struct SonarrSeriesListView: View {
                 knownQueueIds = currentIds
             }
         }
+
+        if shouldShowInstanceTitleMenu {
+            baseContent.toolbarTitleMenu {
+                ForEach(sonarrProfiles) { profile in
+                    Button {
+                        serviceManager.setActiveSonarr(profile.id)
+                    } label: {
+                        if profile.id == serviceManager.activeSonarrInstanceID {
+                            Label(instanceDisplayName(for: profile), systemImage: "checkmark")
+                        } else {
+                            Text(instanceDisplayName(for: profile))
+                        }
+                    }
+                    .disabled(!serviceManager.isConnected(.sonarr, profileID: profile.id))
+                }
+            }
+        } else {
+            baseContent
+        }
     }
 
     @ViewBuilder
@@ -259,7 +278,13 @@ struct SonarrSeriesListView: View {
                 }
             )
         }
-        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDeleteSeries = show
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+
             Button {
                 Task { await vm.toggleSeriesMonitored(show) }
             } label: {
@@ -269,13 +294,6 @@ struct SonarrSeriesListView: View {
                 )
             }
             .tint(show.monitored == true ? .orange : .blue)
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                pendingDeleteSeries = show
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
         }
     }
 
@@ -398,11 +416,51 @@ struct SonarrSeriesListView: View {
     }
 
     private var sonarrProfile: ArrServiceProfile? {
-        profiles.first(where: { $0.resolvedServiceType == .sonarr })
+        serviceManager.resolvedProfile(for: .sonarr, in: profiles)
+    }
+
+    private var sonarrProfiles: [ArrServiceProfile] {
+        profiles
+            .filter { $0.resolvedServiceType == .sonarr && $0.isEnabled }
+            .sorted { lhs, rhs in
+                if lhs.dateAdded == rhs.dateAdded {
+                    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                }
+                return lhs.dateAdded < rhs.dateAdded
+            }
+    }
+
+    private var shouldShowInstanceTitleMenu: Bool {
+        sonarrProfiles.count > 1
+    }
+
+    private var navigationTitleText: String {
+        guard shouldShowInstanceTitleMenu, let sonarrProfile else { return "Series" }
+        return instanceDisplayName(for: sonarrProfile)
     }
 
     private var isShowingConnectingState: Bool {
         sonarrProfile != nil && (serviceManager.isInitializing || serviceManager.sonarrIsConnecting)
+    }
+
+    private func instanceDisplayName(for profile: ArrServiceProfile) -> String {
+        let baseName = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let matchingNames = sonarrProfiles.filter {
+            $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .localizedCaseInsensitiveCompare(baseName) == .orderedSame
+        }
+
+        if !baseName.isEmpty,
+           baseName.localizedCaseInsensitiveCompare(ArrServiceType.sonarr.displayName) != .orderedSame,
+           matchingNames.count == 1 {
+            return baseName
+        }
+
+        if let index = sonarrProfiles.firstIndex(where: { $0.id == profile.id }) {
+            return "\(ArrServiceType.sonarr.displayName) (\(index + 1))"
+        }
+
+        return ArrServiceType.sonarr.displayName
     }
 
     private var connectingContent: some View {
