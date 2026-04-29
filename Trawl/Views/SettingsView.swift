@@ -694,9 +694,14 @@ struct QBittorrentSettingsView: View {
             if confirmedPath != trimmedPath {
                 _ = try? modelContext.save()
             }
+            speedLimitErrorAlert = nil
+        } else {
+            speedLimitErrorAlert = ErrorAlertItem(
+                title: "Save Location Updated",
+                message: "Server accepted the new path, but Trawl couldn't refresh local state right now."
+            )
         }
 
-        speedLimitErrorAlert = nil
         inAppNotificationCenter.showSuccess(
             title: "Save Location Updated",
             message: defaultSavePath
