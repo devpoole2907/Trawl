@@ -438,7 +438,7 @@ final class ProwlarrApplicationsViewModel {
             return false
         }
 
-        // Refresh the application list, but don't let refresh errors affect save result
+        // Refresh the application list, but don't let refresh-side state affect save result
         await loadApplications()
 
         return saveSucceeded
