@@ -798,7 +798,7 @@ final class ArrServiceManager {
                 return key == "X-Trawl-Token" && value == deviceToken
             }
         }()
-        let triggersMatch = notification.onGrab && notification.onDownload
+        let triggersMatch = notification.onGrab && notification.onDownload && notification.onUpgrade && notification.onRename && notification.onHealthIssue && notification.onApplicationUpdate
 
         return urlMatches && methodMatches && tokenMatches && triggersMatch
     }

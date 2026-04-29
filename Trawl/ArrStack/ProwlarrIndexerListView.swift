@@ -749,12 +749,19 @@ struct ProwlarrIndexerListView: View {
                 return true
             }
 
-            // Fallback: compare host AND port to avoid aliasing across same-host services
+            // Fallback: compare host, port, AND path to avoid aliasing across same-host services
             let baseParsed = URL(string: baseURL)
             let baseHost = baseParsed?.host?.lowercased()
             let basePort = baseParsed?.port
+            let basePath = baseParsed?.path
+            let profilePath = profileParsed?.path
             if let profileHost, let baseHost, profileHost == baseHost, profilePort == basePort {
-                return true
+                // Also verify paths match
+                let normalizedBasePath = basePath?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                let normalizedProfilePath = profilePath?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                if normalizedBasePath == normalizedProfilePath {
+                    return true
+                }
             }
 
             return false

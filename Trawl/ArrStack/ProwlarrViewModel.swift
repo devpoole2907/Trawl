@@ -211,6 +211,12 @@ final class ProwlarrViewModel {
             throw ArrError.noServiceConfigured
         }
 
+        guard !isSyncingApplications else {
+            return
+        }
+        isSyncingApplications = true
+        defer { isSyncingApplications = false }
+
         let linkedApplications = try await client.getApplications()
             .filter { $0.linkedAppType == .sonarr || $0.linkedAppType == .radarr }
         guard !linkedApplications.isEmpty else {
@@ -225,9 +231,6 @@ final class ProwlarrViewModel {
             .compactMap { $0.name ?? $0.linkedAppType?.displayName }
             .sorted()
         let targetSummary = appNames.formatted(.list(type: .and))
-
-        isSyncingApplications = true
-        defer { isSyncingApplications = false }
 
         InAppNotificationCenter.shared.showSuccess(
             title: "Sync Started",
@@ -436,11 +439,7 @@ final class ProwlarrApplicationsViewModel {
         }
 
         // Refresh the application list, but don't let refresh errors affect save result
-        do {
-            await loadApplications()
-        } catch {
-            // loadApplications sets errorMessage on failure, but we still return saveSucceeded
-        }
+        await loadApplications()
 
         return saveSucceeded
     }

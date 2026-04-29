@@ -80,15 +80,17 @@ struct ArrRemotePathMappingListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Label("Add Mapping", systemImage: "plus")
+            if serviceType != .prowlarr {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label("Add Mapping", systemImage: "plus")
+                    }
                 }
             }
         }
-        .sheet(isPresented: $showAddSheet) {
+        .sheet(isPresented: serviceType != .prowlarr ? $showAddSheet : .constant(false)) {
             ArrRemotePathMappingEditorSheet(serviceType: serviceType) { saved in
                 mappings.append(saved)
                 mappings.sort { $0.host < $1.host }
@@ -99,7 +101,7 @@ struct ArrRemotePathMappingListView: View {
             }
             .environment(serviceManager)
         }
-        .sheet(item: $mappingBeingEdited) { mapping in
+        .sheet(item: serviceType != .prowlarr ? $mappingBeingEdited : .constant(nil)) { mapping in
             ArrRemotePathMappingEditorSheet(serviceType: serviceType, existingMapping: mapping) { saved in
                 if let idx = mappings.firstIndex(where: { $0.id == saved.id }) {
                     mappings[idx] = saved

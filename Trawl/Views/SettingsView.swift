@@ -645,6 +645,11 @@ struct QBittorrentSettingsView: View {
         isUpdatingDefaultSavePath = true
         defer { isUpdatingDefaultSavePath = false }
 
+        // Store previous values for rollback
+        let previousDefaultSavePath = defaultSavePath
+        let previousSyncDefaultSavePath = syncService.defaultSavePath
+        let previousProfileDefaultSavePath = viewModel.serverProfile?.defaultSavePath
+
         do {
             try await torrentService.setDefaultSavePath(path: trimmedPath)
             let refreshedPreferences = try await torrentService.getPreferences()
@@ -653,12 +658,24 @@ struct QBittorrentSettingsView: View {
             defaultSavePath = confirmedPath
             syncService.defaultSavePath = confirmedPath
             viewModel.serverProfile?.defaultSavePath = confirmedPath
-            try? modelContext.save()
-            speedLimitErrorAlert = nil
-            inAppNotificationCenter.showSuccess(
-                title: "Save Location Updated",
-                message: confirmedPath
-            )
+
+            do {
+                try modelContext.save()
+                speedLimitErrorAlert = nil
+                inAppNotificationCenter.showSuccess(
+                    title: "Save Location Updated",
+                    message: confirmedPath
+                )
+            } catch {
+                // Rollback in-memory changes
+                defaultSavePath = previousDefaultSavePath
+                syncService.defaultSavePath = previousSyncDefaultSavePath
+                viewModel.serverProfile?.defaultSavePath = previousProfileDefaultSavePath
+                inAppNotificationCenter.showError(
+                    title: "Couldn't Save Changes",
+                    message: error.localizedDescription
+                )
+            }
         } catch {
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Update Save Location",

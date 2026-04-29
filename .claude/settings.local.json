@@ -48,8 +48,7 @@
       "mcp__XcodeBuildMCP__session_show_defaults",
       "mcp__XcodeBuildMCP__discover_projs",
       "mcp__XcodeBuildMCP__session_set_defaults",
-      "mcp__XcodeBuildMCP__build_sim",
-      "Bash(python3 -)"
+      "mcp__XcodeBuildMCP__build_sim"
     ]
   }
 }

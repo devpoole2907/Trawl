@@ -1703,6 +1703,13 @@ struct ProwlarrApplicationsListView: View {
                     ProgressView("Loading linked applications…")
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
+            } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoadingApplications {
+                ContentUnavailableView(
+                    "Failed to Load Applications",
+                    systemImage: "exclamationmark.triangle.fill",
+                    description: Text(errorMessage)
+                )
+                .listRowBackground(Color.clear)
             } else if viewModel.supportedApplications.isEmpty {
                 ContentUnavailableView(
                     "No Linked Apps",
