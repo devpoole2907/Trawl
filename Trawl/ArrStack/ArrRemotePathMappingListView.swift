@@ -370,6 +370,9 @@ struct ArrRemotePathMappingEditorSheet: View {
     private func applySelectedHostID() {
         if selectedHostID == Self.wildcardID {
             host = "*"
+        } else if selectedHostID == Self.customID {
+            // Preserve current host value when custom is selected
+            // No-op: keep existing host value
         } else if let profile = selectedProfile {
             host = URL(string: profile.hostURL)?.host ?? profile.hostURL
         } else {

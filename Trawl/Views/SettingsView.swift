@@ -642,13 +642,13 @@ struct QBittorrentSettingsView: View {
             return
         }
 
-        isUpdatingDefaultSavePath = true
-        defer { isUpdatingDefaultSavePath = false }
-
-        // Store previous values for rollback
-        let previousDefaultSavePath = defaultSavePath
+        // Store previous persisted values for rollback BEFORE any mutations
+        let previousDefaultSavePath = appPreferences?.savePath ?? ""
         let previousSyncDefaultSavePath = syncService.defaultSavePath
         let previousProfileDefaultSavePath = viewModel.serverProfile?.defaultSavePath
+
+        isUpdatingDefaultSavePath = true
+        defer { isUpdatingDefaultSavePath = false }
 
         do {
             try await torrentService.setDefaultSavePath(path: trimmedPath)
@@ -667,7 +667,7 @@ struct QBittorrentSettingsView: View {
                     message: confirmedPath
                 )
             } catch {
-                // Rollback in-memory changes
+                // Rollback in-memory changes using pre-edit persisted values
                 defaultSavePath = previousDefaultSavePath
                 syncService.defaultSavePath = previousSyncDefaultSavePath
                 viewModel.serverProfile?.defaultSavePath = previousProfileDefaultSavePath
