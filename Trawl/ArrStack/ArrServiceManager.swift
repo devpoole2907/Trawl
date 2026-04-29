@@ -38,6 +38,12 @@ struct RadarrClientEntry: Identifiable {
     }
 }
 
+enum ArrNotificationSetupStatus: Sendable {
+    case notAdded
+    case needsUpdate
+    case configured
+}
+
 // MARK: - Service Manager
 
 /// Central coordinator for all configured *arr services.
@@ -56,6 +62,7 @@ final class ArrServiceManager {
 
     // MARK: - Prowlarr (single instance)
     private(set) var prowlarrClient: ProwlarrAPIClient?
+    private(set) var activeProwlarrProfileID: UUID?
     private(set) var prowlarrConnected: Bool = false
     private(set) var prowlarrIsConnecting: Bool = false
     private(set) var prowlarrConnectionError: String?
@@ -100,71 +107,67 @@ final class ArrServiceManager {
     var hasProwlarrInstance: Bool { storedProfiles.contains { $0.resolvedServiceType == .prowlarr && $0.isEnabled } }
     var hasSonarrInstance: Bool { !sonarrInstances.isEmpty }
     var hasRadarrInstance: Bool { !radarrInstances.isEmpty }
+    var hasAnyConnectedSonarrInstance: Bool { sonarrInstances.contains { $0.isConnected } }
+    var hasAnyConnectedRadarrInstance: Bool { radarrInstances.contains { $0.isConnected } }
+    var hasAnyConnectedProwlarrInstance: Bool { prowlarrConnected }
 
-    func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
-        guard let serviceType = profile.resolvedServiceType else {
-            throw ArrError.noServiceConfigured
-        }
+    func sonarrClient(for profileID: UUID) -> SonarrAPIClient? {
+        sonarrInstances.first(where: { $0.id == profileID })?.client
+    }
 
-        let client: any SharedArrClient
+    func radarrClient(for profileID: UUID) -> RadarrAPIClient? {
+        radarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func isConnected(_ serviceType: ArrServiceType, profileID: UUID) -> Bool {
         switch serviceType {
         case .sonarr:
-            guard let resolvedClient = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
-                throw ArrError.noServiceConfigured
-            }
-            client = resolvedClient
+            sonarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
         case .radarr:
-            guard let resolvedClient = radarrInstances.first(where: { $0.id == profile.id })?.client else {
-                throw ArrError.noServiceConfigured
-            }
-            client = resolvedClient
+            radarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            activeProwlarrProfileID == profileID && prowlarrConnected
+        }
+    }
+
+    func resolvedProfile(
+        for serviceType: ArrServiceType,
+        in profiles: [ArrServiceProfile],
+        allowErroredFallback: Bool = true
+    ) -> ArrServiceProfile? {
+        let activeID: UUID? = {
+            switch serviceType {
+            case .sonarr: return activeSonarrInstanceID
+            case .radarr: return activeRadarrInstanceID
+            case .prowlarr: return activeProwlarrProfileID
+            }
+        }()
+
+        if let activeID, let activeProfile = profiles.first(where: { $0.id == activeID }) {
+            let activeHasError = connectionErrors[activeProfile.id.uuidString] != nil
+            if allowErroredFallback || !activeHasError {
+                return activeProfile
+            }
         }
 
-        let notificationName = "Trawl (\(profile.displayName))"
-        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
-        var components = URLComponents(string: normalizedWorkerURL)
-
-        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
-        // Only strip a trailing "push" segment — leaving any "push" components elsewhere
-        // in the path untouched (e.g. a hostname or sub-path that legitimately contains "push").
-        if pathParts.last?.lowercased() == "push" {
-            pathParts.removeLast()
-        }
-        pathParts.append("push")
-        components?.path = "/" + pathParts.joined(separator: "/")
-
-        guard let pushURL = components?.url?.absoluteString else {
-            throw ArrError.invalidURL
+        let matches = profiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
+        if let connectedMatch = matches.first(where: { connectionErrors[$0.id.uuidString] == nil }) {
+            return connectedMatch
         }
 
+        guard allowErroredFallback else { return nil }
+        return matches.sorted { $0.dateAdded > $1.dateAdded }.first
+    }
+
+    func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
 
-        // Check if the existing webhook already matches the full expected config.
-        // If so, skip the write to avoid unnecessary API churn.
-        if let existing {
-            let urlMatches: Bool = {
-                guard case .string(let u) = existing.fields.first(where: { $0.name == "url" })?.value else { return false }
-                return u == pushURL
-            }()
-            let methodMatches: Bool = {
-                guard case .number(let m) = existing.fields.first(where: { $0.name == "method" })?.value else { return false }
-                return m == 1
-            }()
-            let tokenMatches: Bool = {
-                guard case .array(let headers) = existing.fields.first(where: { $0.name == "headers" })?.value,
-                      headers.count == 1,
-                      case .object(let header) = headers.first,
-                      case .string(let k) = header["Key"],
-                      case .string(let t) = header["Value"] else { return false }
-                return k == "X-Trawl-Token" && t == deviceToken
-            }()
-            let triggersMatch = existing.onGrab && existing.onDownload
-            if urlMatches && methodMatches && tokenMatches && triggersMatch {
-                return // Already up to date — no API write needed
-            }
+        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) {
+            return
         }
 
         let fields = [
@@ -214,6 +217,25 @@ final class ArrServiceManager {
         } else {
             _ = try await client.createNotification(newNotification)
         }
+    }
+
+    func notificationSetupStatus(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> ArrNotificationSetupStatus {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+
+        guard let existing = notifications.first(where: { $0.name == notificationName }) else {
+            return .notAdded
+        }
+
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken)
+            ? .configured
+            : .needsUpdate
     }
 
     // MARK: - Backward-compatible Sonarr computed properties
@@ -351,6 +373,9 @@ final class ArrServiceManager {
                     entry.tags = fetchedTags
                     sonarrInstances.append(entry)
                 }
+                if activeSonarrProfileID == nil {
+                    activeSonarrProfileID = profile.id
+                }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
             case .radarr:
@@ -381,6 +406,9 @@ final class ArrServiceManager {
                     entry.tags = fetchedTags
                     radarrInstances.append(entry)
                 }
+                if activeRadarrProfileID == nil {
+                    activeRadarrProfileID = profile.id
+                }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
             case .prowlarr:
@@ -390,9 +418,12 @@ final class ArrServiceManager {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 _ = try await client.getSystemStatus()
-                prowlarrClient = client
-                prowlarrConnected = true
-                prowlarrConnectionError = nil
+                if activeProwlarrProfileID == nil || activeProwlarrProfileID == profile.id {
+                    prowlarrClient = client
+                    activeProwlarrProfileID = profile.id
+                    prowlarrConnected = true
+                    prowlarrConnectionError = nil
+                }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
             }
         } catch {
@@ -408,6 +439,7 @@ final class ArrServiceManager {
         activeSonarrProfileID = nil
         activeRadarrProfileID = nil
         prowlarrClient = nil
+        activeProwlarrProfileID = nil
         prowlarrConnected = false
         prowlarrIsConnecting = false
         prowlarrConnectionError = nil
@@ -433,6 +465,12 @@ final class ArrServiceManager {
                     sonarrInstances[idx].tags = []
                 }
                 connectionErrors.removeValue(forKey: id.uuidString)
+                if activeSonarrProfileID == id {
+                    activeSonarrProfileID = sonarrInstances
+                        .filter { $0.id != id }
+                        .first(where: { $0.isConnected })?
+                        .id ?? sonarrInstances.first(where: { $0.id != id })?.id
+                }
             } else {
                 sonarrInstances = []
                 activeSonarrProfileID = nil
@@ -448,14 +486,23 @@ final class ArrServiceManager {
                     radarrInstances[idx].tags = []
                 }
                 connectionErrors.removeValue(forKey: id.uuidString)
+                if activeRadarrProfileID == id {
+                    activeRadarrProfileID = radarrInstances
+                        .filter { $0.id != id }
+                        .first(where: { $0.isConnected })?
+                        .id ?? radarrInstances.first(where: { $0.id != id })?.id
+                }
             } else {
                 radarrInstances = []
                 activeRadarrProfileID = nil
             }
         case .prowlarr:
-            prowlarrClient = nil
-            prowlarrConnected = false
-            prowlarrConnectionError = nil
+            if profileID == nil || activeProwlarrProfileID == profileID {
+                prowlarrClient = nil
+                activeProwlarrProfileID = nil
+                prowlarrConnected = false
+                prowlarrConnectionError = nil
+            }
             if let id = profileID {
                 connectionErrors.removeValue(forKey: id.uuidString)
             }
@@ -625,8 +672,12 @@ final class ArrServiceManager {
                 radarrInstances[idx].isConnected = false
             }
         case .prowlarr:
-            prowlarrConnectionError = message
-            prowlarrConnected = false
+            if activeProwlarrProfileID == id {
+                prowlarrClient = nil
+                prowlarrConnectionError = message
+                prowlarrConnected = false
+                activeProwlarrProfileID = nil
+            }
         }
     }
 
@@ -661,5 +712,106 @@ final class ArrServiceManager {
         }
 
         return canonicalURL
+    }
+
+    private func notificationClient(for profile: ArrServiceProfile) throws -> any SharedArrClient {
+        guard let serviceType = profile.resolvedServiceType else {
+            throw ArrError.noServiceConfigured
+        }
+
+        switch serviceType {
+        case .sonarr:
+            guard let client = sonarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            return client
+        case .radarr:
+            guard let client = radarrInstances.first(where: { $0.id == profile.id })?.client else {
+                throw ArrError.noServiceConfigured
+            }
+            return client
+        case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        }
+    }
+
+    private func notificationName(for profile: ArrServiceProfile) -> String {
+        "Trawl (\(profile.displayName))"
+    }
+
+    private func pushNotificationURL(from workerURL: String) throws -> String {
+        let normalizedWorkerURL = try normalizedNotificationWorkerURL(from: workerURL)
+        var components = URLComponents(string: normalizedWorkerURL)
+
+        var pathParts = components?.path.split(separator: "/").map(String.init) ?? []
+        if pathParts.last?.lowercased() == "push" {
+            pathParts.removeLast()
+        }
+        pathParts.append("push")
+        components?.path = "/" + pathParts.joined(separator: "/")
+
+        guard let pushURL = components?.url?.absoluteString else {
+            throw ArrError.invalidURL
+        }
+
+        return pushURL
+    }
+
+    private func trawlNotificationMatches(
+        _ notification: ArrNotification,
+        pushURL: String,
+        deviceToken: String
+    ) -> Bool {
+        let urlMatches: Bool = {
+            guard case .string(let url) = notification.fields.first(where: { $0.name == "url" })?.value else { return false }
+            return normalizedNotificationComparisonURL(url) == normalizedNotificationComparisonURL(pushURL)
+        }()
+        let methodMatches: Bool = {
+            guard let methodValue = notification.fields.first(where: { $0.name == "method" })?.value else { return true }
+            switch methodValue {
+            case .number(let method):
+                return method == 1
+            case .string(let method):
+                let normalized = method.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                return normalized == "1" || normalized == "post"
+            default:
+                return false
+            }
+        }()
+        let tokenMatches: Bool = {
+            guard case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value else { return false }
+            return headers.contains { headerValue in
+                guard case .object(let header) = headerValue else { return false }
+
+                let key: String? = {
+                    if case .string(let value) = header["Key"] { return value }
+                    if case .string(let value) = header["key"] { return value }
+                    return nil
+                }()
+
+                let value: String? = {
+                    if case .string(let storedValue) = header["Value"] { return storedValue }
+                    if case .string(let storedValue) = header["value"] { return storedValue }
+                    return nil
+                }()
+
+                return key == "X-Trawl-Token" && value == deviceToken
+            }
+        }()
+        let triggersMatch = notification.onGrab && notification.onDownload && notification.onUpgrade && notification.onRename && notification.onHealthIssue && notification.onApplicationUpdate
+
+        return urlMatches && methodMatches && tokenMatches && triggersMatch
+    }
+
+    private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {
+        guard var components = URLComponents(string: rawValue) else {
+            return rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        if components.path.count > 1, components.path.hasSuffix("/") {
+            components.path.removeLast()
+        }
+
+        return components.url?.absoluteString ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

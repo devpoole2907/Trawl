@@ -94,6 +94,57 @@ actor ProwlarrAPIClient {
         try await base.postVoid("/api/v1/indexer/testall", jsonBody: [:])
     }
 
+    func getCommand(id: Int) async throws -> ArrCommand {
+        try await base.get("/api/v1/command/\(id)")
+    }
+
+    func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
+        var body: [String: Any] = ["name": name]
+        if let additionalParams {
+            for (key, value) in additionalParams {
+                body[key] = value
+            }
+        }
+        return try await base.post("/api/v1/command", jsonBody: body)
+    }
+
+    func postCommandAndWait(
+        name: String,
+        additionalParams: [String: Any]? = nil,
+        timeout: Duration = .seconds(30)
+    ) async throws -> ArrCommand {
+        let command = try await postCommand(name: name, additionalParams: additionalParams)
+        guard let commandID = command.id else { return command }
+
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            try await Task.sleep(for: .seconds(1))
+            try Task.checkCancellation()
+
+            do {
+                let updated = try await getCommand(id: commandID)
+                if updated.isTerminal {
+                    return updated
+                }
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                continue
+            }
+        }
+
+        let finalCommand = (try? await getCommand(id: commandID)) ?? command
+        if !finalCommand.isTerminal {
+            throw ArrError.commandTimeout(commandId: commandID, lastKnownCommand: finalCommand)
+        }
+
+        return finalCommand
+    }
+
+    func syncApplications() async throws -> ArrCommand {
+        try await postCommandAndWait(name: "ApplicationIndexerSync")
+    }
+
     // MARK: - Search
 
     func search(
@@ -130,6 +181,32 @@ actor ProwlarrAPIClient {
 
     func getIndexerStatuses() async throws -> [ProwlarrIndexerStatus] {
         try await base.get("/api/v1/indexerstatus")
+    }
+
+    // MARK: - Applications
+
+    func getApplications() async throws -> [ProwlarrApplication] {
+        try await base.get("/api/v1/applications")
+    }
+
+    func getApplicationSchema() async throws -> [ProwlarrApplication] {
+        try await base.get("/api/v1/applications/schema")
+    }
+
+    func createApplication(_ application: ProwlarrApplication) async throws -> ProwlarrApplication {
+        try await base.postCodable("/api/v1/applications", body: application)
+    }
+
+    func updateApplication(_ application: ProwlarrApplication) async throws -> ProwlarrApplication {
+        try await base.putCodable("/api/v1/applications/\(application.id)", body: application)
+    }
+
+    func deleteApplication(id: Int) async throws {
+        try await base.delete("/api/v1/applications/\(id)")
+    }
+
+    func testApplication(_ application: ProwlarrApplication) async throws {
+        try await base.postVoidCodable("/api/v1/applications/test", body: application)
     }
 
     // MARK: - Tags

@@ -60,13 +60,26 @@ final class ArrSetupViewModel {
             // Save or update profile
             let name = displayName.isEmpty ? (status.instanceName ?? serviceType.displayName) : displayName
 
+            let allProfiles = try modelContext.fetch(FetchDescriptor<ArrServiceProfile>())
+            let activeProwlarrProfileID = serviceManager.activeProwlarrProfileID
+            let existingProwlarrProfiles = allProfiles.filter { $0.resolvedServiceType == .prowlarr }
+            let existingProwlarrProfile =
+                existingProwlarrProfiles.first(where: { $0.id == activeProwlarrProfileID })
+                ?? existingProwlarrProfiles.first(where: { $0.isEnabled })
+                ?? existingProwlarrProfiles.sorted { $0.dateAdded > $1.dateAdded }.first
+
             let profile: ArrServiceProfile
-            let isEditing = existingProfile != nil
+            let isEditing: Bool
             let originalAPIKey: String?
 
             if let existing = existingProfile {
                 originalAPIKey = try await KeychainHelper.shared.read(key: existing.apiKeyKeychainKey)
                 profile = existing
+                isEditing = true
+            } else if serviceType == .prowlarr, let existingProwlarrProfile {
+                originalAPIKey = try await KeychainHelper.shared.read(key: existingProwlarrProfile.apiKeyKeychainKey)
+                profile = existingProwlarrProfile
+                isEditing = true
             } else {
                 originalAPIKey = nil
                 profile = ArrServiceProfile(
@@ -76,6 +89,7 @@ final class ArrSetupViewModel {
                     allowsUntrustedTLS: allowsUntrustedTLS
                 )
                 profile.apiVersion = status.version
+                isEditing = false
             }
 
             let originalDisplayName = profile.displayName
@@ -84,7 +98,13 @@ final class ArrSetupViewModel {
             let originalResolvedServiceType = profile.resolvedServiceType
             let originalAllowsUntrustedTLS = profile.allowsUntrustedTLS
             let originalApiVersion = profile.apiVersion
+            let originalIsEnabled = profile.isEnabled
             let keychainKey = profile.apiKeyKeychainKey
+            let originalProwlarrEnabledStates = Dictionary(
+                uniqueKeysWithValues: allProfiles
+                    .filter { $0.resolvedServiceType == .prowlarr }
+                    .map { ($0.id, $0.isEnabled) }
+            )
 
             try await KeychainHelper.shared.save(key: keychainKey, value: trimmedKey)
 
@@ -96,11 +116,18 @@ final class ArrSetupViewModel {
             profile.displayName = name
             profile.hostURL = trimmedURL
             profile.serviceType = serviceType.rawValue
+            profile.isEnabled = true
             profile.allowsUntrustedTLS = allowsUntrustedTLS
             profile.apiVersion = status.version
 
             if !isEditing {
                 modelContext.insert(profile)
+            }
+
+            if serviceType == .prowlarr {
+                for existing in allProfiles where existing.id != profile.id && existing.resolvedServiceType == .prowlarr {
+                    existing.isEnabled = false
+                }
             }
 
             do {
@@ -112,6 +139,13 @@ final class ArrSetupViewModel {
                     profile.serviceType = originalServiceType
                     profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
                     profile.apiVersion = originalApiVersion
+                    profile.isEnabled = originalIsEnabled
+
+                    for existing in allProfiles where existing.resolvedServiceType == .prowlarr {
+                        if let wasEnabled = originalProwlarrEnabledStates[existing.id] {
+                            existing.isEnabled = wasEnabled
+                        }
+                    }
 
                     do {
                         if let originalAPIKey {

@@ -97,6 +97,16 @@ extension SharedArrClient {
 
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.getDiskSpace() }
     func getUpdates() async throws -> [ArrUpdateInfo] { try await base.getUpdates() }
+    func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.getDownloadClients() }
+    func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.getDownloadClientSchema() }
+    func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.createDownloadClient(client) }
+    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.updateDownloadClient(client) }
+    func deleteDownloadClient(id: Int) async throws { try await base.deleteDownloadClient(id: id) }
+    func testDownloadClient(_ client: ArrDownloadClient) async throws { try await base.testDownloadClient(client) }
+    func getRemotePathMappings() async throws -> [ArrRemotePathMapping] { try await base.getRemotePathMappings() }
+    func createRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.createRemotePathMapping(mapping) }
+    func updateRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.updateRemotePathMapping(mapping) }
+    func deleteRemotePathMapping(id: Int) async throws { try await base.deleteRemotePathMapping(id: id) }
 }
 
 /// Base actor handling shared HTTP infrastructure for all *arr services.
@@ -216,6 +226,46 @@ actor ArrAPIClient {
 
     func getUpdates() async throws -> [ArrUpdateInfo] {
         try await get("/api/v3/update")
+    }
+
+    func getDownloadClients() async throws -> [ArrDownloadClient] {
+        try await get("/api/v3/downloadclient")
+    }
+
+    func getDownloadClientSchema() async throws -> [ArrDownloadClient] {
+        try await get("/api/v3/downloadclient/schema")
+    }
+
+    func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient {
+        try await postCodable("/api/v3/downloadclient", body: client)
+    }
+
+    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient {
+        try await putCodable("/api/v3/downloadclient/\(client.id)", body: client)
+    }
+
+    func deleteDownloadClient(id: Int) async throws {
+        try await delete("/api/v3/downloadclient/\(id)")
+    }
+
+    func testDownloadClient(_ client: ArrDownloadClient) async throws {
+        try await postVoidCodable("/api/v3/downloadclient/test", body: client)
+    }
+
+    func getRemotePathMappings() async throws -> [ArrRemotePathMapping] {
+        try await get("/api/v3/remotepathmapping")
+    }
+
+    func createRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping {
+        try await postCodable("/api/v3/remotepathmapping", body: mapping)
+    }
+
+    func updateRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping {
+        try await putCodable("/api/v3/remotepathmapping/\(mapping.id)", body: mapping)
+    }
+
+    func deleteRemotePathMapping(id: Int) async throws {
+        try await delete("/api/v3/remotepathmapping/\(id)")
     }
 
     func getCommand(id: Int) async throws -> ArrCommand {

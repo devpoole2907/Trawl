@@ -74,8 +74,8 @@
 		7C724A332F81D5940073A650 /* TrawlUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TrawlUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		CC100000CC100000CC100000 /* TrawlShare.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlShare.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		DD100000DD100000DD100000 /* SSHLiveActivity.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SSHLiveActivity.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		FF100000FF100000FF100000 /* TrawlWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		EE000001EE000001EE000001 /* TrawlMac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = TrawlMac.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FF100000FF100000FF100000 /* TrawlWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = TrawlWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -94,14 +94,17 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrAddDownloadClientSheet.swift,
 				ArrStack/ArrAPIClient.swift,
 				ArrStack/ArrArtworkView.swift,
 				ArrStack/ArrBlocklistView.swift,
 				ArrStack/ArrCalendarView.swift,
 				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrDownloadClientListView.swift,
 				ArrStack/ArrHistoryView.swift,
 				ArrStack/ArrManualImportView.swift,
 				ArrStack/ArrNotificationModels.swift,
+				ArrStack/ArrRemotePathMappingListView.swift,
 				ArrStack/ArrServiceManager.swift,
 				ArrStack/ArrServicesSettingsView.swift,
 				ArrStack/ArrSetupSheet.swift,
@@ -176,16 +179,84 @@
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
 		};
-		FFB00000FFB00000FFB00000 /* Exceptions for "Trawl" folder in "TrawlWidgets" target */ = {
+		DD000001DD000001DD000001 /* Exceptions for "TrawlLiveActivity" folder in "SSHLiveActivity" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
+		};
+		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrAddDownloadClientSheet.swift,
+				ArrStack/ArrAPIClient.swift,
 				ArrStack/ArrArtworkView.swift,
 				ArrStack/ArrBlocklistView.swift,
 				ArrStack/ArrCalendarView.swift,
 				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrDownloadClientListView.swift,
 				ArrStack/ArrHistoryView.swift,
 				ArrStack/ArrManualImportView.swift,
+				ArrStack/ArrRemotePathMappingListView.swift,
+				ArrStack/ArrServiceManager.swift,
+				ArrStack/ArrServicesSettingsView.swift,
+				ArrStack/ArrSetupSheet.swift,
+				ArrStack/ArrSetupViewModel.swift,
+				ArrStack/ArrSharedModels.swift,
+				ArrStack/ArrWantedView.swift,
+				ArrStack/ProwlarrAddIndexerSheet.swift,
+				ArrStack/ProwlarrAPIClient.swift,
+				ArrStack/ProwlarrIndexerDetailView.swift,
+				ArrStack/ProwlarrIndexerListView.swift,
+				ArrStack/ProwlarrModels.swift,
+				ArrStack/ProwlarrSearchView.swift,
+				ArrStack/ProwlarrStatsView.swift,
+				ArrStack/ProwlarrViewModel.swift,
+				ArrStack/RadarrAddMovieSheet.swift,
+				ArrStack/RadarrAPIClient.swift,
+				ArrStack/RadarrEditMovieSheet.swift,
+				ArrStack/RadarrModels.swift,
+				ArrStack/RadarrMovieDetailView.swift,
+				ArrStack/RadarrMovieListView.swift,
+				ArrStack/RadarrViewModel.swift,
+				ArrStack/SonarrAddSeriesSheet.swift,
+				ArrStack/SonarrAPIClient.swift,
+				ArrStack/SonarrEditSeriesSheet.swift,
+				ArrStack/SonarrModels.swift,
+				ArrStack/SonarrSeriesDetailView.swift,
+				ArrStack/SonarrSeriesListView.swift,
+				ArrStack/SonarrViewModel.swift,
+				CLAUDE_CODE_GUIDE.md,
+				Info.plist,
+				Share/ShareAddTorrentView.swift,
+				Share/ShareViewController.swift,
+				"TrawlApp-Info.plist",
+				Views/DocumentPicker.swift,
+			);
+			target = EE000005EE000005EE000005 /* TrawlMac */;
+		};
+		FF000015FF000015FF000015 /* Exceptions for "TrawlWidgets" folder in "TrawlWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = FF000003FF000003FF000003 /* TrawlWidgets */;
+		};
+		FFB00000FFB00000FFB00000 /* Exceptions for "Trawl" folder in "TrawlWidgets" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ArrStack/ArrActivityView.swift,
+				ArrStack/ArrAddDownloadClientSheet.swift,
+				ArrStack/ArrArtworkView.swift,
+				ArrStack/ArrBlocklistView.swift,
+				ArrStack/ArrCalendarView.swift,
+				ArrStack/ArrDiskSpaceView.swift,
+				ArrStack/ArrDownloadClientListView.swift,
+				ArrStack/ArrHistoryView.swift,
+				ArrStack/ArrManualImportView.swift,
+				ArrStack/ArrRemotePathMappingListView.swift,
 				ArrStack/ArrServiceManager.swift,
 				ArrStack/ArrServicesSettingsView.swift,
 				ArrStack/ArrSetupSheet.swift,
@@ -253,68 +324,6 @@
 				Views/TrackerListView.swift,
 			);
 			target = FF000003FF000003FF000003 /* TrawlWidgets */;
-		};
-		DD000001DD000001DD000001 /* Exceptions for "TrawlLiveActivity" folder in "SSHLiveActivity" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = DD000005DD000005DD000005 /* SSHLiveActivity */;
-		};
-		FF000015FF000015FF000015 /* Exceptions for "TrawlWidgets" folder in "TrawlWidgets" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Info.plist,
-			);
-			target = FF000003FF000003FF000003 /* TrawlWidgets */;
-		};
-		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ArrStack/ArrActivityView.swift,
-				ArrStack/ArrAPIClient.swift,
-				ArrStack/ArrArtworkView.swift,
-				ArrStack/ArrBlocklistView.swift,
-				ArrStack/ArrCalendarView.swift,
-				ArrStack/ArrDiskSpaceView.swift,
-				ArrStack/ArrHistoryView.swift,
-				ArrStack/ArrManualImportView.swift,
-				ArrStack/ArrServiceManager.swift,
-				ArrStack/ArrServicesSettingsView.swift,
-				ArrStack/ArrSetupSheet.swift,
-				ArrStack/ArrSetupViewModel.swift,
-				ArrStack/ArrSharedModels.swift,
-				ArrStack/ArrWantedView.swift,
-				ArrStack/ProwlarrAddIndexerSheet.swift,
-				ArrStack/ProwlarrAPIClient.swift,
-				ArrStack/ProwlarrIndexerDetailView.swift,
-				ArrStack/ProwlarrIndexerListView.swift,
-				ArrStack/ProwlarrModels.swift,
-				ArrStack/ProwlarrSearchView.swift,
-				ArrStack/ProwlarrStatsView.swift,
-				ArrStack/ProwlarrViewModel.swift,
-				ArrStack/RadarrAddMovieSheet.swift,
-				ArrStack/RadarrAPIClient.swift,
-				ArrStack/RadarrEditMovieSheet.swift,
-				ArrStack/RadarrModels.swift,
-				ArrStack/RadarrMovieDetailView.swift,
-				ArrStack/RadarrMovieListView.swift,
-				ArrStack/RadarrViewModel.swift,
-				ArrStack/SonarrAddSeriesSheet.swift,
-				ArrStack/SonarrAPIClient.swift,
-				ArrStack/SonarrEditSeriesSheet.swift,
-				ArrStack/SonarrModels.swift,
-				ArrStack/SonarrSeriesDetailView.swift,
-				ArrStack/SonarrSeriesListView.swift,
-				ArrStack/SonarrViewModel.swift,
-				CLAUDE_CODE_GUIDE.md,
-				Info.plist,
-				Share/ShareAddTorrentView.swift,
-				Share/ShareViewController.swift,
-				"TrawlApp-Info.plist",
-				Views/DocumentPicker.swift,
-			);
-			target = EE000005EE000005EE000005 /* TrawlMac */;
 		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 

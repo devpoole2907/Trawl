@@ -52,6 +52,20 @@ actor QBittorrentAPIClient {
         return try decode(AppPreferences.self, from: data)
     }
 
+    func setDefaultSavePath(_ savePath: String) async throws {
+        let payload = ["save_path": savePath]
+        let jsonData = try JSONSerialization.data(withJSONObject: payload)
+        guard let jsonString = String(data: jsonData, encoding: .utf8) else {
+            throw QBError.invalidResponse
+        }
+
+        let request = try buildFormRequest(
+            path: "/api/v2/app/setPreferences",
+            params: ["json": jsonString]
+        )
+        try await performSuccessfulMutation(request, failureMessage: "Failed to update default save location")
+    }
+
     // MARK: - Torrents
 
     func getTorrents(filter: String? = nil, category: String? = nil, sort: String? = nil) async throws -> [Torrent] {
