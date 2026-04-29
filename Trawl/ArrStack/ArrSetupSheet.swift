@@ -63,7 +63,7 @@ struct ArrSetupSheet: View {
 
     private var canCreateProwlarr: Bool {
         existingProfile?.resolvedServiceType == .prowlarr
-            || !profiles.contains { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
+            || !profiles.contains { $0.resolvedServiceType == .prowlarr }
     }
 
     private var availableServiceTypes: [ArrServiceType] {

@@ -157,8 +157,8 @@ struct SettingsView: View {
                 Button(action: navigateToProwlarrSettings) {
                     serviceRow(
                         icon: "magnifyingglass.circle.fill", color: .yellow,
-                        name: serviceRowTitle(defaultName: "Prowlarr", profile: prowlarrProfile, count: prowlarrProfiles.count),
-                        url: serviceRowSubtitle(profile: prowlarrProfile, count: prowlarrProfiles.count),
+                        name: prowlarrProfile?.displayName ?? "Prowlarr",
+                        url: prowlarrProfile?.hostURL,
                         isConnected: arrServiceManager.prowlarrConnected,
                         isConfigured: prowlarrProfile != nil
                     )

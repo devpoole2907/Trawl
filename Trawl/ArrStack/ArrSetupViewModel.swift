@@ -98,7 +98,13 @@ final class ArrSetupViewModel {
             let originalResolvedServiceType = profile.resolvedServiceType
             let originalAllowsUntrustedTLS = profile.allowsUntrustedTLS
             let originalApiVersion = profile.apiVersion
+            let originalIsEnabled = profile.isEnabled
             let keychainKey = profile.apiKeyKeychainKey
+            let originalProwlarrEnabledStates = Dictionary(
+                uniqueKeysWithValues: allProfiles
+                    .filter { $0.resolvedServiceType == .prowlarr }
+                    .map { ($0.id, $0.isEnabled) }
+            )
 
             try await KeychainHelper.shared.save(key: keychainKey, value: trimmedKey)
 
@@ -133,6 +139,13 @@ final class ArrSetupViewModel {
                     profile.serviceType = originalServiceType
                     profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
                     profile.apiVersion = originalApiVersion
+                    profile.isEnabled = originalIsEnabled
+
+                    for existing in allProfiles where existing.resolvedServiceType == .prowlarr {
+                        if let wasEnabled = originalProwlarrEnabledStates[existing.id] {
+                            existing.isEnabled = wasEnabled
+                        }
+                    }
 
                     do {
                         if let originalAPIKey {
