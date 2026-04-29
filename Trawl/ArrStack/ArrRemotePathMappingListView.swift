@@ -105,6 +105,7 @@ struct ArrRemotePathMappingListView: View {
             ArrRemotePathMappingEditorSheet(serviceType: serviceType, existingMapping: mapping) { saved in
                 if let idx = mappings.firstIndex(where: { $0.id == saved.id }) {
                     mappings[idx] = saved
+                    mappings.sort { $0.host < $1.host }
                 }
                 inAppNotificationCenter.showSuccess(
                     title: "Updated",
@@ -367,6 +368,10 @@ struct ArrRemotePathMappingEditorSheet: View {
         .presentationDetents([.medium, .large])
     }
 
+    private func normalizedHost(from hostURL: String) -> String {
+        URL(string: hostURL)?.host ?? hostURL
+    }
+
     private func applySelectedHostID() {
         if selectedHostID == Self.wildcardID {
             host = "*"
@@ -374,7 +379,7 @@ struct ArrRemotePathMappingEditorSheet: View {
             // Preserve current host value when custom is selected
             // No-op: keep existing host value
         } else if let profile = selectedProfile {
-            host = URL(string: profile.hostURL)?.host ?? profile.hostURL
+            host = normalizedHost(from: profile.hostURL)
         } else {
             host = ""
         }
@@ -383,7 +388,7 @@ struct ArrRemotePathMappingEditorSheet: View {
     private func matchedHostID(for existingHost: String) -> String {
         if existingHost == "*" { return Self.wildcardID }
         if let match = qbitProfiles.first(where: { profile in
-            URL(string: profile.hostURL)?.host?.lowercased() == existingHost.lowercased()
+            normalizedHost(from: profile.hostURL).lowercased() == existingHost.lowercased()
         }) {
             return match.id.uuidString
         }

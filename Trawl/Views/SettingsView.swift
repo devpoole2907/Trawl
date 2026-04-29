@@ -643,6 +643,7 @@ struct QBittorrentSettingsView: View {
         }
 
         // Store previous persisted values for rollback BEFORE any mutations
+        let previousAppPreferences = appPreferences
         let previousDefaultSavePath = appPreferences?.savePath ?? ""
         let previousSyncDefaultSavePath = syncService.defaultSavePath
         let previousProfileDefaultSavePath = viewModel.serverProfile?.defaultSavePath
@@ -650,38 +651,56 @@ struct QBittorrentSettingsView: View {
         isUpdatingDefaultSavePath = true
         defer { isUpdatingDefaultSavePath = false }
 
+        // Step 1: remote write — if this fails the server was never updated, roll back fully.
         do {
             try await torrentService.setDefaultSavePath(path: trimmedPath)
-            let refreshedPreferences = try await torrentService.getPreferences()
-            appPreferences = refreshedPreferences
-            let confirmedPath = refreshedPreferences.savePath ?? trimmedPath
-            defaultSavePath = confirmedPath
-            syncService.defaultSavePath = confirmedPath
-            viewModel.serverProfile?.defaultSavePath = confirmedPath
-
-            do {
-                try modelContext.save()
-                speedLimitErrorAlert = nil
-                inAppNotificationCenter.showSuccess(
-                    title: "Save Location Updated",
-                    message: confirmedPath
-                )
-            } catch {
-                // Rollback in-memory changes using pre-edit persisted values
-                defaultSavePath = previousDefaultSavePath
-                syncService.defaultSavePath = previousSyncDefaultSavePath
-                viewModel.serverProfile?.defaultSavePath = previousProfileDefaultSavePath
-                inAppNotificationCenter.showError(
-                    title: "Couldn't Save Changes",
-                    message: error.localizedDescription
-                )
-            }
         } catch {
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Update Save Location",
                 message: error.localizedDescription
             )
+            return
         }
+
+        // Step 2: apply provisional local state and persist immediately.
+        // The remote already accepted the new path, so we write trimmedPath even if the refresh below fails.
+        defaultSavePath = trimmedPath
+        syncService.defaultSavePath = trimmedPath
+        viewModel.serverProfile?.defaultSavePath = trimmedPath
+
+        do {
+            try modelContext.save()
+        } catch {
+            // Local persistence failed — roll back all in-memory mirrors.
+            appPreferences = previousAppPreferences
+            defaultSavePath = previousDefaultSavePath
+            syncService.defaultSavePath = previousSyncDefaultSavePath
+            viewModel.serverProfile?.defaultSavePath = previousProfileDefaultSavePath
+            inAppNotificationCenter.showError(
+                title: "Couldn't Save Changes",
+                message: error.localizedDescription
+            )
+            return
+        }
+
+        // Step 3: best-effort refresh to get the server-confirmed path.
+        // A failure here is a partial success: the server has the new path, local state is persisted.
+        if let refreshedPreferences = try? await torrentService.getPreferences() {
+            appPreferences = refreshedPreferences
+            let confirmedPath = refreshedPreferences.savePath ?? trimmedPath
+            defaultSavePath = confirmedPath
+            syncService.defaultSavePath = confirmedPath
+            viewModel.serverProfile?.defaultSavePath = confirmedPath
+            if confirmedPath != trimmedPath {
+                _ = try? modelContext.save()
+            }
+        }
+
+        speedLimitErrorAlert = nil
+        inAppNotificationCenter.showSuccess(
+            title: "Save Location Updated",
+            message: defaultSavePath
+        )
     }
 
     private func limitOptions(including currentLimit: Int64) -> [Int64] {
