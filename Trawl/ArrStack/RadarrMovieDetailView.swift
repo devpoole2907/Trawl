@@ -1479,6 +1479,9 @@ private struct RadarrAddToLibrarySheet: View {
                     }
                 }
             }
+            #if os(iOS)
+            .scrollContentBackground(.hidden)
+            #endif
             .navigationTitle("Add to Radarr")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

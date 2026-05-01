@@ -1430,6 +1430,9 @@ private struct SonarrAddToLibrarySheet: View {
                     }
                 }
             }
+            #if os(iOS)
+            .scrollContentBackground(.hidden)
+            #endif
             .navigationTitle("Add to Sonarr")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

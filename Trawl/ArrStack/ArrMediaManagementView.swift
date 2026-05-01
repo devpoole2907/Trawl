@@ -25,33 +25,23 @@ struct ArrMediaManagementView: View {
         Section {
             if serviceManager.hasSonarrInstance {
                 NavigationLink(value: MoreDestination.arrNamingConfig(service: .sonarr)) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Sonarr Naming")
-                                .font(.body)
-                            Text("Episode and series folder formats")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        serviceIcon(systemImage: "tv.fill", color: .purple)
-                    }
+                    NavigationMenuRow(
+                        icon: "tv.fill",
+                        color: .purple,
+                        title: "Sonarr Naming",
+                        subtitle: "Episode and series folder formats"
+                    )
                 }
             }
 
             if serviceManager.hasRadarrInstance {
                 NavigationLink(value: MoreDestination.arrNamingConfig(service: .radarr)) {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Radarr Naming")
-                                .font(.body)
-                            Text("Movie file and folder formats")
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                        }
-                    } icon: {
-                        serviceIcon(systemImage: "film.fill", color: .orange)
-                    }
+                    NavigationMenuRow(
+                        icon: "film.fill",
+                        color: .orange,
+                        title: "Radarr Naming",
+                        subtitle: "Movie file and folder formats"
+                    )
                 }
             }
         } header: {
@@ -65,31 +55,21 @@ struct ArrMediaManagementView: View {
     private var filesSection: some View {
         Section("Files") {
             NavigationLink(value: MoreDestination.rootFolders) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Root Folders")
-                            .font(.body)
-                        Text("Library paths across Sonarr and Radarr")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    serviceIcon(systemImage: "folder.fill", color: .indigo)
-                }
+                NavigationMenuRow(
+                    icon: "folder.fill",
+                    color: .indigo,
+                    title: "Root Folders",
+                    subtitle: "Library paths across Sonarr and Radarr"
+                )
             }
 
             NavigationLink(value: MoreDestination.manualImport) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Manual Import")
-                            .font(.body)
-                        Text("Browse and import files from root folders")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    serviceIcon(systemImage: "tray.and.arrow.down.fill", color: .blue)
-                }
+                NavigationMenuRow(
+                    icon: "tray.and.arrow.down.fill",
+                    color: .blue,
+                    title: "Manual Import",
+                    subtitle: "Browse and import files from root folders"
+                )
             }
         }
     }
@@ -98,29 +78,14 @@ struct ArrMediaManagementView: View {
     private var storageSection: some View {
         Section("Storage") {
             NavigationLink(value: MoreDestination.diskSpace) {
-                Label {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Disk Space")
-                            .font(.body)
-                        Text("Storage usage across Sonarr and Radarr")
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                    }
-                } icon: {
-                    serviceIcon(systemImage: "internaldrive.fill", color: .teal)
-                }
+                NavigationMenuRow(
+                    icon: "internaldrive.fill",
+                    color: .teal,
+                    title: "Disk Space",
+                    subtitle: "Storage usage across Sonarr and Radarr"
+                )
             }
         }
     }
 
-    private func serviceIcon(systemImage: String, color: Color) -> some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(color.opacity(0.15))
-                .frame(width: 36, height: 36)
-            Image(systemName: systemImage)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundStyle(color)
-        }
-    }
 }
