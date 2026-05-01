@@ -2183,9 +2183,26 @@ struct RadarrReleaseRowView: View {
 
     @ViewBuilder
     private var seederChip: some View {
-        let seeders = release.seeders ?? 0
-        let leechers = release.leechers ?? 0
-        releaseChip("S:\(seeders) L:\(leechers)", color: seederColor(for: seeders), isProminent: true)
+        let seeders = release.seeders
+        let leechers = release.leechers
+
+        // Only render when at least one value is present
+        if seeders != nil || leechers != nil {
+            let label: String
+            if let s = seeders, let l = leechers {
+                label = "S:\(s) L:\(l)"
+            } else if let s = seeders {
+                label = "S:\(s)"
+            } else if let l = leechers {
+                label = "L:\(l)"
+            } else {
+                label = ""
+            }
+
+            if !label.isEmpty {
+                releaseChip(label, color: seederColor(for: seeders ?? 0), isProminent: true)
+            }
+        }
     }
 
     private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {

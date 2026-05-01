@@ -86,6 +86,11 @@ struct ArrRootFoldersView: View {
             .presentationDetents([.medium])
             #endif
         }
+        .onChange(of: showingAddSheet) { _, isPresented in
+            if !isPresented {
+                // Sheet dismissed
+            }
+        }
         .alert(
             "Remove Root Folder?",
             isPresented: Binding(
@@ -149,22 +154,24 @@ struct ArrRootFoldersView: View {
         .opacity(isDeleting ? 0.5 : 1)
     }
 
-    private func addFolder(path: String, service: ArrServiceType) async {
+    private func addFolder(path: String, service: ArrServiceType) async -> Bool {
         do {
             switch service {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = serviceManager.sonarrClient else { return false }
                 _ = try await client.createRootFolder(path: path)
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = serviceManager.radarrClient else { return false }
                 _ = try await client.createRootFolder(path: path)
             case .prowlarr:
-                return
+                return false
             }
             await serviceManager.refreshConfiguration()
             notificationCenter.showSuccess(title: "Root Folder Added", message: path)
+            return true
         } catch {
             notificationCenter.showError(title: "Failed to Add", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -194,7 +201,7 @@ private struct AddRootFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
 
-    let onAdd: @Sendable (String, ArrServiceType) async -> Void
+    let onAdd: @Sendable (String, ArrServiceType) async -> Bool
 
     @State private var path = ""
     @State private var selectedService: ArrServiceType = .sonarr
@@ -254,8 +261,11 @@ private struct AddRootFolderSheet: View {
                             guard !trimmed.isEmpty else { return }
                             isSaving = true
                             Task {
-                                await onAdd(trimmed, selectedService)
-                                dismiss()
+                                let success = await onAdd(trimmed, selectedService)
+                                isSaving = false
+                                if success {
+                                    dismiss()
+                                }
                             }
                         }
                         .disabled(!canSave)

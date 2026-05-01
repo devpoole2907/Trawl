@@ -15,6 +15,7 @@ struct SonarrSeriesListView: View {
     @State private var showWantedMissing = false
     @State private var pendingDeleteSeries: SonarrSeries?
     @State private var isRunningCommand = false
+    @State private var localSeriesSearch: String = ""
 
     var body: some View {
         let baseContent = Group {
@@ -62,7 +63,15 @@ struct SonarrSeriesListView: View {
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
         #endif
-        .searchable(text: seriesSearchText, prompt: "Search series")
+        .searchable(text: $localSeriesSearch, prompt: "Search series")
+        .onChange(of: localSeriesSearch) { _, newValue in
+            viewModel?.searchText = newValue
+        }
+        .onChange(of: viewModel?.searchText) { _, newValue in
+            if let newValue, newValue != localSeriesSearch {
+                localSeriesSearch = newValue
+            }
+        }
         .toolbar { toolbarContent }
         .confirmationDialog(
             "Delete Series?",
@@ -142,6 +151,10 @@ struct SonarrSeriesListView: View {
                 if viewModel == nil {
                     viewModel = SonarrViewModel(serviceManager: serviceManager)
                     viewModelInstanceID = serviceManager.activeSonarrInstanceID
+                    // Sync local search state to new VM
+                    if !localSeriesSearch.isEmpty {
+                        viewModel?.searchText = localSeriesSearch
+                    }
                     Task {
                         guard let vm = viewModel else { return }
                         async let loadSeries = vm.loadSeries()
@@ -163,6 +176,10 @@ struct SonarrSeriesListView: View {
             if viewModel == nil || viewModelInstanceID != activeID {
                 viewModel = SonarrViewModel(serviceManager: serviceManager)
                 viewModelInstanceID = activeID
+                // Sync local search state to new VM
+                if !localSeriesSearch.isEmpty {
+                    viewModel?.searchText = localSeriesSearch
+                }
             }
             guard let vm = viewModel else { return }
             async let loadSeries = vm.loadSeries()
@@ -409,14 +426,6 @@ struct SonarrSeriesListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredSeries.count
         return count == 1 ? "1 series" : "\(count) series"
-    }
-
-    private var seriesSearchText: Binding<String> {
-        Binding {
-            viewModel?.searchText ?? ""
-        } set: { newValue in
-            viewModel?.searchText = newValue
-        }
     }
 
     private func runSonarrCommand(vm: SonarrViewModel, action: @escaping () async throws -> Void) async {

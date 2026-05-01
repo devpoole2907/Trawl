@@ -82,15 +82,36 @@ final class InAppNotificationCenter {
         message: String,
         action: InAppBannerAction? = nil
     ) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+
+        // Record in recent notifications and update unread count
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: .inApp)
+
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
                 notificationGenerator.notificationOccurred(.success)
             #endif
-            presentImmediately(makeBanner(title: title, message: message, style: .success, action: action), requeueCurrent: false)
+            presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .success, action: action), requeueCurrent: false)
             return
         }
-        showSuccess(title: title, message: message, action: action)
+        // Use updated trimmed values
+        #if os(iOS)
+        notificationGenerator.notificationOccurred(.success)
+        #endif
+
+        enqueue(InAppBannerItem(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            systemImage: "checkmark.circle.fill",
+            style: .success,
+            action: action,
+            key: nil,
+            showsProgressView: false,
+            automaticallyDismisses: true
+        ))
     }
 
     func showError(title: String, message: String, source: NotificationLogEntry.Source = .inApp) {
@@ -116,15 +137,36 @@ final class InAppNotificationCenter {
     }
 
     func replaceProgressWithError(key: String, title: String, message: String) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+
+        // Record in recent notifications and update unread count
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: .error, source: .inApp)
+
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
                 notificationGenerator.notificationOccurred(.error)
             #endif
-            presentImmediately(makeBanner(title: title, message: message, style: .error, action: nil), requeueCurrent: false)
+            presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .error, action: nil), requeueCurrent: false)
             return
         }
-        showError(title: title, message: message)
+        // Use updated trimmed values
+        #if os(iOS)
+        notificationGenerator.notificationOccurred(.error)
+        #endif
+
+        enqueue(InAppBannerItem(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            systemImage: "exclamationmark.triangle.fill",
+            style: .error,
+            action: nil,
+            key: nil,
+            showsProgressView: false,
+            automaticallyDismisses: true
+        ))
     }
 
     func clearRecentNotifications() {

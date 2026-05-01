@@ -11,6 +11,7 @@ struct ArrNamingConfigView: View {
     @State private var isLoading = true
     @State private var errorMessage: String?
     @State private var isSaving = false
+    @State private var saveTask: Task<Void, Never>?
 
     private var isConnected: Bool {
         switch serviceType {
@@ -212,13 +213,23 @@ struct ArrNamingConfigView: View {
         if let v = replaceIllegalCharacters { config.replaceIllegalCharacters = v }
         if let v = colonFormat { config.colonReplacementFormat = v }
         sonarrConfig = config
-        Task { await saveSonarr(config) }
+
+        // Coalesce concurrent updates by awaiting existing task first
+        let existingTask = saveTask
+        saveTask = Task {
+            await existingTask?.value
+            guard !Task.isCancelled else { return }
+            await saveSonarr(config)
+        }
     }
 
     private func saveSonarr(_ config: SonarrNamingConfig) async {
         guard let client = serviceManager.sonarrClient else { return }
         isSaving = true
-        defer { isSaving = false }
+        defer {
+            isSaving = false
+            saveTask = nil
+        }
         do {
             sonarrConfig = try await client.updateNamingConfig(config)
         } catch {
@@ -237,13 +248,23 @@ struct ArrNamingConfigView: View {
         if let v = replaceIllegalCharacters { config.replaceIllegalCharacters = v }
         if let v = colonFormat { config.colonReplacementFormat = v }
         radarrConfig = config
-        Task { await saveRadarr(config) }
+
+        // Coalesce concurrent updates by awaiting existing task first
+        let existingTask = saveTask
+        saveTask = Task {
+            await existingTask?.value
+            guard !Task.isCancelled else { return }
+            await saveRadarr(config)
+        }
     }
 
     private func saveRadarr(_ config: RadarrNamingConfig) async {
         guard let client = serviceManager.radarrClient else { return }
         isSaving = true
-        defer { isSaving = false }
+        defer {
+            isSaving = false
+            saveTask = nil
+        }
         do {
             radarrConfig = try await client.updateNamingConfig(config)
         } catch {

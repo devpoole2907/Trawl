@@ -1128,8 +1128,15 @@ nonisolated struct RadarrNamingConfig: Codable, Sendable {
         if let intVal = try? container.decodeIfPresent(Int.self, forKey: .colonReplacementFormat) {
             colonReplacementFormat = intVal
         } else if let strVal = try? container.decodeIfPresent(String.self, forKey: .colonReplacementFormat) {
-            let map: [String: Int] = ["delete": 0, "dash": 1, "spacedash": 2, "spacedashspace": 3, "smart": 4]
-            colonReplacementFormat = map[strVal.lowercased().replacingOccurrences(of: " ", with: "")]
+            // First try to parse as an integer (handles numeric strings like "1")
+            let trimmed = strVal.trimmingCharacters(in: .whitespaces)
+            if let parsedInt = Int(trimmed) {
+                colonReplacementFormat = parsedInt
+            } else {
+                // Otherwise try named token lookup
+                let map: [String: Int] = ["delete": 0, "dash": 1, "spacedash": 2, "spacedashspace": 3, "smart": 4]
+                colonReplacementFormat = map[strVal.lowercased().replacingOccurrences(of: " ", with: "")]
+            }
         } else {
             colonReplacementFormat = nil
         }

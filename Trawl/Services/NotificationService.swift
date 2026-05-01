@@ -55,10 +55,14 @@ final class NotificationService: Sendable {
     /// The URL of the Cloudflare Worker proxy.
     var workerURL: String {
         let stored = UserDefaults.standard.string(forKey: NotificationConstants.workerURLKey)
-        guard let stored, !stored.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        guard let stored else {
             return NotificationConstants.defaultWorkerURL
         }
-        return stored
+        let trimmed = stored.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            return NotificationConstants.defaultWorkerURL
+        }
+        return trimmed
     }
 
     #if os(iOS)
