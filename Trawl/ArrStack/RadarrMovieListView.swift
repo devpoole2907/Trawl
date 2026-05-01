@@ -62,6 +62,7 @@ struct RadarrMovieListView: View {
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
         #endif
+        .searchable(text: movieSearchText, prompt: "Search movies")
         .toolbar { toolbarContent }
         .confirmationDialog(
             "Delete Movie?",
@@ -390,6 +391,14 @@ struct RadarrMovieListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredMovies.count
         return count == 1 ? "1 movie" : "\(count) movies"
+    }
+
+    private var movieSearchText: Binding<String> {
+        Binding {
+            viewModel?.searchText ?? ""
+        } set: { newValue in
+            viewModel?.searchText = newValue
+        }
     }
 
     private func runRadarrCommand(vm: RadarrViewModel, action: @escaping () async throws -> Void) async {

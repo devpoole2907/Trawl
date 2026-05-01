@@ -1891,6 +1891,7 @@ struct RadarrInteractiveSearchSheet: View {
     @State private var hasLoadedReleases = false
     @State private var searchText = ""
     @State private var releaseSort = ArrReleaseSort()
+    @State private var searchError: String?
 
     private var availableIndexers: [String] {
         Array(Set(releases.compactMap(\.indexer))).sorted()
@@ -1940,14 +1941,25 @@ struct RadarrInteractiveSearchSheet: View {
         releases.count - sortedFilteredReleases.count
     }
 
+    private var releaseCountSubtitle: String {
+        guard !releases.isEmpty else { return "" }
+        let shown = displayedReleases.count
+        let total = releases.count
+        return shown == total ? "\(total) releases" : "\(shown) of \(total) releases"
+    }
+
     var body: some View {
         NavigationStack {
             Group {
                 if isLoading {
                     ProgressView("Searching indexers…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = viewModel.error, !error.isEmpty {
-                    ContentUnavailableView(error, systemImage: "exclamationmark.triangle.fill")
+                } else if let error = searchError, !error.isEmpty {
+                    ContentUnavailableView(
+                        "Search Failed",
+                        systemImage: "exclamationmark.triangle.fill",
+                        description: Text(error)
+                    )
                 } else if releases.isEmpty && hasLoadedReleases {
                     ContentUnavailableView(
                         "No Releases Found",
@@ -2000,21 +2012,13 @@ struct RadarrInteractiveSearchSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search releases…")
             .navigationTitle(movie.title)
+            .navigationSubtitle(releaseCountSubtitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .status) {
-                    if !releases.isEmpty {
-                        let shown = displayedReleases.count
-                        let total = releases.count
-                        Text(shown == total ? "\(total) releases" : "\(shown) of \(total)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                     sortMenu
@@ -2099,9 +2103,22 @@ struct RadarrInteractiveSearchSheet: View {
         guard !hasLoadedReleases else { return }
         isLoading = true
         releases = []
-        releases = await viewModel.interactiveSearchMovie(movieId: movie.id)
+        searchError = nil
+        do {
+            releases = try await viewModel.interactiveSearchMovie(movieId: movie.id)
+            hasLoadedReleases = true
+        } catch is CancellationError {
+            hasLoadedReleases = false
+        } catch {
+            searchError = interactiveSearchErrorMessage(error)
+            hasLoadedReleases = true
+        }
         isLoading = false
-        hasLoadedReleases = true
+    }
+
+    private func interactiveSearchErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
     }
 
     private func grab(release: ArrRelease) async {
@@ -2157,24 +2174,37 @@ struct RadarrReleaseRowView: View {
                         releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
                     }
                     releaseChip(release.protocolName, color: .secondary)
-                    if let seeders = release.seeders, seeders > 0 {
-                        let leechers = release.leechers ?? 0
-                        releaseChip("S:\(seeders) L:\(leechers)", color: .secondary)
-                    }
+                    seederChip
                 }
             }
         }
         .padding(.vertical, 4)
     }
 
-    private func releaseChip(_ label: String, color: Color) -> some View {
+    @ViewBuilder
+    private var seederChip: some View {
+        let seeders = release.seeders ?? 0
+        let leechers = release.leechers ?? 0
+        releaseChip("S:\(seeders) L:\(leechers)", color: seederColor(for: seeders), isProminent: true)
+    }
+
+    private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
         Text(label)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
-            .background(color.opacity(0.1))
+            .background(color.opacity(isProminent ? 0.22 : 0.1))
             .clipShape(Capsule())
+    }
+
+    private func seederColor(for seeders: Int) -> Color {
+        switch seeders {
+        case 50...: .green
+        case 10...: .mint
+        case 1...: .orange
+        default: .red
+        }
     }
 }
 

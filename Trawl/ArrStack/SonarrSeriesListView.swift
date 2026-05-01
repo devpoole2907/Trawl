@@ -62,6 +62,7 @@ struct SonarrSeriesListView: View {
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
         #endif
+        .searchable(text: seriesSearchText, prompt: "Search series")
         .toolbar { toolbarContent }
         .confirmationDialog(
             "Delete Series?",
@@ -408,6 +409,14 @@ struct SonarrSeriesListView: View {
         guard let vm = viewModel else { return "" }
         let count = vm.filteredSeries.count
         return count == 1 ? "1 series" : "\(count) series"
+    }
+
+    private var seriesSearchText: Binding<String> {
+        Binding {
+            viewModel?.searchText ?? ""
+        } set: { newValue in
+            viewModel?.searchText = newValue
+        }
     }
 
     private func runSonarrCommand(vm: SonarrViewModel, action: @escaping () async throws -> Void) async {

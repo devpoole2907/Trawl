@@ -52,7 +52,8 @@
       "mcp__XcodeBuildMCP__list_schemes",
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination \"id=47004A65-AF74-5697-87D0-551D09EC309E\" -configuration Debug build)",
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' build -quiet)",
-      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build -quiet)"
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build -quiet)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination id=47004A65-AF74-5697-87D0-551D09EC309E -configuration Debug clean build)"
     ]
   }
 }

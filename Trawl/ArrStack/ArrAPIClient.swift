@@ -13,6 +13,8 @@ extension SharedArrClient {
     func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.updateQualityProfile(profile) }
     func deleteQualityProfile(id: Int) async throws { try await base.deleteQualityProfile(id: id) }
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
+    func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.createRootFolder(path: path) }
+    func deleteRootFolder(id: Int) async throws { try await base.deleteRootFolder(id: id) }
     func getTags() async throws -> [ArrTag] { try await base.getTags() }
     func getNotifications() async throws -> [ArrNotification] { try await base.getNotifications() }
     func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.createNotification(notification) }
@@ -113,6 +115,14 @@ actor ArrAPIClient {
 
     func getRootFolders() async throws -> [ArrRootFolder] {
         try await get("/api/v3/rootfolder")
+    }
+
+    func createRootFolder(path: String) async throws -> ArrRootFolder {
+        try await postCodable("/api/v3/rootfolder", body: ["path": path])
+    }
+
+    func deleteRootFolder(id: Int) async throws {
+        try await delete("/api/v3/rootfolder/\(id)")
     }
 
     func getTags() async throws -> [ArrTag] {

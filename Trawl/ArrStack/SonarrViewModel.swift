@@ -286,16 +286,22 @@ final class SonarrViewModel {
         }
     }
 
-    func interactiveSearch(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async -> [ArrRelease] {
-        guard let client else { return [] }
+    func interactiveSearch(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async throws -> [ArrRelease] {
+        guard let client else { throw ArrError.noServiceConfigured }
         error = nil
+        print("[InteractiveSearch][Sonarr] start episodeId=\(episodeId.map(String.init) ?? "nil") seriesId=\(seriesId.map(String.init) ?? "nil") seasonNumber=\(seasonNumber.map(String.init) ?? "nil")")
         do {
-            return try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+            let releases = try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+            print("[InteractiveSearch][Sonarr] success releases=\(releases.count)")
+            return releases
         } catch is CancellationError {
-            return []
+            print("[InteractiveSearch][Sonarr] cancelled")
+            throw CancellationError()
         } catch {
             self.error = error.localizedDescription
-            return []
+            let nsError = error as NSError
+            print("[InteractiveSearch][Sonarr] failed domain=\(nsError.domain) code=\(nsError.code) description=\(error.localizedDescription)")
+            throw error
         }
     }
 

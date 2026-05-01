@@ -1584,6 +1584,7 @@ struct SonarrInteractiveSearchSheet: View {
     @State private var hasLoaded = false
     @State private var searchText = ""
     @State private var releaseSort = ArrReleaseSort()
+    @State private var searchError: String?
 
     init(viewModel: SonarrViewModel, series: SonarrSeries, episode: SonarrEpisode? = nil, seasonNumber: Int? = nil) {
         self.viewModel = viewModel
@@ -1650,14 +1651,25 @@ struct SonarrInteractiveSearchSheet: View {
         releases.count - sortedFilteredReleases.count
     }
 
+    private var releaseCountSubtitle: String {
+        guard !releases.isEmpty else { return "" }
+        let shown = displayedReleases.count
+        let total = releases.count
+        return shown == total ? "\(total) releases" : "\(shown) of \(total) releases"
+    }
+
     var body: some View {
         NavigationStack {
             Group {
                 if isLoading {
                     ProgressView("Searching indexers…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = viewModel.error, !error.isEmpty {
-                    ContentUnavailableView(error, systemImage: "exclamationmark.triangle.fill")
+                } else if let error = searchError, !error.isEmpty {
+                    ContentUnavailableView(
+                        "Search Failed",
+                        systemImage: "exclamationmark.triangle.fill",
+                        description: Text(error)
+                    )
                 } else if releases.isEmpty && hasLoaded {
                     ContentUnavailableView(
                         "No Releases Found",
@@ -1710,21 +1722,13 @@ struct SonarrInteractiveSearchSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search releases…")
             .navigationTitle(titleString)
+            .navigationSubtitle(releaseCountSubtitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
-                }
-                ToolbarItem(placement: .status) {
-                    if !releases.isEmpty {
-                        let shown = displayedReleases.count
-                        let total = releases.count
-                        Text(shown == total ? "\(total) releases" : "\(shown) of \(total)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
                 }
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                     sortMenu
@@ -1826,9 +1830,22 @@ struct SonarrInteractiveSearchSheet: View {
         guard !hasLoaded else { return }
         isLoading = true
         releases = []
-        releases = await viewModel.interactiveSearch(episodeId: episode?.id, seriesId: series.id, seasonNumber: seasonNumber)
+        searchError = nil
+        do {
+            releases = try await viewModel.interactiveSearch(episodeId: episode?.id, seriesId: series.id, seasonNumber: seasonNumber)
+            hasLoaded = true
+        } catch is CancellationError {
+            hasLoaded = false
+        } catch {
+            searchError = interactiveSearchErrorMessage(error)
+            hasLoaded = true
+        }
         isLoading = false
-        hasLoaded = true
+    }
+
+    private func interactiveSearchErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
     }
 
     private func grab(release: ArrRelease) async {
@@ -1883,24 +1900,37 @@ struct SonarrReleaseRowView: View {
                         releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
                     }
                     releaseChip(release.protocolName, color: .secondary)
-                    if let seeders = release.seeders, seeders > 0 {
-                        let leechers = release.leechers ?? 0
-                        releaseChip("S:\(seeders) L:\(leechers)", color: .secondary)
-                    }
+                    seederChip
                 }
             }
         }
         .padding(.vertical, 4)
     }
 
-    private func releaseChip(_ label: String, color: Color) -> some View {
+    @ViewBuilder
+    private var seederChip: some View {
+        let seeders = release.seeders ?? 0
+        let leechers = release.leechers ?? 0
+        releaseChip("S:\(seeders) L:\(leechers)", color: seederColor(for: seeders), isProminent: true)
+    }
+
+    private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
         Text(label)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
-            .background(color.opacity(0.1))
+            .background(color.opacity(isProminent ? 0.22 : 0.1))
             .clipShape(Capsule())
+    }
+
+    private func seederColor(for seeders: Int) -> Color {
+        switch seeders {
+        case 50...: .green
+        case 10...: .mint
+        case 1...: .orange
+        default: .red
+        }
     }
 }
 

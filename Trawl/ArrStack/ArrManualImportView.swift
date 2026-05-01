@@ -18,6 +18,10 @@ struct ArrManualImportView: View {
         return services
     }
 
+    private var hasConnectedService: Bool {
+        serviceManager.sonarrConnected || serviceManager.radarrConnected
+    }
+
     private var rootFolders: [ArrRootFolder] {
         selectedService == .sonarr ? serviceManager.sonarrRootFolders : serviceManager.radarrRootFolders
     }
@@ -47,6 +51,12 @@ struct ArrManualImportView: View {
         Group {
             if availableServices.isEmpty {
                 emptyState
+            } else if !hasConnectedService {
+                ContentUnavailableView(
+                    "Services Unreachable",
+                    systemImage: "network.slash",
+                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                )
             } else {
                 listContent
             }
@@ -398,6 +408,7 @@ private final class ManualImportScanViewModel {
 
             var nextImportableBatch: [ManualImportItem] = []
             var nextBlockedBatch: [ManualImportItem] = []
+            let dynamicBatchSize = max(progressiveRevealBatchSize, scannedFiles.count / 20)
 
             for (index, file) in scannedFiles.enumerated() {
                 if file.isImportable {
@@ -406,7 +417,7 @@ private final class ManualImportScanViewModel {
                     nextBlockedBatch.append(file)
                 }
 
-                let reachedBatchBoundary = index > 0 && index.isMultiple(of: progressiveRevealBatchSize)
+                let reachedBatchBoundary = index > 0 && index.isMultiple(of: dynamicBatchSize)
                 let isLastItem = index == scannedFiles.indices.last
 
                 if reachedBatchBoundary || isLastItem {
@@ -567,77 +578,6 @@ private final class ManualImportScanViewModel {
         }
     }
 
-    func importSingleFile(_ item: ManualImportItem) async {
-        guard item.isImportable else { return }
-        isImporting = true
-        defer { isImporting = false }
-
-        let tabName = service == .sonarr ? "Series" : "Movies"
-        let fileJSON = item.importJSON(service: service, seasonFolder: seasonFolder)
-        let notificationCenter = InAppNotificationCenter.shared
-        Self.logger.info("Single-file import: \(item.fileName, privacy: .private)")
-        notificationCenter.showProgress(
-            title: "Importing…",
-            message: "Sending \(item.fileName) to \(service.displayName).",
-            key: manualImportNotificationKey
-        )
-
-        withAnimation(.snappy) {
-            importableFiles.removeAll { $0.id == item.id }
-            recomputeGroups()
-            selectedFiles.remove(item.id)
-        }
-
-        do {
-            let command = try await manualImport(files: [fileJSON])
-            if command.succeeded {
-                notificationCenter.replaceProgressWithSuccess(
-                    key: manualImportNotificationKey,
-                    title: "Import Complete",
-                    message: "\(item.fileName) imported by \(service.displayName).",
-                    action: navigationAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
-                )
-            } else if !command.isTerminal {
-                notificationCenter.replaceProgressWithSuccess(
-                    key: manualImportNotificationKey,
-                    title: "Import Started",
-                    message: "\(item.fileName) was submitted to \(service.displayName). Import is still running."
-                )
-            } else {
-                let reason = manualImportFailureMessage(for: command)
-                Self.logger.error("Single-file import failed — \(reason, privacy: .private)")
-                notificationCenter.replaceProgressWithError(
-                    key: manualImportNotificationKey,
-                    title: "Import Failed",
-                    message: reason
-                )
-                withAnimation(.snappy) {
-                    importableFiles.append(item)
-                    recomputeGroups()
-                }
-            }
-        } catch is CancellationError {
-            notificationCenter.dismissBanner(matching: manualImportNotificationKey)
-        } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
-            Self.logger.error("Single-file import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
-            notificationCenter.replaceProgressWithSuccess(
-                key: manualImportNotificationKey,
-                title: "Import Started",
-                message: "\(item.fileName) was submitted to \(service.displayName). Check Activity for progress."
-            )
-        } catch {
-            Self.logger.error("Single-file import threw — \(error, privacy: .private)")
-            notificationCenter.replaceProgressWithError(
-                key: manualImportNotificationKey,
-                title: "Import Failed",
-                message: error.localizedDescription
-            )
-            withAnimation(.snappy) {
-                importableFiles.append(item)
-                recomputeGroups()
-            }
-        }
-    }
 
     private func manualImportFailureMessage(for command: ArrCommand) -> String {
         if let exception = command.exception?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -704,8 +644,8 @@ private final class ManualImportScanViewModel {
             displayLabel: item.fileName
         )
         identifyingTarget = target
-        Task { await loadLibraryIfNeeded() }
-        Task { await loadAutoSuggestions(for: item.fileName) }
+        Task { [weak self] in await self?.loadLibraryIfNeeded() }
+        Task { [weak self] in await self?.loadAutoSuggestions(for: item.fileName) }
     }
 
     func beginIdentifying(group: ManualImportGroup) {
@@ -723,8 +663,8 @@ private final class ManualImportScanViewModel {
             displayLabel: label
         )
         identifyingTarget = target
-        Task { await loadLibraryIfNeeded() }
-        Task { await loadAutoSuggestions(for: first.fileName) }
+        Task { [weak self] in await self?.loadLibraryIfNeeded() }
+        Task { [weak self] in await self?.loadAutoSuggestions(for: first.fileName) }
     }
 
     /// Catalog search results live on the view model so they persist across SwiftUI body
@@ -845,9 +785,11 @@ private final class ManualImportScanViewModel {
         autoIdentifyLastOutcomeMessage = "Auto match is running."
         withAnimation(.snappy) { isAutoIdentifying = true }
         defer {
-            autoIdentifyTask = nil
-            autoIdentifyCurrentFileName = nil
-            withAnimation(.snappy) { isAutoIdentifying = false }
+            if !Task.isCancelled {
+                autoIdentifyTask = nil
+                autoIdentifyCurrentFileName = nil
+                withAnimation(.snappy) { isAutoIdentifying = false }
+            }
         }
 
         // Track groups we couldn't match this run so the loop progresses past them
@@ -1362,10 +1304,7 @@ nonisolated private func extractTitleFromFilename(_ filename: String) -> String 
     }
 
     // Strip bracketed metadata groups, e.g. [BluRay-1080p], (2022)
-    if let bracketRegex = try? NSRegularExpression(pattern: "\\[.*?\\]|\\(.*?\\)") {
-        let range = NSRange(name.startIndex..., in: name)
-        name = bracketRegex.stringByReplacingMatches(in: name, range: range, withTemplate: " ")
-    }
+    name = name.replacing(/\[.*?\]|\(.*?\)/, with: " ")
 
     // Split on dots, spaces, underscores, hyphens, and bracket characters
     let tokens = name.components(separatedBy: CharacterSet(charactersIn: ". _-[]()"))
@@ -1386,7 +1325,7 @@ nonisolated private func extractTitleFromFilename(_ filename: String) -> String 
         guard !token.isEmpty else { continue }
         let lower = token.lowercased()
         // Stop at SxxExx
-        if token.range(of: #"^[Ss]\d{1,2}"#, options: .regularExpression) != nil { break }
+        if token.contains(/^[Ss]\d{1,2}/) { break }
         // Stop at known quality/codec token
         if stopTokens.contains(lower) { break }
         titleTokens.append(token)
@@ -1923,9 +1862,9 @@ private struct ManualImportItem: Identifiable, Sendable {
         }
 
         if case .string(let n) = dict["name"] {
-            self.fileName = n
+            self.fileName = (n as NSString).lastPathComponent
         } else if case .string(let fn) = dict["fileName"] {
-            self.fileName = fn
+            self.fileName = (fn as NSString).lastPathComponent
         } else {
             self.fileName = (path as NSString).lastPathComponent
         }

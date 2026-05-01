@@ -62,7 +62,11 @@ struct ContentView: View {
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: inAppNotificationCenter.currentBanner)
         .sensoryFeedback(trigger: inAppNotificationCenter.currentBanner) { _, newValue in
             guard let newBanner = newValue else { return nil }
-            return newBanner.style == .error ? .error : .success
+            switch newBanner.style {
+            case .error: return .error
+            case .success: return .success
+            case .progress: return nil
+            }
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })

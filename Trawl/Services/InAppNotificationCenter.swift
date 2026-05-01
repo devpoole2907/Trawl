@@ -9,9 +9,14 @@ import UIKit
 final class InAppNotificationCenter {
     static let shared = InAppNotificationCenter()
 
+    private static let persistenceKey = "InAppNotificationCenter.recentNotifications"
+    private static let lastReadKey = "InAppNotificationCenter.lastReadDate"
+
     private(set) var currentBanner: InAppBannerItem?
-    private(set) var recentNotifications: [NotificationLogEntry] = []
+    private(set) var recentNotifications: [NotificationLogEntry] = InAppNotificationCenter.loadPersistedNotifications()
+    private(set) var lastReadDate: Date = InAppNotificationCenter.loadLastReadDate()
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
+    var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }
 
     private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
@@ -124,6 +129,17 @@ final class InAppNotificationCenter {
 
     func clearRecentNotifications() {
         recentNotifications.removeAll()
+        persistNotifications()
+    }
+
+    func removeNotification(id: UUID) {
+        recentNotifications.removeAll { $0.id == id }
+        persistNotifications()
+    }
+
+    func markAllRead() {
+        lastReadDate = Date()
+        UserDefaults.standard.set(lastReadDate.timeIntervalSince1970, forKey: Self.lastReadKey)
     }
 
     func dismissBanner(matching key: String) {
@@ -263,6 +279,25 @@ final class InAppNotificationCenter {
         if recentNotifications.count > 200 {
             recentNotifications.removeLast(recentNotifications.count - 200)
         }
+        persistNotifications()
+    }
+
+    private func persistNotifications() {
+        guard let data = try? JSONEncoder().encode(recentNotifications) else { return }
+        UserDefaults.standard.set(data, forKey: Self.persistenceKey)
+    }
+
+    private static func loadPersistedNotifications() -> [NotificationLogEntry] {
+        guard let data = UserDefaults.standard.data(forKey: persistenceKey),
+              let entries = try? JSONDecoder().decode([NotificationLogEntry].self, from: data) else {
+            return []
+        }
+        return entries
+    }
+
+    private static func loadLastReadDate() -> Date {
+        let interval = UserDefaults.standard.double(forKey: lastReadKey)
+        return interval > 0 ? Date(timeIntervalSince1970: interval) : .distantPast
     }
 }
 
@@ -271,7 +306,7 @@ struct InAppBannerAction {
     let handler: () -> Void
 }
 
-enum InAppBannerStyle: Sendable {
+enum InAppBannerStyle: String, Codable, Sendable {
     case success
     case error
     case progress
@@ -289,18 +324,27 @@ struct InAppBannerItem: Identifiable, @unchecked Sendable {
     let automaticallyDismisses: Bool
 }
 
-struct NotificationLogEntry: Identifiable, Sendable {
-    enum Source: String, Sendable {
+struct NotificationLogEntry: Identifiable, Codable, Sendable {
+    enum Source: String, Codable, Sendable {
         case inApp = "In-App"
         case system = "System"
     }
 
-    let id = UUID()
+    let id: UUID
     let title: String
     let message: String
     let style: InAppBannerStyle
     let source: Source
     let timestamp: Date
+
+    init(title: String, message: String, style: InAppBannerStyle, source: Source, timestamp: Date) {
+        self.id = UUID()
+        self.title = title
+        self.message = message
+        self.style = style
+        self.source = source
+        self.timestamp = timestamp
+    }
 }
 
 extension InAppBannerItem: Equatable {

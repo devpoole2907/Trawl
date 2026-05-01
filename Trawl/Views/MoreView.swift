@@ -24,6 +24,9 @@ enum MoreDestination: Hashable {
     case calendarSeries(id: Int)
     case calendarMovie(id: Int)
     case manualImportScan(path: String, service: ArrServiceType)
+    case mediaManagement
+    case arrNamingConfig(service: ArrServiceType)
+    case rootFolders
 }
 
 enum MoreDestinationAccent {
@@ -31,17 +34,21 @@ enum MoreDestinationAccent {
     case manualImport
     case categoriesAndTags
     case transferStats
+    case mediaManagement
+    case sonarrNaming
+    case radarrNaming
+    case rootFolders
 
     var color: Color {
         switch self {
-        case .calendar:
-            return .purple
-        case .manualImport:
-            return .blue
-        case .categoriesAndTags:
-            return .brown
-        case .transferStats:
-            return .mint
+        case .calendar: return .purple
+        case .manualImport: return .blue
+        case .categoriesAndTags: return .brown
+        case .transferStats: return .mint
+        case .mediaManagement: return .green
+        case .sonarrNaming: return .purple
+        case .radarrNaming: return .orange
+        case .rootFolders: return .indigo
         }
     }
 }
@@ -101,19 +108,14 @@ struct MoreView: View {
                                 title: "Blocklist", subtitle: "Releases blocked from being grabbed")
                     }
 
-                    NavigationLink(value: MoreDestination.manualImport) {
-                        moreRow(icon: "tray.and.arrow.down.fill", color: MoreDestinationAccent.manualImport.color,
-                                title: "Manual Import", subtitle: "Browse and import files from root folders")
+                    NavigationLink(value: MoreDestination.mediaManagement) {
+                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
+                                title: "Media Management", subtitle: "Naming, root folders, import, and storage")
                     }
 
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                                 title: "Indexers", subtitle: "Manage indexers across your services")
-                    }
-
-                    NavigationLink(value: MoreDestination.diskSpace) {
-                        moreRow(icon: "internaldrive.fill", color: .teal,
-                                title: "Disk Space", subtitle: "Storage usage across Sonarr and Radarr")
                     }
                 }
 
@@ -161,7 +163,16 @@ struct MoreView: View {
                     Button {
                         showingNotificationsSheet.toggle()
                     } label: {
-                        Image(systemName: "bell")
+                        Image(systemName: "bell.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .overlay(alignment: .topTrailing) {
+                                if inAppNotificationCenter.unreadCount > 0 {
+                                    Circle()
+                                        .fill(.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
                     }
                     .accessibilityLabel("Recent Notifications")
                 }
@@ -253,6 +264,19 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .manualImportScan(let path, let service):
                     ManualImportScanView(path: path, service: service, serviceManager: arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .mediaManagement:
+                    ArrMediaManagementView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .arrNamingConfig(let service):
+                    ArrNamingConfigView(serviceType: service)
+                        .environment(arrServiceManager)
+                        .environment(InAppNotificationCenter.shared)
+                        .moreDestinationTitleStyle()
+                case .rootFolders:
+                    ArrRootFoldersView()
+                        .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 }
             }
@@ -508,6 +532,10 @@ extension View {
 private struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var showClearConfirmation = false
+    @State private var unreadSinceDate: Date = .distantPast
+
+    private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
 
     var body: some View {
         NavigationStack {
@@ -517,7 +545,10 @@ private struct RecentNotificationsSheet: View {
                 } else {
                     List(inAppNotificationCenter.recentNotifications) { entry in
                         VStack(alignment: .leading, spacing: 4) {
-                            HStack {
+                            HStack(spacing: 8) {
+                                Circle()
+                                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
+                                    .frame(width: 7, height: 7)
                                 Image(systemName: icon(for: entry.style))
                                     .foregroundStyle(color(for: entry.style))
                                 Text(entry.title)
@@ -531,26 +562,69 @@ private struct RecentNotificationsSheet: View {
                                 Text(entry.message)
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
+                                    .padding(.leading, 15)
                             }
                             Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
+                                .padding(.leading, 15)
                         }
                         .padding(.vertical, 2)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                            Button(role: .destructive) {
+                                inAppNotificationCenter.removeNotification(id: entry.id)
+                            } label: {
+                                Label("Remove", systemImage: "xmark")
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("Notifications")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Done") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Dismiss")
                 }
-                if !inAppNotificationCenter.recentNotifications.isEmpty {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text("Notifications")
+                            .font(.headline)
+                        if notificationCount > 0 {
+                            Text("\(notificationCount) notification\(notificationCount == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if notificationCount > 0 {
                     ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                        Button("Clear") { inAppNotificationCenter.clearRecentNotifications() }
+                        Button("Clear") { showClearConfirmation = true }
                     }
                 }
             }
+            .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
+                Button("Clear", role: .destructive) {
+                    inAppNotificationCenter.clearRecentNotifications()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("All recent notifications will be removed.")
+            }
+            #if os(iOS)
+            .presentationDetents([.medium, .large])
+            #endif
+        }
+        .onAppear {
+            unreadSinceDate = inAppNotificationCenter.lastReadDate
+            inAppNotificationCenter.markAllRead()
         }
     }
 
