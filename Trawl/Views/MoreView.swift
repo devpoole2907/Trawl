@@ -54,6 +54,8 @@ struct MoreView: View {
     let selectSSHProfile: (SSHProfile) -> Void
     @Environment(SSHSessionStore.self) private var sshSessionStore
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var showingNotificationsSheet = false
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
 
@@ -154,6 +156,20 @@ struct MoreView: View {
             #if os(iOS)
             .toolbarTitleDisplayMode(.large)
             #endif
+            .toolbar {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button {
+                        showingNotificationsSheet.toggle()
+                    } label: {
+                        Image(systemName: "bell")
+                    }
+                    .accessibilityLabel("Recent Notifications")
+                }
+            }
+            .sheet(isPresented: $showingNotificationsSheet) {
+                RecentNotificationsSheet()
+                    .environment(inAppNotificationCenter)
+            }
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .activity:
@@ -484,6 +500,73 @@ extension View {
             self.environment(syncService)
         } else {
             self
+        }
+    }
+}
+
+
+private struct RecentNotificationsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if inAppNotificationCenter.recentNotifications.isEmpty {
+                    ContentUnavailableView("No Notifications Yet", systemImage: "bell.slash", description: Text("Recent in-app and system notifications will appear here."))
+                } else {
+                    List(inAppNotificationCenter.recentNotifications) { entry in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack {
+                                Image(systemName: icon(for: entry.style))
+                                    .foregroundStyle(color(for: entry.style))
+                                Text(entry.title)
+                                    .font(.headline)
+                                Spacer()
+                                Text(entry.source.rawValue)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            if !entry.message.isEmpty {
+                                Text(entry.message)
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+            .navigationTitle("Notifications")
+            .toolbar {
+                ToolbarItem(placement: platformCancellationPlacement) {
+                    Button("Done") { dismiss() }
+                }
+                if !inAppNotificationCenter.recentNotifications.isEmpty {
+                    ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                        Button("Clear") { inAppNotificationCenter.clearRecentNotifications() }
+                    }
+                }
+            }
+        }
+    }
+
+    private func icon(for style: InAppBannerStyle) -> String {
+        switch style {
+        case .success: "checkmark.circle.fill"
+        case .error: "exclamationmark.triangle.fill"
+        case .progress: "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private func color(for style: InAppBannerStyle) -> Color {
+        switch style {
+        case .success: .green
+        case .error: .red
+        case .progress: .blue
         }
     }
 }

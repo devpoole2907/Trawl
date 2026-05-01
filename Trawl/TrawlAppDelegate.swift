@@ -50,10 +50,11 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if !title.isEmpty || !body.isEmpty {
             let style = content.userInfo["style"] as? String
             Task { @MainActor in
-                if style == "error" {
-                    InAppNotificationCenter.shared.showError(title: title, message: body)
+                let isError = style == "error"
+                if isError {
+                    InAppNotificationCenter.shared.showError(title: title, message: body, source: .system)
                 } else {
-                    InAppNotificationCenter.shared.showSuccess(title: title, message: body)
+                    InAppNotificationCenter.shared.showSuccess(title: title, message: body, source: .system)
                 }
             }
         }

@@ -10,6 +10,7 @@ final class InAppNotificationCenter {
     static let shared = InAppNotificationCenter()
 
     private(set) var currentBanner: InAppBannerItem?
+    private(set) var recentNotifications: [NotificationLogEntry] = []
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
 
     private var queuedBanners: [InAppBannerItem] = []
@@ -27,10 +28,11 @@ final class InAppNotificationCenter {
         showSuccess(title: "Download Complete", message: trimmedName)
     }
 
-    func showProgress(title: String, message: String, key: String? = nil) {
+    func showProgress(title: String, message: String, key: String? = nil, source: NotificationLogEntry.Source = .inApp) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: .progress, source: source)
 
         presentImmediately(
             InAppBannerItem(
@@ -47,10 +49,11 @@ final class InAppNotificationCenter {
         )
     }
 
-    func showSuccess(title: String, message: String, action: InAppBannerAction? = nil) {
+    func showSuccess(title: String, message: String, action: InAppBannerAction? = nil, source: NotificationLogEntry.Source = .inApp) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: source)
 
         #if os(iOS)
         notificationGenerator.notificationOccurred(.success)
@@ -85,10 +88,11 @@ final class InAppNotificationCenter {
         showSuccess(title: title, message: message, action: action)
     }
 
-    func showError(title: String, message: String) {
+    func showError(title: String, message: String, source: NotificationLogEntry.Source = .inApp) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: .error, source: source)
 
         #if os(iOS)
         notificationGenerator.notificationOccurred(.error)
@@ -109,11 +113,17 @@ final class InAppNotificationCenter {
     func replaceProgressWithError(key: String, title: String, message: String) {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
-            dismissTask?.cancel()
-            dismissTask = nil
-            currentBanner = nil
+            #if os(iOS)
+                notificationGenerator.notificationOccurred(.error)
+            #endif
+            presentImmediately(makeBanner(title: title, message: message, style: .error, action: nil), requeueCurrent: false)
+            return
         }
         showError(title: title, message: message)
+    }
+
+    func clearRecentNotifications() {
+        recentNotifications.removeAll()
     }
 
     func dismissBanner(matching key: String) {
@@ -211,6 +221,49 @@ final class InAppNotificationCenter {
             self?.dismissCurrentBanner()
         }
     }
+
+
+    private func makeBanner(title: String, message: String, style: InAppBannerStyle, action: InAppBannerAction?) -> InAppBannerItem {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let systemImage: String
+        let dismisses: Bool
+        let showsProgress: Bool
+
+        switch style {
+        case .success:
+            systemImage = "checkmark.circle.fill"
+            dismisses = true
+            showsProgress = false
+        case .error:
+            systemImage = "exclamationmark.triangle.fill"
+            dismisses = true
+            showsProgress = false
+        case .progress:
+            systemImage = "arrow.triangle.2.circlepath"
+            dismisses = false
+            showsProgress = true
+        }
+
+        return InAppBannerItem(
+            title: trimmedTitle,
+            message: trimmedMessage,
+            systemImage: systemImage,
+            style: style,
+            action: action,
+            key: nil,
+            showsProgressView: showsProgress,
+            automaticallyDismisses: dismisses
+        )
+    }
+
+    private func appendLog(title: String, message: String, style: InAppBannerStyle, source: NotificationLogEntry.Source) {
+        let entry = NotificationLogEntry(title: title, message: message, style: style, source: source, timestamp: Date())
+        recentNotifications.insert(entry, at: 0)
+        if recentNotifications.count > 200 {
+            recentNotifications.removeLast(recentNotifications.count - 200)
+        }
+    }
 }
 
 struct InAppBannerAction {
@@ -234,6 +287,20 @@ struct InAppBannerItem: Identifiable, @unchecked Sendable {
     let key: String?
     let showsProgressView: Bool
     let automaticallyDismisses: Bool
+}
+
+struct NotificationLogEntry: Identifiable, Sendable {
+    enum Source: String, Sendable {
+        case inApp = "In-App"
+        case system = "System"
+    }
+
+    let id = UUID()
+    let title: String
+    let message: String
+    let style: InAppBannerStyle
+    let source: Source
+    let timestamp: Date
 }
 
 extension InAppBannerItem: Equatable {
