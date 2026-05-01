@@ -259,8 +259,12 @@ final class InAppNotificationCenter {
         dismissTask?.cancel()
         dismissTask = nil
 
-        if requeueCurrent, let currentBanner, currentBanner.key != banner.key {
-            queuedBanners.insert(currentBanner, at: 0)
+        if requeueCurrent, let currentBanner {
+            // Only suppress requeue if both keys are non-nil and equal
+            let shouldSuppress = currentBanner.key != nil && banner.key != nil && currentBanner.key == banner.key
+            if !shouldSuppress {
+                queuedBanners.insert(currentBanner, at: 0)
+            }
         }
 
         present(banner)

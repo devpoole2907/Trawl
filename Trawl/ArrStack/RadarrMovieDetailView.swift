@@ -1945,7 +1945,11 @@ struct RadarrInteractiveSearchSheet: View {
         guard !releases.isEmpty else { return "" }
         let shown = displayedReleases.count
         let total = releases.count
-        return shown == total ? "\(total) releases" : "\(shown) of \(total) releases"
+        if shown == total {
+            return total == 1 ? "\(total) release" : "\(total) releases"
+        } else {
+            return total == 1 ? "\(shown) of \(total) release" : "\(shown) of \(total) releases"
+        }
     }
 
     var body: some View {
@@ -1955,11 +1959,19 @@ struct RadarrInteractiveSearchSheet: View {
                     ProgressView("Searching indexers…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = searchError, !error.isEmpty {
-                    ContentUnavailableView(
-                        "Search Failed",
-                        systemImage: "exclamationmark.triangle.fill",
-                        description: Text(error)
-                    )
+                    ContentUnavailableView {
+                        Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry") {
+                            searchError = nil
+                            hasLoadedReleases = false
+                            Task {
+                                await loadReleases()
+                            }
+                        }
+                    }
                 } else if releases.isEmpty && hasLoadedReleases {
                     ContentUnavailableView(
                         "No Releases Found",

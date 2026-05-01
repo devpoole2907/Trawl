@@ -277,6 +277,7 @@ struct MoreView: View {
                 case .rootFolders:
                     ArrRootFoldersView()
                         .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
                         .moreDestinationTitleStyle()
                 }
             }
