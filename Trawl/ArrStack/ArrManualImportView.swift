@@ -487,6 +487,7 @@ private final class ManualImportScanViewModel {
         let importedIDs = selectedFiles
         let savedItems = importableFiles.filter { importedIDs.contains($0.id) }
         let filesToImport = savedItems.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
+        let importNotificationKey = manualImportNotificationKey()
 
         do {
             let count = filesToImport.count
@@ -501,7 +502,7 @@ private final class ManualImportScanViewModel {
             notificationCenter.showProgress(
                 title: "Importing…",
                 message: "Sending \(count) \(fileWord) to \(service.displayName):\n\(fileNamesSummary)",
-                key: manualImportNotificationKey
+                key: importNotificationKey
             )
 
             // Optimistically remove from list while command runs
@@ -518,7 +519,7 @@ private final class ManualImportScanViewModel {
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
                 notificationCenter.replaceProgressWithSuccess(
-                    key: manualImportNotificationKey,
+                    key: importNotificationKey,
                     title: "Import Started",
                     message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running."
                 )
@@ -530,7 +531,7 @@ private final class ManualImportScanViewModel {
                 // will find the file again (hardlinks/copies leave the source in place) and undo
                 // the removal, making it look like the import failed when it didn't.
                 notificationCenter.replaceProgressWithSuccess(
-                    key: manualImportNotificationKey,
+                    key: importNotificationKey,
                     title: "Import Complete",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
                     action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
@@ -540,7 +541,7 @@ private final class ManualImportScanViewModel {
                 let reason = manualImportFailureMessage(for: command)
                 Self.logger.error("Command failed — \(reason, privacy: .private)")
                 notificationCenter.replaceProgressWithError(
-                    key: manualImportNotificationKey,
+                    key: importNotificationKey,
                     title: "Import Failed",
                     message: reason
                 )
@@ -553,12 +554,12 @@ private final class ManualImportScanViewModel {
             }
         } catch is CancellationError {
             Self.logger.info("Task cancelled")
-            InAppNotificationCenter.shared.dismissBanner(matching: manualImportNotificationKey)
+            InAppNotificationCenter.shared.dismissBanner(matching: importNotificationKey)
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
             Self.logger.error("Manual import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
             InAppNotificationCenter.shared.replaceProgressWithSuccess(
-                key: manualImportNotificationKey,
+                key: importNotificationKey,
                 title: "Import Started",
                 message: "\(savedItems.count) \(savedItems.count == 1 ? "file" : "files") submitted to \(service.displayName). The import is still running; check Activity for progress."
             )
@@ -566,7 +567,7 @@ private final class ManualImportScanViewModel {
         } catch {
             Self.logger.error("Threw error — \(error, privacy: .private)")
             InAppNotificationCenter.shared.replaceProgressWithError(
-                key: manualImportNotificationKey,
+                key: importNotificationKey,
                 title: "Import Failed",
                 message: error.localizedDescription
             )
@@ -605,8 +606,8 @@ private final class ManualImportScanViewModel {
         return "\(service.displayName) did not return a detailed manual import error. Check Activity or History for the exact rejection reason."
     }
 
-    private var manualImportNotificationKey: String {
-        "manual-import-\(service.displayName.lowercased())"
+    private func manualImportNotificationKey() -> String {
+        "manual-import-\(service.displayName.lowercased())-\(UUID().uuidString)"
     }
 
     private func getManualImport(folder: String) async throws -> [JSONValue] {
