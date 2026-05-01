@@ -157,8 +157,16 @@ struct SonarrSeriesDetailView: View {
                         await currentViewModel.loadEpisodeFiles(for: id)
                     }
                     knownQueueIds = currentIds
+
+                    // Adaptive polling: fast (2s) if active/import-issue items, slow (30s) otherwise
+                    let hasActiveOrIssueItems = currentViewModel.queue.contains {
+                        guard $0.seriesId == id else { return false }
+                        return isActiveQueueItem($0) || $0.isImportIssueQueueItem
+                    }
+                    let pollInterval = hasActiveOrIssueItems ? 2 : 30
+
                     do {
-                        try await Task.sleep(for: .seconds(2))
+                        try await Task.sleep(for: .seconds(pollInterval))
                     } catch is CancellationError {
                         break
                     } catch {

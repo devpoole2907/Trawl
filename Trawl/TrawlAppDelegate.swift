@@ -77,20 +77,37 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 
     private static func notificationDetailValues(from userInfo: [AnyHashable: Any]) -> [String] {
-        let interestingKeys = [
-            "sourceTitle", "sourcePath", "path", "file", "fileName", "movieFile", "episodeFile",
-            "releaseTitle", "downloadTitle", "seriesTitle", "movieTitle", "episodeTitle"
+        let pathLikeKeys = ["sourcePath", "path", "file", "fileName", "movieFile", "episodeFile"]
+        let displaySafeKeys = [
+            "sourceTitle", "releaseTitle", "downloadTitle", "seriesTitle", "movieTitle", "episodeTitle"
         ]
         var details: [String] = []
-        for key in interestingKeys {
+        for key in displaySafeKeys {
             if let value = nestedNotificationValue(for: key, in: userInfo) {
                 let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
-                if !trimmed.isEmpty, !details.contains(trimmed) {
+                if !trimmed.isEmpty, !details.contains(trimmed), !isFilesystemPath(trimmed) {
                     details.append(trimmed)
                 }
             }
         }
         return details.prefix(4).map { "• \($0)" }
+    }
+
+    private static func isFilesystemPath(_ value: String) -> Bool {
+        if value.contains("/") || value.contains("\\") {
+            return true
+        }
+        if value.hasPrefix("/") {
+            return true
+        }
+        // Check for Windows drive letters (e.g., "C:\")
+        if value.count >= 2, value[value.index(value.startIndex, offsetBy: 1)] == ":" {
+            let firstChar = value[value.startIndex]
+            if firstChar.isLetter {
+                return true
+            }
+        }
+        return false
     }
 
     private static func nestedNotificationValue(for key: String, in value: Any) -> String? {
@@ -117,7 +134,7 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         if let string = value as? String { return string }
         if let number = value as? NSNumber { return number.stringValue }
         if let dictionary = value as? [AnyHashable: Any] {
-            for key in ["path", "relativePath", "name", "title", "sourceTitle"] {
+            for key in ["name", "title", "sourceTitle"] {
                 if let value = nestedNotificationValue(for: key, in: dictionary) {
                     return value
                 }

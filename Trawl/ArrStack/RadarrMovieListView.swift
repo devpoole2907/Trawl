@@ -107,9 +107,11 @@ struct RadarrMovieListView: View {
             Button("Delete from Radarr", role: .destructive) {
                 bulkDeleteMovies(deleteFiles: false)
             }
+            .disabled(!canBulkDelete)
             Button("Delete Movies and Files", role: .destructive) {
                 bulkDeleteMovies(deleteFiles: true)
             }
+            .disabled(!canBulkDelete)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Choose whether to remove the selected movies from Radarr or also delete their files. This action can't be undone.")
@@ -351,12 +353,21 @@ struct RadarrMovieListView: View {
         }
     }
 
+    private var canBulkDelete: Bool {
+        guard let vm = viewModel else { return false }
+        let visibleIDs = Set(vm.filteredMovies.map { $0.id })
+        return !selectedMovieIDs.intersection(visibleIDs).isEmpty
+    }
+
     private func bulkDeleteMovies(deleteFiles: Bool) {
-        let ids = selectedMovieIDs
+        guard let vm = viewModel else { return }
+        let visibleIDs = Set(vm.filteredMovies.map { $0.id })
+        let idsToDelete = selectedMovieIDs.intersection(visibleIDs)
+        guard !idsToDelete.isEmpty else { return }
         selectedMovieIDs = []
         withAnimation { editMode = .inactive }
         Task {
-            for id in ids {
+            for id in idsToDelete {
                 _ = await viewModel?.deleteMovie(id: id, deleteFiles: deleteFiles)
             }
         }
@@ -385,7 +396,7 @@ struct RadarrMovieListView: View {
                     Label("Delete", systemImage: "trash")
                 }
                 .tint(.red)
-                .disabled(selectedMovieIDs.isEmpty)
+                .disabled(!canBulkDelete)
             }
         } else {
             ToolbarItemGroup(placement: platformTopBarLeadingPlacement) {

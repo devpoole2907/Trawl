@@ -7,6 +7,8 @@ struct ArrReleaseActionContent: View {
     let isGrabbing: Bool
     let onGrab: () async -> Void
 
+    @State private var grabInFlight = false
+
     private var canDownload: Bool {
         !isGrabbing && release.downloadAllowed != false
     }
@@ -185,7 +187,12 @@ struct ArrReleaseActionContent: View {
 
     private var downloadButton: some View {
         Button {
-            Task { await onGrab() }
+            guard !grabInFlight else { return }
+            Task {
+                grabInFlight = true
+                defer { grabInFlight = false }
+                await onGrab()
+            }
         } label: {
             ZStack {
                 Label("Download Release", systemImage: "arrow.down.circle.fill")
