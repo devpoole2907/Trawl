@@ -76,9 +76,11 @@ final class InAppNotificationCenter {
     ) {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
-            dismissTask?.cancel()
-            dismissTask = nil
-            currentBanner = nil
+            #if os(iOS)
+                notificationGenerator.notificationOccurred(.success)
+            #endif
+            presentImmediately(makeBanner(title: title, message: message, style: .success, action: action), requeueCurrent: false)
+            return
         }
         showSuccess(title: title, message: message, action: action)
     }

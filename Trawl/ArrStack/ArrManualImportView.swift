@@ -370,6 +370,11 @@ private final class ManualImportScanViewModel {
     func loadFiles() async {
         isScanning = true
         scanStatusMessage = "Preparing scan…"
+        let shouldResumeAutoIdentify = autoIdentifyEnabled
+        if autoIdentifyTask != nil {
+            stopAutoIdentify()
+            autoIdentifyEnabled = shouldResumeAutoIdentify
+        }
         defer { isScanning = false }
 
         do {
@@ -883,8 +888,9 @@ private final class ManualImportScanViewModel {
                     // unidentified list. The user may have manually identified some/all of
                     // these files in the meantime — only cascade to whatever's still pending.
                     guard let pending = pendingItems(forGroupID: groupID) else { continue }
-                    if let top = results.first,
-                       let match = librarySeries.first(where: { $0.tvdbId == top.tvdbId }) {
+                    if let match = results
+                        .compactMap({ result in librarySeries.first(where: { $0.tvdbId == result.tvdbId }) })
+                        .first {
                         autoIdentifyProcessedCount += pending.count
                         autoIdentifyLastMatchedTitle = match.title
                         autoIdentifyLastOutcomeMessage = pending.count == 1
@@ -899,8 +905,9 @@ private final class ManualImportScanViewModel {
                     guard let client = serviceManager.radarrClient else { return }
                     let results = try await client.lookupMovie(term: term)
                     guard let pending = pendingItems(forGroupID: groupID) else { continue }
-                    if let top = results.first,
-                       let match = libraryMovies.first(where: { $0.tmdbId == top.tmdbId }) {
+                    if let match = results
+                        .compactMap({ result in libraryMovies.first(where: { $0.tmdbId == result.tmdbId }) })
+                        .first {
                         autoIdentifyProcessedCount += pending.count
                         autoIdentifyLastMatchedTitle = match.title
                         autoIdentifyLastOutcomeMessage = pending.count == 1

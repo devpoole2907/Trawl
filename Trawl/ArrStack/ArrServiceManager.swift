@@ -626,14 +626,16 @@ final class ArrServiceManager {
 
     /// Refresh cached configuration data for all connected services.
     func refreshConfiguration() async {
-        for i in sonarrInstances.indices where sonarrInstances[i].isConnected {
-            guard let client = sonarrInstances[i].client else { continue }
+        let sonarrSnapshots = sonarrInstances.compactMap { entry -> (UUID, SonarrAPIClient)? in
+            guard entry.isConnected, let client = entry.client else { return nil }
+            return (entry.id, client)
+        }
+        for (id, client) in sonarrSnapshots {
             do {
                 async let qp = client.getQualityProfiles()
                 async let rf = client.getRootFolders()
                 async let t = client.getTags()
                 let (profiles, folders, tags) = try await (qp, rf, t)
-                let id = sonarrInstances[i].id
                 updateSonarrEntry(id: id) { entry in
                     entry.qualityProfiles = profiles
                     entry.rootFolders = folders
@@ -641,21 +643,22 @@ final class ArrServiceManager {
                     entry.connectionError = nil
                 }
             } catch {
-                let id = sonarrInstances[i].id
                 updateSonarrEntry(id: id) { entry in
                     entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
                 }
             }
         }
 
-        for i in radarrInstances.indices where radarrInstances[i].isConnected {
-            guard let client = radarrInstances[i].client else { continue }
+        let radarrSnapshots = radarrInstances.compactMap { entry -> (UUID, RadarrAPIClient)? in
+            guard entry.isConnected, let client = entry.client else { return nil }
+            return (entry.id, client)
+        }
+        for (id, client) in radarrSnapshots {
             do {
                 async let qp = client.getQualityProfiles()
                 async let rf = client.getRootFolders()
                 async let t = client.getTags()
                 let (profiles, folders, tags) = try await (qp, rf, t)
-                let id = radarrInstances[i].id
                 updateRadarrEntry(id: id) { entry in
                     entry.qualityProfiles = profiles
                     entry.rootFolders = folders
@@ -663,7 +666,6 @@ final class ArrServiceManager {
                     entry.connectionError = nil
                 }
             } catch {
-                let id = radarrInstances[i].id
                 updateRadarrEntry(id: id) { entry in
                     entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
                 }
@@ -844,10 +846,10 @@ final class ArrServiceManager {
         let triggersMatch =
             notification.onGrab &&
             notification.onDownload &&
-            notification.onUpgrade == true &&
-            notification.onRename == true &&
-            notification.onHealthIssue == true &&
-            notification.onApplicationUpdate == true
+            notification.onUpgrade != false &&
+            notification.onRename != false &&
+            notification.onHealthIssue != false &&
+            notification.onApplicationUpdate != false
 
         return urlMatches && methodMatches && tokenMatches && triggersMatch
     }

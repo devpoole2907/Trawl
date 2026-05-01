@@ -78,7 +78,6 @@ actor ArrAPIClient {
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
 
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 120
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 

@@ -516,9 +516,14 @@ struct SwiftTermView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: TerminalView, context: Context) {
-        // Set first responder when view is attached to window
-        if nsView.window != nil, nsView.window?.firstResponder != nsView {
-            nsView.window?.makeFirstResponder(nsView)
+        guard let window = nsView.window else { return }
+
+        if nsView.wantsKeyboard {
+            if window.firstResponder !== nsView {
+                window.makeFirstResponder(nsView)
+            }
+        } else if window.firstResponder === nsView {
+            window.makeFirstResponder(nil)
         }
     }
 

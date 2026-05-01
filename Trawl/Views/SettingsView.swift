@@ -757,7 +757,14 @@ private struct MagnetLinkSettingsRow: View {
     }
 
     private func setAsDefault() {
-        MagnetLinkHandler.setAsDefault { isDefault = $0 }
+        MagnetLinkHandler.setAsDefault { result in
+            switch result {
+            case .failure:
+                isDefault = checkIsDefault()
+            case .success(let updated):
+                isDefault = updated
+            }
+        }
     }
 }
 #endif

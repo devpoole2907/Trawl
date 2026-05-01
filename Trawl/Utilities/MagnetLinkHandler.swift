@@ -13,13 +13,17 @@ enum MagnetLinkHandler {
     }
 
     @MainActor
-    static func setAsDefault(completion: ((Bool) -> Void)? = nil) {
+    static func setAsDefault(completion: ((Result<Bool, any Error>) -> Void)? = nil) {
         NSWorkspace.shared.setDefaultApplication(
             at: Bundle.main.bundleURL,
             toOpenURLsWithScheme: scheme
-        ) { _ in
+        ) { error in
             Task { @MainActor in
-                completion?(isDefault)
+                if let error {
+                    completion?(.failure(error))
+                } else {
+                    completion?(.success(isDefault))
+                }
             }
         }
     }

@@ -512,11 +512,7 @@ private var sonarrLeadingToolbarPlacement: ToolbarItemPlacement {
 }
 
 private var sonarrTrailingToolbarPlacement: ToolbarItemPlacement {
-    #if os(iOS)
-    .topBarTrailing
-    #else
-    .automatic
-    #endif
+    platformTopBarTrailingPlacement
 }
 
 private struct SonarrSeriesTitleSection: Identifiable {

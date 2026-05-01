@@ -30,7 +30,12 @@ struct FileListView: View {
                 if !viewModel.files.isEmpty {
                     Button(editMode.isEditing ? "Done" : "Edit") {
                         withAnimation {
-                            editMode = editMode.isEditing ? .inactive : .active
+                            if editMode.isEditing {
+                                selectedIndices = []
+                                editMode = .inactive
+                            } else {
+                                editMode = .active
+                            }
                         }
                     }
                 }
