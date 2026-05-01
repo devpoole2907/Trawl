@@ -55,7 +55,11 @@ struct ProwlarrAddIndexerSheet: View {
                             schemaRow(schema)
                         }
                     }
+                    #if os(iOS)
                     .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .searchable(text: $searchText, prompt: "Search indexers")

@@ -145,7 +145,11 @@ struct MoreView: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .navigationTitle("More")
             #if os(iOS)
             .toolbarTitleDisplayMode(.large)

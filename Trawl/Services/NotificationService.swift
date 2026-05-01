@@ -52,6 +52,11 @@ final class NotificationService: Sendable {
         }
     }
     
+    /// The URL of the Cloudflare Worker proxy.
+    var workerURL: String {
+        UserDefaults.standard.string(forKey: NotificationConstants.workerURLKey) ?? NotificationConstants.defaultWorkerURL
+    }
+
     #if os(iOS)
     /// Fetches the current APNs device token from secure storage.
     var deviceToken: String? {
@@ -66,11 +71,6 @@ final class NotificationService: Sendable {
                 return nil
             }
         }
-    }
-
-    /// The URL of the Cloudflare Worker proxy.
-    var workerURL: String {
-        UserDefaults.standard.string(forKey: NotificationConstants.workerURLKey) ?? NotificationConstants.defaultWorkerURL
     }
 
     @MainActor

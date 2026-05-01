@@ -75,7 +75,9 @@ struct ArrDownloadClientEditorSheet: View {
 
                     LabeledContent("Category") {
                         TextField(serviceType == .sonarr ? "tv-sonarr" : "radarr", text: $category)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }
@@ -93,8 +95,10 @@ struct ArrDownloadClientEditorSheet: View {
 
                     LabeledContent("Host") {
                         TextField("192.168.1.10", text: $host)
+                            #if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                             .disabled(isQBittorrent && !isCustom)
@@ -102,14 +106,18 @@ struct ArrDownloadClientEditorSheet: View {
 
                     LabeledContent("Port") {
                         TextField("8080", text: $port)
+                            #if os(iOS)
                             .keyboardType(.numberPad)
+                            #endif
                             .multilineTextAlignment(.trailing)
                             .disabled(isQBittorrent && !isCustom)
                     }
 
                     LabeledContent("Username") {
                         TextField("admin", text: $username)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }

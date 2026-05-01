@@ -1,9 +1,7 @@
 import Foundation
+import LocalAuthentication
 import Observation
 import SwiftUI
-#if os(iOS)
-import LocalAuthentication
-#endif
 
 @MainActor
 @Observable

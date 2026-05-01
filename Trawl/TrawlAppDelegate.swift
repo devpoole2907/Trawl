@@ -1,7 +1,8 @@
-import UIKit
 import OSLog
 
 #if os(iOS)
+import UIKit
+
 final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "AppDelegate")
 

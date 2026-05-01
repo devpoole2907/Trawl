@@ -31,7 +31,7 @@ struct TrackerListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: trackerRefreshToolbarPlacement) {
                 Button {
                     Task { await viewModel.loadTrackers() }
                 } label: {
@@ -146,4 +146,12 @@ private struct TrackerRow: View {
         default: .secondary
         }
     }
+}
+
+private var trackerRefreshToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .primaryAction
+    #endif
 }

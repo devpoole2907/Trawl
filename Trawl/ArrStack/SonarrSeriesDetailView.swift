@@ -1701,7 +1701,11 @@ struct SonarrInteractiveSearchSheet: View {
                             }
                         }
                     }
+                    #if os(iOS)
                     .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .searchable(text: $searchText, prompt: "Search releases…")
@@ -1722,7 +1726,7 @@ struct SonarrInteractiveSearchSheet: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                     sortMenu
                     filterMenu
                 }

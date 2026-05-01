@@ -234,7 +234,11 @@ struct SearchView: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .safeAreaInset(edge: .top) {
                 Color.clear.frame(height: 44)
             }

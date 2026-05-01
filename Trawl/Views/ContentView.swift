@@ -2,7 +2,6 @@ import SwiftUI
 import SwiftData
 #if os(macOS)
 import AppKit
-import CoreServices
 #endif
 
 struct ContentView: View {
@@ -562,14 +561,11 @@ struct ContentView: View {
 
     #if os(macOS)
     private func isDefaultMagnetHandler() -> Bool {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
-        let current = LSCopyDefaultHandlerForURLScheme("magnet" as CFString)?.takeRetainedValue() as String?
-        return current == bundleID
+        MagnetLinkHandler.isDefault
     }
 
     private func setAsDefaultMagnetHandler() {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        LSSetDefaultHandlerForURLScheme("magnet" as CFString, bundleID as CFString)
+        MagnetLinkHandler.setAsDefault()
     }
     #endif
 
@@ -736,9 +732,15 @@ private struct InAppNotificationBanner: View {
     var body: some View {
         Button(action: onTap) {
             HStack(spacing: 12) {
-                Image(systemName: item.systemImage)
-                    .font(.title3.weight(.semibold))
-                    .foregroundStyle(item.style == .error ? .red : .green)
+                if item.showsProgressView {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(item.tintColor)
+                } else {
+                    Image(systemName: item.systemImage)
+                        .font(.title3.weight(.semibold))
+                        .foregroundStyle(item.tintColor)
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
@@ -762,7 +764,7 @@ private struct InAppNotificationBanner: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .glassEffect(.regular.tint((item.style == .error ? Color.red : Color.green).opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
+        .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: 560)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
@@ -792,6 +794,19 @@ private extension InAppNotificationBanner {
         var copy = self
         copy.hasAction = hasAction
         return copy
+    }
+}
+
+private extension InAppBannerItem {
+    var tintColor: Color {
+        switch style {
+        case .success:
+            .green
+        case .error:
+            .red
+        case .progress:
+            .blue
+        }
     }
 }
 

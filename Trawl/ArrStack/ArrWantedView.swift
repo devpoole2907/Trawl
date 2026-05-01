@@ -158,7 +158,7 @@ struct ArrWantedView: View {
         .navigationTitle("Wanted / Missing")
         .toolbar {
             if showsCloseButton {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: arrWantedCloseToolbarPlacement) {
                     Button {
                         dismiss()
                     } label: {
@@ -166,7 +166,7 @@ struct ArrWantedView: View {
                     }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: arrWantedSearchToolbarPlacement) {
                 if isSearchingAll {
                     ProgressView()
                 } else {
@@ -344,6 +344,22 @@ struct ArrWantedView: View {
             Spacer()
         }
     }
+}
+
+private var arrWantedCloseToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .cancellationAction
+    #endif
+}
+
+private var arrWantedSearchToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .primaryAction
+    #endif
 }
 
 // MARK: - Scope

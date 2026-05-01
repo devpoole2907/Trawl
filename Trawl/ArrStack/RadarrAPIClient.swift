@@ -212,7 +212,11 @@ actor RadarrAPIClient: SharedArrClient {
             "files": files.map { $0.rawValue },
             "importMode": importMode
         ]
-        return try await base.postCommandAndWait(name: "ManualImport", additionalParams: additionalParams)
+        return try await base.postCommandAndWait(
+            name: "ManualImport",
+            additionalParams: additionalParams,
+            timeout: .seconds(600)
+        )
     }
 }
 

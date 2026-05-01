@@ -347,7 +347,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         .navigationSubtitle(navigationSubtitleText)
         .toolbar {
             if showsCloseButton {
-                ToolbarItem(placement: .topBarLeading) {
+                ToolbarItem(placement: platformCancellationPlacement) {
                     Button {
                         dismiss()
                     } label: {
@@ -355,7 +355,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     }
                 }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button("Today") {
                     scrollToToday()
                 }

@@ -95,7 +95,7 @@ struct ArrBlocklistView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 BlocklistToolbarMenu(
                     scope: $scope,
                     canFilter: hasFilterableBlocklistItems,
@@ -149,7 +149,11 @@ struct ArrBlocklistView: View {
                     }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .scrollContentBackground(.hidden)
     }
 

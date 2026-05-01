@@ -24,7 +24,7 @@ struct ArrActivityView: View {
         .background(backgroundGradient)
         .navigationTitle("Activity")
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 ActivityFilterMenu(serviceFilter: $serviceFilter)
             }
         }
@@ -133,7 +133,11 @@ struct ArrActivityView: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .scrollContentBackground(.hidden)
         }
     }
@@ -567,7 +571,7 @@ struct ArrHealthView: View {
         .navigationTitle("Health")
         .navigationSubtitle(navigationSubtitle)
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 HealthFilterMenu(serviceFilter: $serviceFilter)
             }
         }
@@ -625,7 +629,11 @@ struct ArrHealthView: View {
                     .buttonStyle(.plain)
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .scrollContentBackground(.hidden)
         }
     }

@@ -5,6 +5,8 @@ import SwiftTerm
 
 @MainActor
 final class SSHTerminalBridge {
+    var onKeyboardVisibilityChange: ((Bool) -> Void)?
+
     #if os(iOS)
     var terminalView: ScrollableTerminalView?
     #else
@@ -22,8 +24,6 @@ final class SSHTerminalBridge {
     var onTitleChange: ((String) -> Void)?
 
     #if os(iOS)
-    var onKeyboardVisibilityChange: ((Bool) -> Void)?
-
     func hideKeyboard() {
         guard let terminalView, terminalView.window != nil, terminalView.isFirstResponder else { return }
         Task { @MainActor in
@@ -35,6 +35,10 @@ final class SSHTerminalBridge {
     func scrollToBottom() {
         terminalView?.scrollToBottom()
     }
+    #else
+    func hideKeyboard() {}
+
+    func scrollToBottom() {}
     #endif
 }
 
@@ -501,6 +505,8 @@ private final class SSHKeyboardBar: UIInputView {
 #if os(macOS)
 struct SwiftTermView: NSViewRepresentable {
     let bridge: SSHTerminalBridge
+    let wantsKeyboard: Bool
+    let colorScheme: ColorScheme
 
     func makeNSView(context: Context) -> TerminalView {
         let tv = TerminalView(frame: .zero)

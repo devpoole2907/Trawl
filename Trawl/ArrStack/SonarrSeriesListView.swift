@@ -116,7 +116,9 @@ struct SonarrSeriesListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            #if os(iOS)
             .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
+            #endif
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -237,6 +239,7 @@ struct SonarrSeriesListView: View {
     private func seriesList(vm: SonarrViewModel) -> some View {
         if vm.sortOrder == .title {
             let sections = seriesTitleSections(for: vm.filteredSeries)
+            #if os(iOS)
             if #available(iOS 26.0, *) {
                 List {
                     ForEach(sections) { section in
@@ -260,6 +263,17 @@ struct SonarrSeriesListView: View {
                     }
                 }
             }
+            #else
+            List {
+                ForEach(sections) { section in
+                    Section(section.title) {
+                        ForEach(section.series) { show in
+                            seriesRow(show, vm: vm)
+                        }
+                    }
+                }
+            }
+            #endif
         } else {
             List {
                 ForEach(vm.filteredSeries) { show in
@@ -299,7 +313,7 @@ struct SonarrSeriesListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: sonarrLeadingToolbarPlacement) {
             if let vm = viewModel {
                 Menu {
                     ForEach(SonarrFilter.allCases) { filter in
@@ -337,11 +351,13 @@ struct SonarrSeriesListView: View {
             }
         }
 
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: sonarrTrailingToolbarPlacement) {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
+            #if os(iOS)
             .matchedTransitionSource(id: "calendar", in: namespace)
+            #endif
 
             Menu {
                 Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
@@ -485,6 +501,22 @@ struct SonarrSeriesListView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+private var sonarrLeadingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .automatic
+    #endif
+}
+
+private var sonarrTrailingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .automatic
+    #endif
 }
 
 private struct SonarrSeriesTitleSection: Identifiable {

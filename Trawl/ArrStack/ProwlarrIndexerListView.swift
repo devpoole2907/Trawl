@@ -87,7 +87,11 @@ struct ProwlarrIndexerListView: View {
                 sections(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .refreshable { await reloadData() }
@@ -1056,7 +1060,11 @@ private struct DirectIndexerSchemaPickerSheet: View {
                             schemaRow(schema)
                         }
                     }
+                    #if os(iOS)
                     .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .searchable(text: $searchText, prompt: "Search indexers")
@@ -1421,7 +1429,9 @@ private struct DirectIndexerFieldRow: View {
                 LabeledContent(label) {
                     TextField(field.placeholder ?? label, text: stringBinding(for: key))
                         .multilineTextAlignment(.trailing)
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
+                        #endif
                         .autocorrectionDisabled()
                 }
             }

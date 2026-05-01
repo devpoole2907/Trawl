@@ -85,7 +85,11 @@ struct TorrentStatsView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .scrollContentBackground(.hidden)
         .moreDestinationBackground(.transferStats)
         .navigationTitle("Transfer Stats")

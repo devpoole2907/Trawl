@@ -27,7 +27,7 @@ struct QBittorrentRSSView: View {
                 .listRowBackground(Color.clear)
             } else {
                 Section("Feeds & Folders") {
-                    ForEach(Array(rssItems.keys.sorted()), id: \.self) { key in
+                    ForEach(rssItemKeys, id: \.self) { key in
                         rssItemRow(name: key, value: rssItems[key])
                     }
                 }
@@ -54,8 +54,10 @@ struct QBittorrentRSSView: View {
         }
         .alert("Add RSS Feed", isPresented: $showCreateFeedAlert) {
             TextField("Feed URL", text: $newFeedURL)
+                #if os(iOS)
                 .keyboardType(.URL)
                 .autocapitalization(.none)
+                #endif
             Button("Add") {
                 Task { await addFeed() }
             }
@@ -81,6 +83,14 @@ struct QBittorrentRSSView: View {
         .task {
             await loadRSSItems()
         }
+    }
+
+    private var rssItemKeys: [String] {
+        rssItems.keys.sorted()
+    }
+
+    private func sortedKeys(in dictionary: [String: Any]) -> [String] {
+        dictionary.keys.sorted()
     }
     
     private func rssItemRow(name: String, value: Any?) -> AnyView {
@@ -114,7 +124,7 @@ struct QBittorrentRSSView: View {
 
             return AnyView(
                 DisclosureGroup {
-                    ForEach(Array(dict.keys.sorted()), id: \.self) { subKey in
+                    ForEach(sortedKeys(in: dict), id: \.self) { subKey in
                         rssItemRow(name: subKey, value: dict[subKey])
                     }
                 } label: {

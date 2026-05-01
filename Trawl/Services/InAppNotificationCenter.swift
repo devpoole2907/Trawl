@@ -27,6 +27,26 @@ final class InAppNotificationCenter {
         showSuccess(title: "Download Complete", message: trimmedName)
     }
 
+    func showProgress(title: String, message: String, key: String? = nil) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+
+        presentImmediately(
+            InAppBannerItem(
+                title: trimmedTitle,
+                message: trimmedMessage,
+                systemImage: "arrow.triangle.2.circlepath",
+                style: .progress,
+                action: nil,
+                key: key,
+                showsProgressView: true,
+                automaticallyDismisses: false
+            ),
+            requeueCurrent: true
+        )
+    }
+
     func showSuccess(title: String, message: String, action: InAppBannerAction? = nil) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -41,8 +61,26 @@ final class InAppNotificationCenter {
             message: trimmedMessage,
             systemImage: "checkmark.circle.fill",
             style: .success,
-            action: action
+            action: action,
+            key: nil,
+            showsProgressView: false,
+            automaticallyDismisses: true
         ))
+    }
+
+    func replaceProgressWithSuccess(
+        key: String,
+        title: String,
+        message: String,
+        action: InAppBannerAction? = nil
+    ) {
+        removeQueuedBanner(matching: key)
+        if currentBanner?.key == key {
+            dismissTask?.cancel()
+            dismissTask = nil
+            currentBanner = nil
+        }
+        showSuccess(title: title, message: message, action: action)
     }
 
     func showError(title: String, message: String) {
@@ -59,8 +97,27 @@ final class InAppNotificationCenter {
             message: trimmedMessage,
             systemImage: "exclamationmark.triangle.fill",
             style: .error,
-            action: nil
+            action: nil,
+            key: nil,
+            showsProgressView: false,
+            automaticallyDismisses: true
         ))
+    }
+
+    func replaceProgressWithError(key: String, title: String, message: String) {
+        removeQueuedBanner(matching: key)
+        if currentBanner?.key == key {
+            dismissTask?.cancel()
+            dismissTask = nil
+            currentBanner = nil
+        }
+        showError(title: title, message: message)
+    }
+
+    func dismissBanner(matching key: String) {
+        removeQueuedBanner(matching: key)
+        guard currentBanner?.key == key else { return }
+        dismissCurrentBanner()
     }
 
     func triggerImpact() {
@@ -116,14 +173,36 @@ final class InAppNotificationCenter {
         }
     }
 
+    private func removeQueuedBanner(matching key: String) {
+        queuedBanners.removeAll { $0.key == key }
+    }
+
     private func showNext() {
         guard currentBanner == nil, !queuedBanners.isEmpty else { return }
         present(queuedBanners.removeFirst())
     }
 
+    private func presentImmediately(_ banner: InAppBannerItem, requeueCurrent: Bool) {
+        if let key = banner.key {
+            removeQueuedBanner(matching: key)
+        }
+        dismissTask?.cancel()
+        dismissTask = nil
+
+        if requeueCurrent, let currentBanner, currentBanner.key != banner.key {
+            queuedBanners.insert(currentBanner, at: 0)
+        }
+
+        present(banner)
+    }
+
     private func present(_ banner: InAppBannerItem) {
         currentBanner = banner
         dismissTask?.cancel()
+        guard banner.automaticallyDismisses else {
+            dismissTask = nil
+            return
+        }
         dismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(3.5))
             guard !Task.isCancelled else { return }
@@ -140,6 +219,7 @@ struct InAppBannerAction {
 enum InAppBannerStyle: Sendable {
     case success
     case error
+    case progress
 }
 
 struct InAppBannerItem: Identifiable, @unchecked Sendable {
@@ -149,6 +229,9 @@ struct InAppBannerItem: Identifiable, @unchecked Sendable {
     let systemImage: String
     let style: InAppBannerStyle
     let action: InAppBannerAction?
+    let key: String?
+    let showsProgressView: Bool
+    let automaticallyDismisses: Bool
 }
 
 extension InAppBannerItem: Equatable {

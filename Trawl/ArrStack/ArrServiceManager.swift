@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import SwiftData
+import SwiftUI
 
 // MARK: - Instance Entry Types
 
@@ -275,11 +276,15 @@ final class ArrServiceManager {
     // MARK: - Instance switching
 
     func setActiveSonarr(_ profileID: UUID) {
-        activeSonarrProfileID = profileID
+        withAnimation(.snappy) {
+            activeSonarrProfileID = profileID
+        }
     }
 
     func setActiveRadarr(_ profileID: UUID) {
-        activeRadarrProfileID = profileID
+        withAnimation(.snappy) {
+            activeRadarrProfileID = profileID
+        }
     }
 
     // MARK: - Initialization
@@ -291,12 +296,14 @@ final class ArrServiceManager {
         disconnectAll()
 
         // Pre-build instance placeholders so connecting state is visible immediately
-        sonarrInstances = profiles
-            .filter { $0.resolvedServiceType == .sonarr && $0.isEnabled }
-            .map { SonarrClientEntry(id: $0.id, displayName: $0.displayName) }
-        radarrInstances = profiles
-            .filter { $0.resolvedServiceType == .radarr && $0.isEnabled }
-            .map { RadarrClientEntry(id: $0.id, displayName: $0.displayName) }
+        withAnimation(.snappy) {
+            sonarrInstances = profiles
+                .filter { $0.resolvedServiceType == .sonarr && $0.isEnabled }
+                .map { SonarrClientEntry(id: $0.id, displayName: $0.displayName) }
+            radarrInstances = profiles
+                .filter { $0.resolvedServiceType == .radarr && $0.isEnabled }
+                .map { RadarrClientEntry(id: $0.id, displayName: $0.displayName) }
+        }
 
         for profile in profiles where profile.isEnabled {
             await connectService(profile)
@@ -356,13 +363,15 @@ final class ArrServiceManager {
                 async let t = client.getTags()
                 let (fetchedProfiles, folders, fetchedTags) = try await (qp, rf, t)
 
-                if let idx = sonarrInstances.firstIndex(where: { $0.id == profile.id }) {
-                    sonarrInstances[idx].client = client
-                    sonarrInstances[idx].isConnected = true
-                    sonarrInstances[idx].connectionError = nil
-                    sonarrInstances[idx].qualityProfiles = fetchedProfiles
-                    sonarrInstances[idx].rootFolders = folders
-                    sonarrInstances[idx].tags = fetchedTags
+                if sonarrInstances.contains(where: { $0.id == profile.id }) {
+                    updateSonarrEntry(id: profile.id) { entry in
+                        entry.client = client
+                        entry.isConnected = true
+                        entry.connectionError = nil
+                        entry.qualityProfiles = fetchedProfiles
+                        entry.rootFolders = folders
+                        entry.tags = fetchedTags
+                    }
                 } else {
                     // Profile was added after initialization
                     var entry = SonarrClientEntry(id: profile.id, displayName: profile.displayName)
@@ -371,10 +380,14 @@ final class ArrServiceManager {
                     entry.qualityProfiles = fetchedProfiles
                     entry.rootFolders = folders
                     entry.tags = fetchedTags
-                    sonarrInstances.append(entry)
+                    withAnimation(.snappy) {
+                        sonarrInstances.append(entry)
+                    }
                 }
                 if activeSonarrProfileID == nil {
-                    activeSonarrProfileID = profile.id
+                    withAnimation(.snappy) {
+                        activeSonarrProfileID = profile.id
+                    }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
@@ -390,13 +403,15 @@ final class ArrServiceManager {
                 async let t = client.getTags()
                 let (fetchedProfiles, folders, fetchedTags) = try await (qp, rf, t)
 
-                if let idx = radarrInstances.firstIndex(where: { $0.id == profile.id }) {
-                    radarrInstances[idx].client = client
-                    radarrInstances[idx].isConnected = true
-                    radarrInstances[idx].connectionError = nil
-                    radarrInstances[idx].qualityProfiles = fetchedProfiles
-                    radarrInstances[idx].rootFolders = folders
-                    radarrInstances[idx].tags = fetchedTags
+                if radarrInstances.contains(where: { $0.id == profile.id }) {
+                    updateRadarrEntry(id: profile.id) { entry in
+                        entry.client = client
+                        entry.isConnected = true
+                        entry.connectionError = nil
+                        entry.qualityProfiles = fetchedProfiles
+                        entry.rootFolders = folders
+                        entry.tags = fetchedTags
+                    }
                 } else {
                     var entry = RadarrClientEntry(id: profile.id, displayName: profile.displayName)
                     entry.client = client
@@ -404,10 +419,14 @@ final class ArrServiceManager {
                     entry.qualityProfiles = fetchedProfiles
                     entry.rootFolders = folders
                     entry.tags = fetchedTags
-                    radarrInstances.append(entry)
+                    withAnimation(.snappy) {
+                        radarrInstances.append(entry)
+                    }
                 }
                 if activeRadarrProfileID == nil {
-                    activeRadarrProfileID = profile.id
+                    withAnimation(.snappy) {
+                        activeRadarrProfileID = profile.id
+                    }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
 
@@ -419,10 +438,12 @@ final class ArrServiceManager {
                 )
                 _ = try await client.getSystemStatus()
                 if activeProwlarrProfileID == nil || activeProwlarrProfileID == profile.id {
-                    prowlarrClient = client
-                    activeProwlarrProfileID = profile.id
-                    prowlarrConnected = true
-                    prowlarrConnectionError = nil
+                    withAnimation(.snappy) {
+                        prowlarrClient = client
+                        activeProwlarrProfileID = profile.id
+                        prowlarrConnected = true
+                        prowlarrConnectionError = nil
+                    }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
             }
@@ -434,15 +455,17 @@ final class ArrServiceManager {
 
     /// Disconnect all services.
     func disconnectAll() {
-        sonarrInstances = []
-        radarrInstances = []
-        activeSonarrProfileID = nil
-        activeRadarrProfileID = nil
-        prowlarrClient = nil
-        activeProwlarrProfileID = nil
-        prowlarrConnected = false
-        prowlarrIsConnecting = false
-        prowlarrConnectionError = nil
+        withAnimation(.snappy) {
+            sonarrInstances = []
+            radarrInstances = []
+            activeSonarrProfileID = nil
+            activeRadarrProfileID = nil
+            prowlarrClient = nil
+            activeProwlarrProfileID = nil
+            prowlarrConnected = false
+            prowlarrIsConnecting = false
+            prowlarrConnectionError = nil
+        }
         connectionErrors.removeAll()
         sonarrHealthChecks = []
         radarrHealthChecks = []
@@ -456,52 +479,46 @@ final class ArrServiceManager {
         switch serviceType {
         case .sonarr:
             if let id = profileID {
-                if let idx = sonarrInstances.firstIndex(where: { $0.id == id }) {
-                    sonarrInstances[idx].client = nil
-                    sonarrInstances[idx].isConnected = false
-                    sonarrInstances[idx].connectionError = nil
-                    sonarrInstances[idx].qualityProfiles = []
-                    sonarrInstances[idx].rootFolders = []
-                    sonarrInstances[idx].tags = []
-                }
                 connectionErrors.removeValue(forKey: id.uuidString)
-                if activeSonarrProfileID == id {
-                    activeSonarrProfileID = sonarrInstances
-                        .filter { $0.id != id }
-                        .first(where: { $0.isConnected })?
-                        .id ?? sonarrInstances.first(where: { $0.id != id })?.id
+                withAnimation(.snappy) {
+                    sonarrInstances.removeAll { $0.id == id }
+                    if activeSonarrProfileID == id {
+                        activeSonarrProfileID = sonarrInstances
+                            .first(where: { $0.isConnected })?
+                            .id ?? sonarrInstances.first?.id
+                    }
                 }
             } else {
-                sonarrInstances = []
-                activeSonarrProfileID = nil
+                withAnimation(.snappy) {
+                    sonarrInstances = []
+                    activeSonarrProfileID = nil
+                }
             }
         case .radarr:
             if let id = profileID {
-                if let idx = radarrInstances.firstIndex(where: { $0.id == id }) {
-                    radarrInstances[idx].client = nil
-                    radarrInstances[idx].isConnected = false
-                    radarrInstances[idx].connectionError = nil
-                    radarrInstances[idx].qualityProfiles = []
-                    radarrInstances[idx].rootFolders = []
-                    radarrInstances[idx].tags = []
-                }
                 connectionErrors.removeValue(forKey: id.uuidString)
-                if activeRadarrProfileID == id {
-                    activeRadarrProfileID = radarrInstances
-                        .filter { $0.id != id }
-                        .first(where: { $0.isConnected })?
-                        .id ?? radarrInstances.first(where: { $0.id != id })?.id
+                withAnimation(.snappy) {
+                    radarrInstances.removeAll { $0.id == id }
+                    if activeRadarrProfileID == id {
+                        activeRadarrProfileID = radarrInstances
+                            .first(where: { $0.isConnected })?
+                            .id ?? radarrInstances.first?.id
+                    }
                 }
             } else {
-                radarrInstances = []
-                activeRadarrProfileID = nil
+                withAnimation(.snappy) {
+                    radarrInstances = []
+                    activeRadarrProfileID = nil
+                }
             }
         case .prowlarr:
             if profileID == nil || activeProwlarrProfileID == profileID {
-                prowlarrClient = nil
-                activeProwlarrProfileID = nil
-                prowlarrConnected = false
-                prowlarrConnectionError = nil
+                withAnimation(.snappy) {
+                    prowlarrClient = nil
+                    activeProwlarrProfileID = nil
+                    prowlarrConnected = false
+                    prowlarrConnectionError = nil
+                }
             }
             if let id = profileID {
                 connectionErrors.removeValue(forKey: id.uuidString)
@@ -616,12 +633,18 @@ final class ArrServiceManager {
                 async let rf = client.getRootFolders()
                 async let t = client.getTags()
                 let (profiles, folders, tags) = try await (qp, rf, t)
-                sonarrInstances[i].qualityProfiles = profiles
-                sonarrInstances[i].rootFolders = folders
-                sonarrInstances[i].tags = tags
-                sonarrInstances[i].connectionError = nil
+                let id = sonarrInstances[i].id
+                updateSonarrEntry(id: id) { entry in
+                    entry.qualityProfiles = profiles
+                    entry.rootFolders = folders
+                    entry.tags = tags
+                    entry.connectionError = nil
+                }
             } catch {
-                sonarrInstances[i].connectionError = "Failed to refresh config: \(error.localizedDescription)"
+                let id = sonarrInstances[i].id
+                updateSonarrEntry(id: id) { entry in
+                    entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
+                }
             }
         }
 
@@ -632,12 +655,18 @@ final class ArrServiceManager {
                 async let rf = client.getRootFolders()
                 async let t = client.getTags()
                 let (profiles, folders, tags) = try await (qp, rf, t)
-                radarrInstances[i].qualityProfiles = profiles
-                radarrInstances[i].rootFolders = folders
-                radarrInstances[i].tags = tags
-                radarrInstances[i].connectionError = nil
+                let id = radarrInstances[i].id
+                updateRadarrEntry(id: id) { entry in
+                    entry.qualityProfiles = profiles
+                    entry.rootFolders = folders
+                    entry.tags = tags
+                    entry.connectionError = nil
+                }
             } catch {
-                radarrInstances[i].connectionError = "Failed to refresh config: \(error.localizedDescription)"
+                let id = radarrInstances[i].id
+                updateRadarrEntry(id: id) { entry in
+                    entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -647,12 +676,12 @@ final class ArrServiceManager {
     private func setConnecting(_ value: Bool, for serviceType: ArrServiceType, id: UUID) {
         switch serviceType {
         case .sonarr:
-            if let idx = sonarrInstances.firstIndex(where: { $0.id == id }) {
-                sonarrInstances[idx].isConnecting = value
+            updateSonarrEntry(id: id) { entry in
+                entry.isConnecting = value
             }
         case .radarr:
-            if let idx = radarrInstances.firstIndex(where: { $0.id == id }) {
-                radarrInstances[idx].isConnecting = value
+            updateRadarrEntry(id: id) { entry in
+                entry.isConnecting = value
             }
         case .prowlarr:
             prowlarrIsConnecting = value
@@ -662,14 +691,14 @@ final class ArrServiceManager {
     private func setError(_ message: String?, for serviceType: ArrServiceType, id: UUID) {
         switch serviceType {
         case .sonarr:
-            if let idx = sonarrInstances.firstIndex(where: { $0.id == id }) {
-                sonarrInstances[idx].connectionError = message
-                sonarrInstances[idx].isConnected = false
+            updateSonarrEntry(id: id) { entry in
+                entry.connectionError = message
+                entry.isConnected = false
             }
         case .radarr:
-            if let idx = radarrInstances.firstIndex(where: { $0.id == id }) {
-                radarrInstances[idx].connectionError = message
-                radarrInstances[idx].isConnected = false
+            updateRadarrEntry(id: id) { entry in
+                entry.connectionError = message
+                entry.isConnected = false
             }
         case .prowlarr:
             if activeProwlarrProfileID == id {
@@ -679,6 +708,20 @@ final class ArrServiceManager {
                 activeProwlarrProfileID = nil
             }
         }
+    }
+
+    private func updateSonarrEntry(id: UUID, _ mutate: (inout SonarrClientEntry) -> Void) {
+        guard let idx = sonarrInstances.firstIndex(where: { $0.id == id }) else { return }
+        var entry = sonarrInstances[idx]
+        mutate(&entry)
+        sonarrInstances[idx] = entry
+    }
+
+    private func updateRadarrEntry(id: UUID, _ mutate: (inout RadarrClientEntry) -> Void) {
+        guard let idx = radarrInstances.firstIndex(where: { $0.id == id }) else { return }
+        var entry = radarrInstances[idx]
+        mutate(&entry)
+        radarrInstances[idx] = entry
     }
 
     private func normalizedNotificationWorkerURL(from rawValue: String) throws -> String {
@@ -798,7 +841,13 @@ final class ArrServiceManager {
                 return key == "X-Trawl-Token" && value == deviceToken
             }
         }()
-        let triggersMatch = notification.onGrab && notification.onDownload && notification.onUpgrade && notification.onRename && notification.onHealthIssue && notification.onApplicationUpdate
+        let triggersMatch =
+            notification.onGrab &&
+            notification.onDownload &&
+            notification.onUpgrade == true &&
+            notification.onRename == true &&
+            notification.onHealthIssue == true &&
+            notification.onApplicationUpdate == true
 
         return urlMatches && methodMatches && tokenMatches && triggersMatch
     }

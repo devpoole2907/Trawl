@@ -89,12 +89,16 @@ struct ArrSetupSheet: View {
 
             Section("Connection") {
                 TextField("http://192.168.1.100:\(vm.serviceType.defaultPort)", text: $vm.hostURL)
+                    #if os(iOS)
                     .keyboardType(.URL)
                     .textInputAutocapitalization(.never)
+                    #endif
                     .autocorrectionDisabled()
 
                 SecureField("API Key", text: $vm.apiKey)
+                    #if os(iOS)
                     .textInputAutocapitalization(.never)
+                    #endif
 
                 TextField("Display Name (optional)", text: $vm.displayName)
 

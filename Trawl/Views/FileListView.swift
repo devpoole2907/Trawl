@@ -2,7 +2,7 @@ import SwiftUI
 
 struct FileListView: View {
     @Bindable var viewModel: TorrentDetailViewModel
-    @State private var editMode: EditMode = .inactive
+    @State private var editMode: SelectionMode = .inactive
     @State private var selectedIndices: Set<Int> = []
 
     var body: some View {
@@ -22,9 +22,11 @@ struct FileListView: View {
             }
         }
         .navigationTitle("Files")
-        .environment(\.editMode, $editMode)
+        #if os(iOS)
+        .environment(\.editMode, swiftUIEditMode)
+        #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: fileEditToolbarPlacement) {
                 if !viewModel.files.isEmpty {
                     Button(editMode.isEditing ? "Done" : "Edit") {
                         withAnimation {
@@ -35,7 +37,7 @@ struct FileListView: View {
             }
             
             if editMode.isEditing {
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: fileSelectionToolbarPlacement) {
                     HStack {
                         Button(selectedIndices.count == viewModel.files.count ? "Deselect All" : "Select All") {
                             if selectedIndices.count == viewModel.files.count {
@@ -72,6 +74,31 @@ struct FileListView: View {
             await viewModel.loadFiles()
         }
     }
+
+    #if os(iOS)
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { editMode = $0.isEditing ? .active : .inactive }
+        )
+    }
+    #endif
+}
+
+private var fileEditToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .primaryAction
+    #endif
+}
+
+private var fileSelectionToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .bottomBar
+    #else
+    .automatic
+    #endif
 }
 
 // MARK: - File Row

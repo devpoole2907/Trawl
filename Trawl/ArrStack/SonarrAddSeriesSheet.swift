@@ -28,7 +28,9 @@ struct SonarrAddSeriesSheet: View {
                         Image(systemName: "magnifyingglass")
                             .foregroundStyle(.secondary)
                         TextField("Search TV shows...", text: $searchQuery)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .onSubmit {
                                 Task { await performSearch() }
                             }
@@ -110,7 +112,11 @@ struct SonarrAddSeriesSheet: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .task {
                 selectedQualityProfileId = viewModel.qualityProfiles.first?.id
                 selectedRootFolderPath = viewModel.rootFolders.first?.path

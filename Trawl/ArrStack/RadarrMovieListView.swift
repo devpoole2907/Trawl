@@ -116,7 +116,9 @@ struct RadarrMovieListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            #if os(iOS)
             .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
+            #endif
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -219,6 +221,7 @@ struct RadarrMovieListView: View {
     private func movieList(vm: RadarrViewModel) -> some View {
         if vm.sortOrder == .title {
             let sections = movieTitleSections(for: vm.filteredMovies)
+            #if os(iOS)
             if #available(iOS 26.0, *) {
                 List {
                     ForEach(sections) { section in
@@ -242,6 +245,17 @@ struct RadarrMovieListView: View {
                     }
                 }
             }
+            #else
+            List {
+                ForEach(sections) { section in
+                    Section(section.title) {
+                        ForEach(section.movies) { movie in
+                            movieRow(movie, vm: vm)
+                        }
+                    }
+                }
+            }
+            #endif
         } else {
             List {
                 ForEach(vm.filteredMovies) { movie in
@@ -281,7 +295,7 @@ struct RadarrMovieListView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
+        ToolbarItemGroup(placement: platformTopBarLeadingPlacement) {
             if let vm = viewModel {
                 Menu {
                     ForEach(RadarrFilter.allCases) { filter in
@@ -319,11 +333,13 @@ struct RadarrMovieListView: View {
             }
         }
 
-        ToolbarItemGroup(placement: .topBarTrailing) {
+        ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
             Button("Calendar", systemImage: "calendar") {
                 showCalendar = true
             }
+            #if os(iOS)
             .matchedTransitionSource(id: "calendar", in: namespace)
+            #endif
 
             Menu {
                 Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {

@@ -11,6 +11,8 @@
 		7C8E12A62F908FD800D5EBFA /* CSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A52F908FD800D5EBFA /* CSSH */; };
 		CC000021CC000021CC000021 /* TrawlShare.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = CC100000CC100000CC100000 /* TrawlShare.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		DD000021DD000021DD000021 /* SSHLiveActivity.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = DD100000DD100000DD100000 /* SSHLiveActivity.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		EE8E12A3EE904F7200D5EBFA /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A22F904F7200D5EBFA /* SwiftTerm */; };
+		EE8E12A6EE908FD800D5EBFA /* CSSH in Frameworks */ = {isa = PBXBuildFile; productRef = 7C8E12A52F908FD800D5EBFA /* CSSH */; };
 		FF000021FF000021FF000021 /* TrawlWidgets.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = FF100000FF100000FF100000 /* TrawlWidgets.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -189,50 +191,12 @@
 		EE000007EE000007EE000007 /* Exceptions for "Trawl" folder in "TrawlMac" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				ArrStack/ArrActivityView.swift,
-				ArrStack/ArrAddDownloadClientSheet.swift,
-				ArrStack/ArrAPIClient.swift,
-				ArrStack/ArrArtworkView.swift,
-				ArrStack/ArrBlocklistView.swift,
-				ArrStack/ArrCalendarView.swift,
-				ArrStack/ArrDiskSpaceView.swift,
-				ArrStack/ArrDownloadClientListView.swift,
-				ArrStack/ArrHistoryView.swift,
-				ArrStack/ArrManualImportView.swift,
-				ArrStack/ArrRemotePathMappingListView.swift,
-				ArrStack/ArrServiceManager.swift,
-				ArrStack/ArrServicesSettingsView.swift,
-				ArrStack/ArrSetupSheet.swift,
-				ArrStack/ArrSetupViewModel.swift,
-				ArrStack/ArrSharedModels.swift,
-				ArrStack/ArrWantedView.swift,
-				ArrStack/ProwlarrAddIndexerSheet.swift,
-				ArrStack/ProwlarrAPIClient.swift,
-				ArrStack/ProwlarrIndexerDetailView.swift,
-				ArrStack/ProwlarrIndexerListView.swift,
-				ArrStack/ProwlarrModels.swift,
-				ArrStack/ProwlarrSearchView.swift,
-				ArrStack/ProwlarrStatsView.swift,
-				ArrStack/ProwlarrViewModel.swift,
-				ArrStack/RadarrAddMovieSheet.swift,
-				ArrStack/RadarrAPIClient.swift,
-				ArrStack/RadarrEditMovieSheet.swift,
-				ArrStack/RadarrModels.swift,
-				ArrStack/RadarrMovieDetailView.swift,
-				ArrStack/RadarrMovieListView.swift,
-				ArrStack/RadarrViewModel.swift,
-				ArrStack/SonarrAddSeriesSheet.swift,
-				ArrStack/SonarrAPIClient.swift,
-				ArrStack/SonarrEditSeriesSheet.swift,
-				ArrStack/SonarrModels.swift,
-				ArrStack/SonarrSeriesDetailView.swift,
-				ArrStack/SonarrSeriesListView.swift,
-				ArrStack/SonarrViewModel.swift,
 				CLAUDE_CODE_GUIDE.md,
 				Info.plist,
 				Share/ShareAddTorrentView.swift,
 				Share/ShareViewController.swift,
 				"TrawlApp-Info.plist",
+				"TrawlMac-Info.plist",
 				Views/DocumentPicker.swift,
 			);
 			target = EE000005EE000005EE000005 /* TrawlMac */;
@@ -430,6 +394,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				EE8E12A3EE904F7200D5EBFA /* SwiftTerm in Frameworks */,
+				EE8E12A6EE908FD800D5EBFA /* CSSH in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -618,6 +584,8 @@
 			);
 			name = TrawlMac;
 			packageProductDependencies = (
+				7C8E12A22F904F7200D5EBFA /* SwiftTerm */,
+				7C8E12A52F908FD800D5EBFA /* CSSH */,
 			);
 			productName = TrawlMac;
 			productReference = EE000001EE000001EE000001 /* TrawlMac.app */;

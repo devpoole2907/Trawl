@@ -1,7 +1,5 @@
 import SwiftUI
-#if os(iOS)
 import LocalAuthentication
-#endif
 
 struct AppLockView: View {
     @Environment(AppLockController.self) private var controller

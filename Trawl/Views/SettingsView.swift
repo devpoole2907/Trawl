@@ -2,7 +2,6 @@ import SwiftUI
 import SwiftData
 #if os(macOS)
 import AppKit
-import CoreServices
 #endif
 
 struct SettingsView: View {
@@ -441,7 +440,9 @@ struct QBittorrentSettingsView: View {
 
             Section {
                 TextField("/downloads", text: $defaultSavePath)
+                    #if os(iOS)
                     .textInputAutocapitalization(.never)
+                    #endif
                     .autocorrectionDisabled()
                     .disabled(isUpdatingDefaultSavePath)
 
@@ -752,15 +753,11 @@ private struct MagnetLinkSettingsRow: View {
     }
 
     private func checkIsDefault() -> Bool {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return false }
-        let current = LSCopyDefaultHandlerForURLScheme("magnet" as CFString)?.takeRetainedValue() as String?
-        return current == bundleID
+        MagnetLinkHandler.isDefault
     }
 
     private func setAsDefault() {
-        guard let bundleID = Bundle.main.bundleIdentifier else { return }
-        LSSetDefaultHandlerForURLScheme("magnet" as CFString, bundleID as CFString)
-        isDefault = checkIsDefault()
+        MagnetLinkHandler.setAsDefault { isDefault = $0 }
     }
 }
 #endif

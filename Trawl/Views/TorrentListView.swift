@@ -12,7 +12,7 @@ struct TorrentListView: View {
     @State private var torrentToDelete: Torrent?
     @State private var showBatchDeleteConfirm = false
     @State private var batchDeleteFiles = false
-    @State private var editMode: EditMode = .inactive
+    @State private var editMode: SelectionMode = .inactive
     @State private var listScrollPosition: String?
     private let title: String
 
@@ -20,13 +20,22 @@ struct TorrentListView: View {
         self.title = title
     }
 
+    #if os(iOS)
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { editMode = $0.isEditing ? .active : .inactive }
+        )
+    }
+    #endif
+
     var body: some View {
         configuredContent
         #if os(iOS)
         .toolbarTitleDisplayMode(.inline)
-        #endif
-        .environment(\.editMode, $editMode)
+        .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
+        #endif
         .toolbar { toolbarContent }
         .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
         .refreshable {
@@ -233,7 +242,7 @@ struct TorrentListView: View {
                 }
             }
 
-            ToolbarItemGroup(placement: .bottomBar) {
+            ToolbarItemGroup(placement: torrentSelectionToolbarPlacement) {
                 Button(vm.selectedHashes.count == vm.filteredTorrents.count ? "Deselect All" : "Select All") {
                     if vm.selectedHashes.count == vm.filteredTorrents.count {
                         vm.selectedHashes = []
@@ -272,7 +281,7 @@ struct TorrentListView: View {
                 .disabled(vm.selectedHashes.isEmpty)
             }
         } else {
-            ToolbarItemGroup(placement: .topBarLeading) {
+            ToolbarItemGroup(placement: torrentLeadingToolbarPlacement) {
                 if let vm = viewModel {
                     Menu {
                         ForEach(TorrentFilter.allCases) { filter in
@@ -308,7 +317,7 @@ struct TorrentListView: View {
                 }
             }
 
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
                 if let vm = viewModel {
                     Menu {
                         Toggle(isOn: Binding(
@@ -486,4 +495,28 @@ struct TorrentListView: View {
         case .errored: "exclamationmark.triangle"
         }
     }
+}
+
+private var torrentSelectionToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .bottomBar
+    #else
+    .automatic
+    #endif
+}
+
+private var torrentLeadingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .automatic
+    #endif
+}
+
+private var torrentTrailingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .automatic
+    #endif
 }
