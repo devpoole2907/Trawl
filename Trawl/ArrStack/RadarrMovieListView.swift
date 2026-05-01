@@ -76,7 +76,6 @@ struct RadarrMovieListView: View {
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
-        .searchable(text: movieSearchText, prompt: "Search movies")
         .toolbar { toolbarContent }
         .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
         .alert(
@@ -89,13 +88,15 @@ struct RadarrMovieListView: View {
         ) { movie in
             Button("Delete from Radarr", role: .destructive) {
                 let id = movie.id
+                let vm = viewModel
                 pendingDeleteMovie = nil
-                Task { await viewModel?.deleteMovie(id: id, deleteFiles: false) }
+                Task { await vm?.deleteMovie(id: id, deleteFiles: false) }
             }
             Button("Delete Movie and Files", role: .destructive) {
                 let id = movie.id
+                let vm = viewModel
                 pendingDeleteMovie = nil
-                Task { await viewModel?.deleteMovie(id: id, deleteFiles: true) }
+                Task { await vm?.deleteMovie(id: id, deleteFiles: true) }
             }
             Button("Cancel", role: .cancel) {
                 pendingDeleteMovie = nil
@@ -103,7 +104,7 @@ struct RadarrMovieListView: View {
         } message: { movie in
             Text("Choose whether to remove only \(movie.title) from Radarr or also delete its files.")
         }
-        .alert("Delete \(selectedMovieIDs.count) Movies?", isPresented: $showBulkDeleteAlert) {
+        .alert(bulkDeleteAlertTitle, isPresented: $showBulkDeleteAlert) {
             Button("Delete from Radarr", role: .destructive) {
                 bulkDeleteMovies(deleteFiles: false)
             }
@@ -244,6 +245,7 @@ struct RadarrMovieListView: View {
             movieList(vm: vm)
             .scrollPosition(id: $listScrollPosition)
             .animation(.default, value: vm.filteredMovies)
+            .searchable(text: movieSearchText, prompt: "Search movies")
         }
     }
 
@@ -353,22 +355,30 @@ struct RadarrMovieListView: View {
         }
     }
 
-    private var canBulkDelete: Bool {
-        guard let vm = viewModel else { return false }
+    private var visibleSelectedMovieIDs: Set<Int> {
+        guard let vm = viewModel else { return [] }
         let visibleIDs = Set(vm.filteredMovies.map { $0.id })
-        return !selectedMovieIDs.intersection(visibleIDs).isEmpty
+        return selectedMovieIDs.intersection(visibleIDs)
+    }
+
+    private var canBulkDelete: Bool {
+        !visibleSelectedMovieIDs.isEmpty
+    }
+
+    private var bulkDeleteAlertTitle: String {
+        let count = visibleSelectedMovieIDs.count
+        return "Delete \(count) \(count == 1 ? "Movie" : "Movies")?"
     }
 
     private func bulkDeleteMovies(deleteFiles: Bool) {
         guard let vm = viewModel else { return }
-        let visibleIDs = Set(vm.filteredMovies.map { $0.id })
-        let idsToDelete = selectedMovieIDs.intersection(visibleIDs)
+        let idsToDelete = visibleSelectedMovieIDs
         guard !idsToDelete.isEmpty else { return }
         selectedMovieIDs = []
         withAnimation { editMode = .inactive }
         Task {
             for id in idsToDelete {
-                _ = await viewModel?.deleteMovie(id: id, deleteFiles: deleteFiles)
+                _ = await vm.deleteMovie(id: id, deleteFiles: deleteFiles)
             }
         }
     }

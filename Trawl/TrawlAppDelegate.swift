@@ -49,12 +49,15 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         let body = Self.enrichedNotificationBody(content.body, userInfo: content.userInfo)
         if !title.isEmpty || !body.isEmpty {
             let style = content.userInfo["style"] as? String
+            // Normalize fallback values: ensure both title and body are non-empty
+            let displayTitle = title.isEmpty ? (body.isEmpty ? "Notification" : body) : title
+            let displayBody = body.isEmpty ? title : body
             Task { @MainActor in
                 let isError = style == "error"
                 if isError {
-                    InAppNotificationCenter.shared.showError(title: title, message: body, source: .system)
+                    InAppNotificationCenter.shared.showError(title: displayTitle, message: displayBody, source: .system)
                 } else {
-                    InAppNotificationCenter.shared.showSuccess(title: title, message: body, source: .system)
+                    InAppNotificationCenter.shared.showSuccess(title: displayTitle, message: displayBody, source: .system)
                 }
             }
         }

@@ -1689,11 +1689,17 @@ struct SonarrInteractiveSearchSheet: View {
         NavigationStack {
             Group {
                 if let error = searchError, !error.isEmpty {
-                    ContentUnavailableView(
-                        "Search Failed",
-                        systemImage: "exclamationmark.triangle.fill",
-                        description: Text(error)
-                    )
+                    ContentUnavailableView {
+                        Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry", systemImage: "arrow.clockwise") {
+                            hasLoaded = false
+                            searchError = nil
+                            Task { await loadReleases() }
+                        }
+                    }
                 } else if releases.isEmpty && hasLoaded {
                     ContentUnavailableView(
                         "No Releases Found",

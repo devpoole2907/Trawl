@@ -1982,7 +1982,7 @@ struct RadarrInteractiveSearchSheet: View {
                     } description: {
                         Text(error)
                     } actions: {
-                        Button("Retry") {
+                        Button("Retry", systemImage: "arrow.clockwise") {
                             searchError = nil
                             hasLoadedReleases = false
                             Task {
