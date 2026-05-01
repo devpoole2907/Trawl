@@ -149,6 +149,7 @@ struct ArrBlocklistView: View {
                     }
             }
         }
+        .animation(.default, value: allEntries.map(\.id))
         #if os(iOS)
         .listStyle(.insetGrouped)
         #else

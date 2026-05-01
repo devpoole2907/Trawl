@@ -494,12 +494,13 @@ private final class ManualImportScanViewModel {
             let tabName = service == .sonarr ? "Series" : "Movies"
             let fileWord = count == 1 ? "file" : "files"
             let notificationCenter = InAppNotificationCenter.shared
+            let fileNamesSummary = importedFileNamesSummary(items: savedItems)
 
             let fileMeta = savedItems.map { "\($0.fileName) mediaID:\($0.mediaID?.description ?? "nil")" }
             Self.logger.info("Sending \(count) \(fileWord) to \(self.service.displayName, privacy: .public): \(fileMeta, privacy: .private)")
             notificationCenter.showProgress(
                 title: "Importing…",
-                message: "Sending \(count) \(fileWord) to \(service.displayName).",
+                message: "Sending \(count) \(fileWord) to \(service.displayName):\n\(fileNamesSummary)",
                 key: manualImportNotificationKey
             )
 
@@ -531,7 +532,7 @@ private final class ManualImportScanViewModel {
                 notificationCenter.replaceProgressWithSuccess(
                     key: manualImportNotificationKey,
                     title: "Import Complete",
-                    message: "\(count) \(fileWord) imported by \(service.displayName).",
+                    message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
                     action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
                 )
                 return true
@@ -578,6 +579,17 @@ private final class ManualImportScanViewModel {
         }
     }
 
+
+    private func importedFileNamesSummary(items: [ManualImportItem]) -> String {
+        let names = items.map { ($0.fileName as NSString).lastPathComponent }
+        let maxShown = 4
+        if names.count <= maxShown {
+            return names.map { "• \($0)" }.joined(separator: "\n")
+        }
+        let visible = names.prefix(maxShown).map { "• \($0)" }.joined(separator: "\n")
+        let remaining = names.count - maxShown
+        return "\(visible)\n• …and \(remaining) more"
+    }
 
     private func manualImportFailureMessage(for command: ArrCommand) -> String {
         if let exception = command.exception?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1124,9 +1136,10 @@ private final class ManualImportScanViewModel {
         }
     }
 
-    func importItems(_ items: [ManualImportItem]) async {
+    @discardableResult
+    func importItems(_ items: [ManualImportItem]) async -> Bool {
         let filesToImport = items.filter { $0.isImportable }
-        guard !filesToImport.isEmpty else { return }
+        guard !filesToImport.isEmpty else { return false }
         isImporting = true
         defer { isImporting = false }
 
@@ -1145,11 +1158,13 @@ private final class ManualImportScanViewModel {
             let fileJSONs = filesToImport.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
             let command = try await manualImport(files: fileJSONs)
             if command.succeeded {
+                let fileNamesSummary = importedFileNamesSummary(items: filesToImport)
                 InAppNotificationCenter.shared.showSuccess(
                     title: "Imported",
-                    message: "\(count) \(fileWord) imported by \(service.displayName).",
+                    message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
                     action: navigationAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
                 )
+                return true
             } else {
                 let reason = manualImportFailureMessage(for: command)
                 Self.logger.error("importItems failed — \(reason, privacy: .private)")
@@ -1158,14 +1173,17 @@ private final class ManualImportScanViewModel {
                     importableFiles.append(contentsOf: filesToImport)
                     recomputeGroups()
                 }
+                return false
             }
         } catch is CancellationError {
+            return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
             Self.logger.error("Grouped import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import In Progress",
                 message: "\(count) \(fileWord) submitted to \(service.displayName). The import is still running; check Activity for progress."
             )
+            return false
         } catch {
             Self.logger.error("importItems threw — \(error, privacy: .private)")
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
@@ -1173,6 +1191,7 @@ private final class ManualImportScanViewModel {
                 importableFiles.append(contentsOf: filesToImport)
                 recomputeGroups()
             }
+            return false
         }
     }
 
@@ -1518,6 +1537,46 @@ struct ManualImportScanView: View {
                     }
                 }
 
+                if shouldShowAutoIdentifySection {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack(spacing: 8) {
+                                if viewModel.isAutoIdentifying {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: viewModel.unresolvedUnidentifiedCount == 0 ? "checkmark.circle.fill" : "sparkle.magnifyingglass")
+                                        .foregroundStyle(viewModel.unresolvedUnidentifiedCount == 0 ? .green : .secondary)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(autoIdentifyProgressText)
+                                        .font(.subheadline.weight(.semibold))
+                                    Text(autoIdentifyStatusText)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+
+                                Spacer(minLength: 0)
+
+                                Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
+                                    if viewModel.isAutoIdentifying {
+                                        viewModel.stopAutoIdentify()
+                                    } else {
+                                        viewModel.startAutoIdentify()
+                                    }
+                                }
+                                .font(.caption.weight(.semibold))
+                                .disabled(viewModel.groupedUnidentifiedFiles.isEmpty && !viewModel.isAutoIdentifying)
+                            }
+                        }
+                        .padding(.vertical, 2)
+                    } header: {
+                        Text("Identification Status")
+                    }
+                }
+
                 if !viewModel.groupedUnidentifiedFiles.isEmpty {
                     Section {
                         ForEach(viewModel.groupedUnidentifiedFiles) { group in
@@ -1549,27 +1608,7 @@ struct ManualImportScanView: View {
                             }
                         }
                     } header: {
-                        HStack(spacing: 6) {
-                            Text("Needs Identification")
-                            if viewModel.isAutoIdentifying {
-                                ProgressView().controlSize(.mini)
-                            }
-                            Text(autoIdentifyProgressText)
-                                .font(.caption2.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
-                                if viewModel.isAutoIdentifying {
-                                    viewModel.stopAutoIdentify()
-                                } else {
-                                    viewModel.startAutoIdentify()
-                                }
-                            }
-                            .font(.caption.weight(.semibold))
-                            .disabled(viewModel.groupedUnidentifiedFiles.isEmpty && !viewModel.isAutoIdentifying)
-                        }
-                    } footer: {
-                        Text(autoIdentifyStatusText)
+                        Text("Needs Identification")
                     }
                 }
 
@@ -1741,6 +1780,283 @@ struct ManualImportScanView: View {
             parts.append("\(viewModel.groupedBlockedFiles.count) blocked")
         }
         return parts.isEmpty ? viewModel.path : parts.joined(separator: " · ")
+    }
+}
+
+struct ArrQueueImportIssueResolutionSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var viewModel: ManualImportScanViewModel
+
+    let resolution: ArrQueueImportIssueResolution
+    let onImportCompleted: () async -> Void
+
+    private var readyItems: [ManualImportItem] {
+        viewModel.importableFiles
+    }
+
+    private var hasScannedFiles: Bool {
+        !viewModel.importableFiles.isEmpty || !viewModel.blockedFiles.isEmpty
+    }
+
+    init(
+        resolution: ArrQueueImportIssueResolution,
+        serviceManager: ArrServiceManager,
+        onImportCompleted: @escaping () async -> Void
+    ) {
+        self.resolution = resolution
+        self.onImportCompleted = onImportCompleted
+        _viewModel = State(wrappedValue: ManualImportScanViewModel(
+            path: resolution.path,
+            service: resolution.service,
+            serviceManager: serviceManager,
+            libraryItemID: resolution.libraryItemID
+        ))
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Label(resolution.status, systemImage: "exclamationmark.triangle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.orange)
+
+                        Text(resolution.title)
+                            .font(.headline)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        Text(resolution.message)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+
+                        LabeledContent("Import Path") {
+                            Text(resolution.path)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .textSelection(.enabled)
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                        if let rootFolder = resolution.rootFolder, !rootFolder.isEmpty {
+                            LabeledContent("Library Root") {
+                                Text(rootFolder)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                                    .textSelection(.enabled)
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.vertical, 2)
+                } header: {
+                    Text("Queue Issue")
+                }
+
+                if viewModel.isScanning && !hasScannedFiles {
+                    Section {
+                        HStack(spacing: 10) {
+                            ProgressView()
+                            Text(viewModel.scanStatusMessage)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                } else if !hasScannedFiles {
+                    Section {
+                        ContentUnavailableView(
+                            "No Files Found",
+                            systemImage: "doc.text.magnifyingglass",
+                            description: Text("No manual-import candidates were found at this queue item's import path.")
+                        )
+                        .listRowBackground(Color.clear)
+                    }
+                }
+
+                if !readyItems.isEmpty {
+                    Section {
+                        ForEach(readyItems) { item in
+                            NavigationLink {
+                                ManualImportIdentifySheet(
+                                    target: identifyTarget(for: item),
+                                    viewModel: viewModel,
+                                    importAfterAdding: false,
+                                    showsCancelButton: false,
+                                    wrapInNavigationStack: false
+                                )
+                            } label: {
+                                ManualImportRow(
+                                    item: item,
+                                    isSelected: false,
+                                    isSelectingMode: false,
+                                    onToggle: {}
+                                )
+                            }
+                        }
+                    } header: {
+                        Text("Ready to Import")
+                    } footer: {
+                        Text("Tap a file to change its match, or import the ready files from this sheet.")
+                    }
+                }
+
+                if !viewModel.groupedUnidentifiedFiles.isEmpty {
+                    Section {
+                        ForEach(viewModel.groupedUnidentifiedFiles) { group in
+                            NavigationLink {
+                                ManualImportIdentifySheet(
+                                    target: identifyTarget(for: group),
+                                    viewModel: viewModel,
+                                    importAfterAdding: false,
+                                    showsCancelButton: false,
+                                    wrapInNavigationStack: false
+                                )
+                            } label: {
+                                ManualImportGroupRow(
+                                    group: group,
+                                    style: .unidentified,
+                                    selectionState: .none,
+                                    isSelectingMode: false,
+                                    onToggle: {}
+                                )
+                            }
+                        }
+                    } header: {
+                        Text("Needs Identification")
+                    } footer: {
+                        Text("Choose the correct \(resolution.service == .radarr ? "movie" : "series") match. The file will move into Ready to Import in this same sheet.")
+                    }
+                }
+
+                if !viewModel.groupedBlockedFiles.isEmpty {
+                    Section {
+                        ForEach(viewModel.groupedBlockedFiles) { group in
+                            NavigationLink {
+                                ManualImportBlockedGroupInlineView(group: group, viewModel: viewModel)
+                            } label: {
+                                ManualImportGroupRow(
+                                    group: group,
+                                    style: .blocked,
+                                    selectionState: .none,
+                                    isSelectingMode: false,
+                                    onToggle: {}
+                                )
+                            }
+                        }
+                    } header: {
+                        Text("Still Blocked")
+                    } footer: {
+                        Text("These files need another server-side fix before they can be imported.")
+                    }
+                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+            .navigationTitle("Resolve Import Issue")
+            #if os(iOS) || os(visionOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if viewModel.isImporting {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button(readyItems.count == 1 ? "Import" : "Import \(readyItems.count)") {
+                            let items = readyItems
+                            Task {
+                                let succeeded = await viewModel.importItems(items)
+                                if succeeded {
+                                    await onImportCompleted()
+                                    dismiss()
+                                }
+                            }
+                        }
+                        .fontWeight(.semibold)
+                        .disabled(readyItems.isEmpty || viewModel.isBusy)
+                    }
+                }
+            }
+            .refreshable {
+                await viewModel.loadFiles()
+            }
+            .task {
+                if !viewModel.hasPerformedInitialScan {
+                    await viewModel.loadFiles()
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func identifyTarget(for item: ManualImportItem) -> ManualImportIdentifyTarget {
+        ManualImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
+    }
+
+    private func identifyTarget(for group: ManualImportGroup) -> ManualImportIdentifyTarget {
+        let label = group.items.count == 1
+            ? (group.items.first?.fileName ?? group.displayTitle)
+            : "\(group.displayTitle) · \(group.items.count) files"
+        return ManualImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
+    }
+}
+
+private struct ManualImportBlockedGroupInlineView: View {
+    let group: ManualImportGroup
+    let viewModel: ManualImportScanViewModel
+
+    private var currentItems: [ManualImportItem] {
+        let ids = Set(group.items.map(\.id))
+        return viewModel.blockedFiles.filter { ids.contains($0.id) }
+    }
+
+    var body: some View {
+        List {
+            if !group.rejectionReasons.isEmpty {
+                Section {
+                    ForEach(group.rejectionReasons, id: \.self) { reason in
+                        Label(reason, systemImage: "xmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(.red)
+                    }
+                } header: {
+                    Text("Rejections")
+                }
+            }
+
+            Section {
+                ForEach(currentItems) { item in
+                    ManualImportBlockedRow(
+                        item: item,
+                        isSelected: false,
+                        isSelectingMode: false,
+                        onToggle: {}
+                    )
+                }
+            } header: {
+                Text(currentItems.count == 1 ? "File" : "\(currentItems.count) Files")
+            } footer: {
+                Text("Resolve these rejection reasons in \(viewModel.service.displayName), then refresh the resolver.")
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle(group.displayTitle)
+        #if os(iOS) || os(visionOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }
 
@@ -1993,6 +2309,17 @@ private struct ManualImportItem: Identifiable, Sendable {
 
 private enum GroupSelectionState { case none, partial, all }
 
+struct ArrQueueImportIssueResolution: Identifiable, Equatable {
+    let id: Int
+    let path: String
+    let service: ArrServiceType
+    let libraryItemID: Int?
+    let title: String
+    let status: String
+    let message: String
+    let rootFolder: String?
+}
+
 /// What the identify sheet is operating on. Wraps either a single file (re-identify)
 /// or every file in an inferred-title group (cascade identify).
 private struct ManualImportIdentifyTarget: Identifiable, Sendable {
@@ -2066,6 +2393,14 @@ private struct ManualImportGroup: Identifiable, Sendable {
         return "\(seasonLabel) · \(count) episode\(count == 1 ? "" : "s")"
     }
 
+    var fileSummary: String {
+        guard let first = items.first else { return "" }
+        if items.count == 1 {
+            return first.fileName
+        }
+        return "\(first.fileName) + \(items.count - 1) more"
+    }
+
     var qualityNames: [String] {
         Array(Set(items.compactMap(\.qualityName))).sorted()
     }
@@ -2122,10 +2457,12 @@ private struct ManualImportRow: View {
                             .lineLimit(1)
                     }
 
-                    Text(item.mediaTitle == nil ? item.path : item.fileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if item.mediaTitle != nil {
+                        Text(item.fileName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
 
                     statusChip(ByteFormatter.format(bytes: item.size), color: .secondary)
 
@@ -2191,10 +2528,12 @@ private struct ManualImportBlockedRow: View {
                         }
                     }
 
-                    Text(item.mediaTitle == nil ? item.path : item.fileName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
+                    if item.mediaTitle != nil {
+                        Text(item.fileName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
 
                     statusChip(ByteFormatter.format(bytes: item.size), color: .secondary)
                 }
@@ -2281,6 +2620,13 @@ private struct ManualImportGroupRow: View {
                     Text(group.episodeSummary)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    if group.isIdentified {
+                        Text(group.fileSummary)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
 
                     HStack(spacing: 4) {
                         ForEach(group.qualityNames, id: \.self) { name in

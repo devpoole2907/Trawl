@@ -35,7 +35,7 @@ struct RadarrMovieDetailView: View {
     @State private var isAlternateTitlesExpanded = false
     @State private var isFilesExpanded = false
     @State private var showAddSheet = false
-    @State private var manualImportPath: String?
+    @State private var importIssueResolution: ArrQueueImportIssueResolution?
     @State private var didAdd = false
     @State private var showInteractiveSearchSheet = false
     @State private var isDispatchingAutomaticSearch = false
@@ -95,6 +95,11 @@ struct RadarrMovieDetailView: View {
             }
         }
         .navigationTitle(movie?.title ?? "Movie")
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie?.hasFile)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie?.monitored)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isInLibrary)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.movieFiles.map(\.id))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -161,18 +166,15 @@ struct RadarrMovieDetailView: View {
                 RadarrEditMovieSheet(viewModel: viewModel, movie: movie)
             }
         }
-        .sheet(isPresented: manualImportPresented) {
-            if let manualImportPath {
-                ManualImportScanView(
-                    path: manualImportPath,
-                    service: .radarr,
-                    serviceManager: serviceManager,
-                    libraryItemID: resolvedLibraryId,
-                    showsCloseButton: true
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-            }
+        .sheet(item: $importIssueResolution) { resolution in
+            ArrQueueImportIssueResolutionSheet(
+                resolution: resolution,
+                serviceManager: serviceManager,
+                onImportCompleted: {
+                    await viewModel.loadQueue()
+                    await viewModel.loadMovies()
+                }
+            )
         }
         .sheet(isPresented: $showAddSheet) {
             if let movie {
@@ -198,7 +200,7 @@ struct RadarrMovieDetailView: View {
             while !Task.isCancelled {
                 await viewModel.loadQueue()
                 let currentIds = Set(viewModel.queue.map(\.id))
-                if !knownQueueIds.subtracting(currentIds).isEmpty {
+                if currentIds != knownQueueIds {
                     await viewModel.loadMovieFiles(movieId: id)
                 }
                 knownQueueIds = currentIds
@@ -493,6 +495,7 @@ struct RadarrMovieDetailView: View {
                 )
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
 
             Button {
                 showInteractiveSearchSheet = true
@@ -505,6 +508,7 @@ struct RadarrMovieDetailView: View {
                 )
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -529,6 +533,7 @@ struct RadarrMovieDetailView: View {
                 Text(subtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -537,14 +542,16 @@ struct RadarrMovieDetailView: View {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: trailingSystemImage)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .padding(12)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -734,7 +741,7 @@ struct RadarrMovieDetailView: View {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
 
                     Text(primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized)
                         .font(.caption)
@@ -825,7 +832,7 @@ struct RadarrMovieDetailView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
             }
         }
     }
@@ -842,7 +849,7 @@ struct RadarrMovieDetailView: View {
                     Text(linkedTorrent?.name ?? item.title ?? "Queue Item")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
 
                     Text(primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized)
                         .font(.caption)
@@ -863,7 +870,7 @@ struct RadarrMovieDetailView: View {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
 
             if let rootFolder = movie?.rootFolderPath, !rootFolder.isEmpty {
                 LabeledContent("Library Root") {
@@ -899,12 +906,21 @@ struct RadarrMovieDetailView: View {
 
                 if let outputPath = item.outputPath, !outputPath.isEmpty {
                     Button {
-                        manualImportPath = outputPath
+                        importIssueResolution = ArrQueueImportIssueResolution(
+                            id: item.id,
+                            path: outputPath,
+                            service: .radarr,
+                            libraryItemID: resolvedLibraryId,
+                            title: linkedTorrent?.name ?? item.title ?? "Queue Item",
+                            status: primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized,
+                            message: message,
+                            rootFolder: movie?.rootFolderPath
+                        )
                     } label: {
                         importIssueActionIcon(systemName: "tray.and.arrow.down.fill", tint: .teal)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Open Manual Import")
+                    .accessibilityLabel("Resolve Import Issue")
                     .disabled(isRemoving)
                 }
 
@@ -1008,6 +1024,10 @@ struct RadarrMovieDetailView: View {
             return torrent.state.filterCategory == .downloading
         }
 
+        if item.downloadId?.isEmpty == false {
+            return false
+        }
+
         return item.isDownloadingQueueItem
     }
 
@@ -1034,13 +1054,6 @@ struct RadarrMovieDetailView: View {
         Binding(
             get: { pendingQueueAction != nil },
             set: { if !$0 { pendingQueueAction = nil } }
-        )
-    }
-
-    private var manualImportPresented: Binding<Bool> {
-        Binding(
-            get: { manualImportPath != nil },
-            set: { if !$0 { manualImportPath = nil } }
         )
     }
 
@@ -1675,6 +1688,10 @@ struct RadarrMovieSearchView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie.hasFile)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie.monitored)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueItem?.id)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: automaticSearchFeedback)
         .sheet(isPresented: $showInteractiveSearchSheet) {
             RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
         }
@@ -1793,6 +1810,7 @@ struct RadarrMovieSearchView: View {
             }
         } else {
             automaticSearchButton
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -1808,6 +1826,7 @@ struct RadarrMovieSearchView: View {
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
     private func movieSearchActionRow(
@@ -1830,7 +1849,7 @@ struct RadarrMovieSearchView: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -1838,14 +1857,16 @@ struct RadarrMovieSearchView: View {
             if isLoading {
                 ProgressView()
                     .tint(.white)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: trailingSystemImage)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .padding(12)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -1955,10 +1976,7 @@ struct RadarrInteractiveSearchSheet: View {
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    ProgressView("Searching indexers…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = searchError, !error.isEmpty {
+                if let error = searchError, !error.isEmpty {
                     ContentUnavailableView {
                         Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
                     } description: {
@@ -1986,8 +2004,25 @@ struct RadarrInteractiveSearchSheet: View {
                     } actions: {
                         Button("Clear Filters") { clearFilters() }
                     }
-                } else if !releases.isEmpty {
+                } else {
                     List {
+                        if isLoading && releases.isEmpty {
+                            Section {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Searching indexers…")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text("Results will appear here as soon as Radarr returns them.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+
                         ForEach(displayedReleases) { release in
                             NavigationLink {
                                 RadarrReleaseActionView(
@@ -2000,6 +2035,7 @@ struct RadarrInteractiveSearchSheet: View {
                                 RadarrReleaseRowView(release: release)
                             }
                         }
+                        .animation(.default, value: displayedReleases.map(\.id))
 
                         if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
                             Section {
@@ -2117,15 +2153,25 @@ struct RadarrInteractiveSearchSheet: View {
         releases = []
         searchError = nil
         do {
-            releases = try await viewModel.interactiveSearchMovie(movieId: movie.id)
+            let results = try await viewModel.interactiveSearchMovie(movieId: movie.id)
+            isLoading = false
+            let batchSize = results.count > 30 ? 6 : 3
+            for batch in results.chunked(into: batchSize) {
+                guard !Task.isCancelled else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    releases.append(contentsOf: batch)
+                }
+                try? await Task.sleep(nanoseconds: 18_000_000)
+            }
             hasLoadedReleases = true
         } catch is CancellationError {
             hasLoadedReleases = false
+            isLoading = false
         } catch {
             searchError = interactiveSearchErrorMessage(error)
             hasLoadedReleases = true
+            isLoading = false
         }
-        isLoading = false
     }
 
     private func interactiveSearchErrorMessage(_ error: Error) -> String {
@@ -2195,25 +2241,21 @@ struct RadarrReleaseRowView: View {
 
     @ViewBuilder
     private var seederChip: some View {
-        let seeders = release.seeders
-        let leechers = release.leechers
+        if let label = seederLabel {
+            releaseChip(label, color: seederColor(for: release.seeders ?? 0), isProminent: true)
+        }
+    }
 
-        // Only render when at least one value is present
-        if seeders != nil || leechers != nil {
-            let label: String
-            if let s = seeders, let l = leechers {
-                label = "S:\(s) L:\(l)"
-            } else if let s = seeders {
-                label = "S:\(s)"
-            } else if let l = leechers {
-                label = "L:\(l)"
-            } else {
-                label = ""
-            }
-
-            if !label.isEmpty {
-                releaseChip(label, color: seederColor(for: seeders ?? 0), isProminent: true)
-            }
+    private var seederLabel: String? {
+        switch (release.seeders, release.leechers) {
+        case let (seeders?, leechers?):
+            "S:\(seeders) L:\(leechers)"
+        case let (seeders?, nil):
+            "S:\(seeders)"
+        case let (nil, leechers?):
+            "L:\(leechers)"
+        case (nil, nil):
+            nil
         }
     }
 
@@ -2244,145 +2286,12 @@ struct RadarrReleaseActionView: View {
     let onGrab: () async -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: 20) {
-                // Header
-                VStack(spacing: 6) {
-                    Text(release.title ?? "Unknown Release")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(release.indexer ?? "Unknown Indexer")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
-
-                // Details card
-                detailsCard
-
-                // Rejections card
-                if let rejections = release.rejections, !rejections.isEmpty {
-                    rejectionsCard(rejections)
-                }
-
-                // Download button
-                Button {
-                    Task { await onGrab() }
-                } label: {
-                    if isGrabbing {
-                        ProgressView()
-                            .tint(.white)
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Label("Download Release", systemImage: "arrow.down.circle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.orange)
-                .controlSize(.large)
-                .disabled(isGrabbing || release.downloadAllowed == false)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 44)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-        }
-        .background {
-            ArrArtworkView(url: artURL, contentMode: .fill) {
-                Rectangle().fill(Color.orange.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scaleEffect(1.4)
-            .blur(radius: 60)
-            .saturation(1.6)
-            .overlay(Color.black.opacity(0.55))
-            .ignoresSafeArea()
-        }
-        .environment(\.colorScheme, .dark)
-        #if os(iOS)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        #endif
-        .navigationTitle("Release")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-    }
-
-    private var detailsCard: some View {
-        let rows: [(String, String, String)] = [
-            ("sparkles", "Quality", release.qualityName),
-            release.size.map { ("externaldrive", "Size", ByteFormatter.format(bytes: $0)) },
-            ("antenna.radiowaves.left.and.right", "Protocol", release.protocolName),
-            release.ageDescription.map { ("clock", "Age", $0) },
-            release.seeders.map { s in ("arrow.up.circle", "Seeders", "\(s)") },
-            release.leechers.map { l in ("arrow.down.circle", "Leechers", "\(l)") },
-            release.customFormatScore.map { ("star", "Custom Score", "\($0)") }
-        ].compactMap { $0 }.filter { !$0.2.isEmpty }
-
-        return VStack(alignment: .leading, spacing: 0) {
-            Label("Details", systemImage: "shippingbox")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                HStack(spacing: 10) {
-                    Image(systemName: row.0)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, alignment: .center)
-                    Text(row.1)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text(row.2)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-
-                if index < rows.count - 1 {
-                    Divider().padding(.leading, 42)
-                }
-            }
-
-            Color.clear.frame(height: 4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func rejectionsCard(_ rejections: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Alerts", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(rejections, id: \.self) { reason in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 5))
-                            .foregroundStyle(.orange.opacity(0.8))
-                            .padding(.top, 5)
-                        Text(reason)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.85))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        ArrReleaseActionContent(
+            release: release,
+            artURL: artURL,
+            accentColor: .orange,
+            isGrabbing: isGrabbing,
+            onGrab: onGrab
+        )
     }
 }

@@ -545,39 +545,7 @@ private struct RecentNotificationsSheet: View {
                     ContentUnavailableView("No Notifications Yet", systemImage: "bell.slash", description: Text("Recent in-app and system notifications will appear here."))
                 } else {
                     List(inAppNotificationCenter.recentNotifications) { entry in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack(spacing: 8) {
-                                Circle()
-                                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
-                                    .frame(width: 7, height: 7)
-                                Image(systemName: icon(for: entry.style))
-                                    .foregroundStyle(color(for: entry.style))
-                                Text(entry.title)
-                                    .font(.headline)
-                                Spacer()
-                                Text(entry.source.rawValue)
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            if !entry.message.isEmpty {
-                                Text(entry.message)
-                                    .font(.subheadline)
-                                    .foregroundStyle(.secondary)
-                                    .padding(.leading, 15)
-                            }
-                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .padding(.leading, 15)
-                        }
-                        .padding(.vertical, 2)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                            Button(role: .destructive) {
-                                inAppNotificationCenter.removeNotification(id: entry.id)
-                            } label: {
-                                Label("Remove", systemImage: "xmark")
-                            }
-                        }
+                        notificationRow(for: entry)
                     }
                 }
             }
@@ -643,5 +611,122 @@ private struct RecentNotificationsSheet: View {
         case .error: .red
         case .progress: .blue
         }
+    }
+
+    private static let longMessageThreshold = 140
+
+    private func isLongMessage(_ message: String) -> Bool {
+        message.count > Self.longMessageThreshold || message.contains("\n")
+    }
+
+    @ViewBuilder
+    private func notificationRow(for entry: NotificationLogEntry) -> some View {
+        let long = isLongMessage(entry.message)
+        Group {
+            if long {
+                NavigationLink {
+                    NotificationDetailView(
+                        entry: entry,
+                        icon: icon(for: entry.style),
+                        tint: color(for: entry.style)
+                    )
+                } label: {
+                    notificationRowBody(entry: entry, truncate: true)
+                }
+            } else {
+                notificationRowBody(entry: entry, truncate: false)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                inAppNotificationCenter.removeNotification(id: entry.id)
+            } label: {
+                Label("Remove", systemImage: "xmark")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
+                    .frame(width: 7, height: 7)
+                Image(systemName: icon(for: entry.style))
+                    .foregroundStyle(color(for: entry.style))
+                Text(entry.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+                Text(entry.source.rawValue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !entry.message.isEmpty {
+                Text(entry.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 15)
+                    .lineLimit(truncate ? 2 : nil)
+            }
+            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 15)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct NotificationDetailView: View {
+    let entry: NotificationLogEntry
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.title2)
+                        .foregroundStyle(tint)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.title)
+                            .font(.title3.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Label(entry.source.rawValue, systemImage: "tray.fill")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Divider()
+
+                if entry.message.isEmpty {
+                    Text("No additional details.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(entry.message)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("Notification")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }

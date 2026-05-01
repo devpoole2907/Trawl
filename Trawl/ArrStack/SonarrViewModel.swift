@@ -554,7 +554,7 @@ final class SonarrViewModel {
     func loadQueue() async {
         guard let client else { return }
         do {
-            let page = try await client.getQueue(page: 1, pageSize: 50)
+            let page = try await client.getQueue(page: 1, pageSize: 250)
             queue = page.records ?? []
         } catch {
             self.error = error.localizedDescription

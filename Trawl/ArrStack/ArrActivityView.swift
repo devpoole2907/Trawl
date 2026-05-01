@@ -133,6 +133,7 @@ struct ArrActivityView: View {
                     }
                 }
             }
+            .animation(.default, value: allItems.map(\.id))
             #if os(iOS)
             .listStyle(.insetGrouped)
             #else
@@ -618,7 +619,7 @@ struct ArrHealthView: View {
             ContentUnavailableView(
                 "No Health Issues",
                 systemImage: "checkmark.circle",
-                description: Text("No health warnings reported for the selected service.")
+                description: Text("No health warnings reported for the selected services.")
             )
         } else {
             List {

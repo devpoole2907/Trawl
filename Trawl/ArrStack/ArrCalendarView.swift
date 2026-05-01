@@ -362,7 +362,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            Picker("Scope", selection: $scope) {
+            Picker("Scope", selection: Binding(
+                get: { scope },
+                set: { newValue in withAnimation { scope = newValue } }
+            )) {
                 ForEach(CalendarScope.allCases, id: \.self) { option in
                     Text(option.title).tag(option)
                 }

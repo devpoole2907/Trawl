@@ -505,6 +505,7 @@ struct SearchView: View {
                     }
                 }
                 .listStyle(.plain)
+                .animation(.default, value: filter)
             }
         }
     }
@@ -534,7 +535,9 @@ struct SearchView: View {
     private func pill(kind: ResultKind, title: String, icon: String, count: Int) -> some View {
         let isSelected = filter == kind
         return Button {
-            filter = kind
+            withAnimation(.snappy) {
+                filter = kind
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)

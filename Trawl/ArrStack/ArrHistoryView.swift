@@ -60,6 +60,7 @@ struct ArrHistoryView: View {
                         }
                     }
                 }
+                .animation(.default, value: groupedItems.map(\.id))
 
                 if shouldShowLoadMore {
                     Button {

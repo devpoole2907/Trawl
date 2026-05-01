@@ -286,7 +286,7 @@ struct TorrentListView: View {
                     Menu {
                         ForEach(TorrentFilter.allCases) { filter in
                             Button {
-                                vm.selectedFilter = filter
+                                withAnimation { vm.selectedFilter = filter }
                             } label: {
                                 if vm.selectedFilter == filter {
                                     Label(filterLabel(for: filter, vm: vm), systemImage: "checkmark")
@@ -302,7 +302,7 @@ struct TorrentListView: View {
                     Menu {
                         ForEach(TorrentSortOrder.allCases) { order in
                             Button {
-                                vm.sortOrder = order
+                                withAnimation { vm.sortOrder = order }
                             } label: {
                                 if vm.sortOrder == order {
                                     Label(order.rawValue, systemImage: "checkmark")

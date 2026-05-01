@@ -518,7 +518,7 @@ struct SwiftTermView: NSViewRepresentable {
     func updateNSView(_ nsView: TerminalView, context: Context) {
         guard let window = nsView.window else { return }
 
-        if nsView.wantsKeyboard {
+        if wantsKeyboard {
             if window.firstResponder !== nsView {
                 window.makeFirstResponder(nsView)
             }
