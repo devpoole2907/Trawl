@@ -49,7 +49,7 @@ struct ArrDownloadClientListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button {
                     showAddSheet = true
                 } label: {

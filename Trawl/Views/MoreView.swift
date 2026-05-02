@@ -24,6 +24,9 @@ enum MoreDestination: Hashable {
     case calendarSeries(id: Int)
     case calendarMovie(id: Int)
     case manualImportScan(path: String, service: ArrServiceType)
+    case mediaManagement
+    case arrNamingConfig(service: ArrServiceType)
+    case rootFolders
 }
 
 enum MoreDestinationAccent {
@@ -31,17 +34,21 @@ enum MoreDestinationAccent {
     case manualImport
     case categoriesAndTags
     case transferStats
+    case mediaManagement
+    case sonarrNaming
+    case radarrNaming
+    case rootFolders
 
     var color: Color {
         switch self {
-        case .calendar:
-            return .purple
-        case .manualImport:
-            return .blue
-        case .categoriesAndTags:
-            return .brown
-        case .transferStats:
-            return .mint
+        case .calendar: return .purple
+        case .manualImport: return .blue
+        case .categoriesAndTags: return .brown
+        case .transferStats: return .mint
+        case .mediaManagement: return .green
+        case .sonarrNaming: return .purple
+        case .radarrNaming: return .orange
+        case .rootFolders: return .indigo
         }
     }
 }
@@ -54,6 +61,8 @@ struct MoreView: View {
     let selectSSHProfile: (SSHProfile) -> Void
     @Environment(SSHSessionStore.self) private var sshSessionStore
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var showingNotificationsSheet = false
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
 
@@ -99,19 +108,14 @@ struct MoreView: View {
                                 title: "Blocklist", subtitle: "Releases blocked from being grabbed")
                     }
 
-                    NavigationLink(value: MoreDestination.manualImport) {
-                        moreRow(icon: "tray.and.arrow.down.fill", color: MoreDestinationAccent.manualImport.color,
-                                title: "Manual Import", subtitle: "Browse and import files from root folders")
+                    NavigationLink(value: MoreDestination.mediaManagement) {
+                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
+                                title: "Media Management", subtitle: "Naming, root folders, import, and storage")
                     }
 
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                                 title: "Indexers", subtitle: "Manage indexers across your services")
-                    }
-
-                    NavigationLink(value: MoreDestination.diskSpace) {
-                        moreRow(icon: "internaldrive.fill", color: .teal,
-                                title: "Disk Space", subtitle: "Storage usage across Sonarr and Radarr")
                     }
                 }
 
@@ -145,11 +149,38 @@ struct MoreView: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .navigationTitle("More")
             #if os(iOS)
             .toolbarTitleDisplayMode(.large)
             #endif
+            .toolbar {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button {
+                        showingNotificationsSheet.toggle()
+                    } label: {
+                        Image(systemName: "bell.fill")
+                            .symbolRenderingMode(.hierarchical)
+                            .overlay(alignment: .topTrailing) {
+                                if inAppNotificationCenter.unreadCount > 0 {
+                                    Circle()
+                                        .fill(.red)
+                                        .frame(width: 8, height: 8)
+                                        .offset(x: 2, y: -2)
+                                }
+                            }
+                    }
+                    .accessibilityLabel("Recent Notifications")
+                }
+            }
+            .sheet(isPresented: $showingNotificationsSheet) {
+                RecentNotificationsSheet()
+                    .environment(inAppNotificationCenter)
+            }
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .activity:
@@ -233,6 +264,20 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .manualImportScan(let path, let service):
                     ManualImportScanView(path: path, service: service, serviceManager: arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .mediaManagement:
+                    ArrMediaManagementView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .arrNamingConfig(let service):
+                    ArrNamingConfigView(serviceType: service)
+                        .environment(arrServiceManager)
+                        .environment(InAppNotificationCenter.shared)
+                        .moreDestinationTitleStyle()
+                case .rootFolders:
+                    ArrRootFoldersView()
+                        .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
                         .moreDestinationTitleStyle()
                 }
             }
@@ -415,26 +460,7 @@ struct MoreView: View {
     }
 
     private func moreRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(color.opacity(0.15))
-                    .frame(width: 44, height: 44)
-                Image(systemName: icon)
-                    .font(.system(size: 19, weight: .medium))
-                    .foregroundStyle(color)
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title)
-                    .font(.body)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(.vertical, 4)
+        NavigationMenuRow(icon: icon, color: color, title: title, subtitle: subtitle)
     }
 }
 
@@ -481,5 +507,207 @@ extension View {
         } else {
             self
         }
+    }
+}
+
+
+private struct RecentNotificationsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var showClearConfirmation = false
+    @State private var unreadSinceDate: Date = .distantPast
+
+    private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if inAppNotificationCenter.recentNotifications.isEmpty {
+                    ContentUnavailableView("No Notifications Yet", systemImage: "bell.slash", description: Text("Recent in-app and system notifications will appear here."))
+                } else {
+                    List(inAppNotificationCenter.recentNotifications) { entry in
+                        notificationRow(for: entry)
+                    }
+                }
+            }
+            .navigationTitle("Notifications")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: platformCancellationPlacement) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Dismiss")
+                }
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text("Notifications")
+                            .font(.headline)
+                        if notificationCount > 0 {
+                            Text("\(notificationCount) notification\(notificationCount == 1 ? "" : "s")")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if notificationCount > 0 {
+                    ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                        Button("Clear") { showClearConfirmation = true }
+                    }
+                }
+            }
+            .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
+                Button("Clear", role: .destructive) {
+                    inAppNotificationCenter.clearRecentNotifications()
+                }
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("All recent notifications will be removed.")
+            }
+            #if os(iOS)
+            .presentationDetents([.medium, .large])
+            #endif
+        }
+        .onAppear {
+            unreadSinceDate = inAppNotificationCenter.lastReadDate
+            inAppNotificationCenter.markAllRead()
+        }
+    }
+
+    private func icon(for style: InAppBannerStyle) -> String {
+        switch style {
+        case .success: "checkmark.circle.fill"
+        case .error: "exclamationmark.triangle.fill"
+        case .progress: "arrow.triangle.2.circlepath"
+        }
+    }
+
+    private func color(for style: InAppBannerStyle) -> Color {
+        switch style {
+        case .success: .green
+        case .error: .red
+        case .progress: .blue
+        }
+    }
+
+    private static let longMessageThreshold = 140
+
+    private func isLongMessage(_ message: String) -> Bool {
+        message.count > Self.longMessageThreshold || message.contains("\n")
+    }
+
+    @ViewBuilder
+    private func notificationRow(for entry: NotificationLogEntry) -> some View {
+        let long = isLongMessage(entry.message)
+        Group {
+            if long {
+                NavigationLink {
+                    NotificationDetailView(
+                        entry: entry,
+                        icon: icon(for: entry.style),
+                        tint: color(for: entry.style)
+                    )
+                } label: {
+                    notificationRowBody(entry: entry, truncate: true)
+                }
+            } else {
+                notificationRowBody(entry: entry, truncate: false)
+            }
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            Button(role: .destructive) {
+                inAppNotificationCenter.removeNotification(id: entry.id)
+            } label: {
+                Label("Remove", systemImage: "xmark")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
+                    .frame(width: 7, height: 7)
+                Image(systemName: icon(for: entry.style))
+                    .foregroundStyle(color(for: entry.style))
+                Text(entry.title)
+                    .font(.headline)
+                    .lineLimit(1)
+                Spacer()
+                Text(entry.source.rawValue)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            if !entry.message.isEmpty {
+                Text(entry.message)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 15)
+                    .lineLimit(truncate ? 2 : nil)
+            }
+            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .padding(.leading, 15)
+        }
+        .padding(.vertical, 2)
+    }
+}
+
+private struct NotificationDetailView: View {
+    let entry: NotificationLogEntry
+    let icon: String
+    let tint: Color
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: icon)
+                        .font(.title2)
+                        .foregroundStyle(tint)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.title)
+                            .font(.title3.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Label(entry.source.rawValue, systemImage: "tray.fill")
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(.secondary)
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Divider()
+
+                if entry.message.isEmpty {
+                    Text("No additional details.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text(entry.message)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("Notification")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 }

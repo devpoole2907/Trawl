@@ -81,7 +81,7 @@ struct ArrRemotePathMappingListView: View {
         #endif
         .toolbar {
             if serviceType != .prowlarr {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button {
                         showAddSheet = true
                     } label: {
@@ -279,8 +279,10 @@ struct ArrRemotePathMappingEditorSheet: View {
                     if isCustom {
                         LabeledContent("Hostname") {
                             TextField("192.168.1.10", text: $host)
+                                #if os(iOS)
                                 .keyboardType(.URL)
                                 .textInputAutocapitalization(.never)
+                                #endif
                                 .autocorrectionDisabled()
                                 .multilineTextAlignment(.trailing)
                         }
@@ -300,14 +302,18 @@ struct ArrRemotePathMappingEditorSheet: View {
                 Section {
                     LabeledContent("Remote Path") {
                         TextField("/downloads/", text: $remotePath)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }
 
                     LabeledContent("Local Path") {
                         TextField("/media/downloads/", text: $localPath)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }

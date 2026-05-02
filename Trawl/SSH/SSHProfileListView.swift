@@ -65,7 +65,11 @@ struct SSHProfileListView: View {
             }
         }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .scrollContentBackground(.hidden)
         .background(
             LinearGradient(

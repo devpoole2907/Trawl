@@ -2,6 +2,7 @@ import Foundation
 import OSLog
 import Observation
 import SwiftData
+import SwiftUI
 
 @MainActor
 @Observable
@@ -108,11 +109,6 @@ final class ArrSetupViewModel {
 
             try await KeychainHelper.shared.save(key: keychainKey, value: trimmedKey)
 
-            // Tear down the old connection if the service type is changing
-            if let originalResolvedServiceType, originalResolvedServiceType != serviceType {
-                serviceManager.disconnectService(originalResolvedServiceType, profileID: profile.id)
-            }
-
             profile.displayName = name
             profile.hostURL = trimmedURL
             profile.serviceType = serviceType.rawValue
@@ -121,7 +117,9 @@ final class ArrSetupViewModel {
             profile.apiVersion = status.version
 
             if !isEditing {
-                modelContext.insert(profile)
+                withAnimation(.snappy) {
+                    modelContext.insert(profile)
+                }
             }
 
             if serviceType == .prowlarr {
@@ -166,6 +164,11 @@ final class ArrSetupViewModel {
                     }
                 }
                 throw error
+            }
+
+            // Tear down the old connection only after persistence succeeds.
+            if let originalResolvedServiceType, originalResolvedServiceType != serviceType {
+                serviceManager.disconnectService(originalResolvedServiceType, profileID: profile.id)
             }
 
             // Connect the new service
@@ -215,9 +218,10 @@ final class ArrSetupViewModel {
         }
 
         let keychainKey = profile.apiKeyKeychainKey
-        serviceManager.disconnectService(serviceType, profileID: profile.id)
 
-        modelContext.delete(profile)
+        withAnimation(.snappy) {
+            modelContext.delete(profile)
+        }
         do {
             try modelContext.save()
         } catch {
@@ -228,6 +232,8 @@ final class ArrSetupViewModel {
             )
             return
         }
+
+        serviceManager.disconnectService(serviceType, profileID: profile.id)
 
         do {
             try await KeychainHelper.shared.delete(key: keychainKey)

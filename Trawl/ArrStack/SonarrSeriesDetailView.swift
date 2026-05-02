@@ -33,7 +33,7 @@ struct SonarrSeriesDetailView: View {
     @State private var showEditSheet = false
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
     @State private var showAddSheet = false
-    @State private var manualImportPath: String?
+    @State private var importIssueResolution: ArrQueueImportIssueResolution?
     @State private var didAdd = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: PendingQueueAction?
@@ -125,6 +125,12 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .navigationTitle(series?.title ?? "Series")
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: series?.status)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: series?.monitored)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isInLibrary)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeFiles.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodes.map { "\($0.id)-\($0.hasFile == true)" })
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -145,14 +151,22 @@ struct SonarrSeriesDetailView: View {
 
                     await currentViewModel.loadQueue()
                     let currentIds = Set(currentViewModel.queue.map(\.id))
-                    if !knownQueueIds.subtracting(currentIds).isEmpty {
+                    if currentIds != knownQueueIds {
                         guard !Task.isCancelled else { break }
                         await currentViewModel.loadEpisodes(for: id)
                         await currentViewModel.loadEpisodeFiles(for: id)
                     }
                     knownQueueIds = currentIds
+
+                    // Adaptive polling: fast (2s) if active/import-issue items, slow (30s) otherwise
+                    let hasActiveOrIssueItems = currentViewModel.queue.contains {
+                        guard $0.seriesId == id else { return false }
+                        return isActiveQueueItem($0) || $0.isImportIssueQueueItem
+                    }
+                    let pollInterval = hasActiveOrIssueItems ? 2 : 30
+
                     do {
-                        try await Task.sleep(for: .seconds(30))
+                        try await Task.sleep(for: .seconds(pollInterval))
                     } catch is CancellationError {
                         break
                     } catch {
@@ -173,18 +187,20 @@ struct SonarrSeriesDetailView: View {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
             }
         }
-        .sheet(isPresented: manualImportPresented) {
-            if let manualImportPath {
-                ManualImportScanView(
-                    path: manualImportPath,
-                    service: .sonarr,
-                    serviceManager: serviceManager,
-                    libraryItemID: resolvedSeriesId,
-                    showsCloseButton: true
-                )
-                .presentationDetents([.medium, .large])
-                .presentationDragIndicator(.visible)
-            }
+        .sheet(item: $importIssueResolution) { resolution in
+            ArrQueueImportIssueResolutionSheet(
+                resolution: resolution,
+                serviceManager: serviceManager,
+                onImportCompleted: {
+                    if let id = resolvedSeriesId {
+                        await viewModel.loadQueue()
+                        await viewModel.loadEpisodes(for: id)
+                        await viewModel.loadEpisodeFiles(for: id)
+                    } else {
+                        await viewModel.loadQueue()
+                    }
+                }
+            )
         }
         .sheet(isPresented: $showAddSheet) {
             if let series {
@@ -398,6 +414,20 @@ struct SonarrSeriesDetailView: View {
 
     @ViewBuilder
     private func cardsSection(_ series: SonarrSeries) -> some View {
+        if !isInLibrary {
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add to Sonarr", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        }
+
         if let overview = series.overview, !overview.isEmpty {
             overviewCard(overview)
         }
@@ -507,6 +537,7 @@ struct SonarrSeriesDetailView: View {
                 )
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
             .disabled(isDispatchingSeriesSearch)
 
             Button {
@@ -520,6 +551,7 @@ struct SonarrSeriesDetailView: View {
                 )
             }
             .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
         }
     }
 
@@ -544,6 +576,7 @@ struct SonarrSeriesDetailView: View {
                 Text(subtitle)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -552,14 +585,16 @@ struct SonarrSeriesDetailView: View {
                 ProgressView()
                     .controlSize(.small)
                     .tint(.white)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: trailingSystemImage)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+        .padding(12)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -731,7 +766,7 @@ struct SonarrSeriesDetailView: View {
                     Text(title)
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
 
                     Text(primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized)
                         .font(.caption)
@@ -822,7 +857,7 @@ struct SonarrSeriesDetailView: View {
                 Text(message)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(4)
             }
         }
     }
@@ -839,7 +874,7 @@ struct SonarrSeriesDetailView: View {
                     Text(linkedTorrent?.name ?? item.title ?? "Queue Item")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
 
                     Text(primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized)
                         .font(.caption)
@@ -860,7 +895,7 @@ struct SonarrSeriesDetailView: View {
             Text(message)
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+                .lineLimit(4)
 
             if let rootFolder = series?.rootFolderPath, !rootFolder.isEmpty {
                 LabeledContent("Library Root") {
@@ -896,12 +931,21 @@ struct SonarrSeriesDetailView: View {
 
                 if let outputPath = item.outputPath, !outputPath.isEmpty {
                     Button {
-                        manualImportPath = outputPath
+                        importIssueResolution = ArrQueueImportIssueResolution(
+                            id: item.id,
+                            path: outputPath,
+                            service: .sonarr,
+                            libraryItemID: resolvedSeriesId,
+                            title: linkedTorrent?.name ?? item.title ?? "Queue Item",
+                            status: primaryStatus.replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression).capitalized,
+                            message: message,
+                            rootFolder: series?.rootFolderPath
+                        )
                     } label: {
                         importIssueActionIcon(systemName: "tray.and.arrow.down.fill", tint: .teal)
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Open Manual Import")
+                    .accessibilityLabel("Resolve Import Issue")
                     .disabled(isRemoving)
                 }
 
@@ -1031,13 +1075,6 @@ struct SonarrSeriesDetailView: View {
         Binding(
             get: { pendingQueueAction != nil },
             set: { if !$0 { pendingQueueAction = nil } }
-        )
-    }
-
-    private var manualImportPresented: Binding<Bool> {
-        Binding(
-            get: { manualImportPath != nil },
-            set: { if !$0 { manualImportPath = nil } }
         )
     }
 
@@ -1300,13 +1337,6 @@ struct SonarrSeriesDetailView: View {
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
-            } else {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                }
             }
         }
     }
@@ -1437,7 +1467,7 @@ private struct SonarrAddToLibrarySheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
+        .preferredColorScheme(.dark)
     }
 
     private func seasonBinding(for seasonNumber: Int, default defaultValue: Bool) -> Binding<Bool> {
@@ -1584,6 +1614,7 @@ struct SonarrInteractiveSearchSheet: View {
     @State private var hasLoaded = false
     @State private var searchText = ""
     @State private var releaseSort = ArrReleaseSort()
+    @State private var searchError: String?
 
     init(viewModel: SonarrViewModel, series: SonarrSeries, episode: SonarrEpisode? = nil, seasonNumber: Int? = nil) {
         self.viewModel = viewModel
@@ -1650,14 +1681,28 @@ struct SonarrInteractiveSearchSheet: View {
         releases.count - sortedFilteredReleases.count
     }
 
+    private var releaseCountSubtitle: String {
+        guard !releases.isEmpty else { return "" }
+        let shown = displayedReleases.count
+        let total = releases.count
+        return shown == total ? "\(total) releases" : "\(shown) of \(total) releases"
+    }
+
     var body: some View {
         NavigationStack {
             Group {
-                if isLoading {
-                    ProgressView("Searching indexers…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if let error = viewModel.error, !error.isEmpty {
-                    ContentUnavailableView(error, systemImage: "exclamationmark.triangle.fill")
+                if let error = searchError, !error.isEmpty {
+                    ContentUnavailableView {
+                        Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry", systemImage: "arrow.clockwise") {
+                            hasLoaded = false
+                            searchError = nil
+                            Task { await loadReleases() }
+                        }
+                    }
                 } else if releases.isEmpty && hasLoaded {
                     ContentUnavailableView(
                         "No Releases Found",
@@ -1672,8 +1717,25 @@ struct SonarrInteractiveSearchSheet: View {
                     } actions: {
                         Button("Clear Filters") { clearFilters() }
                     }
-                } else if !releases.isEmpty {
+                } else {
                     List {
+                        if isLoading && releases.isEmpty {
+                            Section {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Searching indexers…")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text("Results will appear here as soon as Sonarr returns them.")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+
                         ForEach(displayedReleases) { release in
                             NavigationLink {
                                 SonarrReleaseActionView(
@@ -1686,6 +1748,7 @@ struct SonarrInteractiveSearchSheet: View {
                                 SonarrReleaseRowView(release: release)
                             }
                         }
+                        .animation(.default, value: displayedReleases.map(\.id))
 
                         if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
                             Section {
@@ -1701,11 +1764,16 @@ struct SonarrInteractiveSearchSheet: View {
                             }
                         }
                     }
+                    #if os(iOS)
                     .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .searchable(text: $searchText, prompt: "Search releases…")
             .navigationTitle(titleString)
+            .navigationSubtitle(releaseCountSubtitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -1713,16 +1781,7 @@ struct SonarrInteractiveSearchSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
                 }
-                ToolbarItem(placement: .status) {
-                    if !releases.isEmpty {
-                        let shown = displayedReleases.count
-                        let total = releases.count
-                        Text(shown == total ? "\(total) releases" : "\(shown) of \(total)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                ToolbarItemGroup(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                     sortMenu
                     filterMenu
                 }
@@ -1822,9 +1881,32 @@ struct SonarrInteractiveSearchSheet: View {
         guard !hasLoaded else { return }
         isLoading = true
         releases = []
-        releases = await viewModel.interactiveSearch(episodeId: episode?.id, seriesId: series.id, seasonNumber: seasonNumber)
-        isLoading = false
-        hasLoaded = true
+        searchError = nil
+        do {
+            let results = try await viewModel.interactiveSearch(episodeId: episode?.id, seriesId: series.id, seasonNumber: seasonNumber)
+            isLoading = false
+            let batchSize = results.count > 30 ? 6 : 3
+            for batch in results.chunked(into: batchSize) {
+                guard !Task.isCancelled else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    releases.append(contentsOf: batch)
+                }
+                try? await Task.sleep(nanoseconds: 18_000_000)
+            }
+            hasLoaded = true
+        } catch is CancellationError {
+            hasLoaded = false
+            isLoading = false
+        } catch {
+            searchError = interactiveSearchErrorMessage(error)
+            hasLoaded = true
+            isLoading = false
+        }
+    }
+
+    private func interactiveSearchErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
     }
 
     private func grab(release: ArrRelease) async {
@@ -1879,24 +1961,37 @@ struct SonarrReleaseRowView: View {
                         releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
                     }
                     releaseChip(release.protocolName, color: .secondary)
-                    if let seeders = release.seeders, seeders > 0 {
-                        let leechers = release.leechers ?? 0
-                        releaseChip("S:\(seeders) L:\(leechers)", color: .secondary)
-                    }
+                    seederChip
                 }
             }
         }
         .padding(.vertical, 4)
     }
 
-    private func releaseChip(_ label: String, color: Color) -> some View {
+    @ViewBuilder
+    private var seederChip: some View {
+        let seeders = release.seeders ?? 0
+        let leechers = release.leechers ?? 0
+        releaseChip("S:\(seeders) L:\(leechers)", color: seederColor(for: seeders), isProminent: true)
+    }
+
+    private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
         Text(label)
             .font(.caption2.weight(.semibold))
             .foregroundStyle(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 4)
-            .background(color.opacity(0.1))
+            .background(color.opacity(isProminent ? 0.22 : 0.1))
             .clipShape(Capsule())
+    }
+
+    private func seederColor(for seeders: Int) -> Color {
+        switch seeders {
+        case 50...: .green
+        case 10...: .mint
+        case 1...: .orange
+        default: .red
+        }
     }
 }
 
@@ -1907,146 +2002,13 @@ struct SonarrReleaseActionView: View {
     let onGrab: () async -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: 20) {
-                // Header
-                VStack(spacing: 6) {
-                    Text(release.title ?? "Unknown Release")
-                        .font(.title3.bold())
-                        .foregroundStyle(.white)
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(release.indexer ?? "Unknown Indexer")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.7))
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.top, 16)
-
-                // Details card
-                detailsCard
-
-                // Rejections card
-                if let rejections = release.rejections, !rejections.isEmpty {
-                    rejectionsCard(rejections)
-                }
-
-                // Download button
-                Button {
-                    Task { await onGrab() }
-                } label: {
-                    if isGrabbing {
-                        ProgressView()
-                            .tint(.white)
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Label("Download Release", systemImage: "arrow.down.circle.fill")
-                            .frame(maxWidth: .infinity)
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.purple)
-                .controlSize(.large)
-                .disabled(isGrabbing || release.downloadAllowed == false)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 44)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-        }
-        .background {
-            ArrArtworkView(url: artURL, contentMode: .fill) {
-                Rectangle().fill(Color.purple.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scaleEffect(1.4)
-            .blur(radius: 60)
-            .saturation(1.6)
-            .overlay(Color.black.opacity(0.55))
-            .ignoresSafeArea()
-        }
-        .environment(\.colorScheme, .dark)
-        #if os(iOS)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        #endif
-        .navigationTitle("Release")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-    }
-
-    private var detailsCard: some View {
-        let rows: [(String, String, String)] = [
-            ("sparkles", "Quality", release.qualityName),
-            release.size.map { ("externaldrive", "Size", ByteFormatter.format(bytes: $0)) },
-            ("antenna.radiowaves.left.and.right", "Protocol", release.protocolName),
-            release.ageDescription.map { ("clock", "Age", $0) },
-            release.seeders.map { s in ("arrow.up.circle", "Seeders", "\(s)") },
-            release.leechers.map { l in ("arrow.down.circle", "Leechers", "\(l)") },
-            release.customFormatScore.map { ("star", "Custom Score", "\($0)") }
-        ].compactMap { $0 }.filter { !$0.2.isEmpty }
-
-        return VStack(alignment: .leading, spacing: 0) {
-            Label("Details", systemImage: "shippingbox")
-                .font(.headline)
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 8)
-
-            ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-                HStack(spacing: 10) {
-                    Image(systemName: row.0)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(width: 16, alignment: .center)
-                    Text(row.1)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 8)
-                    Text(row.2)
-                        .font(.subheadline)
-                        .lineLimit(1)
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 11)
-
-                if index < rows.count - 1 {
-                    Divider().padding(.leading, 42)
-                }
-            }
-
-            Color.clear.frame(height: 4)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func rejectionsCard(_ rejections: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("Alerts", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
-
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(rejections, id: \.self) { reason in
-                    HStack(alignment: .top, spacing: 8) {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 5))
-                            .foregroundStyle(.orange.opacity(0.8))
-                            .padding(.top, 5)
-                        Text(reason)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.85))
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        ArrReleaseActionContent(
+            release: release,
+            artURL: artURL,
+            accentColor: .purple,
+            isGrabbing: isGrabbing,
+            onGrab: onGrab
+        )
     }
 }
 
@@ -2213,6 +2175,9 @@ struct SonarrSeasonSearchView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: sortedEpisodes.map { "\($0.id)-\($0.hasFile == true)" })
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: automaticSearchFeedback)
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, seasonNumber: seasonNumber)
@@ -2351,6 +2316,7 @@ struct SonarrSeasonSearchView: View {
             }
         } else {
             automaticSearchButton
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -2366,6 +2332,7 @@ struct SonarrSeasonSearchView: View {
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .disabled(series == nil || sortedEpisodes.isEmpty)
     }
 
@@ -2389,7 +2356,7 @@ struct SonarrSeasonSearchView: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -2397,14 +2364,16 @@ struct SonarrSeasonSearchView: View {
             if isLoading {
                 ProgressView()
                     .tint(.white)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: trailingSystemImage)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .padding(12)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -2562,6 +2531,11 @@ struct SonarrEpisodeSearchView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.hasFile)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.monitored)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueItem?.id)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeFiles.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeHistory.map(\.id))
         .alert("Delete Episode File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
                 if let file = episodeFileToDelete {
@@ -2639,6 +2613,7 @@ struct SonarrEpisodeSearchView: View {
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
     private var episodeInteractiveSearchButton: some View {
@@ -2653,6 +2628,7 @@ struct SonarrEpisodeSearchView: View {
             )
         }
         .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
         .disabled(series == nil)
     }
 
@@ -2676,7 +2652,7 @@ struct SonarrEpisodeSearchView: View {
                 Text(subtitle)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .lineLimit(1)
             }
 
             Spacer()
@@ -2684,14 +2660,16 @@ struct SonarrEpisodeSearchView: View {
             if isLoading {
                 ProgressView()
                     .tint(.white)
+                    .frame(width: 18, height: 18)
             } else {
                 Image(systemName: trailingSystemImage)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
+                    .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
+        .padding(12)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }

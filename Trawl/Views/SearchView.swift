@@ -14,6 +14,8 @@ struct SearchView: View {
     @State private var actionErrorAlert: ErrorAlertItem?
     @State private var arrAddInFlightIDs: Set<String> = []
 
+    @Namespace private var trendingTransition
+
     // Loaded library
     @State private var sonarrSeries: [SonarrSeries] = []
     @State private var radarrMovies: [RadarrMovie] = []
@@ -102,6 +104,9 @@ struct SearchView: View {
                         }
                     )
                     .environment(syncService)
+                    #if os(iOS)
+                    .navigationTransition(.zoom(sourceID: dest, in: trendingTransition))
+                    #endif
                 }
             }
             .navigationDestination(for: ArrMovieLookupDestination.self) { dest in
@@ -114,6 +119,9 @@ struct SearchView: View {
                         }
                     )
                     .environment(syncService)
+                    #if os(iOS)
+                    .navigationTransition(.zoom(sourceID: dest, in: trendingTransition))
+                    #endif
                 }
             }
         }
@@ -234,7 +242,11 @@ struct SearchView: View {
                     }
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .safeAreaInset(edge: .top) {
                 Color.clear.frame(height: 44)
             }
@@ -314,6 +326,7 @@ struct SearchView: View {
                 }
                 .padding(.horizontal, 16)
             }
+            .horizontalSoftEdges()
         }
     }
 
@@ -322,17 +335,24 @@ struct SearchView: View {
         let inLibrary = isInLibrary(item)
 
         if item.isMovie, let match = movieMatches[item.id] {
-            NavigationLink(value: ArrMovieLookupDestination(movie: match)) {
+            let dest = ArrMovieLookupDestination(movie: match)
+            NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
+                    #if os(iOS)
+                    .matchedTransitionSource(id: dest, in: trendingTransition)
+                    #endif
             }
             .buttonStyle(.plain)
         } else if !item.isMovie, let match = seriesMatches[item.id] {
-            NavigationLink(value: ArrSeriesLookupDestination(series: match)) {
+            let dest = ArrSeriesLookupDestination(series: match)
+            NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
+                    #if os(iOS)
+                    .matchedTransitionSource(id: dest, in: trendingTransition)
+                    #endif
             }
             .buttonStyle(.plain)
         } else {
-            // Match not yet loaded — fall back to search with year for disambiguation
             Button {
                 if let year = item.year {
                     searchText = "\(item.displayTitle) \(year)"
@@ -501,6 +521,7 @@ struct SearchView: View {
                     }
                 }
                 .listStyle(.plain)
+                .animation(.default, value: filter)
             }
         }
     }
@@ -530,7 +551,9 @@ struct SearchView: View {
     private func pill(kind: ResultKind, title: String, icon: String, count: Int) -> some View {
         let isSelected = filter == kind
         return Button {
-            filter = kind
+            withAnimation(.snappy) {
+                filter = kind
+            }
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)

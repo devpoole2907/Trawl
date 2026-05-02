@@ -192,6 +192,17 @@ actor RadarrAPIClient: SharedArrClient {
         try await base.postCommand(name: RadarrCommand.applicationUpdate.rawValue)
     }
 
+    // MARK: - Naming Config
+
+    func getNamingConfig() async throws -> RadarrNamingConfig {
+        try await base.get("/api/v3/config/naming")
+    }
+
+    func updateNamingConfig(_ config: RadarrNamingConfig) async throws -> RadarrNamingConfig {
+        guard let id = config.id else { throw ArrError.invalidResponse }
+        return try await base.putCodable("/api/v3/config/naming/\(id)", body: config)
+    }
+
     // MARK: - Manual Import
 
     /// Get list of files that can be manually imported from a folder
@@ -212,7 +223,11 @@ actor RadarrAPIClient: SharedArrClient {
             "files": files.map { $0.rawValue },
             "importMode": importMode
         ]
-        return try await base.postCommandAndWait(name: "ManualImport", additionalParams: additionalParams)
+        return try await base.postCommandAndWait(
+            name: "ManualImport",
+            additionalParams: additionalParams,
+            timeout: .seconds(600)
+        )
     }
 }
 

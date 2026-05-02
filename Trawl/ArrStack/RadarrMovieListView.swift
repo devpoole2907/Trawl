@@ -15,6 +15,18 @@ struct RadarrMovieListView: View {
     @State private var showWantedMissing = false
     @State private var pendingDeleteMovie: RadarrMovie?
     @State private var isRunningCommand = false
+    @State private var editMode: SelectionMode = .inactive
+    @State private var selectedMovieIDs: Set<Int> = []
+    @State private var showBulkDeleteAlert = false
+
+    #if os(iOS)
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { editMode = $0.isEditing ? .active : .inactive }
+        )
+    }
+    #endif
 
     var body: some View {
         let baseContent = Group {
@@ -61,30 +73,49 @@ struct RadarrMovieListView: View {
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
+        .environment(\.editMode, swiftUIEditMode)
+        .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
         .toolbar { toolbarContent }
-        .confirmationDialog(
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
+        .alert(
             "Delete Movie?",
             isPresented: Binding(
                 get: { pendingDeleteMovie != nil },
                 set: { if !$0 { pendingDeleteMovie = nil } }
             ),
-            titleVisibility: .visible,
             presenting: pendingDeleteMovie
         ) { movie in
             Button("Delete from Radarr", role: .destructive) {
+                let id = movie.id
+                let vm = viewModel
                 pendingDeleteMovie = nil
-                Task { await viewModel?.deleteMovie(id: movie.id, deleteFiles: false) }
+                Task { await vm?.deleteMovie(id: id, deleteFiles: false) }
             }
             Button("Delete Movie and Files", role: .destructive) {
+                let id = movie.id
+                let vm = viewModel
                 pendingDeleteMovie = nil
-                Task { await viewModel?.deleteMovie(id: movie.id, deleteFiles: true) }
+                Task { await vm?.deleteMovie(id: id, deleteFiles: true) }
             }
             Button("Cancel", role: .cancel) {
                 pendingDeleteMovie = nil
             }
         } message: { movie in
             Text("Choose whether to remove only \(movie.title) from Radarr or also delete its files.")
+        }
+        .alert(bulkDeleteAlertTitle, isPresented: $showBulkDeleteAlert) {
+            Button("Delete from Radarr", role: .destructive) {
+                bulkDeleteMovies(deleteFiles: false)
+            }
+            .disabled(!canBulkDelete)
+            Button("Delete Movies and Files", role: .destructive) {
+                bulkDeleteMovies(deleteFiles: true)
+            }
+            .disabled(!canBulkDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose whether to remove the selected movies from Radarr or also delete their files. This action can't be undone.")
         }
         .refreshable {
             if let viewModel {
@@ -116,7 +147,9 @@ struct RadarrMovieListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            #if os(iOS)
             .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
+            #endif
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -212,6 +245,7 @@ struct RadarrMovieListView: View {
             movieList(vm: vm)
             .scrollPosition(id: $listScrollPosition)
             .animation(.default, value: vm.filteredMovies)
+            .searchable(text: movieSearchText, prompt: "Search movies")
         }
     }
 
@@ -219,6 +253,7 @@ struct RadarrMovieListView: View {
     private func movieList(vm: RadarrViewModel) -> some View {
         if vm.sortOrder == .title {
             let sections = movieTitleSections(for: vm.filteredMovies)
+            #if os(iOS)
             if #available(iOS 26.0, *) {
                 List {
                     ForEach(sections) { section in
@@ -242,6 +277,17 @@ struct RadarrMovieListView: View {
                     }
                 }
             }
+            #else
+            List {
+                ForEach(sections) { section in
+                    Section(section.title) {
+                        ForEach(section.movies) { movie in
+                            movieRow(movie, vm: vm)
+                        }
+                    }
+                }
+            }
+            #endif
         } else {
             List {
                 ForEach(vm.filteredMovies) { movie in
@@ -251,129 +297,231 @@ struct RadarrMovieListView: View {
         }
     }
 
+    @ViewBuilder
     private func movieRow(_ movie: RadarrMovie, vm: RadarrViewModel) -> some View {
-        NavigationLink(value: movie.id) {
-            RadarrMovieRow(
-                movie: movie,
-                hasIssue: vm.queue.contains {
-                    $0.movieId == movie.id && $0.isImportIssueQueueItem
-                }
-            )
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                pendingDeleteMovie = movie
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-
+        if editMode.isEditing {
             Button {
-                Task { await vm.toggleMovieMonitored(movie) }
+                toggleMovieSelection(movie)
             } label: {
-                Label(
-                    movie.monitored == true ? "Unmonitor" : "Monitor",
-                    systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                HStack(spacing: 12) {
+                    Image(systemName: selectedMovieIDs.contains(movie.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selectedMovieIDs.contains(movie.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    RadarrMovieRow(
+                        movie: movie,
+                        hasIssue: vm.queue.contains {
+                            $0.movieId == movie.id && $0.isImportIssueQueueItem
+                        }
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: movie.id) {
+                RadarrMovieRow(
+                    movie: movie,
+                    hasIssue: vm.queue.contains {
+                        $0.movieId == movie.id && $0.isImportIssueQueueItem
+                    }
                 )
             }
-            .tint(movie.monitored == true ? .orange : .blue)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    pendingDeleteMovie = movie
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+
+                Button {
+                    Task { await vm.toggleMovieMonitored(movie) }
+                } label: {
+                    Label(
+                        movie.monitored == true ? "Unmonitor" : "Monitor",
+                        systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                    )
+                }
+                .tint(movie.monitored == true ? .orange : .blue)
+            }
+        }
+    }
+
+    private func toggleMovieSelection(_ movie: RadarrMovie) {
+        if selectedMovieIDs.contains(movie.id) {
+            selectedMovieIDs.remove(movie.id)
+        } else {
+            selectedMovieIDs.insert(movie.id)
+        }
+    }
+
+    private var visibleSelectedMovieIDs: Set<Int> {
+        guard let vm = viewModel else { return [] }
+        let visibleIDs = Set(vm.filteredMovies.map { $0.id })
+        return selectedMovieIDs.intersection(visibleIDs)
+    }
+
+    private var canBulkDelete: Bool {
+        !visibleSelectedMovieIDs.isEmpty
+    }
+
+    private var bulkDeleteAlertTitle: String {
+        let count = visibleSelectedMovieIDs.count
+        return "Delete \(count) \(count == 1 ? "Movie" : "Movies")?"
+    }
+
+    private func bulkDeleteMovies(deleteFiles: Bool) {
+        guard let vm = viewModel else { return }
+        let idsToDelete = visibleSelectedMovieIDs
+        guard !idsToDelete.isEmpty else { return }
+        selectedMovieIDs = []
+        withAnimation { editMode = .inactive }
+        Task {
+            for id in idsToDelete {
+                _ = await vm.deleteMovie(id: id, deleteFiles: deleteFiles)
+            }
         }
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
-            if let vm = viewModel {
-                Menu {
-                    ForEach(RadarrFilter.allCases) { filter in
-                        Button {
-                            vm.selectedFilter = filter
-                        } label: {
-                            if vm.selectedFilter == filter {
-                                Label(filter.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(filter.rawValue)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
-                }
-
-                Menu {
-                    ForEach(RadarrSortOrder.allCases) { order in
-                        Button {
-                            withAnimation {
-                                vm.sortOrder = order
-                            }
-                        } label: {
-                            if vm.sortOrder == order {
-                                Label(order.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(order.rawValue)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
+        if editMode.isEditing, let vm = viewModel {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    withAnimation { editMode = .inactive }
+                    selectedMovieIDs = []
                 }
             }
-        }
-
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Calendar", systemImage: "calendar") {
-                showCalendar = true
-            }
-            .matchedTransitionSource(id: "calendar", in: namespace)
-
-            Menu {
-                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                    showWantedMissing = true
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Button(selectedMovieIDs.count == vm.filteredMovies.count ? "Deselect All" : "Select All") {
+                    if selectedMovieIDs.count == vm.filteredMovies.count {
+                        selectedMovieIDs = []
+                    } else {
+                        selectedMovieIDs = Set(vm.filteredMovies.map(\.id))
+                    }
                 }
+                Button(role: .destructive) {
+                    showBulkDeleteAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+                .disabled(!canBulkDelete)
+            }
+        } else {
+            ToolbarItemGroup(placement: platformTopBarLeadingPlacement) {
                 if let vm = viewModel {
-                    Divider()
-                    Button("Refresh All", systemImage: "arrow.clockwise") {
-                        Task { await runRadarrCommand(vm: vm) { try await vm.refreshMovies() } }
+                    Menu {
+                        ForEach(RadarrFilter.allCases) { filter in
+                            Button {
+                                withAnimation { vm.selectedFilter = filter }
+                            } label: {
+                                if vm.selectedFilter == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(filter.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
                     }
-                    .disabled(isRunningCommand)
-                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
-                        Task { await runRadarrCommand(vm: vm) { try await vm.rssSync() } }
+
+                    Menu {
+                        ForEach(RadarrSortOrder.allCases) { order in
+                            Button {
+                                withAnimation {
+                                    vm.sortOrder = order
+                                }
+                            } label: {
+                                if vm.sortOrder == order {
+                                    Label(order.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(order.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
-                    .disabled(isRunningCommand)
-                }
-            } label: {
-                if isRunningCommand {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
 
-            if serviceManager.radarrInstances.count > 1 {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Button("Calendar", systemImage: "calendar") {
+                    showCalendar = true
+                }
+                #if os(iOS)
+                .matchedTransitionSource(id: "calendar", in: namespace)
+                #endif
+
                 Menu {
-                    ForEach(serviceManager.radarrInstances) { entry in
-                        Button {
-                            serviceManager.setActiveRadarr(entry.id)
-                        } label: {
-                            if entry.id == serviceManager.activeRadarrEntry?.id {
-                                Label(entry.displayName, systemImage: "checkmark")
-                            } else {
-                                Label(entry.displayName,
-                                      systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
-                            }
+                    Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                        showWantedMissing = true
+                    }
+                    if let vm = viewModel, !vm.filteredMovies.isEmpty {
+                        Button("Select", systemImage: "checkmark.circle") {
+                            withAnimation { editMode = .active }
                         }
-                        .disabled(!entry.isConnected)
+                    }
+                    if let vm = viewModel {
+                        Divider()
+                        Button("Refresh All", systemImage: "arrow.clockwise") {
+                            Task { await runRadarrCommand(vm: vm) { try await vm.refreshMovies() } }
+                        }
+                        .disabled(isRunningCommand)
+                        Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                            Task { await runRadarrCommand(vm: vm) { try await vm.rssSync() } }
+                        }
+                        .disabled(isRunningCommand)
                     }
                 } label: {
-                    Label("Instance", systemImage: "server.rack")
+                    if isRunningCommand {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+
+                if serviceManager.radarrInstances.count > 1 {
+                    Menu {
+                        ForEach(serviceManager.radarrInstances) { entry in
+                            Button {
+                                serviceManager.setActiveRadarr(entry.id)
+                            } label: {
+                                if entry.id == serviceManager.activeRadarrEntry?.id {
+                                    Label(entry.displayName, systemImage: "checkmark")
+                                } else {
+                                    Label(entry.displayName,
+                                          systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
+                                }
+                            }
+                            .disabled(!entry.isConnected)
+                        }
+                    } label: {
+                        Label("Instance", systemImage: "server.rack")
+                    }
                 }
             }
         }
     }
 
     private var navigationSubtitleText: String {
+        if editMode.isEditing {
+            let count = selectedMovieIDs.count
+            return count == 1 ? "1 selected" : "\(count) selected"
+        }
         guard let vm = viewModel else { return "" }
         let count = vm.filteredMovies.count
         return count == 1 ? "1 movie" : "\(count) movies"
+    }
+
+    private var movieSearchText: Binding<String> {
+        Binding {
+            viewModel?.searchText ?? ""
+        } set: { newValue in
+            viewModel?.searchText = newValue
+        }
     }
 
     private func runRadarrCommand(vm: RadarrViewModel, action: @escaping () async throws -> Void) async {

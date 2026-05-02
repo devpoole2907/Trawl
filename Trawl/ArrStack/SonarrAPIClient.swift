@@ -244,13 +244,28 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/manualimport", queryItems: params)
     }
 
+    // MARK: - Naming Config
+
+    func getNamingConfig() async throws -> SonarrNamingConfig {
+        try await base.get("/api/v3/config/naming")
+    }
+
+    func updateNamingConfig(_ config: SonarrNamingConfig) async throws -> SonarrNamingConfig {
+        guard let id = config.id else { throw ArrError.invalidResponse }
+        return try await base.putCodable("/api/v3/config/naming/\(id)", body: config)
+    }
+
     /// Perform a manual import of specific files, waiting for the command to complete.
     func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
         let additionalParams: [String: Any] = [
             "files": files.map { $0.rawValue },
             "importMode": importMode
         ]
-        return try await base.postCommandAndWait(name: "ManualImport", additionalParams: additionalParams)
+        return try await base.postCommandAndWait(
+            name: "ManualImport",
+            additionalParams: additionalParams,
+            timeout: .seconds(600)
+        )
     }
 }
 

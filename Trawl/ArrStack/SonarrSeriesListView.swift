@@ -15,6 +15,19 @@ struct SonarrSeriesListView: View {
     @State private var showWantedMissing = false
     @State private var pendingDeleteSeries: SonarrSeries?
     @State private var isRunningCommand = false
+    @State private var localSeriesSearch: String = ""
+    @State private var editMode: SelectionMode = .inactive
+    @State private var selectedSeriesIDs: Set<Int> = []
+    @State private var showBulkDeleteAlert = false
+
+    #if os(iOS)
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { editMode = $0.isEditing ? .active : .inactive }
+        )
+    }
+    #endif
 
     var body: some View {
         let baseContent = Group {
@@ -61,30 +74,54 @@ struct SonarrSeriesListView: View {
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
         .toolbarTitleDisplayMode(.large)
+        .environment(\.editMode, swiftUIEditMode)
+        .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
+        .searchable(text: $localSeriesSearch, prompt: "Search series")
+        .onChange(of: localSeriesSearch) { _, newValue in
+            viewModel?.searchText = newValue
+        }
+        .onChange(of: viewModel?.searchText) { _, newValue in
+            if let newValue, newValue != localSeriesSearch {
+                localSeriesSearch = newValue
+            }
+        }
         .toolbar { toolbarContent }
-        .confirmationDialog(
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
+        .alert(
             "Delete Series?",
             isPresented: Binding(
                 get: { pendingDeleteSeries != nil },
                 set: { if !$0 { pendingDeleteSeries = nil } }
             ),
-            titleVisibility: .visible,
             presenting: pendingDeleteSeries
         ) { show in
             Button("Delete from Sonarr", role: .destructive) {
+                let id = show.id
                 pendingDeleteSeries = nil
-                Task { await viewModel?.deleteSeries(id: show.id, deleteFiles: false) }
+                Task { await viewModel?.deleteSeries(id: id, deleteFiles: false) }
             }
             Button("Delete Series and Files", role: .destructive) {
+                let id = show.id
                 pendingDeleteSeries = nil
-                Task { await viewModel?.deleteSeries(id: show.id, deleteFiles: true) }
+                Task { await viewModel?.deleteSeries(id: id, deleteFiles: true) }
             }
             Button("Cancel", role: .cancel) {
                 pendingDeleteSeries = nil
             }
         } message: { show in
             Text("Choose whether to remove only \(show.title) from Sonarr or also delete its files.")
+        }
+        .alert("Delete \(selectedSeriesIDs.count) Series?", isPresented: $showBulkDeleteAlert) {
+            Button("Delete from Sonarr", role: .destructive) {
+                bulkDeleteSeries(deleteFiles: false)
+            }
+            Button("Delete Series and Files", role: .destructive) {
+                bulkDeleteSeries(deleteFiles: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Choose whether to remove the selected series from Sonarr or also delete their files. This action can't be undone.")
         }
         .refreshable {
             if let viewModel {
@@ -116,7 +153,9 @@ struct SonarrSeriesListView: View {
                     .environment(serviceManager)
                     .environment(syncService)
             }
+            #if os(iOS)
             .navigationTransition(.zoom(sourceID: "calendar", in: namespace))
+            #endif
         }
         .sheet(isPresented: $showWantedMissing) {
             NavigationStack {
@@ -139,6 +178,10 @@ struct SonarrSeriesListView: View {
                 if viewModel == nil {
                     viewModel = SonarrViewModel(serviceManager: serviceManager)
                     viewModelInstanceID = serviceManager.activeSonarrInstanceID
+                    // Sync local search state to new VM
+                    if !localSeriesSearch.isEmpty {
+                        viewModel?.searchText = localSeriesSearch
+                    }
                     Task {
                         guard let vm = viewModel else { return }
                         async let loadSeries = vm.loadSeries()
@@ -160,6 +203,10 @@ struct SonarrSeriesListView: View {
             if viewModel == nil || viewModelInstanceID != activeID {
                 viewModel = SonarrViewModel(serviceManager: serviceManager)
                 viewModelInstanceID = activeID
+                // Sync local search state to new VM
+                if !localSeriesSearch.isEmpty {
+                    viewModel?.searchText = localSeriesSearch
+                }
             }
             guard let vm = viewModel else { return }
             async let loadSeries = vm.loadSeries()
@@ -237,6 +284,7 @@ struct SonarrSeriesListView: View {
     private func seriesList(vm: SonarrViewModel) -> some View {
         if vm.sortOrder == .title {
             let sections = seriesTitleSections(for: vm.filteredSeries)
+            #if os(iOS)
             if #available(iOS 26.0, *) {
                 List {
                     ForEach(sections) { section in
@@ -260,6 +308,17 @@ struct SonarrSeriesListView: View {
                     }
                 }
             }
+            #else
+            List {
+                ForEach(sections) { section in
+                    Section(section.title) {
+                        ForEach(section.series) { show in
+                            seriesRow(show, vm: vm)
+                        }
+                    }
+                }
+            }
+            #endif
         } else {
             List {
                 ForEach(vm.filteredSeries) { show in
@@ -269,126 +328,203 @@ struct SonarrSeriesListView: View {
         }
     }
 
+    @ViewBuilder
     private func seriesRow(_ show: SonarrSeries, vm: SonarrViewModel) -> some View {
-        NavigationLink(value: show.id) {
-            SonarrSeriesRow(
-                series: show,
-                hasIssue: vm.queue.contains {
-                    $0.seriesId == show.id && $0.isImportIssueQueueItem
-                }
-            )
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                pendingDeleteSeries = show
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-
+        if editMode.isEditing {
             Button {
-                Task { await vm.toggleSeriesMonitored(show) }
+                toggleSeriesSelection(show)
             } label: {
-                Label(
-                    show.monitored == true ? "Unmonitor" : "Monitor",
-                    systemImage: show.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                HStack(spacing: 12) {
+                    Image(systemName: selectedSeriesIDs.contains(show.id) ? "checkmark.circle.fill" : "circle")
+                        .font(.title3)
+                        .foregroundStyle(selectedSeriesIDs.contains(show.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    SonarrSeriesRow(
+                        series: show,
+                        hasIssue: vm.queue.contains {
+                            $0.seriesId == show.id && $0.isImportIssueQueueItem
+                        }
+                    )
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            NavigationLink(value: show.id) {
+                SonarrSeriesRow(
+                    series: show,
+                    hasIssue: vm.queue.contains {
+                        $0.seriesId == show.id && $0.isImportIssueQueueItem
+                    }
                 )
             }
-            .tint(show.monitored == true ? .orange : .blue)
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    pendingDeleteSeries = show
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+
+                Button {
+                    Task { await vm.toggleSeriesMonitored(show) }
+                } label: {
+                    Label(
+                        show.monitored == true ? "Unmonitor" : "Monitor",
+                        systemImage: show.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                    )
+                }
+                .tint(show.monitored == true ? .orange : .blue)
+            }
+        }
+    }
+
+    private func toggleSeriesSelection(_ show: SonarrSeries) {
+        if selectedSeriesIDs.contains(show.id) {
+            selectedSeriesIDs.remove(show.id)
+        } else {
+            selectedSeriesIDs.insert(show.id)
+        }
+    }
+
+    private func bulkDeleteSeries(deleteFiles: Bool) {
+        let ids = selectedSeriesIDs
+        selectedSeriesIDs = []
+        withAnimation { editMode = .inactive }
+        Task {
+            for id in ids {
+                _ = await viewModel?.deleteSeries(id: id, deleteFiles: deleteFiles)
+            }
         }
     }
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
-        ToolbarItemGroup(placement: .topBarLeading) {
-            if let vm = viewModel {
-                Menu {
-                    ForEach(SonarrFilter.allCases) { filter in
-                        Button {
-                            vm.selectedFilter = filter
-                        } label: {
-                            if vm.selectedFilter == filter {
-                                Label(filter.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(filter.rawValue)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
-                }
-
-                Menu {
-                    ForEach(SonarrSortOrder.allCases) { order in
-                        Button {
-                            withAnimation {
-                                vm.sortOrder = order
-                            }
-                        } label: {
-                            if vm.sortOrder == order {
-                                Label(order.rawValue, systemImage: "checkmark")
-                            } else {
-                                Text(order.rawValue)
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
+        if editMode.isEditing, let vm = viewModel {
+            ToolbarItem(placement: .cancellationAction) {
+                Button("Cancel") {
+                    withAnimation { editMode = .inactive }
+                    selectedSeriesIDs = []
                 }
             }
-        }
-
-        ToolbarItemGroup(placement: .topBarTrailing) {
-            Button("Calendar", systemImage: "calendar") {
-                showCalendar = true
-            }
-            .matchedTransitionSource(id: "calendar", in: namespace)
-
-            Menu {
-                Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
-                    showWantedMissing = true
+            ToolbarItemGroup(placement: sonarrTrailingToolbarPlacement) {
+                Button(selectedSeriesIDs.count == vm.filteredSeries.count ? "Deselect All" : "Select All") {
+                    if selectedSeriesIDs.count == vm.filteredSeries.count {
+                        selectedSeriesIDs = []
+                    } else {
+                        selectedSeriesIDs = Set(vm.filteredSeries.map(\.id))
+                    }
                 }
+                Button(role: .destructive) {
+                    showBulkDeleteAlert = true
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+                .disabled(selectedSeriesIDs.isEmpty)
+            }
+        } else {
+            ToolbarItemGroup(placement: sonarrLeadingToolbarPlacement) {
                 if let vm = viewModel {
-                    Divider()
-                    Button("Refresh All", systemImage: "arrow.clockwise") {
-                        Task { await runSonarrCommand(vm: vm) { try await vm.refreshSeries() } }
+                    Menu {
+                        ForEach(SonarrFilter.allCases) { filter in
+                            Button {
+                                withAnimation { vm.selectedFilter = filter }
+                            } label: {
+                                if vm.selectedFilter == filter {
+                                    Label(filter.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(filter.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
                     }
-                    .disabled(isRunningCommand)
-                    Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
-                        Task { await runSonarrCommand(vm: vm) { try await vm.rssSync() } }
+
+                    Menu {
+                        ForEach(SonarrSortOrder.allCases) { order in
+                            Button {
+                                withAnimation {
+                                    vm.sortOrder = order
+                                }
+                            } label: {
+                                if vm.sortOrder == order {
+                                    Label(order.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(order.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
-                    .disabled(isRunningCommand)
-                }
-            } label: {
-                if isRunningCommand {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "ellipsis.circle")
                 }
             }
 
-            if serviceManager.sonarrInstances.count > 1 {
+            ToolbarItemGroup(placement: sonarrTrailingToolbarPlacement) {
+                Button("Calendar", systemImage: "calendar") {
+                    showCalendar = true
+                }
+                #if os(iOS)
+                .matchedTransitionSource(id: "calendar", in: namespace)
+                #endif
+
                 Menu {
-                    ForEach(serviceManager.sonarrInstances) { entry in
-                        Button {
-                            serviceManager.setActiveSonarr(entry.id)
-                        } label: {
-                            if entry.id == serviceManager.activeSonarrEntry?.id {
-                                Label(entry.displayName, systemImage: "checkmark")
-                            } else {
-                                Label(entry.displayName,
-                                      systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
-                            }
+                    Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                        showWantedMissing = true
+                    }
+                    if let vm = viewModel, !vm.filteredSeries.isEmpty {
+                        Button("Select", systemImage: "checkmark.circle") {
+                            withAnimation { editMode = .active }
                         }
-                        .disabled(!entry.isConnected)
+                    }
+                    if let vm = viewModel {
+                        Divider()
+                        Button("Refresh All", systemImage: "arrow.clockwise") {
+                            Task { await runSonarrCommand(vm: vm) { try await vm.refreshSeries() } }
+                        }
+                        .disabled(isRunningCommand)
+                        Button("Check for New Releases", systemImage: "dot.radiowaves.left.and.right") {
+                            Task { await runSonarrCommand(vm: vm) { try await vm.rssSync() } }
+                        }
+                        .disabled(isRunningCommand)
                     }
                 } label: {
-                    Label("Instance", systemImage: "server.rack")
+                    if isRunningCommand {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+
+                if serviceManager.sonarrInstances.count > 1 {
+                    Menu {
+                        ForEach(serviceManager.sonarrInstances) { entry in
+                            Button {
+                                serviceManager.setActiveSonarr(entry.id)
+                            } label: {
+                                if entry.id == serviceManager.activeSonarrEntry?.id {
+                                    Label(entry.displayName, systemImage: "checkmark")
+                                } else {
+                                    Label(entry.displayName,
+                                          systemImage: entry.isConnected ? "server.rack" : "exclamationmark.triangle")
+                                }
+                            }
+                            .disabled(!entry.isConnected)
+                        }
+                    } label: {
+                        Label("Instance", systemImage: "server.rack")
+                    }
                 }
             }
         }
     }
 
     private var navigationSubtitleText: String {
+        if editMode.isEditing {
+            let count = selectedSeriesIDs.count
+            return count == 1 ? "1 selected" : "\(count) selected"
+        }
         guard let vm = viewModel else { return "" }
         let count = vm.filteredSeries.count
         return count == 1 ? "1 series" : "\(count) series"
@@ -485,6 +621,18 @@ struct SonarrSeriesListView: View {
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
+}
+
+private var sonarrLeadingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .automatic
+    #endif
+}
+
+private var sonarrTrailingToolbarPlacement: ToolbarItemPlacement {
+    platformTopBarTrailingPlacement
 }
 
 private struct SonarrSeriesTitleSection: Identifiable {

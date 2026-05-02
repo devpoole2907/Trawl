@@ -60,6 +60,7 @@ struct ArrHistoryView: View {
                         }
                     }
                 }
+                .animation(.default, value: groupedItems.map(\.id))
 
                 if shouldShowLoadMore {
                     Button {
@@ -79,7 +80,11 @@ struct ArrHistoryView: View {
                     .disabled(isLoadingMore)
                 }
             }
+            #if os(iOS)
             .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .scrollContentBackground(.hidden)
         }
     }

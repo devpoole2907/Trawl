@@ -1058,3 +1058,87 @@ func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: Str
 
     return finalPath.replacingOccurrences(of: "\\", with: "/")
 }
+
+// MARK: - Naming Config
+
+enum ArrColonReplacementFormat: Int, Codable, CaseIterable, Identifiable, Sendable {
+    case delete = 0
+    case dash = 1
+    case spaceDash = 2
+    case spaceDashSpace = 3
+    case smart = 4
+
+    var id: Int { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .delete: "Delete"
+        case .dash: "Dash"
+        case .spaceDash: "Space Dash"
+        case .spaceDashSpace: "Space Dash Space"
+        case .smart: "Smart"
+        }
+    }
+}
+
+nonisolated struct SonarrNamingConfig: Codable, Sendable {
+    var id: Int?
+    var renameEpisodes: Bool?
+    var replaceIllegalCharacters: Bool?
+    var colonReplacementFormat: Int?
+    var multiEpisodeStyle: Int?
+    var standardEpisodeFormat: String?
+    var dailyEpisodeFormat: String?
+    var animeEpisodeFormat: String?
+    var seriesFolderFormat: String?
+    var seasonFolderFormat: String?
+    var specialsFolderFormat: String?
+}
+
+nonisolated struct RadarrNamingConfig: Codable, Sendable {
+    var id: Int?
+    var renameMovies: Bool?
+    var replaceIllegalCharacters: Bool?
+    var colonReplacementFormat: Int?
+    var standardMovieFormat: String?
+    var movieFolderFormat: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, renameMovies, replaceIllegalCharacters, colonReplacementFormat, standardMovieFormat, movieFolderFormat
+    }
+
+    init(id: Int? = nil, renameMovies: Bool? = nil, replaceIllegalCharacters: Bool? = nil,
+         colonReplacementFormat: Int? = nil, standardMovieFormat: String? = nil, movieFolderFormat: String? = nil) {
+        self.id = id
+        self.renameMovies = renameMovies
+        self.replaceIllegalCharacters = replaceIllegalCharacters
+        self.colonReplacementFormat = colonReplacementFormat
+        self.standardMovieFormat = standardMovieFormat
+        self.movieFolderFormat = movieFolderFormat
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id)
+        renameMovies = try container.decodeIfPresent(Bool.self, forKey: .renameMovies)
+        replaceIllegalCharacters = try container.decodeIfPresent(Bool.self, forKey: .replaceIllegalCharacters)
+        standardMovieFormat = try container.decodeIfPresent(String.self, forKey: .standardMovieFormat)
+        movieFolderFormat = try container.decodeIfPresent(String.self, forKey: .movieFolderFormat)
+        // Some Radarr builds return colonReplacementFormat as a string ("delete", "dash", etc.)
+        if let intVal = try? container.decodeIfPresent(Int.self, forKey: .colonReplacementFormat) {
+            colonReplacementFormat = intVal
+        } else if let strVal = try? container.decodeIfPresent(String.self, forKey: .colonReplacementFormat) {
+            // First try to parse as an integer (handles numeric strings like "1")
+            let trimmed = strVal.trimmingCharacters(in: .whitespaces)
+            if let parsedInt = Int(trimmed) {
+                colonReplacementFormat = parsedInt
+            } else {
+                // Otherwise try named token lookup
+                let map: [String: Int] = ["delete": 0, "dash": 1, "spacedash": 2, "spacedashspace": 3, "smart": 4]
+                colonReplacementFormat = map[strVal.lowercased().replacingOccurrences(of: " ", with: "")]
+            }
+        } else {
+            colonReplacementFormat = nil
+        }
+    }
+}

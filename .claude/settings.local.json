@@ -44,11 +44,16 @@
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'id=00008130-001068543421001C' -allowProvisioningUpdates)",
       "Bash(ios-deploy --id 00008130-001068543421001C --bundle \"/Users/jamespoole/Library/Developer/Xcode/DerivedData/Trawl-bxtrgapxrgbigxbcceuhctfjtvoa/Build/Products/Debug-iphoneos/Trawl.app\" --justlaunch)",
       "Bash(xcrun devicectl:*)",
-      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'id=47004A65-AF74-5697-87D0-551D09EC309E' -configuration Debug install)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'platform=iOS Simulator,name=iPhone 16' -configuration Debug install)",
       "mcp__XcodeBuildMCP__session_show_defaults",
       "mcp__XcodeBuildMCP__discover_projs",
       "mcp__XcodeBuildMCP__session_set_defaults",
-      "mcp__XcodeBuildMCP__build_sim"
+      "mcp__XcodeBuildMCP__build_sim",
+      "mcp__XcodeBuildMCP__list_schemes",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination \"id=47004A65-AF74-5697-87D0-551D09EC309E\" -configuration Debug build)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' build -quiet)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build -quiet)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination id=47004A65-AF74-5697-87D0-551D09EC309E -configuration Debug clean build)"
     ]
   }
 }

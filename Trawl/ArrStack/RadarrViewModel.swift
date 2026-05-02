@@ -424,16 +424,22 @@ final class RadarrViewModel {
         }
     }
 
-    func interactiveSearchMovie(movieId: Int) async -> [ArrRelease] {
-        guard let client else { return [] }
+    func interactiveSearchMovie(movieId: Int) async throws -> [ArrRelease] {
+        guard let client else { throw ArrError.noServiceConfigured }
         error = nil
+        print("[InteractiveSearch][Radarr] start movieId=\(movieId)")
         do {
-            return try await client.getReleases(movieId: movieId)
+            let releases = try await client.getReleases(movieId: movieId)
+            print("[InteractiveSearch][Radarr] success releases=\(releases.count)")
+            return releases
         } catch is CancellationError {
-            return []
+            print("[InteractiveSearch][Radarr] cancelled")
+            throw CancellationError()
         } catch {
             self.error = error.localizedDescription
-            return []
+            let nsError = error as NSError
+            print("[InteractiveSearch][Radarr] failed domain=\(nsError.domain) code=\(nsError.code) description=\(error.localizedDescription)")
+            throw error
         }
     }
 
@@ -489,7 +495,7 @@ final class RadarrViewModel {
     func loadQueue() async {
         guard let client else { return }
         do {
-            let page = try await client.getQueue(page: 1, pageSize: 50)
+            let page = try await client.getQueue(page: 1, pageSize: 250)
             queue = page.records ?? []
         } catch {
             self.error = error.localizedDescription

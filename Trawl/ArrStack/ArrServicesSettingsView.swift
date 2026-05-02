@@ -32,7 +32,7 @@ struct ArrServiceSettingsView: View {
     #endif
 
     private var profile: ArrServiceProfile? {
-        serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: false)
+        serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
     }
 
     private var serviceProfiles: [ArrServiceProfile] {
@@ -1047,7 +1047,7 @@ private struct ArrQualityProfilesListView: View {
         #endif
         .toolbar {
             if let firstProfile = sortedProfiles.first {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button {
                         editorSession = .duplicate(from: firstProfile)
                     } label: {
@@ -1230,7 +1230,7 @@ struct ArrQualityProfileDetailView: View {
         #endif
         .toolbar {
             if let onEdit {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button("Edit") {
                         onEdit()
                     }
@@ -1238,7 +1238,7 @@ struct ArrQualityProfileDetailView: View {
             }
 
             if onDuplicate != nil || onDelete != nil {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Menu {
                         if let onDuplicate {
                             Button("Duplicate", systemImage: "plus.square.on.square") {
@@ -1441,10 +1441,10 @@ private struct ArrQualityProfileEditorView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .topBarLeading) {
+            ToolbarItem(placement: platformCancellationPlacement) {
                 Button("Cancel") { dismiss() }
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button("Save") {
                     Task {
                         if await onSave(draft) {
@@ -1760,7 +1760,7 @@ struct ProwlarrApplicationsListView: View {
             await viewModel.loadApplications()
         }
         .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
                     Button {
                         editorContext = .create(.sonarr)
@@ -1975,8 +1975,10 @@ struct ProwlarrApplicationEditorSheet: View {
                 Section {
                     LabeledContent("Prowlarr Server") {
                         TextField("https://prowlarr.local", text: $prowlarrURL)
+                            #if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }
@@ -1990,8 +1992,10 @@ struct ProwlarrApplicationEditorSheet: View {
 
                     LabeledContent("\(appType.displayName) URL") {
                         TextField("https://\(appType.rawValue).local", text: $remoteURL)
+                            #if os(iOS)
                             .keyboardType(.URL)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                             .disabled(!isUsingCustomRemoteServer)
@@ -1999,7 +2003,9 @@ struct ProwlarrApplicationEditorSheet: View {
 
                     LabeledContent("API Key") {
                         SecureField("API key", text: $apiKey)
+                            #if os(iOS)
                             .textInputAutocapitalization(.never)
+                            #endif
                             .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                     }
