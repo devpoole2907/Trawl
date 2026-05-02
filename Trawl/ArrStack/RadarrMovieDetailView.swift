@@ -1038,10 +1038,6 @@ struct RadarrMovieDetailView: View {
             return torrent.state.filterCategory == .downloading
         }
 
-        if item.downloadId?.isEmpty == false {
-            return false
-        }
-
         return item.isDownloadingQueueItem
     }
 
