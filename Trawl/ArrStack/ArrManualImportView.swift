@@ -2639,10 +2639,13 @@ private struct ManualImportGroupRow: View {
                     if style == .blocked, let firstReason = group.rejectionReasons.first {
                         let extra = group.rejectionReasons.count - 1
                         let suffix = extra > 0 ? " · +\(extra) more" : ""
-                        Label("\(firstReason)\(suffix)", systemImage: "xmark.circle.fill")
-                            .font(.caption2)
-                            .foregroundStyle(.red)
-                            .lineLimit(2)
+                        HStack(alignment: .firstTextBaseline, spacing: 2) {
+                            Image(systemName: "xmark.circle.fill")
+                            Text("\(firstReason)\(suffix)")
+                                .lineLimit(2)
+                        }
+                        .font(.caption2)
+                        .foregroundStyle(.red)
                     }
                 }
 
