@@ -414,6 +414,20 @@ struct SonarrSeriesDetailView: View {
 
     @ViewBuilder
     private func cardsSection(_ series: SonarrSeries) -> some View {
+        if !isInLibrary {
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add to Sonarr", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        }
+
         if let overview = series.overview, !overview.isEmpty {
             overviewCard(overview)
         }
@@ -1327,13 +1341,6 @@ struct SonarrSeriesDetailView: View {
                 } label: {
                     Label("More", systemImage: "ellipsis.circle")
                 }
-            } else {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                }
             }
         }
     }
@@ -1430,9 +1437,6 @@ private struct SonarrAddToLibrarySheet: View {
                     }
                 }
             }
-            #if os(iOS)
-            .scrollContentBackground(.hidden)
-            #endif
             .navigationTitle("Add to Sonarr")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -1467,7 +1471,7 @@ private struct SonarrAddToLibrarySheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
+        .preferredColorScheme(.dark)
     }
 
     private func seasonBinding(for seasonNumber: Int, default defaultValue: Bool) -> Binding<Bool> {

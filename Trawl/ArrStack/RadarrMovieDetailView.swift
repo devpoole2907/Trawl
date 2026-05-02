@@ -394,6 +394,20 @@ struct RadarrMovieDetailView: View {
 
     @ViewBuilder
     private func cardsSection(_ movie: RadarrMovie) -> some View {
+        if !isInLibrary {
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add to Radarr", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        }
+
         if let overview = movie.overview, !overview.isEmpty {
             overviewCard(overview)
         }
@@ -1379,13 +1393,6 @@ struct RadarrMovieDetailView: View {
                         Label("More", systemImage: "ellipsis.circle")
                     }
                 }
-            } else {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .symbolRenderingMode(.hierarchical)
-                }
             }
         }
     }
@@ -1479,9 +1486,6 @@ private struct RadarrAddToLibrarySheet: View {
                     }
                 }
             }
-            #if os(iOS)
-            .scrollContentBackground(.hidden)
-            #endif
             .navigationTitle("Add to Radarr")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -1516,7 +1520,7 @@ private struct RadarrAddToLibrarySheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
-        .presentationBackground(.regularMaterial)
+        .preferredColorScheme(.dark)
     }
 
     private var canAdd: Bool {
