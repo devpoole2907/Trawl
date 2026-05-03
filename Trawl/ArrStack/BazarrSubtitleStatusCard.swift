@@ -21,6 +21,8 @@ struct BazarrSubtitleStatusCard: View {
         if serviceManager.hasBazarrInstance {
             cardContent
                 .task(id: taskID) {
+                    movie = nil
+                    series = nil
                     await load()
                 }
                 .sheet(isPresented: $showInteractiveSearch) {

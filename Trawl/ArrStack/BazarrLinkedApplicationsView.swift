@@ -487,12 +487,28 @@ private struct BazarrLinkedApplicationEditorSheet: View {
 
     private func matchingProfileID() -> String? {
         guard !host.isEmpty else { return nil }
-        let configuredURL = "\(ssl ? "https" : "http")://\(host):\(port)\(normalizedBaseURL(baseURL) == "/" ? "" : normalizedBaseURL(baseURL))"
-        let normalizedConfigured = try? ServerURLValidator.normalizedURLString(from: configuredURL)
+        let configuredURL = "\(ssl ? "https" : "http")://\(host):\(port)\(normalizedBaseURL(baseURL))"
+        guard let configuredIdentifier = normalizedURLIdentifier(from: configuredURL) else { return nil }
         return remoteProfiles.first { profile in
-            let normalizedProfile = try? ServerURLValidator.normalizedURLString(from: profile.hostURL)
-            return normalizedProfile != nil && normalizedProfile == normalizedConfigured
+            guard let profileIdentifier = normalizedURLIdentifier(from: profile.hostURL) else { return false }
+            return profileIdentifier == configuredIdentifier
         }?.id.uuidString
+    }
+
+    private func normalizedURLIdentifier(from urlString: String) -> String? {
+        guard let components = URLComponents(string: urlString) else { return nil }
+        guard let scheme = components.scheme, let host = components.host else { return nil }
+        let defaultPort: Int
+        if scheme == "https" {
+            defaultPort = 443
+        } else if scheme == "http" {
+            defaultPort = 80
+        } else {
+            defaultPort = Int(appType.defaultPort) ?? 80
+        }
+        let port = components.port ?? defaultPort
+        let path = components.path.isEmpty ? "/" : components.path
+        return "\(scheme)://\(host):\(port)\(path)"
     }
 
     private func normalizedBaseURL(_ rawValue: String) -> String {
@@ -618,14 +634,17 @@ private struct ParsedServerURL {
     let isSSL: Bool
 
     init(profileURL: String, defaultPort: String) throws {
-        let normalized = try ServerURLValidator.normalizedURLString(from: profileURL)
-        guard let url = URL(string: normalized), let parsedHost = url.host else {
+        guard let components = URLComponents(string: profileURL) else {
+            throw ArrError.invalidURL
+        }
+        guard let scheme = components.scheme, let parsedHost = components.host else {
             throw ArrError.invalidURL
         }
         host = parsedHost
-        port = String(url.port ?? (url.scheme == "https" ? 443 : Int(defaultPort) ?? 80))
-        isSSL = url.scheme == "https"
-        baseURL = url.path.isEmpty ? "/" : url.path
+        isSSL = scheme == "https"
+        let defaultPortInt = isSSL ? 443 : (Int(defaultPort) ?? 80)
+        port = String(components.port ?? defaultPortInt)
+        baseURL = components.path.isEmpty ? "/" : components.path
     }
 }
 

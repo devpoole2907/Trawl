@@ -96,14 +96,14 @@ struct BazarrSeriesDetailView: View {
                     if !series.audioLanguages.isEmpty {
                         LabeledContent("Audio", value: series.audioLanguages.map(\.name).joined(separator: ", "))
                     }
-                    if let profileId = series.profileId {
-                        let profile = serviceManager.activeBazarrEntry?.languageProfiles.first { $0.profileId == profileId }
-                        Button {
-                            selectedProfileId = profileId
-                            showProfilePicker = true
-                        } label: {
-                            LabeledContent("Language Profile", value: profile?.name ?? "Profile \(profileId)")
-                        }
+                    let profile = series.profileId.flatMap { profileId in
+                        serviceManager.activeBazarrEntry?.languageProfiles.first { $0.profileId == profileId }
+                    }
+                    Button {
+                        selectedProfileId = series.profileId ?? serviceManager.activeBazarrEntry?.languageProfiles.first?.profileId
+                        showProfilePicker = true
+                    } label: {
+                        LabeledContent("Language Profile", value: profile?.name ?? (series.profileId != nil ? "Profile \(series.profileId!)" : "None"))
                     }
                 }
             }

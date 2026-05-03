@@ -45,7 +45,7 @@ struct BazarrProvidersView: View {
                     systemImage: "captions.bubble",
                     description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
                 )
-            } else if !serviceManager.hasAnyConnectedBazarrInstance {
+            } else if client == nil {
                 ContentUnavailableView(
                     "Bazarr Unreachable",
                     systemImage: "network.slash",
@@ -236,7 +236,12 @@ struct BazarrProvidersView: View {
     }
 
     private func load() async {
-        guard let client else { return }
+        guard let client else {
+            settings = [:]
+            providerStatuses = []
+            enabledProviderKeys = []
+            return
+        }
         isLoading = true
         errorMessage = nil
         do {

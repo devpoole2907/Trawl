@@ -11,11 +11,6 @@ struct BazarrSeriesListView: View {
     var body: some View {
         BazarrBrowserView(viewModel: viewModel)
             .environment(viewModel)
-            .task {
-                viewModel = BazarrViewModel(serviceManager: serviceManager)
-                await viewModel.loadSeries()
-                await viewModel.loadMovies()
-            }
             .task(id: serviceManager.activeBazarrProfileID) {
                 viewModel = BazarrViewModel(serviceManager: serviceManager)
                 await viewModel.loadSeries()

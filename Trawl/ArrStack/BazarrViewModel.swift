@@ -51,7 +51,10 @@ final class BazarrViewModel {
     }
 
     var isConnected: Bool {
-        serviceManager.hasAnyConnectedBazarrInstance
+        guard let entry = serviceManager.activeBazarrEntry, let client = entry.client else {
+            return false
+        }
+        return client.isConnected
     }
 
     var isConnecting: Bool {
@@ -86,6 +89,8 @@ final class BazarrViewModel {
     func loadSeries() async {
         guard let client else {
             seriesError = "No connected Bazarr instance"
+            series = []
+            await applyFilters()
             return
         }
         isLoadingSeries = true
@@ -97,6 +102,7 @@ final class BazarrViewModel {
         } catch {
             seriesError = error.localizedDescription
             series = []
+            await applyFilters()
         }
         isLoadingSeries = false
     }
@@ -104,6 +110,8 @@ final class BazarrViewModel {
     func loadMovies() async {
         guard let client else {
             moviesError = "No connected Bazarr instance"
+            movies = []
+            await applyFilters()
             return
         }
         isLoadingMovies = true
@@ -115,6 +123,7 @@ final class BazarrViewModel {
         } catch {
             moviesError = error.localizedDescription
             movies = []
+            await applyFilters()
         }
         isLoadingMovies = false
     }
@@ -122,6 +131,7 @@ final class BazarrViewModel {
     func loadEpisodes(for seriesId: Int) async {
         guard let client else {
             episodesError = "No connected Bazarr instance"
+            episodes[seriesId] = []
             return
         }
         isLoadingEpisodes = true
@@ -131,6 +141,7 @@ final class BazarrViewModel {
             episodes[seriesId] = eps
         } catch {
             episodesError = error.localizedDescription
+            episodes[seriesId] = []
         }
         isLoadingEpisodes = false
     }

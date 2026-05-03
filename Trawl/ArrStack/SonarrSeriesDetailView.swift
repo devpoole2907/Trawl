@@ -138,7 +138,7 @@ struct SonarrSeriesDetailView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .toolbar { toolbarContent }
-        .task(id: resolvedSeriesId) {
+        .task(id: "\(resolvedSeriesId?.description ?? "nil")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "nil")") {
             if let id = resolvedSeriesId {
                 bazarrEpisodes = []
                 if serviceManager.hasAnyConnectedBazarrInstance {

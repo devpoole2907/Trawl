@@ -219,6 +219,9 @@ struct BazarrMovieDetailView: View {
         do {
             let page = try await client.getMovies(start: 0, length: 1, ids: [radarrId])
             movie = page.data.first
+            if movie == nil {
+                self.error = "Movie not found for id \(radarrId)"
+            }
         } catch {
             self.error = error.localizedDescription
         }
