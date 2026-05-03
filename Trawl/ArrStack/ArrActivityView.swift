@@ -35,7 +35,7 @@ struct ArrActivityView: View {
         .navigationTitle("Activity")
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                ActivityFilterMenu(serviceFilter: $serviceFilter)
+                ActivityFilterMenu(serviceFilter: $serviceFilter, isHistoryMode: mode == .history)
             }
         }
         .refreshable {
@@ -54,6 +54,11 @@ struct ArrActivityView: View {
         }
         .safeAreaInset(edge: .top) {
             ActivityModePicker(mode: $mode)
+        }
+        .onChange(of: mode) { _, newMode in
+            if newMode == .history && serviceFilter == .bazarr {
+                serviceFilter = .all
+            }
         }
         .sheet(item: $selectedItem) { activity in
             QueueDetailSheet(item: activity) { path, service in
@@ -349,6 +354,7 @@ enum ArrServiceFilter: CaseIterable, Hashable {
 private struct ActivityFilterMenu: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Binding var serviceFilter: ArrServiceFilter
+    let isHistoryMode: Bool
 
     var body: some View {
         Menu {
@@ -360,7 +366,7 @@ private struct ActivityFilterMenu: View {
                 if serviceManager.hasRadarrInstance {
                     Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
                 }
-                if serviceManager.hasBazarrInstance {
+                if serviceManager.hasBazarrInstance && !isHistoryMode {
                     Label("Bazarr", systemImage: "captions.bubble").tag(ArrServiceFilter.bazarr)
                 }
             }

@@ -2228,6 +2228,7 @@ struct SonarrSeasonSearchView: View {
         do {
             let latestEpisodes = try await serviceManager.getBazarrEpisodes(forSonarrSeriesId: seriesId)
             let seasonEpisodes = latestEpisodes.filter { $0.season == seasonNumber }
+            await serviceManager.refreshActiveBazarrSubtitleCache()
             await MainActor.run {
                 refreshedBazarrEpisodes = seasonEpisodes
                 onBazarrEpisodesUpdated(seasonEpisodes)

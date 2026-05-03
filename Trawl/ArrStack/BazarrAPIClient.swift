@@ -80,11 +80,15 @@ actor BazarrAPIClient {
     }
 
     func saveEnabledLanguages(_ codes: [String]) async throws {
-        var fields: [String: String] = [:]
-        for code in codes {
-            fields["languages-enabled"] = code
+        let formItems: [URLQueryItem]
+        if codes.isEmpty {
+            formItems = [URLQueryItem(name: "languages-enabled", value: "")]
+        } else {
+            formItems = codes.map {
+                URLQueryItem(name: "languages-enabled", value: $0)
+            }
         }
-        try await saveSettings(fields)
+        try await saveSettings(formItems)
     }
 
     func saveLanguageProfiles(_ profiles: [BazarrLanguageProfile]) async throws {
@@ -139,6 +143,10 @@ actor BazarrAPIClient {
     }
 
     func updateSeriesProfile(seriesIds: [Int], profileIds: [String?]) async throws {
+        guard seriesIds.count == profileIds.count else {
+            throw ArrError.profileSelectionCountMismatch(itemCount: seriesIds.count, profileCount: profileIds.count)
+        }
+
         var queryItems: [URLQueryItem] = []
         for (index, id) in seriesIds.enumerated() {
             queryItems.append(URLQueryItem(name: "seriesid", value: String(id)))
@@ -168,6 +176,10 @@ actor BazarrAPIClient {
     }
 
     func updateMovieProfile(radarrIds: [Int], profileIds: [String?]) async throws {
+        guard radarrIds.count == profileIds.count else {
+            throw ArrError.profileSelectionCountMismatch(itemCount: radarrIds.count, profileCount: profileIds.count)
+        }
+
         var queryItems: [URLQueryItem] = []
         for (index, id) in radarrIds.enumerated() {
             queryItems.append(URLQueryItem(name: "radarrid", value: String(id)))

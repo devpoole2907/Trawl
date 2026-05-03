@@ -33,7 +33,9 @@ final class BazarrViewModel {
     var showMissingOnly = false {
         didSet { Task { @MainActor in await applyFilters() } }
     }
-    var sortNewestFirst = true
+    var sortNewestFirst = true {
+        didSet { Task { @MainActor in await applyFilters() } }
+    }
 
     private(set) var filteredSeries: [BazarrSeries] = []
     private(set) var filteredMovies: [BazarrMovie] = []
@@ -71,12 +73,12 @@ final class BazarrViewModel {
 
     static func subtitleStatus(for movie: BazarrMovie) -> BazarrSubtitleStatus {
         if movie.missingSubtitles.isEmpty { return .allPresent }
-        return .none
+        return movie.subtitles.isEmpty ? .none : .partial
     }
 
     static func subtitleStatus(for episode: BazarrEpisode) -> BazarrSubtitleStatus {
         if episode.missingSubtitles.isEmpty { return .allPresent }
-        return .none
+        return episode.subtitles.isEmpty ? .none : .partial
     }
 
     // MARK: - Load Data

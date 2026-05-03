@@ -46,7 +46,7 @@ struct ArrServiceSettingsView: View {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
         case .prowlarr: serviceManager.prowlarrConnected
-        case .bazarr: serviceManager.hasAnyConnectedBazarrInstance
+        case .bazarr: profile.map { serviceManager.isConnected(.bazarr, profileID: $0.id) } ?? false
         }
     }
 
@@ -64,6 +64,10 @@ struct ArrServiceSettingsView: View {
     }
 
     private var supportsCommands: Bool {
+        serviceType != .prowlarr && serviceType != .bazarr
+    }
+
+    private var supportsNotifications: Bool {
         serviceType != .prowlarr && serviceType != .bazarr
     }
 
@@ -231,7 +235,7 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if serviceType != .prowlarr, isConnected {
+                if supportsNotifications, isConnected {
                     Section("Notifications") {
                         Button {
                             setupNotifications()
@@ -706,6 +710,7 @@ struct ArrServiceSettingsView: View {
     // MARK: - Actions
 
     private func setupNotifications() {
+        guard supportsNotifications else { return }
         guard let profile else { return }
 
         isSettingUpNotifications = true
@@ -744,7 +749,7 @@ struct ArrServiceSettingsView: View {
     }
 
     private func loadNotificationSetupStatus() async {
-        guard serviceType != .prowlarr, isConnected, let profile else {
+        guard supportsNotifications, isConnected, let profile else {
             notificationSetupStatus = nil
             return
         }

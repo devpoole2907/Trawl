@@ -127,8 +127,13 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink(value: MoreDestination.bazarrSeries) {
-                        moreRow(icon: "captions.bubble.fill", color: .teal,
-                                title: "Subtitles", subtitle: "Browse subtitle status for series & movies")
+                        moreRow(icon: "tv.fill", color: .teal,
+                                title: "Series Subtitles", subtitle: "Browse subtitle status for series")
+                    }
+
+                    NavigationLink(value: MoreDestination.bazarrMovies) {
+                        moreRow(icon: "film.fill", color: .teal,
+                                title: "Movie Subtitles", subtitle: "Browse subtitle status for movies")
                     }
 
                     NavigationLink(value: MoreDestination.bazarrProviders) {

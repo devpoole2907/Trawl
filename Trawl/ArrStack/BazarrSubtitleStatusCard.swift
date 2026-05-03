@@ -40,9 +40,10 @@ struct BazarrSubtitleStatusCard: View {
     }
 
     private var taskID: String {
+        let connectionKey = "\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
         switch media {
-        case .movie(let id, _): "movie-\(id)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
-        case .series(let id, _): "series-\(id)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
+        case .movie(let id, _): return "movie-\(id)-\(connectionKey)"
+        case .series(let id, _): return "series-\(id)-\(connectionKey)"
         }
     }
 

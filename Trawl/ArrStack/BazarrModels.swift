@@ -477,8 +477,13 @@ nonisolated struct BazarrAudioTrack: Codable, Identifiable, Sendable {
     let stream: String?
     let name: String?
     let language: String?
+    private let fallbackId = UUID().uuidString
 
-    var id: String { stream ?? UUID().uuidString }
+    var id: String { stream ?? fallbackId }
+
+    enum CodingKeys: String, CodingKey {
+        case stream, name, language
+    }
 }
 
 nonisolated struct BazarrEmbeddedSubtitleTrack: Codable, Identifiable, Sendable {
@@ -487,8 +492,9 @@ nonisolated struct BazarrEmbeddedSubtitleTrack: Codable, Identifiable, Sendable 
     let language: String?
     let forced: Bool
     let hearingImpaired: Bool?
+    private let fallbackId = UUID().uuidString
 
-    var id: String { stream ?? UUID().uuidString }
+    var id: String { stream ?? fallbackId }
 
     enum CodingKeys: String, CodingKey {
         case stream, name, language, forced
@@ -502,8 +508,9 @@ nonisolated struct BazarrExternalSubtitleTrack: Codable, Identifiable, Sendable 
     let language: String?
     let forced: Bool
     let hearingImpaired: Bool?
+    private let fallbackId = UUID().uuidString
 
-    var id: String { path ?? UUID().uuidString }
+    var id: String { path ?? fallbackId }
 
     enum CodingKeys: String, CodingKey {
         case name, path, language, forced

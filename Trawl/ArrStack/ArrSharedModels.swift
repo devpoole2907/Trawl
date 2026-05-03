@@ -964,6 +964,7 @@ enum ArrError: LocalizedError, Sendable {
     case connectionFailed
     case unsupportedNotificationsService(String)
     case unsupportedIndexerService(String)
+    case profileSelectionCountMismatch(itemCount: Int, profileCount: Int)
     case commandTimeout(commandId: Int?, lastKnownCommand: ArrCommand?)
 
     var errorDescription: String? {
@@ -988,6 +989,8 @@ enum ArrError: LocalizedError, Sendable {
             "\(service) does not support one-tap notification setup."
         case .unsupportedIndexerService(let service):
             "\(service) does not support direct indexer management."
+        case .profileSelectionCountMismatch(let itemCount, let profileCount):
+            "Profile selection count mismatch: received \(itemCount) items and \(profileCount) profiles."
         case .commandTimeout(let commandId, let lastKnownCommand):
             if let cmd = lastKnownCommand, let status = cmd.status {
                 "Command \(commandId ?? -1) timed out with status '\(status)'."

@@ -108,14 +108,16 @@ struct BazarrLinkedApplicationsListView: View {
         isLoading = false
     }
 
-    private func save(appType: BazarrLinkedApplicationType, formItems: [URLQueryItem]) async {
-        guard let client else { return }
+    private func save(appType: BazarrLinkedApplicationType, formItems: [URLQueryItem]) async -> Bool {
+        guard let client else { return false }
         do {
             try await client.saveSettings(formItems)
             InAppNotificationCenter.shared.showSuccess(title: "Linked App Saved", message: "\(appType.displayName) was saved in Bazarr.")
             await load()
+            return true
         } catch {
             InAppNotificationCenter.shared.showError(title: "Save Failed", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -179,7 +181,7 @@ private struct BazarrLinkedApplicationEditorSheet: View {
 
     let appType: BazarrLinkedApplicationType
     let settings: [String: JSONValue]
-    let onSave: ([URLQueryItem]) async -> Void
+    let onSave: ([URLQueryItem]) async -> Bool
 
     @State private var isEnabled = true
     @State private var selectedProfileID = Self.customProfileID
@@ -387,13 +389,16 @@ private struct BazarrLinkedApplicationEditorSheet: View {
             excludeSeasonZero = settings.bazarrBool("sonarr", "exclude_season_zero")
         }
 
-        selectedProfileID = matchingProfileID() ?? remoteProfiles.first?.id.uuidString ?? Self.customProfileID
+        selectedProfileID = matchingProfileID() ?? Self.customProfileID
         hasLoadedInitialState = true
         await applySelectedProfile()
     }
 
     private func applySelectedProfile() async {
         localErrorMessage = nil
+        guard selectedProfileID != Self.customProfileID else {
+            return
+        }
         guard let selectedProfile else {
             return
         }
@@ -474,9 +479,10 @@ private struct BazarrLinkedApplicationEditorSheet: View {
         }
 
         isSaving = true
-        await onSave(formItems)
-        isSaving = false
-        dismiss()
+        defer { isSaving = false }
+        if await onSave(formItems) {
+            dismiss()
+        }
     }
 
     private func matchingProfileID() -> String? {

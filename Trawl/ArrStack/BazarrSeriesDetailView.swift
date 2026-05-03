@@ -480,7 +480,7 @@ private struct BazarrEpisodeDetailView: View {
 
             if !episode.missingSubtitles.isEmpty {
                 Section("Missing Languages") {
-                    ForEach(episode.missingSubtitles, id: \.code2) { lang in
+                    ForEach(episode.missingSubtitles, id: \.self) { lang in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(lang.name)
@@ -722,7 +722,7 @@ struct BazarrInteractiveSearchSheet: View {
     private var languagePicker: some View {
         List {
             Section("Choose a Language to Search") {
-                ForEach(missingLanguages, id: \.code2) { lang in
+                ForEach(missingLanguages, id: \.self) { lang in
                     Button {
                         selectedLanguage = lang
                     } label: {

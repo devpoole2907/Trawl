@@ -88,14 +88,12 @@ struct BazarrMovieDetailView: View {
                     if !movie.audioLanguages.isEmpty {
                         LabeledContent("Audio", value: movie.audioLanguages.map(\.name).joined(separator: ", "))
                     }
-                    if let profileId = movie.profileId {
-                        let profile = serviceManager.activeBazarrEntry?.languageProfiles.first { $0.profileId == profileId }
-                        Button {
-                            selectedProfileId = profileId
-                            showProfilePicker = true
-                        } label: {
-                            LabeledContent("Language Profile", value: profile?.name ?? "Profile \(profileId)")
-                        }
+                    let profile = serviceManager.activeBazarrEntry?.languageProfiles.first { $0.profileId == movie.profileId }
+                    Button {
+                        selectedProfileId = movie.profileId
+                        showProfilePicker = true
+                    } label: {
+                        LabeledContent("Language Profile", value: profile?.name ?? (movie.profileId == nil ? "None" : "Profile \(movie.profileId!)"))
                     }
                 }
 
@@ -118,7 +116,7 @@ struct BazarrMovieDetailView: View {
 
                 if !movie.missingSubtitles.isEmpty {
                     Section("Missing Languages") {
-                        ForEach(movie.missingSubtitles, id: \.code2) { lang in
+                        ForEach(movie.missingSubtitles, id: \.self) { lang in
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(lang.name)

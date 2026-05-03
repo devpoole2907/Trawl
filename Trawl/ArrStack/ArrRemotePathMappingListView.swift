@@ -14,6 +14,10 @@ struct ArrRemotePathMappingListView: View {
     @State private var mappingPendingDelete: ArrRemotePathMapping?
     @State private var showAddSheet = false
 
+    private var supportsRemotePathMappings: Bool {
+        serviceType == .sonarr || serviceType == .radarr
+    }
+
     var body: some View {
         List {
             if isLoading && mappings.isEmpty {
@@ -30,6 +34,13 @@ struct ArrRemotePathMappingListView: View {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }
+            } else if !supportsRemotePathMappings {
+                ContentUnavailableView(
+                    "Not Supported",
+                    systemImage: "nosign",
+                    description: Text("\(serviceType.displayName) does not support remote path mapping management in Trawl.")
+                )
+                .listRowBackground(Color.clear)
             } else if mappings.isEmpty {
                 ContentUnavailableView(
                     "No Remote Path Mappings",
@@ -41,7 +52,9 @@ struct ArrRemotePathMappingListView: View {
                 Section {
                     ForEach(mappings) { mapping in
                         Button {
-                            mappingBeingEdited = mapping
+                            if supportsRemotePathMappings {
+                                mappingBeingEdited = mapping
+                            }
                         } label: {
                             mappingRow(mapping)
                         }
@@ -55,16 +68,22 @@ struct ArrRemotePathMappingListView: View {
                             }
 
                             Button {
-                                mappingBeingEdited = mapping
+                                if supportsRemotePathMappings {
+                                    mappingBeingEdited = mapping
+                                }
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
                             .tint(.indigo)
+                            .disabled(!supportsRemotePathMappings)
                         }
                         .contextMenu {
                             Button("Edit", systemImage: "pencil") {
-                                mappingBeingEdited = mapping
+                                if supportsRemotePathMappings {
+                                    mappingBeingEdited = mapping
+                                }
                             }
+                            .disabled(!supportsRemotePathMappings)
                             Button("Delete", systemImage: "trash", role: .destructive) {
                                 mappingPendingDelete = mapping
                             }
@@ -80,7 +99,7 @@ struct ArrRemotePathMappingListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            if serviceType != .prowlarr {
+            if supportsRemotePathMappings {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button {
                         showAddSheet = true
@@ -90,7 +109,7 @@ struct ArrRemotePathMappingListView: View {
                 }
             }
         }
-        .sheet(isPresented: serviceType != .prowlarr ? $showAddSheet : .constant(false)) {
+        .sheet(isPresented: supportsRemotePathMappings ? $showAddSheet : .constant(false)) {
             ArrRemotePathMappingEditorSheet(serviceType: serviceType) { saved in
                 mappings.append(saved)
                 mappings.sort { $0.host < $1.host }
@@ -101,7 +120,7 @@ struct ArrRemotePathMappingListView: View {
             }
             .environment(serviceManager)
         }
-        .sheet(item: serviceType != .prowlarr ? $mappingBeingEdited : .constant(nil)) { mapping in
+        .sheet(item: supportsRemotePathMappings ? $mappingBeingEdited : .constant(nil)) { mapping in
             ArrRemotePathMappingEditorSheet(serviceType: serviceType, existingMapping: mapping) { saved in
                 if let idx = mappings.firstIndex(where: { $0.id == saved.id }) {
                     mappings[idx] = saved
@@ -180,7 +199,9 @@ struct ArrRemotePathMappingListView: View {
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 mappings = try await client.getRemotePathMappings()
                     .sorted { $0.host < $1.host }
-            case .prowlarr, .bazarr:
+            case .prowlarr:
+                mappings = []
+            case .bazarr:
                 mappings = []
             }
         } catch {
@@ -189,6 +210,7 @@ struct ArrRemotePathMappingListView: View {
     }
 
     private func deleteMapping(_ mapping: ArrRemotePathMapping) async {
+        guard supportsRemotePathMappings else { return }
         do {
             switch serviceType {
             case .sonarr:
@@ -197,7 +219,9 @@ struct ArrRemotePathMappingListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 try await client.deleteRemotePathMapping(id: mapping.id)
-            case .prowlarr, .bazarr:
+            case .prowlarr:
+                return
+            case .bazarr:
                 return
             }
             mappings.removeAll { $0.id == mapping.id }
@@ -245,6 +269,10 @@ struct ArrRemotePathMappingEditorSheet: View {
 
     private var isEditing: Bool { existingMapping != nil }
 
+    private var supportsRemotePathMappings: Bool {
+        serviceType == .sonarr || serviceType == .radarr
+    }
+
     private var qbitProfiles: [ServerProfile] {
         servers.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
     }
@@ -258,6 +286,7 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     private var canSave: Bool {
+        supportsRemotePathMappings &&
         !isSaving &&
         !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -403,6 +432,7 @@ struct ArrRemotePathMappingEditorSheet: View {
 
     private func save() async {
         guard !isSaving else { return }
+        guard supportsRemotePathMappings else { return }
         isSaving = true
         defer { isSaving = false }
         errorMessage = nil
@@ -427,7 +457,9 @@ struct ArrRemotePathMappingEditorSheet: View {
                 saved = isEditing
                     ? try await client.updateRemotePathMapping(payload)
                     : try await client.createRemotePathMapping(payload)
-            case .prowlarr, .bazarr:
+            case .prowlarr:
+                throw ArrError.noServiceConfigured
+            case .bazarr:
                 throw ArrError.noServiceConfigured
             }
             onComplete(saved)

@@ -85,8 +85,11 @@ struct BazarrProvidersView: View {
                     enabledKeys: enabledProviderKeys,
                     settings: settings
                 ) { provider, values in
-                    addSheetPresented = false
-                    Task { await save(provider: provider, values: values, enabling: true) }
+                    let succeeded = await save(provider: provider, values: values, enabling: true)
+                    if succeeded {
+                        addSheetPresented = false
+                    }
+                    return succeeded
                 }
             }
         }
@@ -397,8 +400,8 @@ struct BazarrProvidersView: View {
         }
     }
 
-    private func save(provider: BazarrProviderDefinition, values: [String: String], enabling: Bool) async {
-        guard let client else { return }
+    private func save(provider: BazarrProviderDefinition, values: [String: String], enabling: Bool) async -> Bool {
+        guard let client else { return false }
         var nextKeys = enabledProviderKeys
         if enabling, !nextKeys.contains(provider.key) {
             nextKeys.append(provider.key)
@@ -411,8 +414,10 @@ struct BazarrProvidersView: View {
                 message: "\(provider.displayName) has been saved in Bazarr."
             )
             await load()
+            return true
         } catch {
             InAppNotificationCenter.shared.showError(title: "Save Failed", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -471,7 +476,7 @@ private struct BazarrProviderPickerView: View {
 
     let enabledKeys: [String]
     let settings: [String: JSONValue]
-    let onSave: (BazarrProviderDefinition, [String: String]) -> Void
+    let onSave: (BazarrProviderDefinition, [String: String]) async -> Bool
 
     @State private var searchText = ""
 
@@ -503,8 +508,7 @@ private struct BazarrProviderPickerView: View {
                             settings: settings,
                             mode: .add
                         ) { values in
-                            onSave(provider, values)
-                            dismiss()
+                            await onSave(provider, values)
                         }
                     } label: {
                         BazarrProviderRowView(
@@ -554,7 +558,7 @@ private struct BazarrProviderEditorView: View {
     let provider: BazarrProviderDefinition
     let settings: [String: JSONValue]
     let mode: Mode
-    let onSave: ([String: String]) async -> Void
+    let onSave: ([String: String]) async -> Bool
     let onRemove: (() -> Void)?
 
     @State private var values: [String: String]
@@ -566,7 +570,7 @@ private struct BazarrProviderEditorView: View {
         settings: [String: JSONValue],
         mode: Mode,
         onRemove: (() -> Void)? = nil,
-        onSave: @escaping ([String: String]) async -> Void
+        onSave: @escaping ([String: String]) async -> Bool
     ) {
         self.provider = provider
         self.settings = settings
@@ -689,9 +693,10 @@ private struct BazarrProviderEditorView: View {
         for field in provider.fields {
             formValues["settings-\(provider.key)-\(field.key)"] = values[field.key] ?? ""
         }
-        await onSave(formValues)
-        isSaving = false
-        dismiss()
+        defer { isSaving = false }
+        if await onSave(formValues) {
+            dismiss()
+        }
     }
 
     private func stringBinding(for key: String) -> Binding<String> {

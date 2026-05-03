@@ -327,25 +327,22 @@ struct ArrWantedView: View {
             if scope.includesSubtitles, let bazarrViewModel, bazarrCanSearch {
                 let missingSeries = bazarrViewModel.filteredSeries.filter { $0.episodeMissingCount > 0 }
                 let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
-                for series in missingSeries {
-                    group.addTask {
+                group.addTask {
+                    for series in missingSeries {
                         do {
                             try await bazarrViewModel.runSeriesAction(.searchMissing, seriesId: series.sonarrSeriesId)
-                            return nil
                         } catch {
                             return "Bazarr \(series.title): \(error.localizedDescription)"
                         }
                     }
-                }
-                for movie in missingMovies {
-                    group.addTask {
+                    for movie in missingMovies {
                         do {
                             try await bazarrViewModel.runMovieAction(.searchMissing, radarrId: movie.radarrId)
-                            return nil
                         } catch {
                             return "Bazarr \(movie.title): \(error.localizedDescription)"
                         }
                     }
+                    return nil
                 }
             }
 
@@ -619,38 +616,41 @@ private struct BazarrWantedSeriesRow: View {
     @State private var isSearching = false
 
     var body: some View {
-        NavigationLink {
-            BazarrSeriesDetailView(seriesId: series.sonarrSeriesId, viewModel: BazarrViewModel(serviceManager: serviceManager))
-        } label: {
-            HStack(spacing: 12) {
-                ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-                        Image(systemName: "captions.bubble")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.teal)
+        HStack(spacing: 12) {
+            NavigationLink {
+                BazarrSeriesDetailView(seriesId: series.sonarrSeriesId, viewModel: BazarrViewModel(serviceManager: serviceManager))
+            } label: {
+                HStack(spacing: 12) {
+                    ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            Image(systemName: "captions.bubble")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.teal)
+                        }
                     }
-                }
-                .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(width: 46, height: 69)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
 
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(series.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        wantedStatusChip("\(series.episodeMissingCount) missing", color: .teal)
-                        wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(series.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            wantedStatusChip("\(series.episodeMissingCount) missing", color: .teal)
+                            wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
+                        }
                     }
+
+                    Spacer()
                 }
-
-                Spacer()
-
-                searchButton
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            searchButton
         }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder
@@ -740,4 +740,14 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
         .padding(.horizontal, 7)
         .padding(.vertical, 3)
         .background(color.opacity(0.14), in: Capsule())
+}
+ome View {
+    Text(text)
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(color)
+        .padding(.horizontal, 7)
+        .padding(.vertical, 3)
+        .background(color.opacity(0.14), in: Capsule())
+}
+le())
 }
