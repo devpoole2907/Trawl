@@ -33,7 +33,7 @@ struct ArrManualImportView: View {
             activeProfileID = serviceManager.activeSonarrProfileID
         case .radarr:
             activeProfileID = serviceManager.activeRadarrProfileID
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             activeProfileID = nil
         }
 
@@ -624,7 +624,7 @@ private final class ManualImportScanViewModel {
             }
             Self.logger.info("Requesting Radarr manual import scan for \(folder, privacy: .public)")
             return try await client.getManualImport(folder: folder, movieId: libraryItemID)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ManualImportServiceClientUnavailableError(service: service)
         }
     }
@@ -642,7 +642,7 @@ private final class ManualImportScanViewModel {
                 throw ManualImportServiceClientUnavailableError(service: service)
             }
             return try await client.manualImport(files: files)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ManualImportServiceClientUnavailableError(service: service)
         }
     }
@@ -707,7 +707,7 @@ private final class ManualImportScanViewModel {
                 async let profilesResult = client.getQualityProfiles()
                 libraryMovies = try await moviesResult
                 qualityProfiles = try await profilesResult
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 break
             }
         } catch {
@@ -750,7 +750,7 @@ private final class ManualImportScanViewModel {
                     autoSuggestionSeries = results
                     isLoadingAutoSuggestions = false
                 }
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 withAnimation(.snappy) { isLoadingAutoSuggestions = false }
             }
         } catch {
@@ -873,7 +873,7 @@ private final class ManualImportScanViewModel {
                         skippedGroupIDs.insert(groupID)
                         autoIdentifyLastOutcomeMessage = "No library match found for \(group.displayTitle)."
                     }
-                case .prowlarr:
+                case .prowlarr, .bazarr:
                     return
                 }
                 try await Task.sleep(for: .milliseconds(150))
@@ -914,7 +914,7 @@ private final class ManualImportScanViewModel {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { return }
                 catalogSeriesResults = try await client.lookupSeries(term: trimmed)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 break
             }
         } catch {
@@ -1102,7 +1102,7 @@ private final class ManualImportScanViewModel {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return }
                 libraryMovies = try await client.getMovies()
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 break
             }
         } catch {
@@ -1749,7 +1749,7 @@ struct ManualImportScanView: View {
                 switch viewModel.service {
                 case .sonarr: viewModel.navigationAction = navigateToSeriesTab
                 case .radarr: viewModel.navigationAction = navigateToMoviesTab
-                case .prowlarr: break
+                case .prowlarr, .bazarr: break
                 }
             }
             if !viewModel.hasPerformedInitialScan {
@@ -2130,7 +2130,7 @@ private struct ManualImportItem: Identifiable, Sendable {
             if dict["series"] == nil {
                 dict["series"] = .object(["id": .number(Double(id))])
             }
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
         return .object(dict)

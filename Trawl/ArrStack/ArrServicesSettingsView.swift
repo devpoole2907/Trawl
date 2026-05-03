@@ -46,6 +46,7 @@ struct ArrServiceSettingsView: View {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
         case .prowlarr: serviceManager.prowlarrConnected
+        case .bazarr: serviceManager.hasAnyConnectedBazarrInstance
         }
     }
 
@@ -54,15 +55,16 @@ struct ArrServiceSettingsView: View {
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
+        case .bazarr: .teal
         }
     }
 
     private var supportsDiskSpace: Bool {
-        serviceType != .prowlarr
+        serviceType != .prowlarr && serviceType != .bazarr
     }
 
     private var supportsCommands: Bool {
-        serviceType != .prowlarr
+        serviceType != .prowlarr && serviceType != .bazarr
     }
 
     private var qualityProfiles: [ArrQualityProfile] {
@@ -72,6 +74,8 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             serviceManager.radarrQualityProfiles
         case .prowlarr:
+            []
+        case .bazarr:
             []
         }
     }
@@ -285,6 +289,21 @@ struct ArrServiceSettingsView: View {
                         Text("Automation")
                     } footer: {
                         Text("Link Sonarr or Radarr so Prowlarr can sync indexers directly into those services.")
+                    }
+                }
+
+                if serviceType == .bazarr, isConnected {
+                    Section {
+                        NavigationLink {
+                            BazarrLinkedApplicationsListView()
+                                .environment(serviceManager)
+                        } label: {
+                            Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
+                        }
+                    } header: {
+                        Text("Automation")
+                    } footer: {
+                        Text("Connect Bazarr to Sonarr and Radarr so it can sync media and search subtitles automatically.")
                     }
                 }
 
@@ -510,6 +529,7 @@ struct ArrServiceSettingsView: View {
         case .sonarr: serviceManager.sonarrClient
         case .radarr: serviceManager.radarrClient
         case .prowlarr: nil
+        case .bazarr: nil
         }
         guard let client else {
             diskSpaces = []
@@ -552,6 +572,8 @@ struct ArrServiceSettingsView: View {
             serviceManager.activeRadarrInstanceID
         case .prowlarr:
             serviceManager.activeProwlarrProfileID
+        case .bazarr:
+            serviceManager.activeBazarrProfileID
         }
     }
 
@@ -567,6 +589,8 @@ struct ArrServiceSettingsView: View {
             serviceManager.setActiveRadarr(profileID)
         case .prowlarr:
             break
+        case .bazarr:
+            serviceManager.setActiveBazarr(profileID)
         }
     }
 
@@ -589,6 +613,46 @@ struct ArrServiceSettingsView: View {
             return
         }
 
+        if serviceType == .bazarr {
+            guard let entry = serviceManager.activeBazarrEntry, let client = entry.client else {
+                systemStatus = nil
+                systemStatusError = "No connected Bazarr instance"
+                isLoadingStatus = false
+                return
+            }
+            isLoadingStatus = true
+            defer { isLoadingStatus = false }
+            do {
+                let bazarrStatus = try await client.getSystemStatus()
+                systemStatus = ArrSystemStatus(
+                    appName: "Bazarr",
+                    instanceName: "Bazarr",
+                    version: bazarrStatus.bazarrVersion,
+                    buildTime: nil,
+                    isDebug: nil,
+                    isProduction: nil,
+                    isAdmin: nil,
+                    isUserInteractive: nil,
+                    startupPath: bazarrStatus.bazarrDirectory,
+                    appData: bazarrStatus.bazarrConfigDirectory,
+                    osName: bazarrStatus.operatingSystem,
+                    osVersion: nil,
+                    isDocker: nil,
+                    isLinux: nil,
+                    isOsx: nil,
+                    isWindows: nil,
+                    urlBase: nil,
+                    runtimeVersion: bazarrStatus.pythonVersion,
+                    runtimeName: "Python"
+                )
+                systemStatusError = nil
+            } catch {
+                systemStatus = nil
+                systemStatusError = error.localizedDescription
+            }
+            return
+        }
+
         let client: ArrServiceStatusProviding? = switch serviceType {
         case .sonarr:
             serviceManager.sonarrClient
@@ -596,6 +660,8 @@ struct ArrServiceSettingsView: View {
             serviceManager.radarrClient
         case .prowlarr:
             serviceManager.prowlarrClient
+        case .bazarr:
+            nil
         }
 
         guard let client else {
@@ -622,6 +688,7 @@ struct ArrServiceSettingsView: View {
         case .sonarr: serviceManager.sonarrClient
         case .radarr: serviceManager.radarrClient
         case .prowlarr: nil
+        case .bazarr: nil
         }
         guard let client else {
             availableUpdates = []
@@ -759,7 +826,7 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             try await viewModel.refreshMovies()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -772,7 +839,7 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             try await viewModel.rssSync()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -785,7 +852,7 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             try await viewModel.searchAllMissing()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -798,7 +865,7 @@ struct ArrServiceSettingsView: View {
         case .radarr:
             let viewModel = RadarrViewModel(serviceManager: serviceManager)
             try await viewModel.installUpdate()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -870,7 +937,7 @@ struct ArrServicesSettingsView: View {
         List {
             Section("Connected Services") {
                 if profiles.isEmpty {
-                    Text("No services configured. Tap + to add Sonarr, Radarr, or Prowlarr.")
+                    Text("No services configured. Tap + to add Sonarr, Radarr, Prowlarr, or Bazarr.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } else {
@@ -920,6 +987,16 @@ struct ArrServicesSettingsView: View {
                         .font(.caption)
                         .foregroundStyle(serviceManager.prowlarrConnected ? .green : .red)
                     Text(serviceManager.prowlarrConnected ? "Connected" : "Disconnected")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                HStack {
+                    Label("Bazarr", systemImage: "captions.bubble")
+                    Spacer()
+                    Image(systemName: serviceManager.hasAnyConnectedBazarrInstance ? "circle.fill" : "circle")
+                        .font(.caption)
+                        .foregroundStyle(serviceManager.hasAnyConnectedBazarrInstance ? .green : .red)
+                    Text(serviceManager.hasAnyConnectedBazarrInstance ? "Connected" : "Disconnected")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -974,7 +1051,7 @@ private struct ArrQualityProfilesListView: View {
             serviceManager.sonarrQualityProfiles
         case .radarr:
             serviceManager.radarrQualityProfiles
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             []
         }
     }
@@ -1114,7 +1191,7 @@ private struct ArrQualityProfilesListView: View {
                 } else {
                     _ = try await client.updateQualityProfile(profile)
                 }
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return false
             }
 
@@ -1145,7 +1222,7 @@ private struct ArrQualityProfilesListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return }
                 try await client.deleteQualityProfile(id: profile.id)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
 
@@ -1633,6 +1710,7 @@ private struct ServiceProfileRow: View {
         case .sonarr: return .blue
         case .radarr: return .purple
         case .prowlarr: return .yellow
+        case .bazarr: return .teal
         }
     }
 }

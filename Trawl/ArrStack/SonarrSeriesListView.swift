@@ -330,6 +330,7 @@ struct SonarrSeriesListView: View {
 
     @ViewBuilder
     private func seriesRow(_ show: SonarrSeries, vm: SonarrViewModel) -> some View {
+        let bazarrStatus = serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: show.id)
         if editMode.isEditing {
             Button {
                 toggleSeriesSelection(show)
@@ -342,7 +343,8 @@ struct SonarrSeriesListView: View {
                         series: show,
                         hasIssue: vm.queue.contains {
                             $0.seriesId == show.id && $0.isImportIssueQueueItem
-                        }
+                        },
+                        bazarrStatus: bazarrStatus
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -355,7 +357,8 @@ struct SonarrSeriesListView: View {
                     series: show,
                     hasIssue: vm.queue.contains {
                         $0.seriesId == show.id && $0.isImportIssueQueueItem
-                    }
+                    },
+                    bazarrStatus: bazarrStatus
                 )
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -671,6 +674,7 @@ private func sonarrListSectionLabel(for title: String) -> String {
 struct SonarrSeriesRow: View {
     let series: SonarrSeries
     let hasIssue: Bool
+    var bazarrStatus: BazarrSubtitleStatus? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -703,14 +707,42 @@ struct SonarrSeriesRow: View {
                         .foregroundStyle(series.status == "continuing" ? .green : .secondary)
                 }
 
-                if let stats = series.statistics {
-                    let fileCount = stats.episodeFileCount ?? 0
-                    let totalCount = stats.episodeCount ?? 0
-                    ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
-                        .tint(fileCount == totalCount ? .green : .blue)
-                    Text("\(fileCount)/\(totalCount) episodes")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let stats = series.statistics {
+                        let fileCount = stats.episodeFileCount ?? 0
+                        let totalCount = stats.episodeCount ?? 0
+                        ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
+                            .tint(fileCount == totalCount ? .green : .blue)
+                            .frame(width: 40)
+                        Text("\(fileCount)/\(totalCount) eps")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let bazarrStatus {
+                        let color: Color = {
+                            switch bazarrStatus {
+                            case .allPresent: return .green
+                            case .partial: return .orange
+                            case .none: return .red
+                            case .unknown: return .gray
+                            }
+                        }()
+                        let icon: String = {
+                            switch bazarrStatus {
+                            case .allPresent: return "checkmark.circle.fill"
+                            case .partial: return "exclamationmark.triangle.fill"
+                            case .none: return "xmark.circle.fill"
+                            case .unknown: return "questionmark.circle.fill"
+                            }
+                        }()
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: icon)
+                            .font(.caption2)
+                            .foregroundStyle(color)
+                    }
                 }
             }
 

@@ -416,6 +416,7 @@ struct RadarrMovieDetailView: View {
 
         if isInLibrary {
             searchActionsCard(movie)
+            BazarrSubtitleStatusCard(media: .movie(radarrId: movie.id, title: movie.title))
         }
 
         if !activeQueueItems.isEmpty {

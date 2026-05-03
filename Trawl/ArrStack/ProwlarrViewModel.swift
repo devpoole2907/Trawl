@@ -499,7 +499,7 @@ final class ArrIndexerManagementViewModel {
     }
 
     func loadIndexers(for profileID: UUID, serviceType: ArrServiceType) async {
-        guard serviceType != .prowlarr else { return }
+        guard serviceType != .prowlarr && serviceType != .bazarr else { return }
         loadingProfileIDs.insert(profileID)
         errorsByProfileID[profileID] = nil
         defer { loadingProfileIDs.remove(profileID) }
@@ -538,7 +538,7 @@ final class ArrIndexerManagementViewModel {
             sonarrIndexersByProfileID[profileID] ?? []
         case .radarr:
             radarrIndexersByProfileID[profileID] ?? []
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             []
         }
     }
@@ -628,7 +628,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.getIndexers()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             return []
         }
     }
@@ -641,7 +641,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.getIndexerSchema()
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             return []
         }
     }
@@ -654,7 +654,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.createIndexer(indexer)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
@@ -667,7 +667,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             return try await client.updateIndexer(indexer)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
@@ -680,7 +680,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             try await client.deleteIndexer(id: id)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
@@ -693,7 +693,7 @@ final class ArrIndexerManagementViewModel {
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
             try await client.testIndexer(indexer)
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
@@ -704,7 +704,7 @@ final class ArrIndexerManagementViewModel {
             sonarrIndexersByProfileID[profileID] = indexers
         case .radarr:
             radarrIndexersByProfileID[profileID] = indexers
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }

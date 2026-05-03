@@ -39,6 +39,7 @@ struct SonarrSeriesDetailView: View {
     @State private var pendingQueueAction: PendingQueueAction?
     @State private var isDispatchingSeriesSearch = false
     @State private var showSeriesInteractiveSearchSheet = false
+    @State private var bazarrEpisodes: [BazarrEpisode] = []
 
     /// Library init — series lives in the ViewModel's loaded library.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -139,6 +140,11 @@ struct SonarrSeriesDetailView: View {
         .toolbar { toolbarContent }
         .task(id: resolvedSeriesId) {
             if let id = resolvedSeriesId {
+                bazarrEpisodes = []
+                if serviceManager.hasAnyConnectedBazarrInstance {
+                    bazarrEpisodes = (try? await serviceManager.getBazarrEpisodes(forSonarrSeriesId: id)) ?? []
+                }
+
                 var currentViewModel = viewModel
                 await currentViewModel.loadEpisodes(for: id)
                 await currentViewModel.loadEpisodeFiles(for: id)
@@ -435,6 +441,7 @@ struct SonarrSeriesDetailView: View {
         if isInLibrary {
             statsCard(series)
             seriesSearchCard(series)
+            BazarrSubtitleStatusCard(media: .series(seriesId: series.id, title: series.title))
         }
 
         if !activeQueueItems.isEmpty {
@@ -1165,12 +1172,20 @@ struct SonarrSeriesDetailView: View {
             totalCount = 0
         }
 
+        let bEps = bazarrEpisodes.filter { $0.season == seasonNum }
+        let subtitleComplete = !bEps.isEmpty && bEps.allSatisfy { $0.missingSubtitles.isEmpty }
+        let subtitleMissing = bEps.filter { !$0.missingSubtitles.isEmpty }.count
+
         return NavigationLink {
             SonarrSeasonSearchView(
                 viewModel: viewModel,
                 series: series ?? discoverSeries,
                 seasonNumber: seasonNum,
-                episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber }
+                episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber },
+                bazarrEpisodes: bEps,
+                onBazarrEpisodesUpdated: { updatedEpisodes in
+                    replaceBazarrEpisodes(updatedEpisodes, forSeason: seasonNum)
+                }
             )
         } label: {
             HStack(spacing: 10) {
@@ -1196,6 +1211,16 @@ struct SonarrSeriesDetailView: View {
                     }
                 }
 
+                if subtitleComplete {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.green)
+                } else if subtitleMissing > 0 {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.orange)
+                }
+
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(.tertiary)
@@ -1208,6 +1233,17 @@ struct SonarrSeriesDetailView: View {
         }
         .buttonStyle(.plain)
         .disabled((series ?? discoverSeries) == nil)
+    }
+
+    private func replaceBazarrEpisodes(_ updatedEpisodes: [BazarrEpisode], forSeason seasonNumber: Int) {
+        bazarrEpisodes.removeAll { $0.season == seasonNumber }
+        bazarrEpisodes.append(contentsOf: updatedEpisodes)
+        bazarrEpisodes.sort {
+            if $0.season == $1.season {
+                return $0.episode < $1.episode
+            }
+            return $0.season < $1.season
+        }
     }
 
     // MARK: - Search actions
@@ -2052,11 +2088,34 @@ struct SonarrSeasonSearchView: View {
     let series: SonarrSeries?
     let seasonNumber: Int
     let episodes: [SonarrEpisode]
+    private let initialBazarrEpisodes: [BazarrEpisode]
+    private let onBazarrEpisodesUpdated: ([BazarrEpisode]) -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @State private var isDispatchingBazarrSearch = false
+    @State private var bazarrInteractiveSearchTarget: BazarrEpisode?
+    @State private var refreshedBazarrEpisodes: [BazarrEpisode]?
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
     @State private var automaticSearchFeedback: AutomaticSearchFeedback?
     @State private var automaticSearchMonitorTask: Task<Void, Never>?
+
+    init(
+        viewModel: SonarrViewModel,
+        series: SonarrSeries?,
+        seasonNumber: Int,
+        episodes: [SonarrEpisode],
+        bazarrEpisodes: [BazarrEpisode] = [],
+        onBazarrEpisodesUpdated: @escaping ([BazarrEpisode]) -> Void = { _ in }
+    ) {
+        self.viewModel = viewModel
+        self.series = series
+        self.seasonNumber = seasonNumber
+        self.episodes = episodes
+        self.initialBazarrEpisodes = bazarrEpisodes
+        self.onBazarrEpisodesUpdated = onBazarrEpisodesUpdated
+    }
 
     private var title: String {
         seasonNumber == 0 ? "Specials" : "Season \(seasonNumber)"
@@ -2064,6 +2123,14 @@ struct SonarrSeasonSearchView: View {
 
     private var sortedEpisodes: [SonarrEpisode] {
         episodes.sorted { $0.episodeNumber < $1.episodeNumber }
+    }
+
+    private var activeBazarrEpisodes: [BazarrEpisode] {
+        refreshedBazarrEpisodes ?? initialBazarrEpisodes
+    }
+
+    private var missingBazarrEpisodes: [BazarrEpisode] {
+        activeBazarrEpisodes.filter { !$0.missingSubtitles.isEmpty }
     }
 
     var body: some View {
@@ -2076,80 +2143,15 @@ struct SonarrSeasonSearchView: View {
                     interactiveSearchButton
                 }
 
-                seasonSearchInfoCard(title: "Episodes", icon: "list.bullet") {
-                    if sortedEpisodes.isEmpty {
-                        ContentUnavailableView(
-                            "No Episodes",
-                            systemImage: "tv.slash",
-                            description: Text("This season does not have any loaded episodes yet.")
-                        )
-                        .frame(maxWidth: .infinity)
-                    } else {
-                        VStack(spacing: 0) {
-                            ForEach(sortedEpisodes) { episode in
-                                let queueItem = viewModel.queue.first { $0.episodeId == episode.id }
-                                NavigationLink {
-                                    SonarrEpisodeSearchView(viewModel: viewModel, series: series, episode: episode)
-                                } label: {
-                                    HStack(spacing: 12) {
-                                        VStack(alignment: .leading, spacing: 4) {
-                                            HStack(spacing: 6) {
-                                                Text(episode.episodeIdentifier)
-                                                    .font(.caption.weight(.semibold))
-                                                    .foregroundStyle(.secondary)
-                                                
-                                                Text(formattedDate(episode.airDate))
-                                                    .font(.caption2)
-                                                    .foregroundStyle(.secondary.opacity(0.8))
-                                            }
-
-                                            Text(episode.title ?? "Untitled Episode")
-                                                .font(.subheadline.weight(.semibold))
-                                                .foregroundStyle(.white)
-                                                .fixedSize(horizontal: false, vertical: true)
-                                        }
-
-                                        Spacer()
-
-                                        if let q = queueItem {
-                                            let isIssue = q.isImportIssueQueueItem
-                                            let status = isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading")
-                                            Text(status)
-                                                .font(.caption2.weight(.semibold))
-                                                .foregroundStyle(isIssue ? .orange : .purple)
-                                                .padding(.horizontal, 8)
-                                                .padding(.vertical, 4)
-                                                .background((isIssue ? Color.orange : Color.purple).opacity(0.2))
-                                                .clipShape(Capsule())
-                                                .overlay(alignment: .topTrailing) {
-                                                    if isIssue {
-                                                        Image(systemName: "exclamationmark.circle.fill")
-                                                            .font(.system(size: 8))
-                                                            .foregroundStyle(.orange)
-                                                            .offset(x: 3, y: -3)
-                                                    }
-                                                }
-                                        } else if episode.hasFile == true {
-                                            Image(systemName: "checkmark.circle.fill")
-                                                .foregroundStyle(.green)
-                                        }
-
-                                        Image(systemName: "chevron.right")
-                                            .font(.caption.weight(.semibold))
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 12)
-                                    .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-
-                                if episode.id != sortedEpisodes.last?.id {
-                                    Divider().padding(.leading, 14)
-                                }
-                            }
-                        }
+                if !missingBazarrEpisodes.isEmpty {
+                    VStack(spacing: 14) {
+                        bazarrAutomaticSearchButton(missingBazarrEpisodes)
+                        bazarrInteractiveSearchButton(missingBazarrEpisodes)
                     }
+                }
+
+                seasonSearchInfoCard(title: "Episodes", icon: "list.bullet") {
+                    episodesCardContent
                 }
             }
             .padding(.horizontal, 16)
@@ -2175,17 +2177,138 @@ struct SonarrSeasonSearchView: View {
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: sortedEpisodes.map { "\($0.id)-\($0.hasFile == true)" })
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodesAnimationValue)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueAnimationValue)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: automaticSearchFeedback)
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, seasonNumber: seasonNumber)
             }
         }
+        .sheet(item: $bazarrInteractiveSearchTarget) { bEp in
+            BazarrInteractiveSearchSheet(
+                seriesId: bEp.sonarrSeriesId,
+                episode: bEp,
+                viewModel: BazarrViewModel(serviceManager: serviceManager),
+                onDownloaded: {
+                    await refreshBazarrSeasonEpisodes(seriesId: bEp.sonarrSeriesId)
+                }
+            )
+        }
         .onDisappear {
             automaticSearchMonitorTask?.cancel()
         }
+    }
+
+    private var episodesAnimationValue: [String] {
+        sortedEpisodes.map { "\($0.id)-\($0.hasFile == true)" }
+    }
+
+    private var queueAnimationValue: [Int] {
+        viewModel.queue.map(\.id)
+    }
+
+    @ViewBuilder
+    private var rowsContent: some View {
+        let lastId = sortedEpisodes.last?.id
+        ForEach(sortedEpisodes) { episode in
+            SonarrSeasonEpisodeRow(
+                viewModel: viewModel,
+                series: series,
+                episode: episode,
+                bazarrEpisodes: activeBazarrEpisodes,
+                isLast: episode.id == lastId,
+                formattedDate: formattedDate,
+                onBazarrEpisodeUpdated: updateBazarrEpisode
+            )
+        }
+    }
+
+    private func refreshBazarrSeasonEpisodes(seriesId: Int) async {
+        do {
+            let latestEpisodes = try await serviceManager.getBazarrEpisodes(forSonarrSeriesId: seriesId)
+            let seasonEpisodes = latestEpisodes.filter { $0.season == seasonNumber }
+            await MainActor.run {
+                refreshedBazarrEpisodes = seasonEpisodes
+                onBazarrEpisodesUpdated(seasonEpisodes)
+                if let target = bazarrInteractiveSearchTarget {
+                    bazarrInteractiveSearchTarget = seasonEpisodes.first { $0.sonarrEpisodeId == target.sonarrEpisodeId }
+                }
+            }
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Refresh Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func updateBazarrEpisode(_ episode: BazarrEpisode?) {
+        var seasonEpisodes = activeBazarrEpisodes
+        if let episode {
+            seasonEpisodes.removeAll { $0.sonarrEpisodeId == episode.sonarrEpisodeId }
+            seasonEpisodes.append(episode)
+            seasonEpisodes.sort { $0.episode < $1.episode }
+        }
+        refreshedBazarrEpisodes = seasonEpisodes
+        onBazarrEpisodesUpdated(seasonEpisodes)
+    }
+
+    @ViewBuilder
+    private var episodesCardContent: some View {
+        if sortedEpisodes.isEmpty {
+            ContentUnavailableView(
+                "No Episodes",
+                systemImage: "tv.slash",
+                description: Text("This season does not have any loaded episodes yet.")
+            )
+            .frame(maxWidth: .infinity)
+        } else {
+            VStack(spacing: 0) {
+                rowsContent
+            }
+        }
+    }
+
+    private func bazarrAutomaticSearchButton(_ missingEps: [BazarrEpisode]) -> some View {
+        Button {
+            guard !isDispatchingBazarrSearch, let first = missingEps.first else { return }
+            isDispatchingBazarrSearch = true
+            Task {
+                if let client = serviceManager.activeBazarrEntry?.client {
+                    do {
+                        try await client.runSeriesAction(seriesId: first.sonarrSeriesId, action: .searchMissing)
+                        InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "Bazarr is searching for subtitles.")
+                    } catch {
+                        InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+                    }
+                }
+                isDispatchingBazarrSearch = false
+            }
+        } label: {
+            seasonSearchActionRow(
+                title: "Queue Series Subtitle Search",
+                subtitle: "Queue Bazarr's series-wide missing subtitle search.",
+                systemImage: "captions.bubble",
+                isLoading: isDispatchingBazarrSearch,
+                accentColor: .teal
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func bazarrInteractiveSearchButton(_ missingEps: [BazarrEpisode]) -> some View {
+        Button {
+            bazarrInteractiveSearchTarget = missingEps.first
+        } label: {
+            seasonSearchActionRow(
+                title: "Interactive Subtitle Search",
+                subtitle: "Open interactive search for a missing episode.",
+                systemImage: "person.fill",
+                trailingSystemImage: "arrow.up.forward.square",
+                accentColor: .teal
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
     private func formattedDate(_ string: String?) -> String {
@@ -2341,12 +2464,13 @@ struct SonarrSeasonSearchView: View {
         subtitle: String,
         systemImage: String,
         isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
+        trailingSystemImage: String = "arrow.right",
+        accentColor: Color = .purple
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.title3)
-                .foregroundStyle(.purple)
+                .foregroundStyle(accentColor)
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -2392,16 +2516,133 @@ struct SonarrSeasonSearchView: View {
     }
 }
 
+private struct SonarrSeasonEpisodeRow: View {
+    @Bindable var viewModel: SonarrViewModel
+    let series: SonarrSeries?
+    let episode: SonarrEpisode
+    let bazarrEpisodes: [BazarrEpisode]
+    let isLast: Bool
+    let formattedDate: (String?) -> String
+    let onBazarrEpisodeUpdated: (BazarrEpisode?) -> Void
+
+    private var queueItem: ArrQueueItem? {
+        viewModel.queue.first { $0.episodeId == episode.id }
+    }
+
+    private var bazarrEpisode: BazarrEpisode? {
+        bazarrEpisodes.first { $0.sonarrEpisodeId == episode.id }
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            NavigationLink {
+                SonarrEpisodeSearchView(
+                    viewModel: viewModel,
+                    series: series,
+                    episode: episode,
+                    bazarrEpisode: bazarrEpisode,
+                    onBazarrEpisodeUpdated: onBazarrEpisodeUpdated
+                )
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Text(episode.episodeIdentifier)
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            
+                            Text(formattedDate(episode.airDate))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary.opacity(0.8))
+                        }
+
+                        Text(episode.title ?? "Untitled Episode")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+
+                    Spacer()
+
+                    if let q = queueItem {
+                        let isIssue = q.isImportIssueQueueItem
+                        let status = isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading")
+                        Text(status)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(isIssue ? .orange : .purple)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background((isIssue ? Color.orange : Color.purple).opacity(0.2))
+                            .clipShape(Capsule())
+                            .overlay(alignment: .topTrailing) {
+                                if isIssue {
+                                    Image(systemName: "exclamationmark.circle.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.orange)
+                                        .offset(x: 3, y: -3)
+                                }
+                            }
+                    } else if episode.hasFile == true {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                                .font(.caption)
+                            if let bEp = bazarrEpisode {
+                                Image(systemName: bEp.missingSubtitles.isEmpty ? "captions.bubble.fill" : "exclamationmark.triangle.fill")
+                                    .foregroundStyle(bEp.missingSubtitles.isEmpty ? .green : .orange)
+                                    .font(.caption)
+                            }
+                        }
+                    }
+
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if !isLast {
+                Divider().padding(.leading, 14)
+            }
+        }
+    }
+}
+
 struct SonarrEpisodeSearchView: View {
     @Bindable var viewModel: SonarrViewModel
     let series: SonarrSeries?
     let episode: SonarrEpisode
+    private let initialBazarrEpisode: BazarrEpisode?
+    private let onBazarrEpisodeUpdated: (BazarrEpisode?) -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(ArrServiceManager.self) private var serviceManager
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
+
+    @State private var isDispatchingBazarrSearch = false
+    @State private var showBazarrInteractiveSearchSheet = false
+    @State private var refreshedBazarrEpisode: BazarrEpisode??
+
+    init(
+        viewModel: SonarrViewModel,
+        series: SonarrSeries?,
+        episode: SonarrEpisode,
+        bazarrEpisode: BazarrEpisode? = nil,
+        onBazarrEpisodeUpdated: @escaping (BazarrEpisode?) -> Void = { _ in }
+    ) {
+        self.viewModel = viewModel
+        self.series = series
+        self.episode = episode
+        self.initialBazarrEpisode = bazarrEpisode
+        self.onBazarrEpisodeUpdated = onBazarrEpisodeUpdated
+    }
 
     private var episodeHistory: [ArrHistoryRecord] {
         viewModel.history
@@ -2414,6 +2655,10 @@ struct SonarrEpisodeSearchView: View {
 
     private var queueItem: ArrQueueItem? {
         viewModel.queue.first { $0.episodeId == episode.id }
+    }
+
+    private var activeBazarrEpisode: BazarrEpisode? {
+        refreshedBazarrEpisode ?? initialBazarrEpisode
     }
 
     private var episodeFiles: [SonarrEpisodeFile] {
@@ -2440,6 +2685,13 @@ struct SonarrEpisodeSearchView: View {
                     episodeInteractiveSearchButton
                 }
 
+                if let bEp = activeBazarrEpisode, !bEp.missingSubtitles.isEmpty {
+                    VStack(spacing: 14) {
+                        bazarrAutomaticSearchButton
+                        bazarrInteractiveSearchButton
+                    }
+                }
+
                 episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
                     VStack(alignment: .leading, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -2456,17 +2708,7 @@ struct SonarrEpisodeSearchView: View {
                         }
 
                         HStack(spacing: 12) {
-                            episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange, systemImage: episode.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: episode.monitored == true ? "bookmark.fill" : "bookmark.slash")
-                            
-                            if let q = queueItem {
-                                let isIssue = q.isImportIssueQueueItem
-                                episodeStatusBadge(
-                                    isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
-                                    tint: isIssue ? .orange : .purple,
-                                    systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
-                                )
-                            }
+                            statusBadges
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -2534,8 +2776,8 @@ struct SonarrEpisodeSearchView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.hasFile)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.monitored)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueItem?.id)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeFiles.map(\.id))
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeHistory.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeFilesAnimationValue)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeHistoryAnimationValue)
         .alert("Delete Episode File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
                 if let file = episodeFileToDelete {
@@ -2553,9 +2795,110 @@ struct SonarrEpisodeSearchView: View {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
             }
         }
+        .sheet(isPresented: $showBazarrInteractiveSearchSheet) {
+            if let bEp = activeBazarrEpisode {
+                BazarrInteractiveSearchSheet(
+                    seriesId: bEp.sonarrSeriesId,
+                    episode: bEp,
+                    viewModel: BazarrViewModel(serviceManager: serviceManager),
+                    onDownloaded: {
+                        await refreshBazarrEpisode()
+                    }
+                )
+            }
+        }
         .task {
             await viewModel.loadHistory(page: 1)
         }
+    }
+
+    @ViewBuilder
+    private var statusBadges: some View {
+        episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange, systemImage: episode.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+        episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: episode.monitored == true ? "bookmark.fill" : "bookmark.slash")
+        
+        if let q = queueItem {
+            let isIssue = q.isImportIssueQueueItem
+            episodeStatusBadge(
+                isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
+                tint: isIssue ? .orange : .purple,
+                systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
+            )
+        }
+        
+        if let bEp = activeBazarrEpisode {
+            if bEp.missingSubtitles.isEmpty {
+                episodeStatusBadge("Subtitles", tint: .green, systemImage: "captions.bubble.fill")
+            } else {
+                episodeStatusBadge("\(bEp.missingSubtitles.count) Missing", tint: .orange, systemImage: "captions.bubble.fill")
+            }
+        }
+    }
+
+    private var episodeFilesAnimationValue: [Int] {
+        episodeFiles.map(\.id)
+    }
+
+    private var episodeHistoryAnimationValue: [Int] {
+        episodeHistory.map(\.id)
+    }
+
+    private var bazarrAutomaticSearchButton: some View {
+        Button {
+            guard !isDispatchingBazarrSearch, let bEp = activeBazarrEpisode else { return }
+            isDispatchingBazarrSearch = true
+            Task {
+                if let client = serviceManager.activeBazarrEntry?.client {
+                    do {
+                        try await client.runSeriesAction(seriesId: bEp.sonarrSeriesId, action: .searchMissing)
+                        InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "Bazarr is searching for subtitles.")
+                    } catch {
+                        InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+                    }
+                }
+                isDispatchingBazarrSearch = false
+            }
+        } label: {
+            episodeSearchActionRow(
+                title: "Queue Series Subtitle Search",
+                subtitle: "Queue Bazarr's series-wide missing subtitle search.",
+                systemImage: "captions.bubble",
+                isLoading: isDispatchingBazarrSearch,
+                accentColor: .teal
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func refreshBazarrEpisode() async {
+        guard let client = serviceManager.activeBazarrEntry?.client else { return }
+        do {
+            let latestEpisodes = try await client.getEpisodes(episodeIds: [episode.id])
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            await MainActor.run {
+                refreshedBazarrEpisode = latestEpisodes.first
+                onBazarrEpisodeUpdated(latestEpisodes.first)
+            }
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Refresh Failed", message: error.localizedDescription)
+        }
+    }
+
+    private var bazarrInteractiveSearchButton: some View {
+        Button {
+            showBazarrInteractiveSearchSheet = true
+        } label: {
+            episodeSearchActionRow(
+                title: "Interactive Subtitle Search",
+                subtitle: "Open the Bazarr interactive search sheet.",
+                systemImage: "person.fill",
+                trailingSystemImage: "arrow.up.forward.square",
+                accentColor: .teal
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 
     private var episodeSearchHero: some View {
@@ -2637,12 +2980,13 @@ struct SonarrEpisodeSearchView: View {
         subtitle: String,
         systemImage: String,
         isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
+        trailingSystemImage: String = "arrow.right",
+        accentColor: Color = .purple
     ) -> some View {
         HStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.title3)
-                .foregroundStyle(.purple)
+                .foregroundStyle(accentColor)
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 4) {

@@ -6,15 +6,25 @@ struct ArrActivityView: View {
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var sonarrQueue: [ArrQueueItem] = []
     @State private var radarrQueue: [ArrQueueItem] = []
+    @State private var bazarrTasks: [BazarrTask] = []
     @State private var isLoading = false
     @State private var selectedItem: ActivityItem?
     @State private var manualImportPath: String?
     @State private var manualImportService: ArrServiceType = .sonarr
 
-    private var allItems: [ActivityItem] {
-        let sonarr = serviceFilter != .radarr ? sonarrQueue.map { ActivityItem(item: $0, source: .sonarr) } : []
-        let radarr = serviceFilter != .sonarr ? radarrQueue.map { ActivityItem(item: $0, source: .radarr) } : []
-        return (sonarr + radarr).sorted { ($0.item.sizeleft ?? 0) < ($1.item.sizeleft ?? 0) }
+    private var activityRows: [ActivityRow] {
+        var rows: [ActivityRow] = []
+        if serviceFilter == .all || serviceFilter == .sonarr {
+            rows.append(contentsOf: sonarrQueue.map { .queue(ActivityItem(item: $0, source: .sonarr)) })
+        }
+        if serviceFilter == .all || serviceFilter == .radarr {
+            rows.append(contentsOf: radarrQueue.map { .queue(ActivityItem(item: $0, source: .radarr)) })
+        }
+        if serviceFilter == .all || serviceFilter == .bazarr {
+            let tasks = serviceFilter == .bazarr ? bazarrTasks : bazarrTasks.filter(\.jobRunning)
+            rows.append(contentsOf: tasks.map { .bazarrTask($0) })
+        }
+        return rows.sorted { $0.sortRank < $1.sortRank }
     }
 
     var body: some View {
@@ -33,9 +43,10 @@ struct ArrActivityView: View {
         }
         .task(id: "\(mode.rawValue)-\(activityReloadKey)") {
             guard mode == .queue else { return }
-            guard serviceManager.sonarrConnected || serviceManager.radarrConnected else {
+            guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance else {
                 sonarrQueue = []
                 radarrQueue = []
+                bazarrTasks = []
                 isLoading = false
                 return
             }
@@ -69,7 +80,7 @@ struct ArrActivityView: View {
     }
 
     private var hasConfiguredService: Bool {
-        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
     }
 
     @ViewBuilder
@@ -82,58 +93,63 @@ struct ArrActivityView: View {
 
     @ViewBuilder
     private var queueContentView: some View {
-        if isLoading && allItems.isEmpty {
+        if isLoading && activityRows.isEmpty {
             ProgressView("Loading activity...")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !hasConfiguredService {
             ContentUnavailableView(
                 "No Services Configured",
                 systemImage: "server.rack",
-                description: Text("Connect Sonarr or Radarr to view your activity queue.")
+                description: Text("Connect Sonarr, Radarr, or Bazarr to view service activity.")
             )
-        } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected {
+        } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.hasAnyConnectedBazarrInstance {
             ContentUnavailableView(
                 "Services Unreachable",
                 systemImage: "network.slash",
-                description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                description: Text("Unable to reach your configured services.")
             )
-        } else if allItems.isEmpty {
+        } else if activityRows.isEmpty {
             ContentUnavailableView(
                 "No Activity",
                 systemImage: "tray",
-                description: Text("Nothing is currently downloading or importing.")
+                description: Text("Nothing is currently downloading, importing, or running.")
             )
         } else {
             List {
-                ForEach(allItems) { activityItem in
-                    Button {
-                        selectedItem = activityItem
-                    } label: {
-                        QueueItemRow(item: activityItem.item, source: activityItem.source)
-                    }
-                    .buttonStyle(.plain)
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            Task { await removeItem(activityItem) }
+                ForEach(activityRows) { row in
+                    switch row {
+                    case .queue(let activityItem):
+                        Button {
+                            selectedItem = activityItem
                         } label: {
-                            Label("Remove", systemImage: "trash")
+                            QueueItemRow(item: activityItem.item, source: activityItem.source)
                         }
-                    }
-                    .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                        if let path = activityItem.item.outputPath,
-                           activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
-                            Button {
-                                manualImportService = activityItem.source
-                                manualImportPath = path
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button(role: .destructive) {
+                                Task { await removeItem(activityItem) }
                             } label: {
-                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                Label("Remove", systemImage: "trash")
                             }
-                            .tint(.blue)
                         }
+                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                            if let path = activityItem.item.outputPath,
+                               activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                Button {
+                                    manualImportService = activityItem.source
+                                    manualImportPath = path
+                                } label: {
+                                    Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                }
+                                .tint(.blue)
+                            }
+                        }
+                    case .bazarrTask(let task):
+                        BazarrTaskRow(task: task)
                     }
                 }
             }
-            .animation(.default, value: allItems.map(\.id))
+            .animation(.default, value: activityRows.map(\.id))
             #if os(iOS)
             .listStyle(.insetGrouped)
             #else
@@ -161,7 +177,7 @@ struct ArrActivityView: View {
     }
 
     private var activityReloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
     }
 
     private var manualImportSheetPresented: Binding<Bool> {
@@ -175,6 +191,7 @@ struct ArrActivityView: View {
         isLoading = true
         let sonarrClient = serviceManager.sonarrClient
         let radarrClient = serviceManager.radarrClient
+        let bazarrClient = serviceManager.activeBazarrEntry?.client
 
         async let sonarrLoad: ([ArrQueueItem], String?) = {
             guard let client = sonarrClient else { return ([], nil) }
@@ -195,12 +212,22 @@ struct ArrActivityView: View {
                 return ([], "Radarr: \(error.localizedDescription)")
             }
         }()
+        async let bazarrLoad: ([BazarrTask], String?) = {
+            guard let client = bazarrClient else { return ([], nil) }
+            do {
+                let tasks = try await client.getTasks()
+                return (tasks, nil)
+            } catch {
+                return ([], "Bazarr: \(error.localizedDescription)")
+            }
+        }()
 
-        let (sonarrResult, radarrResult) = await (sonarrLoad, radarrLoad)
+        let (sonarrResult, radarrResult, bazarrResult) = await (sonarrLoad, radarrLoad, bazarrLoad)
         sonarrQueue = sonarrResult.0
         radarrQueue = radarrResult.0
+        bazarrTasks = bazarrResult.0
 
-        let errors = [sonarrResult.1, radarrResult.1].compactMap { $0 }
+        let errors = [sonarrResult.1, radarrResult.1, bazarrResult.1].compactMap { $0 }
         if !errors.isEmpty {
             InAppNotificationCenter.shared.showError(title: "Queue Error", message: errors.joined(separator: "\n"))
         }
@@ -234,7 +261,7 @@ struct ArrActivityView: View {
             } catch {
                 InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
             }
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -247,6 +274,29 @@ private struct ActivityItem: Identifiable {
     let source: ArrServiceType
 
     var id: String { "\(source.rawValue)-\(item.id)" }
+}
+
+private enum ActivityRow: Identifiable {
+    case queue(ActivityItem)
+    case bazarrTask(BazarrTask)
+
+    var id: String {
+        switch self {
+        case .queue(let item):
+            return item.id
+        case .bazarrTask(let task):
+            return "bazarr-task-\(task.id)"
+        }
+    }
+
+    var sortRank: Double {
+        switch self {
+        case .queue(let item):
+            return item.item.sizeleft ?? Double.greatestFiniteMagnitude / 2
+        case .bazarrTask(let task):
+            return task.jobRunning ? -1 : Double.greatestFiniteMagnitude - 1
+        }
+    }
 }
 
 private enum ArrActivityMode: String, CaseIterable, Identifiable {
@@ -263,7 +313,7 @@ private enum ArrActivityMode: String, CaseIterable, Identifiable {
 }
 
 enum ArrServiceFilter: CaseIterable, Hashable {
-    case all, sonarr, radarr, prowlarr
+    case all, sonarr, radarr, prowlarr, bazarr
 
     var title: String {
         switch self {
@@ -271,19 +321,48 @@ enum ArrServiceFilter: CaseIterable, Hashable {
         case .sonarr:   "Sonarr"
         case .radarr:   "Radarr"
         case .prowlarr: "Prowlarr"
+        case .bazarr:   "Bazarr"
+        }
+    }
+
+    var serviceColor: Color {
+        switch self {
+        case .all:      .secondary
+        case .sonarr:   .purple
+        case .radarr:   .orange
+        case .prowlarr: .yellow
+        case .bazarr:   .teal
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .all:      "square.grid.3x3"
+        case .sonarr:   "tv"
+        case .radarr:   "film"
+        case .prowlarr: "magnifyingglass.circle"
+        case .bazarr:   "captions.bubble"
         }
     }
 }
 
 private struct ActivityFilterMenu: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
     @Binding var serviceFilter: ArrServiceFilter
 
     var body: some View {
         Menu {
             Picker("Filter", selection: $serviceFilter) {
                 Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
-                Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
-                Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                if serviceManager.hasSonarrInstance {
+                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                }
+                if serviceManager.hasRadarrInstance {
+                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                }
+                if serviceManager.hasBazarrInstance {
+                    Label("Bazarr", systemImage: "captions.bubble").tag(ArrServiceFilter.bazarr)
+                }
             }
         } label: {
             Image(systemName: serviceFilter == .all
@@ -430,6 +509,58 @@ private struct QueueItemRow: View {
     }
 }
 
+// MARK: - Bazarr Task Row
+
+private struct BazarrTaskRow: View {
+    let task: BazarrTask
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "captions.bubble")
+                .foregroundStyle(Color.teal)
+                .frame(width: 20)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(task.name)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                HStack(spacing: 4) {
+                    Text("Bazarr")
+                        .foregroundStyle(.teal)
+                    if let detail {
+                        Text("·")
+                        Text(detail)
+                            .lineLimit(1)
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 8)
+
+            Text(task.jobRunning ? "Running" : "Scheduled")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(task.jobRunning ? Color.green : Color.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background((task.jobRunning ? Color.green : Color.secondary).opacity(0.14))
+                .clipShape(Capsule())
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private var detail: String? {
+        if task.jobRunning { return "Running now" }
+        if let nextRunIn = task.nextRunIn, !nextRunIn.isEmpty { return "Next run in \(nextRunIn)" }
+        if let nextRunTime = task.nextRunTime, !nextRunTime.isEmpty { return "Next run \(nextRunTime)" }
+        if let interval = task.interval, !interval.isEmpty { return "Every \(interval)" }
+        return nil
+    }
+}
+
 // MARK: - Queue Detail Sheet
 
 private struct QueueDetailSheet: View {
@@ -561,6 +692,7 @@ struct ArrHealthView: View {
         case .sonarr:   return allChecks.filter { $0.source == .sonarr }
         case .radarr:   return allChecks.filter { $0.source == .radarr }
         case .prowlarr: return allChecks.filter { $0.source == .prowlarr }
+        case .bazarr:   return []
         }
     }
 
@@ -753,6 +885,7 @@ private struct HealthCheckRow: View {
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
+        case .bazarr: .secondary
         }
     }
 }

@@ -53,7 +53,10 @@
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination \"id=47004A65-AF74-5697-87D0-551D09EC309E\" -configuration Debug build)",
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' build -quiet)",
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'platform=macOS' CODE_SIGN_IDENTITY=\"\" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO build -quiet)",
-      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination id=47004A65-AF74-5697-87D0-551D09EC309E -configuration Debug clean build)"
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination id=47004A65-AF74-5697-87D0-551D09EC309E -configuration Debug clean build)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['data'][0] if d.get\\('data'\\) else {}, indent=2\\)\\)\")",
+      "Bash(grep -rn \"audioLanguage[^s]\\\\|\\\\.audioLanguage$\" \"/Users/jamespoole/Documents/Trawl Project/Trawl/Trawl/Trawl/\" --include=\"*.swift\")"
     ]
   }
 }

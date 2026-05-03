@@ -180,7 +180,7 @@ struct ArrRemotePathMappingListView: View {
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 mappings = try await client.getRemotePathMappings()
                     .sorted { $0.host < $1.host }
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 mappings = []
             }
         } catch {
@@ -197,7 +197,7 @@ struct ArrRemotePathMappingListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 try await client.deleteRemotePathMapping(id: mapping.id)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             mappings.removeAll { $0.id == mapping.id }
@@ -427,7 +427,7 @@ struct ArrRemotePathMappingEditorSheet: View {
                 saved = isEditing
                     ? try await client.updateRemotePathMapping(payload)
                     : try await client.createRemotePathMapping(payload)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 throw ArrError.noServiceConfigured
             }
             onComplete(saved)

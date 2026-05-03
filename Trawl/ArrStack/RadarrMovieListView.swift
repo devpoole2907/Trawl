@@ -299,6 +299,7 @@ struct RadarrMovieListView: View {
 
     @ViewBuilder
     private func movieRow(_ movie: RadarrMovie, vm: RadarrViewModel) -> some View {
+        let bazarrStatus = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
         if editMode.isEditing {
             Button {
                 toggleMovieSelection(movie)
@@ -311,7 +312,8 @@ struct RadarrMovieListView: View {
                         movie: movie,
                         hasIssue: vm.queue.contains {
                             $0.movieId == movie.id && $0.isImportIssueQueueItem
-                        }
+                        },
+                        bazarrStatus: bazarrStatus
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -324,7 +326,8 @@ struct RadarrMovieListView: View {
                     movie: movie,
                     hasIssue: vm.queue.contains {
                         $0.movieId == movie.id && $0.isImportIssueQueueItem
-                    }
+                    },
+                    bazarrStatus: bazarrStatus
                 )
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -653,6 +656,7 @@ private func listSectionLabel(for title: String) -> String {
 struct RadarrMovieRow: View {
     let movie: RadarrMovie
     let hasIssue: Bool
+    var bazarrStatus: BazarrSubtitleStatus? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -689,6 +693,31 @@ struct RadarrMovieRow: View {
                         Text("• \(ByteFormatter.format(bytes: size))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if let bazarrStatus {
+                        let color: Color = {
+                            switch bazarrStatus {
+                            case .allPresent: return .green
+                            case .partial: return .orange
+                            case .none: return .red
+                            case .unknown: return .gray
+                            }
+                        }()
+                        let icon: String = {
+                            switch bazarrStatus {
+                            case .allPresent: return "checkmark.circle.fill"
+                            case .partial: return "exclamationmark.triangle.fill"
+                            case .none: return "xmark.circle.fill"
+                            case .unknown: return "questionmark.circle.fill"
+                            }
+                        }()
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: icon)
+                            .font(.caption2)
+                            .foregroundStyle(color)
                     }
                 }
             }

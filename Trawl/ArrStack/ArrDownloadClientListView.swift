@@ -355,7 +355,7 @@ struct ArrDownloadClientListView: View {
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 clients = try await client.getDownloadClients()
                     .sorted { ($0.name ?? "") < ($1.name ?? "") }
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 clients = []
             }
         } catch {
@@ -393,7 +393,7 @@ struct ArrDownloadClientListView: View {
                         return
                     }
                     try await apiClient.testDownloadClient(client)
-                case .prowlarr:
+                case .prowlarr, .bazarr:
                     reachability[client.id] = false
                     isCheckingIDs.remove(client.id)
                     return
@@ -425,7 +425,7 @@ struct ArrDownloadClientListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 saved = try await client.updateDownloadClient(updated)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
@@ -454,7 +454,7 @@ struct ArrDownloadClientListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 try await client.testDownloadClient(downloadClient)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             reachability[downloadClient.id] = true
@@ -477,7 +477,7 @@ struct ArrDownloadClientListView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 try await client.deleteDownloadClient(id: downloadClient.id)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             clients.removeAll { $0.id == downloadClient.id }

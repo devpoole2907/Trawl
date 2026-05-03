@@ -72,11 +72,14 @@ actor ArrAPIClient {
     private let session: URLSession
     private let trustPolicy: ServerTrustPolicy
 
-    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
+    let apiKeyHeaderName: String
+
+    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false, apiKeyHeaderName: String = "X-Api-Key") {
         var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if url.hasSuffix("/") { url = String(url.dropLast()) }
         self.baseURL = url
         self.apiKey = apiKey
+        self.apiKeyHeaderName = apiKeyHeaderName
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
 
         let config = URLSessionConfiguration.default
@@ -318,11 +321,44 @@ actor ArrAPIClient {
         try validateResponse(response, data: data, path: path)
     }
 
+    /// Fire-and-forget POST with query parameters.
+    func postVoid(_ path: String, queryItems: [URLQueryItem]) async throws {
+        let request = try buildRequest(path: path, method: "POST", queryItems: queryItems)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
+    }
+
+    /// Fire-and-forget PATCH with query parameters.
+    func patchVoid(_ path: String, queryItems: [URLQueryItem] = []) async throws {
+        let request = try buildRequest(path: path, method: "PATCH", queryItems: queryItems)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
+    }
+
     /// Fire-and-forget POST with a Codable body (for commands that return empty body)
     func postVoidCodable<B: Encodable>(_ path: String, body: B) async throws {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response, data: data, path: path)
+    }
+
+    /// POST with form-urlencoded body (used by Bazarr settings endpoint)
+    func postForm(_ path: String, formFields: [String: String]) async throws {
+        try await postFormItems(
+            path,
+            formItems: formFields.map { URLQueryItem(name: $0.key, value: $0.value) }
+        )
+    }
+
+    /// POST with form-urlencoded body preserving repeated keys and empty list sentinels.
+    func postFormItems(_ path: String, formItems: [URLQueryItem]) async throws {
+        var request = try buildRequest(path: path, method: "POST")
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var components = URLComponents()
+        components.queryItems = formItems
+        request.httpBody = components.query?.data(using: .utf8)
         let (data, response) = try await session.data(for: request)
         try validateResponse(response, data: data, path: path)
     }
@@ -339,7 +375,7 @@ actor ArrAPIClient {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
-        request.setValue(apiKey, forHTTPHeaderField: "X-Api-Key")
+        request.setValue(apiKey, forHTTPHeaderField: apiKeyHeaderName)
         return request
     }
 

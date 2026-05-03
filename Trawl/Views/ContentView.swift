@@ -84,6 +84,9 @@ struct ContentView: View {
             case .prowlarr:
                 ArrSetupSheet(initialServiceType: .prowlarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
+            case .bazarr:
+                ArrSetupSheet(initialServiceType: .bazarr, onComplete: refreshArrConfiguration)
+                    .environment(arrServiceManager)
             }
         }
         .sheet(isPresented: $showArrSetup) {
@@ -248,6 +251,9 @@ struct ContentView: View {
                 featureRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                            title: "Prowlarr",
                            description: "Manage and search your indexers")
+                featureRow(icon: "captions.bubble.fill", color: .teal,
+                           title: "Bazarr",
+                           description: "Manage subtitles for series and movies")
             }
             .padding(.horizontal, 8)
 
@@ -316,6 +322,16 @@ struct ContentView: View {
                     isConfigured: prowlarrProfile != nil
                 ) {
                     setupTarget = .prowlarr
+                }
+
+                setupRow(
+                    icon: "captions.bubble.fill",
+                    color: .teal,
+                    title: "Bazarr",
+                    description: "Manage subtitles for series and movies",
+                    isConfigured: bazarrProfile != nil
+                ) {
+                    setupTarget = .bazarr
                 }
             }
 
@@ -461,6 +477,9 @@ struct ContentView: View {
                     .environment(\.navigateToProwlarrSettings) {
                         morePath.append(.prowlarrSettings)
                     }
+                    .environment(\.navigateToBazarrSettings) {
+                        morePath.append(.bazarrSettings)
+                    }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -593,8 +612,12 @@ struct ContentView: View {
         arrServiceManager.resolvedProfile(for: .prowlarr, in: arrProfiles)
     }
 
+    private var bazarrProfile: ArrServiceProfile? {
+        arrServiceManager.resolvedProfile(for: .bazarr, in: arrProfiles)
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
@@ -841,6 +864,7 @@ private enum SetupTarget: Identifiable {
     case sonarr
     case radarr
     case prowlarr
+    case bazarr
 
     var id: String {
         switch self {
@@ -848,6 +872,7 @@ private enum SetupTarget: Identifiable {
         case .sonarr: "sonarr"
         case .radarr: "radarr"
         case .prowlarr: "prowlarr"
+        case .bazarr: "bazarr"
         }
     }
 }
