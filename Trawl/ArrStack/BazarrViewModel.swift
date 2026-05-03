@@ -51,10 +51,10 @@ final class BazarrViewModel {
     }
 
     var isConnected: Bool {
-        guard let entry = serviceManager.activeBazarrEntry, let client = entry.client else {
+        guard let entry = serviceManager.activeBazarrEntry, entry.client != nil else {
             return false
         }
-        return client.isConnected
+        return entry.isConnected
     }
 
     var isConnecting: Bool {

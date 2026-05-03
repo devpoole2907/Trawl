@@ -741,13 +741,3 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
         .padding(.vertical, 3)
         .background(color.opacity(0.14), in: Capsule())
 }
-ome View {
-    Text(text)
-        .font(.caption2.weight(.semibold))
-        .foregroundStyle(color)
-        .padding(.horizontal, 7)
-        .padding(.vertical, 3)
-        .background(color.opacity(0.14), in: Capsule())
-}
-le())
-}

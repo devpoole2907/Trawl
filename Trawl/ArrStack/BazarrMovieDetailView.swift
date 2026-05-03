@@ -2,7 +2,7 @@ import SwiftUI
 
 struct BazarrMovieDetailView: View {
     let radarrId: Int
-    @State var viewModel: BazarrViewModel
+    @State private var viewModel: BazarrViewModel
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var movie: BazarrMovie?
     @State private var isLoading = false
@@ -10,6 +10,11 @@ struct BazarrMovieDetailView: View {
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
+
+    init(radarrId: Int, viewModel: BazarrViewModel) {
+        self.radarrId = radarrId
+        _viewModel = State(wrappedValue: viewModel)
+    }
 
     var body: some View {
         Group {

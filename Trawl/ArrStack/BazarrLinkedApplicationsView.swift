@@ -3,7 +3,6 @@ import SwiftUI
 
 struct BazarrLinkedApplicationsListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
-    @Query private var allProfiles: [ArrServiceProfile]
 
     @State private var settings: [String: JSONValue] = [:]
     @State private var isLoading = false
@@ -46,7 +45,7 @@ struct BazarrLinkedApplicationsListView: View {
                                 Button(role: .destructive) {
                                     Task { await disable(appType) }
                                 } label: {
-                                    Label("Disable", systemImage: "trash")
+                                    Label("Disable", systemImage: "nosign")
                                 }
                             }
 
@@ -63,7 +62,7 @@ struct BazarrLinkedApplicationsListView: View {
                             }
 
                             if settings.isBazarrLinkedApplicationEnabled(appType) {
-                                Button("Disable", systemImage: "trash", role: .destructive) {
+                                Button("Disable", systemImage: "nosign", role: .destructive) {
                                     Task { await disable(appType) }
                                 }
                             }
@@ -220,9 +219,12 @@ private struct BazarrLinkedApplicationEditorSheet: View {
     }
 
     private var canSave: Bool {
-        !isSaving &&
+        let trimmedTimeout = httpTimeout.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !isSaving &&
         !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         Int(port.trimmingCharacters(in: .whitespacesAndNewlines)) != nil &&
+        !trimmedTimeout.isEmpty &&
+        Int(trimmedTimeout) != nil &&
         !apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -436,6 +438,7 @@ private struct BazarrLinkedApplicationEditorSheet: View {
         let trimmedPort = port.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedBaseURL = normalizedBaseURL(baseURL)
         let trimmedAPIKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedHTTPTimeout = httpTimeout.trimmingCharacters(in: .whitespacesAndNewlines)
 
         guard !trimmedHost.isEmpty else {
             localErrorMessage = "Address is required."
@@ -449,13 +452,17 @@ private struct BazarrLinkedApplicationEditorSheet: View {
             localErrorMessage = "API key is required."
             return
         }
+        guard !trimmedHTTPTimeout.isEmpty, Int(trimmedHTTPTimeout) != nil else {
+            localErrorMessage = "HTTP timeout must be a number."
+            return
+        }
 
         var formItems: [URLQueryItem] = [
             URLQueryItem(name: "settings-general-\(appType.enabledSettingsKey)", value: isEnabled ? "true" : "false"),
             URLQueryItem(name: "settings-\(appType.settingsSection)-ip", value: trimmedHost),
             URLQueryItem(name: "settings-\(appType.settingsSection)-port", value: trimmedPort),
             URLQueryItem(name: "settings-\(appType.settingsSection)-base_url", value: trimmedBaseURL),
-            URLQueryItem(name: "settings-\(appType.settingsSection)-http_timeout", value: httpTimeout.trimmingCharacters(in: .whitespacesAndNewlines)),
+            URLQueryItem(name: "settings-\(appType.settingsSection)-http_timeout", value: trimmedHTTPTimeout),
             URLQueryItem(name: "settings-\(appType.settingsSection)-apikey", value: trimmedAPIKey),
             URLQueryItem(name: "settings-\(appType.settingsSection)-ssl", value: ssl ? "true" : "false"),
             URLQueryItem(name: "settings-\(appType.settingsSection)-\(appType.syncOnLiveSettingsKey)", value: syncOnLive ? "true" : "false"),

@@ -40,6 +40,7 @@ struct SonarrSeriesDetailView: View {
     @State private var isDispatchingSeriesSearch = false
     @State private var showSeriesInteractiveSearchSheet = false
     @State private var bazarrEpisodes: [BazarrEpisode] = []
+    @State private var bazarrClientForEpisodes: BazarrAPIClient?
 
     /// Library init — series lives in the ViewModel's loaded library.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -141,8 +142,9 @@ struct SonarrSeriesDetailView: View {
         .task(id: "\(resolvedSeriesId?.description ?? "nil")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "nil")") {
             if let id = resolvedSeriesId {
                 bazarrEpisodes = []
-                if serviceManager.hasAnyConnectedBazarrInstance {
-                    bazarrEpisodes = (try? await serviceManager.getBazarrEpisodes(forSonarrSeriesId: id)) ?? []
+                bazarrClientForEpisodes = serviceManager.activeBazarrEntry?.client
+                if let bazarrClientForEpisodes {
+                    bazarrEpisodes = (try? await bazarrClientForEpisodes.getEpisodes(seriesIds: [id])) ?? []
                 }
 
                 var currentViewModel = viewModel
@@ -1183,6 +1185,7 @@ struct SonarrSeriesDetailView: View {
                 seasonNumber: seasonNum,
                 episodes: seasonEpisodes.sorted { $0.episodeNumber < $1.episodeNumber },
                 bazarrEpisodes: bEps,
+                bazarrClient: bazarrClientForEpisodes,
                 onBazarrEpisodesUpdated: { updatedEpisodes in
                     replaceBazarrEpisodes(updatedEpisodes, forSeason: seasonNum)
                 }
@@ -2089,6 +2092,7 @@ struct SonarrSeasonSearchView: View {
     let seasonNumber: Int
     let episodes: [SonarrEpisode]
     private let initialBazarrEpisodes: [BazarrEpisode]
+    private let bazarrClient: BazarrAPIClient?
     private let onBazarrEpisodesUpdated: ([BazarrEpisode]) -> Void
 
     @Environment(ArrServiceManager.self) private var serviceManager
@@ -2107,6 +2111,7 @@ struct SonarrSeasonSearchView: View {
         seasonNumber: Int,
         episodes: [SonarrEpisode],
         bazarrEpisodes: [BazarrEpisode] = [],
+        bazarrClient: BazarrAPIClient? = nil,
         onBazarrEpisodesUpdated: @escaping ([BazarrEpisode]) -> Void = { _ in }
     ) {
         self.viewModel = viewModel
@@ -2114,6 +2119,7 @@ struct SonarrSeasonSearchView: View {
         self.seasonNumber = seasonNumber
         self.episodes = episodes
         self.initialBazarrEpisodes = bazarrEpisodes
+        self.bazarrClient = bazarrClient
         self.onBazarrEpisodesUpdated = onBazarrEpisodesUpdated
     }
 
@@ -2189,9 +2195,10 @@ struct SonarrSeasonSearchView: View {
             BazarrInteractiveSearchSheet(
                 seriesId: bEp.sonarrSeriesId,
                 episode: bEp,
+                client: bazarrClient,
                 viewModel: BazarrViewModel(serviceManager: serviceManager),
                 onDownloaded: {
-                    await refreshBazarrSeasonEpisodes(seriesId: bEp.sonarrSeriesId)
+                    await refreshBazarrSeasonEpisodes(seriesId: bEp.sonarrSeriesId, client: bazarrClient)
                 }
             )
         }
@@ -2217,6 +2224,7 @@ struct SonarrSeasonSearchView: View {
                 series: series,
                 episode: episode,
                 bazarrEpisodes: activeBazarrEpisodes,
+                bazarrClient: bazarrClient,
                 isLast: episode.id == lastId,
                 formattedDate: formattedDate,
                 onBazarrEpisodeUpdated: updateBazarrEpisode
@@ -2224,11 +2232,11 @@ struct SonarrSeasonSearchView: View {
         }
     }
 
-    private func refreshBazarrSeasonEpisodes(seriesId: Int) async {
+    private func refreshBazarrSeasonEpisodes(seriesId: Int, client: BazarrAPIClient?) async {
+        guard let client else { return }
         do {
-            let latestEpisodes = try await serviceManager.getBazarrEpisodes(forSonarrSeriesId: seriesId)
+            let latestEpisodes = try await client.getEpisodes(seriesIds: [seriesId])
             let seasonEpisodes = latestEpisodes.filter { $0.season == seasonNumber }
-            await serviceManager.refreshActiveBazarrSubtitleCache()
             await MainActor.run {
                 refreshedBazarrEpisodes = seasonEpisodes
                 onBazarrEpisodesUpdated(seasonEpisodes)
@@ -2273,7 +2281,7 @@ struct SonarrSeasonSearchView: View {
             guard !isDispatchingBazarrSearch, let first = missingEps.first else { return }
             isDispatchingBazarrSearch = true
             Task {
-                if let client = serviceManager.activeBazarrEntry?.client {
+                if let client = bazarrClient {
                     do {
                         try await client.runSeriesAction(seriesId: first.sonarrSeriesId, action: .searchMissing)
                         InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "Bazarr is searching for subtitles.")
@@ -2522,6 +2530,7 @@ private struct SonarrSeasonEpisodeRow: View {
     let series: SonarrSeries?
     let episode: SonarrEpisode
     let bazarrEpisodes: [BazarrEpisode]
+    let bazarrClient: BazarrAPIClient?
     let isLast: Bool
     let formattedDate: (String?) -> String
     let onBazarrEpisodeUpdated: (BazarrEpisode?) -> Void
@@ -2542,6 +2551,7 @@ private struct SonarrSeasonEpisodeRow: View {
                     series: series,
                     episode: episode,
                     bazarrEpisode: bazarrEpisode,
+                    bazarrClient: bazarrClient,
                     onBazarrEpisodeUpdated: onBazarrEpisodeUpdated
                 )
             } label: {
@@ -2618,6 +2628,7 @@ struct SonarrEpisodeSearchView: View {
     let series: SonarrSeries?
     let episode: SonarrEpisode
     private let initialBazarrEpisode: BazarrEpisode?
+    private let bazarrClient: BazarrAPIClient?
     private let onBazarrEpisodeUpdated: (BazarrEpisode?) -> Void
     @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
@@ -2636,12 +2647,14 @@ struct SonarrEpisodeSearchView: View {
         series: SonarrSeries?,
         episode: SonarrEpisode,
         bazarrEpisode: BazarrEpisode? = nil,
+        bazarrClient: BazarrAPIClient? = nil,
         onBazarrEpisodeUpdated: @escaping (BazarrEpisode?) -> Void = { _ in }
     ) {
         self.viewModel = viewModel
         self.series = series
         self.episode = episode
         self.initialBazarrEpisode = bazarrEpisode
+        self.bazarrClient = bazarrClient
         self.onBazarrEpisodeUpdated = onBazarrEpisodeUpdated
     }
 
@@ -2801,6 +2814,7 @@ struct SonarrEpisodeSearchView: View {
                 BazarrInteractiveSearchSheet(
                     seriesId: bEp.sonarrSeriesId,
                     episode: bEp,
+                    client: bazarrClient,
                     viewModel: BazarrViewModel(serviceManager: serviceManager),
                     onDownloaded: {
                         await refreshBazarrEpisode()
@@ -2849,7 +2863,7 @@ struct SonarrEpisodeSearchView: View {
             guard !isDispatchingBazarrSearch, let bEp = activeBazarrEpisode else { return }
             isDispatchingBazarrSearch = true
             Task {
-                if let client = serviceManager.activeBazarrEntry?.client {
+                if let client = bazarrClient {
                     do {
                         try await client.runSeriesAction(seriesId: bEp.sonarrSeriesId, action: .searchMissing)
                         InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "Bazarr is searching for subtitles.")
@@ -2873,10 +2887,9 @@ struct SonarrEpisodeSearchView: View {
     }
 
     private func refreshBazarrEpisode() async {
-        guard let client = serviceManager.activeBazarrEntry?.client else { return }
+        guard let client = bazarrClient else { return }
         do {
             let latestEpisodes = try await client.getEpisodes(episodeIds: [episode.id])
-            await serviceManager.refreshActiveBazarrSubtitleCache()
             await MainActor.run {
                 refreshedBazarrEpisode = latestEpisodes.first
                 onBazarrEpisodeUpdated(latestEpisodes.first)

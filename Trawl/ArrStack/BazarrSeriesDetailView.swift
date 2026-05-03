@@ -56,7 +56,7 @@ struct BazarrSeriesDetailView: View {
                 }
             }
         }
-        .task { await load() }
+        .task(id: serviceManager.activeBazarrProfileID) { await load() }
     }
 
     private var contentView: some View {
@@ -97,10 +97,10 @@ struct BazarrSeriesDetailView: View {
                         LabeledContent("Audio", value: series.audioLanguages.map(\.name).joined(separator: ", "))
                     }
                     let profile = series.profileId.flatMap { profileId in
-                        serviceManager.activeBazarrEntry?.languageProfiles.first { $0.profileId == profileId }
+                        activeLanguageProfiles.first { $0.profileId == profileId }
                     }
                     Button {
-                        selectedProfileId = series.profileId ?? serviceManager.activeBazarrEntry?.languageProfiles.first?.profileId
+                        selectedProfileId = series.profileId ?? activeLanguageProfiles.first?.profileId
                         showProfilePicker = true
                     } label: {
                         LabeledContent("Language Profile", value: profile?.name ?? (series.profileId != nil ? "Profile \(series.profileId!)" : "None"))
@@ -176,11 +176,10 @@ struct BazarrSeriesDetailView: View {
 
     private var profilePickerSheet: some View {
         NavigationStack {
-            let profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
             List {
                 Picker("Profile", selection: $selectedProfileId) {
                     Text("None").tag(nil as Int?)
-                    ForEach(profiles) { profile in
+                    ForEach(activeLanguageProfiles) { profile in
                         Text(profile.name).tag(profile.profileId as Int?)
                     }
                 }
@@ -204,6 +203,10 @@ struct BazarrSeriesDetailView: View {
 
     // MARK: - Actions
 
+    private var activeLanguageProfiles: [BazarrLanguageProfile] {
+        serviceManager.activeBazarrEntry?.languageProfiles ?? []
+    }
+
     private func load() async {
         isLoading = true
         error = nil
@@ -226,7 +229,8 @@ struct BazarrSeriesDetailView: View {
 
     private func performAction(_ action: BazarrSeriesAction) async {
         do {
-            try await viewModel.runSeriesAction(action, seriesId: seriesId)
+            guard let client = serviceManager.activeBazarrEntry?.client else { throw ArrError.noServiceConfigured }
+            try await client.runSeriesAction(seriesId: seriesId, action: action)
             inAppNotificationCenter.showSuccess(title: "Action Started", message: "\(action.displayName) initiated.")
         } catch {
             inAppNotificationCenter.showError(title: "Action Failed", message: error.localizedDescription)
@@ -236,7 +240,8 @@ struct BazarrSeriesDetailView: View {
     private func updateProfile() async {
         guard series != nil else { return }
         do {
-            try await viewModel.setSeriesProfile(seriesId: seriesId, profileId: selectedProfileId)
+            guard let client = serviceManager.activeBazarrEntry?.client else { throw ArrError.noServiceConfigured }
+            try await client.updateSeriesProfile(seriesIds: [seriesId], profileIds: [selectedProfileId.map(String.init) ?? "none"])
             await load()
             inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated.")
         } catch {
@@ -317,6 +322,7 @@ private struct BazarrSeasonView: View {
             BazarrInteractiveSearchSheet(
                 seriesId: seriesId,
                 episode: episode,
+                client: serviceManager.activeBazarrEntry?.client,
                 viewModel: viewModel,
                 onDownloaded: { await onRefresh() }
             )
@@ -428,6 +434,7 @@ private struct BazarrEpisodeDetailView: View {
     let episode: BazarrEpisode
     @State var viewModel: BazarrViewModel
     let onRefresh: () async -> Void
+    @Environment(ArrServiceManager.self) private var serviceManager
 
     @State private var isSearching = false
     @State private var showInteractiveSearch = false
@@ -514,6 +521,7 @@ private struct BazarrEpisodeDetailView: View {
             BazarrInteractiveSearchSheet(
                 seriesId: seriesId,
                 episode: episode,
+                client: serviceManager.activeBazarrEntry?.client,
                 viewModel: viewModel,
                 onDownloaded: { await onRefresh() }
             )
@@ -652,6 +660,8 @@ struct BazarrInteractiveSearchSheet: View {
     let seriesId: Int?
     let radarrId: Int?
     let episode: BazarrEpisode?
+    let client: BazarrAPIClient?
+    let persistedMissingLanguages: [BazarrSubtitleLanguage]
     @State var viewModel: BazarrViewModel
     let onDownloaded: () async -> Void
 
@@ -664,21 +674,25 @@ struct BazarrInteractiveSearchSheet: View {
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
 
     private var missingLanguages: [BazarrSubtitleLanguage] {
-        episode?.missingSubtitles ?? []
+        episode?.missingSubtitles ?? persistedMissingLanguages
     }
 
-    init(seriesId: Int, episode: BazarrEpisode, viewModel: BazarrViewModel, onDownloaded: @escaping () async -> Void) {
+    init(seriesId: Int, episode: BazarrEpisode, client: BazarrAPIClient? = nil, viewModel: BazarrViewModel, onDownloaded: @escaping () async -> Void) {
         self.seriesId = seriesId
         self.radarrId = nil
         self.episode = episode
+        self.client = client
+        self.persistedMissingLanguages = episode.missingSubtitles
         _viewModel = State(wrappedValue: viewModel)
         self.onDownloaded = onDownloaded
     }
 
-    init(radarrId: Int, missingLanguages: [BazarrSubtitleLanguage], viewModel: BazarrViewModel, onDownloaded: @escaping () async -> Void) {
+    init(radarrId: Int, missingLanguages: [BazarrSubtitleLanguage], client: BazarrAPIClient? = nil, viewModel: BazarrViewModel, onDownloaded: @escaping () async -> Void) {
         self.seriesId = nil
         self.radarrId = radarrId
         self.episode = nil
+        self.client = client
+        self.persistedMissingLanguages = missingLanguages
         _viewModel = State(wrappedValue: viewModel)
         self.onDownloaded = onDownloaded
     }
@@ -701,7 +715,7 @@ struct BazarrInteractiveSearchSheet: View {
                     Button("Cancel") { dismiss() }
                 }
                 if selectedLanguage != nil && missingLanguages.count > 1 {
-                    ToolbarItem(placement: .topBarLeading) {
+                    ToolbarItem(placement: platformTopBarLeadingPlacement) {
                         Button("Back") { selectedLanguage = nil; results = []; error = nil }
                     }
                 }
@@ -831,19 +845,37 @@ struct BazarrInteractiveSearchSheet: View {
         results = []
         do {
             if let episode {
-                results = try await viewModel.interactiveSearchEpisode(
-                    episodeId: episode.sonarrEpisodeId,
-                    language: lang.code2,
-                    hi: lang.hi,
-                    forced: lang.forced
-                )
+                if let client {
+                    results = try await client.interactiveSearchEpisode(
+                        episodeId: episode.sonarrEpisodeId,
+                        language: lang.code2,
+                        hi: lang.hi,
+                        forced: lang.forced
+                    )
+                } else {
+                    results = try await viewModel.interactiveSearchEpisode(
+                        episodeId: episode.sonarrEpisodeId,
+                        language: lang.code2,
+                        hi: lang.hi,
+                        forced: lang.forced
+                    )
+                }
             } else if let rid = radarrId {
-                results = try await viewModel.interactiveSearchMovie(
-                    radarrId: rid,
-                    language: lang.code2,
-                    hi: lang.hi,
-                    forced: lang.forced
-                )
+                if let client {
+                    results = try await client.interactiveSearchMovie(
+                        radarrId: rid,
+                        language: lang.code2,
+                        hi: lang.hi,
+                        forced: lang.forced
+                    )
+                } else {
+                    results = try await viewModel.interactiveSearchMovie(
+                        radarrId: rid,
+                        language: lang.code2,
+                        hi: lang.hi,
+                        forced: lang.forced
+                    )
+                }
             }
         } catch {
             self.error = error.localizedDescription
@@ -859,24 +891,47 @@ struct BazarrInteractiveSearchSheet: View {
         downloadingId = result.id
         do {
             if let episode, let sid = seriesId {
-                try await viewModel.downloadInteractiveEpisodeSubtitle(
-                    episodeId: episode.sonarrEpisodeId,
-                    seriesId: sid,
-                    provider: result.provider,
-                    subtitle: subtitle,
-                    language: language.code2,
-                    hi: language.hi,
-                    forced: language.forced
-                )
+                if let client {
+                    try await client.downloadInteractiveEpisodeSubtitle(
+                        episodeId: episode.sonarrEpisodeId,
+                        seriesId: sid,
+                        provider: result.provider,
+                        subtitle: subtitle,
+                        language: language.code2,
+                        hi: language.hi,
+                        forced: language.forced
+                    )
+                } else {
+                    try await viewModel.downloadInteractiveEpisodeSubtitle(
+                        episodeId: episode.sonarrEpisodeId,
+                        seriesId: sid,
+                        provider: result.provider,
+                        subtitle: subtitle,
+                        language: language.code2,
+                        hi: language.hi,
+                        forced: language.forced
+                    )
+                }
             } else if let rid = radarrId {
-                try await viewModel.downloadInteractiveMovieSubtitle(
-                    radarrId: rid,
-                    provider: result.provider,
-                    subtitle: subtitle,
-                    language: language.code2,
-                    hi: language.hi,
-                    forced: language.forced
-                )
+                if let client {
+                    try await client.downloadInteractiveMovieSubtitle(
+                        radarrId: rid,
+                        provider: result.provider,
+                        subtitle: subtitle,
+                        language: language.code2,
+                        hi: language.hi,
+                        forced: language.forced
+                    )
+                } else {
+                    try await viewModel.downloadInteractiveMovieSubtitle(
+                        radarrId: rid,
+                        provider: result.provider,
+                        subtitle: subtitle,
+                        language: language.code2,
+                        hi: language.hi,
+                        forced: language.forced
+                    )
+                }
             }
             await onDownloaded()
             inAppNotificationCenter.showSuccess(title: "Downloaded", message: "Subtitle from \(result.provider) queued.")
