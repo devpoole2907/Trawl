@@ -23,6 +23,7 @@ struct SettingsView: View {
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
     @Environment(\.navigateToRadarrSettings) private var navigateToRadarrSettings
     @Environment(\.navigateToProwlarrSettings) private var navigateToProwlarrSettings
+    @Environment(\.navigateToBazarrSettings) private var navigateToBazarrSettings
 
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -103,6 +104,14 @@ struct SettingsView: View {
         arrProfiles.filter { $0.resolvedServiceType == .prowlarr && $0.isEnabled }
     }
 
+    private var bazarrProfile: ArrServiceProfile? {
+        arrServiceManager.resolvedProfile(for: .bazarr, in: arrProfiles)
+    }
+
+    private var bazarrProfiles: [ArrServiceProfile] {
+        arrProfiles.filter { $0.resolvedServiceType == .bazarr && $0.isEnabled }
+    }
+
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map {
@@ -160,6 +169,18 @@ struct SettingsView: View {
                         url: prowlarrProfile?.hostURL,
                         isConnected: arrServiceManager.prowlarrConnected,
                         isConfigured: prowlarrProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToBazarrSettings) {
+                    serviceRow(
+                        icon: "captions.bubble.fill", color: .teal,
+                        name: serviceRowTitle(defaultName: "Bazarr", profile: bazarrProfile, count: bazarrProfiles.count),
+                        url: serviceRowSubtitle(profile: bazarrProfile, count: bazarrProfiles.count),
+                        isConnected: arrServiceManager.hasAnyConnectedBazarrInstance,
+                        isConfigured: bazarrProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -795,6 +816,10 @@ private struct NavigateToProwlarrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToBazarrSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -824,5 +849,10 @@ extension EnvironmentValues {
     var navigateToProwlarrSettings: () -> Void {
         get { self[NavigateToProwlarrSettingsKey.self] }
         set { self[NavigateToProwlarrSettingsKey.self] = newValue }
+    }
+
+    var navigateToBazarrSettings: () -> Void {
+        get { self[NavigateToBazarrSettingsKey.self] }
+        set { self[NavigateToBazarrSettingsKey.self] = newValue }
     }
 }

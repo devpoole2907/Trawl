@@ -17,7 +17,7 @@ struct ArrNamingConfigView: View {
         switch serviceType {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
-        case .prowlarr: false
+        case .prowlarr, .bazarr: false
         }
     }
 
@@ -195,7 +195,7 @@ struct ArrNamingConfigView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return }
                 radarrConfig = try await client.getNamingConfig()
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 break
             }
         } catch {

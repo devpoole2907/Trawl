@@ -163,7 +163,7 @@ struct ArrRootFoldersView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return false }
                 _ = try await client.createRootFolder(path: path)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return false
             }
             await serviceManager.refreshConfiguration()
@@ -186,7 +186,7 @@ struct ArrRootFoldersView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return }
                 try await client.deleteRootFolder(id: folder.id)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             await serviceManager.refreshConfiguration()

@@ -80,7 +80,6 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
     }
 
     private static func notificationDetailValues(from userInfo: [AnyHashable: Any]) -> [String] {
-        let pathLikeKeys = ["sourcePath", "path", "file", "fileName", "movieFile", "episodeFile"]
         let displaySafeKeys = [
             "sourceTitle", "releaseTitle", "downloadTitle", "seriesTitle", "movieTitle", "episodeTitle"
         ]

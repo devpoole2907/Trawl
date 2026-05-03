@@ -39,6 +39,24 @@ struct RadarrClientEntry: Identifiable {
     }
 }
 
+struct BazarrClientEntry: Identifiable {
+    let id: UUID
+    let displayName: String
+    var client: BazarrAPIClient?
+    var isConnected: Bool = false
+    var isConnecting: Bool = false
+    var connectionError: String?
+    var languageProfiles: [BazarrLanguageProfile] = []
+    var languages: [BazarrLanguage] = []
+    var cachedSeries: [BazarrSeries] = []
+    var cachedMovies: [BazarrMovie] = []
+
+    init(id: UUID, displayName: String) {
+        self.id = id
+        self.displayName = displayName
+    }
+}
+
 enum ArrNotificationSetupStatus: Sendable {
     case notAdded
     case needsUpdate
@@ -67,6 +85,10 @@ final class ArrServiceManager {
     private(set) var prowlarrConnected: Bool = false
     private(set) var prowlarrIsConnecting: Bool = false
     private(set) var prowlarrConnectionError: String?
+
+    // MARK: - Bazarr (multi-instance)
+    private(set) var bazarrInstances: [BazarrClientEntry] = []
+    private(set) var activeBazarrProfileID: UUID?
 
     // MARK: - Global state
     private(set) var isInitializing: Bool = false
@@ -112,6 +134,12 @@ final class ArrServiceManager {
     var hasAnyConnectedRadarrInstance: Bool { radarrInstances.contains { $0.isConnected } }
     var hasAnyConnectedProwlarrInstance: Bool { prowlarrConnected }
 
+    var hasBazarrInstance: Bool { !bazarrInstances.isEmpty }
+    var hasAnyConnectedBazarrInstance: Bool { bazarrInstances.contains { $0.isConnected } }
+    var bazarrConnectionError: String? {
+        activeBazarrEntry?.connectionError ?? bazarrInstances.first?.connectionError
+    }
+
     func sonarrClient(for profileID: UUID) -> SonarrAPIClient? {
         sonarrInstances.first(where: { $0.id == profileID })?.client
     }
@@ -128,7 +156,20 @@ final class ArrServiceManager {
             radarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
         case .prowlarr:
             activeProwlarrProfileID == profileID && prowlarrConnected
+        case .bazarr:
+            bazarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
         }
+    }
+
+    var activeBazarrEntry: BazarrClientEntry? {
+        if let id = activeBazarrProfileID, let entry = bazarrInstances.first(where: { $0.id == id }) {
+            return entry
+        }
+        return bazarrInstances.first { $0.isConnected } ?? bazarrInstances.first
+    }
+
+    func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
+        bazarrInstances.first(where: { $0.id == profileID })?.client
     }
 
     func resolvedProfile(
@@ -141,6 +182,7 @@ final class ArrServiceManager {
             case .sonarr: return activeSonarrInstanceID
             case .radarr: return activeRadarrInstanceID
             case .prowlarr: return activeProwlarrProfileID
+            case .bazarr: return activeBazarrProfileID
             }
         }()
 
@@ -287,6 +329,12 @@ final class ArrServiceManager {
         }
     }
 
+    func setActiveBazarr(_ profileID: UUID) {
+        withAnimation(.snappy) {
+            activeBazarrProfileID = profileID
+        }
+    }
+
     // MARK: - Initialization
 
     func initialize(from profiles: [ArrServiceProfile]) async {
@@ -303,6 +351,9 @@ final class ArrServiceManager {
             radarrInstances = profiles
                 .filter { $0.resolvedServiceType == .radarr && $0.isEnabled }
                 .map { RadarrClientEntry(id: $0.id, displayName: $0.displayName) }
+            bazarrInstances = profiles
+                .filter { $0.resolvedServiceType == .bazarr && $0.isEnabled }
+                .map { BazarrClientEntry(id: $0.id, displayName: $0.displayName) }
         }
 
         for profile in profiles where profile.isEnabled {
@@ -446,6 +497,43 @@ final class ArrServiceManager {
                     }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
+
+            case .bazarr:
+                let client = BazarrAPIClient(
+                    baseURL: profile.hostURL,
+                    apiKey: apiKey,
+                    allowsUntrustedTLS: profile.allowsUntrustedTLS
+                )
+                _ = try await client.getSystemStatus()
+                async let lp = client.getLanguageProfiles()
+                async let lang = client.getLanguages()
+                let (profiles, languages) = try await (lp, lang)
+
+                if bazarrInstances.contains(where: { $0.id == profile.id }) {
+                    updateBazarrEntry(id: profile.id) { entry in
+                        entry.client = client
+                        entry.isConnected = true
+                        entry.connectionError = nil
+                        entry.languageProfiles = profiles
+                        entry.languages = languages
+                    }
+                } else {
+                    var entry = BazarrClientEntry(id: profile.id, displayName: profile.displayName)
+                    entry.client = client
+                    entry.isConnected = true
+                    entry.languageProfiles = profiles
+                    entry.languages = languages
+                    withAnimation(.snappy) {
+                        bazarrInstances.append(entry)
+                    }
+                }
+                if activeBazarrProfileID == nil {
+                    withAnimation(.snappy) {
+                        activeBazarrProfileID = profile.id
+                    }
+                }
+                connectionErrors.removeValue(forKey: profile.id.uuidString)
+                Task { await refreshBazarrSubtitleCache(for: profile.id, client: client) }
             }
         } catch {
             connectionErrors[profile.id.uuidString] = error.localizedDescription
@@ -453,13 +541,49 @@ final class ArrServiceManager {
         }
     }
 
+    func refreshBazarrSubtitleCache(for id: UUID, client: BazarrAPIClient) async {
+        async let seriesPage = try? client.getSeries(start: 0, length: -1)
+        async let moviesPage = try? client.getMovies(start: 0, length: -1)
+        let (series, movies) = await (seriesPage, moviesPage)
+        updateBazarrEntry(id: id) { entry in
+            if let s = series { entry.cachedSeries = s.data }
+            if let m = movies { entry.cachedMovies = m.data }
+        }
+    }
+
+    func refreshActiveBazarrSubtitleCache() async {
+        guard let entry = activeBazarrEntry, let client = entry.client else { return }
+        await refreshBazarrSubtitleCache(for: entry.id, client: client)
+    }
+
+    func getBazarrEpisodes(forSonarrSeriesId sonarrSeriesId: Int) async throws -> [BazarrEpisode] {
+        guard let client = activeBazarrEntry?.client else { return [] }
+        let episodes = try await client.getEpisodes(seriesIds: [sonarrSeriesId])
+        await refreshActiveBazarrSubtitleCache()
+        return episodes
+    }
+
+    func bazarrSubtitleStatus(forSonarrSeriesId sonarrId: Int) -> BazarrSubtitleStatus? {
+        guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
+        guard let series = entry.cachedSeries.first(where: { $0.sonarrSeriesId == sonarrId }) else { return nil }
+        return BazarrViewModel.subtitleStatus(for: series)
+    }
+
+    func bazarrSubtitleStatus(forRadarrId radarrId: Int) -> BazarrSubtitleStatus? {
+        guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
+        guard let movie = entry.cachedMovies.first(where: { $0.radarrId == radarrId }) else { return nil }
+        return BazarrViewModel.subtitleStatus(for: movie)
+    }
+
     /// Disconnect all services.
     func disconnectAll() {
         withAnimation(.snappy) {
             sonarrInstances = []
             radarrInstances = []
+            bazarrInstances = []
             activeSonarrProfileID = nil
             activeRadarrProfileID = nil
+            activeBazarrProfileID = nil
             prowlarrClient = nil
             activeProwlarrProfileID = nil
             prowlarrConnected = false
@@ -523,6 +647,23 @@ final class ArrServiceManager {
             if let id = profileID {
                 connectionErrors.removeValue(forKey: id.uuidString)
             }
+        case .bazarr:
+            if let id = profileID {
+                connectionErrors.removeValue(forKey: id.uuidString)
+                withAnimation(.snappy) {
+                    bazarrInstances.removeAll { $0.id == id }
+                    if activeBazarrProfileID == id {
+                        activeBazarrProfileID = bazarrInstances
+                            .first(where: { $0.isConnected })?
+                            .id ?? bazarrInstances.first?.id
+                    }
+                }
+            } else {
+                withAnimation(.snappy) {
+                    bazarrInstances = []
+                    activeBazarrProfileID = nil
+                }
+            }
         }
     }
 
@@ -532,6 +673,30 @@ final class ArrServiceManager {
         case .prowlarr:
             let client = ProwlarrAPIClient(baseURL: hostURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
             return try await client.getSystemStatus()
+        case .bazarr:
+            let client = BazarrAPIClient(baseURL: hostURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
+            let status = try await client.getSystemStatus()
+            return ArrSystemStatus(
+                appName: "Bazarr",
+                instanceName: "Bazarr",
+                version: status.bazarrVersion,
+                buildTime: nil,
+                isDebug: nil,
+                isProduction: nil,
+                isAdmin: nil,
+                isUserInteractive: nil,
+                startupPath: status.bazarrDirectory,
+                appData: status.bazarrConfigDirectory,
+                osName: status.operatingSystem,
+                osVersion: nil,
+                isDocker: nil,
+                isLinux: nil,
+                isOsx: nil,
+                isWindows: nil,
+                urlBase: nil,
+                runtimeVersion: status.pythonVersion,
+                runtimeName: "Python"
+            )
         default:
             let client = ArrAPIClient(baseURL: hostURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
             return try await client.getSystemStatus()
@@ -581,7 +746,7 @@ final class ArrServiceManager {
         case .radarr:
             try? await radarrClient?.deleteBlocklistItem(id: id)
             radarrBlocklist.removeAll { $0.id == id }
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             break
         }
     }
@@ -687,6 +852,10 @@ final class ArrServiceManager {
             }
         case .prowlarr:
             prowlarrIsConnecting = value
+        case .bazarr:
+            updateBazarrEntry(id: id) { entry in
+                entry.isConnecting = value
+            }
         }
     }
 
@@ -709,6 +878,11 @@ final class ArrServiceManager {
                 prowlarrConnected = false
                 activeProwlarrProfileID = nil
             }
+        case .bazarr:
+            updateBazarrEntry(id: id) { entry in
+                entry.connectionError = message
+                entry.isConnected = false
+            }
         }
     }
 
@@ -724,6 +898,13 @@ final class ArrServiceManager {
         var entry = radarrInstances[idx]
         mutate(&entry)
         radarrInstances[idx] = entry
+    }
+
+    private func updateBazarrEntry(id: UUID, _ mutate: (inout BazarrClientEntry) -> Void) {
+        guard let idx = bazarrInstances.firstIndex(where: { $0.id == id }) else { return }
+        var entry = bazarrInstances[idx]
+        mutate(&entry)
+        bazarrInstances[idx] = entry
     }
 
     private func normalizedNotificationWorkerURL(from rawValue: String) throws -> String {
@@ -776,6 +957,8 @@ final class ArrServiceManager {
             }
             return client
         case .prowlarr:
+            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+        case .bazarr:
             throw ArrError.unsupportedNotificationsService(serviceType.displayName)
         }
     }

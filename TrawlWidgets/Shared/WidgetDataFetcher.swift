@@ -208,7 +208,7 @@ enum WidgetDataFetcher {
                     }
                 }
 
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return []
             }
         } catch {

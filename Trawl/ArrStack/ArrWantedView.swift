@@ -6,6 +6,7 @@ struct ArrWantedView: View {
 
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
+    @State private var bazarrViewModel: BazarrViewModel?
     @State private var scope: ArrWantedScope
 
     @State private var showSearchAllConfirm = false
@@ -19,20 +20,25 @@ struct ArrWantedView: View {
     }
 
     private var hasConfiguredService: Bool {
-        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
     }
 
     private var hasConnectedService: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected
+        serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance
     }
 
     private var isLoading: Bool {
-        sonarrViewModel?.isLoadingWantedMissing == true || radarrViewModel?.isLoadingWantedMissing == true
+        sonarrViewModel?.isLoadingWantedMissing == true ||
+        radarrViewModel?.isLoadingWantedMissing == true ||
+        bazarrViewModel?.isLoadingSeries == true ||
+        bazarrViewModel?.isLoadingMovies == true
     }
 
     private var hasError: Bool {
         (sonarrViewModel?.error?.isEmpty == false) ||
-        (radarrViewModel?.error?.isEmpty == false)
+        (radarrViewModel?.error?.isEmpty == false) ||
+        (bazarrViewModel?.seriesError?.isEmpty == false) ||
+        (bazarrViewModel?.moviesError?.isEmpty == false)
     }
 
     private var errorDescription: String {
@@ -43,17 +49,27 @@ struct ArrWantedView: View {
         if let radarrError = radarrViewModel?.error, !radarrError.isEmpty {
             errors.append("Radarr: \(radarrError)")
         }
+        if let seriesError = bazarrViewModel?.seriesError, !seriesError.isEmpty {
+            errors.append("Bazarr series: \(seriesError)")
+        }
+        if let moviesError = bazarrViewModel?.moviesError, !moviesError.isEmpty {
+            errors.append("Bazarr movies: \(moviesError)")
+        }
         return errors.isEmpty ? "An error occurred loading wanted items." : errors.joined(separator: "\n")
     }
 
     private var canSearchAllMissing: Bool {
         switch scope {
         case .all:
-            return sonarrViewModel?.isConnected == true || radarrViewModel?.isConnected == true
+            return sonarrViewModel?.isConnected == true ||
+                radarrViewModel?.isConnected == true ||
+                bazarrViewModel?.isConnected == true
         case .series:
             return sonarrViewModel?.isConnected == true
         case .movies:
             return radarrViewModel?.isConnected == true
+        case .subtitles:
+            return bazarrViewModel?.isConnected == true
         }
     }
 
@@ -65,6 +81,8 @@ struct ArrWantedView: View {
             return "This will trigger a search for all missing series items."
         case .movies:
             return "This will trigger a search for all missing movies."
+        case .subtitles:
+            return "This will trigger a Bazarr search for all missing subtitles."
         }
     }
 
@@ -74,13 +92,13 @@ struct ArrWantedView: View {
                 ContentUnavailableView(
                     "No Services Configured",
                     systemImage: "server.rack",
-                    description: Text("Connect Sonarr or Radarr to view monitored items that are still missing files.")
+                    description: Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
                 )
             } else if !hasConnectedService {
                 ContentUnavailableView(
                     "Services Unreachable",
                     systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                    description: Text("Unable to reach your configured Sonarr, Radarr, or Bazarr servers.")
                 )
             } else if isLoading && isEmpty {
                 ProgressView("Loading wanted items...")
@@ -95,11 +113,11 @@ struct ArrWantedView: View {
                 ContentUnavailableView(
                     "Nothing Missing",
                     systemImage: "checkmark.circle",
-                    description: Text("There are no monitored series episodes or movies waiting for files right now.")
+                    description: Text("There are no monitored files or subtitles missing right now.")
                 )
             } else {
                 List {
-                    if scope != .movies, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
+                    if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                         Section("Series") {
                             ForEach(sonarrViewModel.wantedEpisodes) { episode in
                                 WantedEpisodeRow(episode: episode) {
@@ -125,7 +143,7 @@ struct ArrWantedView: View {
                         }
                     }
 
-                    if scope != .series, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
+                    if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
                         Section("Movies") {
                             ForEach(radarrViewModel.wantedMovies) { movie in
                                 WantedMovieRow(movie: movie) {
@@ -146,6 +164,31 @@ struct ArrWantedView: View {
                                     Task { await radarrViewModel.loadMoreWantedMissing() }
                                 } label: {
                                     loadMoreLabel(isLoading: radarrViewModel.isLoadingWantedMissing)
+                                }
+                            }
+                        }
+                    }
+
+                    if scope.includesSubtitles, let bazarrViewModel {
+                        let missingSeries = bazarrViewModel.filteredSeries.filter { $0.episodeMissingCount > 0 }
+                        let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
+
+                        if !missingSeries.isEmpty {
+                            Section("Subtitle Gaps - Series") {
+                                ForEach(missingSeries) { series in
+                                    BazarrWantedSeriesRow(series: series) {
+                                        await searchBazarrSeries(series, in: bazarrViewModel)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !missingMovies.isEmpty {
+                            Section("Subtitle Gaps - Movies") {
+                                ForEach(missingMovies) { movie in
+                                    BazarrWantedMovieRow(movie: movie) {
+                                        await searchBazarrMovie(movie, in: bazarrViewModel)
+                                    }
                                 }
                             }
                         }
@@ -207,16 +250,20 @@ struct ArrWantedView: View {
     private var isEmpty: Bool {
         let sonarrIsEmpty = sonarrViewModel?.wantedEpisodes.isEmpty ?? true
         let radarrIsEmpty = radarrViewModel?.wantedMovies.isEmpty ?? true
+        let bazarrSeriesIsEmpty = bazarrViewModel?.filteredSeries.filter { $0.episodeMissingCount > 0 }.isEmpty ?? true
+        let bazarrMoviesIsEmpty = bazarrViewModel?.filteredMovies.filter { !$0.missingSubtitles.isEmpty }.isEmpty ?? true
+        let bazarrIsEmpty = bazarrSeriesIsEmpty && bazarrMoviesIsEmpty
 
         switch scope {
-        case .all:    return sonarrIsEmpty && radarrIsEmpty
+        case .all:    return sonarrIsEmpty && radarrIsEmpty && bazarrIsEmpty
         case .series: return sonarrIsEmpty
         case .movies: return radarrIsEmpty
+        case .subtitles: return bazarrIsEmpty
         }
     }
 
     private var reloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
     }
 
     // MARK: - Actions
@@ -229,6 +276,24 @@ struct ArrWantedView: View {
         await vm.searchMovie(movieId: movie.id)
     }
 
+    private func searchBazarrSeries(_ series: BazarrSeries, in vm: BazarrViewModel) async {
+        do {
+            try await vm.runSeriesAction(.searchMissing, seriesId: series.sonarrSeriesId)
+            InAppNotificationCenter.shared.showSuccess(title: "Subtitle Search Started", message: "\(series.title) was sent to Bazarr.")
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Subtitle Search Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func searchBazarrMovie(_ movie: BazarrMovie, in vm: BazarrViewModel) async {
+        do {
+            try await vm.runMovieAction(.searchMissing, radarrId: movie.radarrId)
+            InAppNotificationCenter.shared.showSuccess(title: "Subtitle Search Started", message: "\(movie.title) was sent to Bazarr.")
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Subtitle Search Failed", message: error.localizedDescription)
+        }
+    }
+
     private func searchAllMissing() async {
         guard !isSearchingAll else { return }
         isSearchingAll = true
@@ -236,9 +301,10 @@ struct ArrWantedView: View {
         var errors: [String] = []
         let sonarrCanSearch = sonarrViewModel?.isConnected == true
         let radarrCanSearch = radarrViewModel?.isConnected == true
+        let bazarrCanSearch = bazarrViewModel?.isConnected == true
 
         await withTaskGroup(of: String?.self) { group in
-            if let sonarrViewModel, sonarrCanSearch {
+            if scope.includesSeries, let sonarrViewModel, sonarrCanSearch {
                 group.addTask {
                     do {
                         try await sonarrViewModel.searchAllMissing()
@@ -248,7 +314,7 @@ struct ArrWantedView: View {
                     }
                 }
             }
-            if let radarrViewModel, radarrCanSearch {
+            if scope.includesMovies, let radarrViewModel, radarrCanSearch {
                 group.addTask {
                     do {
                         try await radarrViewModel.searchAllMissing()
@@ -256,6 +322,27 @@ struct ArrWantedView: View {
                     } catch {
                         return "Radarr: \(error.localizedDescription)"
                     }
+                }
+            }
+            if scope.includesSubtitles, let bazarrViewModel, bazarrCanSearch {
+                let missingSeries = bazarrViewModel.filteredSeries.filter { $0.episodeMissingCount > 0 }
+                let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
+                group.addTask {
+                    for series in missingSeries {
+                        do {
+                            try await bazarrViewModel.runSeriesAction(.searchMissing, seriesId: series.sonarrSeriesId)
+                        } catch {
+                            return "Bazarr \(series.title): \(error.localizedDescription)"
+                        }
+                    }
+                    for movie in missingMovies {
+                        do {
+                            try await bazarrViewModel.runMovieAction(.searchMissing, radarrId: movie.radarrId)
+                        } catch {
+                            return "Bazarr \(movie.title): \(error.localizedDescription)"
+                        }
+                    }
+                    return nil
                 }
             }
 
@@ -289,6 +376,9 @@ struct ArrWantedView: View {
         if serviceManager.radarrConnected, radarrViewModel == nil {
             radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
         }
+        if serviceManager.hasAnyConnectedBazarrInstance, bazarrViewModel == nil {
+            bazarrViewModel = BazarrViewModel(serviceManager: serviceManager)
+        }
         // Keep ViewModels alive to preserve pagination state
         // Connection state is checked via VM's isConnected property
     }
@@ -301,6 +391,12 @@ struct ArrWantedView: View {
             if let radarrViewModel, radarrViewModel.isConnected {
                 group.addTask { await radarrViewModel.loadWantedMissing() }
             }
+            if let bazarrViewModel, bazarrViewModel.isConnected {
+                group.addTask {
+                    await bazarrViewModel.loadSeries()
+                    await bazarrViewModel.loadMovies()
+                }
+            }
         }
     }
 
@@ -312,6 +408,8 @@ struct ArrWantedView: View {
             return "Searches sent for all missing series."
         case .movies:
             return "Searches sent for all missing movies."
+        case .subtitles:
+            return "Searches sent for missing subtitles."
         }
     }
 
@@ -353,13 +451,27 @@ enum ArrWantedScope: CaseIterable, Hashable {
     case all
     case series
     case movies
+    case subtitles
 
     var title: String {
         switch self {
         case .all:    "All"
         case .series: "Series"
         case .movies: "Movies"
+        case .subtitles: "Subtitles"
         }
+    }
+
+    var includesSeries: Bool {
+        self == .all || self == .series
+    }
+
+    var includesMovies: Bool {
+        self == .all || self == .movies
+    }
+
+    var includesSubtitles: Bool {
+        self == .all || self == .subtitles
     }
 }
 
@@ -493,6 +605,131 @@ private struct WantedMovieRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+}
+
+private struct BazarrWantedSeriesRow: View {
+    let series: BazarrSeries
+    let onSearch: () async -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @State private var isSearching = false
+
+    var body: some View {
+        HStack(spacing: 12) {
+            NavigationLink {
+                BazarrSeriesDetailView(seriesId: series.sonarrSeriesId, viewModel: BazarrViewModel(serviceManager: serviceManager))
+            } label: {
+                HStack(spacing: 12) {
+                    ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            Image(systemName: "captions.bubble")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.teal)
+                        }
+                    }
+                    .frame(width: 46, height: 69)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(series.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            wantedStatusChip("\(series.episodeMissingCount) missing", color: .teal)
+                            wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
+                        }
+                    }
+
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            searchButton
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    private var searchButton: some View {
+        if isSearching {
+            ProgressView().controlSize(.small)
+        } else {
+            Button("Search", systemImage: "magnifyingglass") {
+                Task {
+                    isSearching = true
+                    await onSearch()
+                    isSearching = false
+                }
+            }
+            .labelStyle(.iconOnly)
+            .contentShape(Rectangle())
+        }
+    }
+}
+
+private struct BazarrWantedMovieRow: View {
+    let movie: BazarrMovie
+    let onSearch: () async -> Void
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @State private var isSearching = false
+
+    var body: some View {
+        NavigationLink {
+            BazarrMovieDetailView(radarrId: movie.radarrId, viewModel: BazarrViewModel(serviceManager: serviceManager))
+        } label: {
+            HStack(spacing: 12) {
+                ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                        Image(systemName: "captions.bubble")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.teal)
+                    }
+                }
+                .frame(width: 46, height: 69)
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(movie.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    HStack(spacing: 6) {
+                        wantedStatusChip("\(movie.missingSubtitles.count) missing", color: .teal)
+                        if let year = movie.year {
+                            wantedStatusChip(year, color: .secondary)
+                        }
+                    }
+                }
+
+                Spacer()
+
+                searchButton
+            }
+            .padding(.vertical, 4)
+            .contentShape(Rectangle())
+        }
+    }
+
+    @ViewBuilder
+    private var searchButton: some View {
+        if isSearching {
+            ProgressView().controlSize(.small)
+        } else {
+            Button("Search", systemImage: "magnifyingglass") {
+                Task {
+                    isSearching = true
+                    await onSearch()
+                    isSearching = false
+                }
+            }
+            .labelStyle(.iconOnly)
+            .contentShape(Rectangle())
+        }
     }
 }
 

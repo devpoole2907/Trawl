@@ -1,0 +1,13 @@
+{
+  "mcp": {
+    "xcrun": {
+      "type": "local",
+      "command": [
+        "xcrun",
+        "mcpbridge"
+      ],
+      "enabled": true
+    }
+  },
+  "$schema": "https://opencode.ai/config.json"
+}
