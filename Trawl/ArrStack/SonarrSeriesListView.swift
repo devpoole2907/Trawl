@@ -77,7 +77,6 @@ struct SonarrSeriesListView: View {
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
-        .searchable(text: $localSeriesSearch, prompt: "Search series")
         .onChange(of: localSeriesSearch) { _, newValue in
             viewModel?.searchText = newValue
         }
@@ -128,6 +127,10 @@ struct SonarrSeriesListView: View {
                 async let loadSeries = viewModel.loadSeries()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadSeries, loadQueue)
+                if serviceManager.hasAnyConnectedBazarrInstance {
+                    await serviceManager.refreshActiveBazarrSubtitleCache()
+                }
+                viewModel.refreshFilters()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -240,6 +243,14 @@ struct SonarrSeriesListView: View {
                 knownQueueIds = currentIds
             }
         }
+        .task(id: serviceManager.activeBazarrProfileID) {
+            guard serviceManager.hasAnyConnectedBazarrInstance else {
+                viewModel?.refreshFilters()
+                return
+            }
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            viewModel?.refreshFilters()
+        }
 
         if shouldShowInstanceTitleMenu {
             baseContent.toolbarTitleMenu {
@@ -275,8 +286,9 @@ struct SonarrSeriesListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             seriesList(vm: vm)
-            .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredSeries)
+                .scrollPosition(id: $listScrollPosition)
+                .animation(.default, value: vm.filteredSeries)
+                .searchable(text: $localSeriesSearch, prompt: "Search series")
         }
     }
 
@@ -551,6 +563,7 @@ struct SonarrSeriesListView: View {
         case .continuing:  "play.circle"
         case .ended:       "stop.circle"
         case .missing:     "exclamationmark.circle"
+        case .subtitlesPresent: "captions.bubble"
         }
     }
 
@@ -720,28 +733,12 @@ struct SonarrSeriesRow: View {
                     }
 
                     if let bazarrStatus {
-                        let color: Color = {
-                            switch bazarrStatus {
-                            case .allPresent: return .green
-                            case .partial: return .orange
-                            case .none: return .red
-                            case .unknown: return .gray
-                            }
-                        }()
-                        let icon: String = {
-                            switch bazarrStatus {
-                            case .allPresent: return "checkmark.circle.fill"
-                            case .partial: return "exclamationmark.triangle.fill"
-                            case .none: return "xmark.circle.fill"
-                            case .unknown: return "questionmark.circle.fill"
-                            }
-                        }()
                         Text("•")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Image(systemName: icon)
+                        Image(systemName: "captions.bubble.fill")
                             .font(.caption2)
-                            .foregroundStyle(color)
+                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
                     }
                 }
             }

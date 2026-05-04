@@ -116,7 +116,7 @@ struct BazarrBrowserView: View {
                 }
             } else if viewModel.filteredSeries.isEmpty {
                 ContentUnavailableView {
-                    Label("No Series Found", systemImage: "tv.slash")
+                    Label("No Series Found", systemImage: "tv")
                 } description: {
                     Text(viewModel.searchText.isEmpty ? "No series are being tracked by Bazarr." : "No series match your search.")
                 }
@@ -200,16 +200,9 @@ struct BazarrBrowserView: View {
 
             Spacer()
 
-            HStack(spacing: 4) {
-                if series.episodeMissingCount > 0 {
-                    Text("\(series.episodeMissingCount) missing")
-                        .font(.caption2)
-                        .foregroundStyle(status == .none ? .red : .orange)
-                }
-                Image(systemName: viewModel.statusIcon(for: status))
-                    .foregroundStyle(viewModel.statusColor(for: status))
-                    .font(.caption)
-            }
+            Image(systemName: "captions.bubble.fill")
+                .foregroundStyle(status == .allPresent ? .teal : .secondary)
+                .font(.caption)
         }
         .padding(.vertical, 2)
     }
@@ -233,7 +226,7 @@ struct BazarrBrowserView: View {
                 }
             } else if viewModel.filteredMovies.isEmpty {
                 ContentUnavailableView {
-                    Label("No Movies Found", systemImage: "film.slash")
+                    Label("No Movies Found", systemImage: "film")
                 } description: {
                     Text(viewModel.searchText.isEmpty ? "No movies are being tracked by Bazarr." : "No movies match your search.")
                 }
@@ -288,16 +281,9 @@ struct BazarrBrowserView: View {
 
             Spacer()
 
-            HStack(spacing: 4) {
-                if !movie.missingSubtitles.isEmpty {
-                    Text("\(movie.missingSubtitles.count) missing")
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                }
-                Image(systemName: viewModel.statusIcon(for: status))
-                    .foregroundStyle(viewModel.statusColor(for: status))
-                    .font(.caption)
-            }
+            Image(systemName: "captions.bubble.fill")
+                .foregroundStyle(status == .allPresent ? .teal : .secondary)
+                .font(.caption)
         }
         .padding(.vertical, 2)
     }

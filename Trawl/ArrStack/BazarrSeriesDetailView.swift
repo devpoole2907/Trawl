@@ -148,16 +148,9 @@ struct BazarrSeriesDetailView: View {
             }
             Spacer()
             if total > 0 {
-                HStack(spacing: 4) {
-                    if !isComplete {
-                        Text("\(missing) missing")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                    Image(systemName: isComplete ? "checkmark.circle.fill" : (missing == total ? "xmark.circle.fill" : "exclamationmark.triangle.fill"))
-                        .font(.caption)
-                        .foregroundStyle(isComplete ? .green : (missing == total ? .red : .orange))
-                }
+                Image(systemName: "captions.bubble.fill")
+                    .font(.caption)
+                    .foregroundStyle(isComplete ? .teal : .secondary)
             }
         }
         .padding(.vertical, 2)
@@ -366,9 +359,9 @@ private struct BazarrSeasonView: View {
 
             Spacer()
 
-            Image(systemName: isComplete ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+            Image(systemName: "captions.bubble.fill")
                 .font(.caption)
-                .foregroundStyle(isComplete ? .green : .orange)
+                .foregroundStyle(isComplete ? .green : .secondary)
         }
         .padding(.vertical, 2)
     }

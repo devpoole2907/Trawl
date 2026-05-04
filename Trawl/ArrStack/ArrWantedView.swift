@@ -626,7 +626,7 @@ private struct BazarrWantedSeriesRow: View {
                             RoundedRectangle(cornerRadius: 6).fill(.quaternary)
                             Image(systemName: "captions.bubble")
                                 .font(.system(size: 14))
-                                .foregroundStyle(.teal)
+                                .foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 46, height: 69)
@@ -637,7 +637,9 @@ private struct BazarrWantedSeriesRow: View {
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                         HStack(spacing: 6) {
-                            wantedStatusChip("\(series.episodeMissingCount) missing", color: .teal)
+                            Image(systemName: "captions.bubble.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
                             wantedStatusChip("\(series.episodeFileCount) files", color: .secondary)
                         }
                     }
@@ -679,40 +681,45 @@ private struct BazarrWantedMovieRow: View {
     @State private var isSearching = false
 
     var body: some View {
-        NavigationLink {
-            BazarrMovieDetailView(radarrId: movie.radarrId, viewModel: BazarrViewModel(serviceManager: serviceManager))
-        } label: {
-            HStack(spacing: 12) {
-                ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-                        Image(systemName: "captions.bubble")
-                            .font(.system(size: 14))
-                            .foregroundStyle(.teal)
-                    }
-                }
-                .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(movie.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    HStack(spacing: 6) {
-                        wantedStatusChip("\(movie.missingSubtitles.count) missing", color: .teal)
-                        if let year = movie.year {
-                            wantedStatusChip(year, color: .secondary)
+        HStack(spacing: 12) {
+            NavigationLink {
+                BazarrMovieDetailView(radarrId: movie.radarrId, viewModel: BazarrViewModel(serviceManager: serviceManager))
+            } label: {
+                HStack(spacing: 12) {
+                    ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            Image(systemName: "captions.bubble")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.secondary)
                         }
                     }
+                    .frame(width: 46, height: 69)
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(movie.title)
+                            .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
+                        HStack(spacing: 6) {
+                            Image(systemName: "captions.bubble.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            if let year = movie.year {
+                                wantedStatusChip(year, color: .secondary)
+                            }
+                        }
+                    }
+
+                    Spacer()
                 }
-
-                Spacer()
-
-                searchButton
+                .contentShape(Rectangle())
             }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+
+            searchButton
         }
+        .padding(.vertical, 4)
     }
 
     @ViewBuilder

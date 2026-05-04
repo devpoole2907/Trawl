@@ -144,7 +144,10 @@ struct ArrRootFoldersView: View {
                     .lineLimit(2)
 
                 if folder.accessible == false {
-                    Label("Not accessible", systemImage: "exclamationmark.triangle.fill")
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("Not accessible")
+                    }
                         .font(.caption)
                         .foregroundStyle(.red)
                 }

@@ -122,6 +122,10 @@ struct RadarrMovieListView: View {
                 async let loadMovies = viewModel.loadMovies()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadMovies, loadQueue)
+                if serviceManager.hasAnyConnectedBazarrInstance {
+                    await serviceManager.refreshActiveBazarrSubtitleCache()
+                }
+                viewModel.refreshFilters()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -207,6 +211,14 @@ struct RadarrMovieListView: View {
                 }
                 knownQueueIds = currentIds
             }
+        }
+        .task(id: serviceManager.activeBazarrProfileID) {
+            guard serviceManager.hasAnyConnectedBazarrInstance else {
+                viewModel?.refreshFilters()
+                return
+            }
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            viewModel?.refreshFilters()
         }
 
         if shouldShowInstanceTitleMenu {
@@ -545,6 +557,7 @@ struct RadarrMovieListView: View {
         case .missing:     "exclamationmark.circle"
         case .downloaded:  "checkmark.circle"
         case .wanted:      "magnifyingglass.circle"
+        case .subtitlesPresent: "captions.bubble"
         }
     }
 
@@ -696,28 +709,12 @@ struct RadarrMovieRow: View {
                     }
 
                     if let bazarrStatus {
-                        let color: Color = {
-                            switch bazarrStatus {
-                            case .allPresent: return .green
-                            case .partial: return .orange
-                            case .none: return .red
-                            case .unknown: return .gray
-                            }
-                        }()
-                        let icon: String = {
-                            switch bazarrStatus {
-                            case .allPresent: return "checkmark.circle.fill"
-                            case .partial: return "exclamationmark.triangle.fill"
-                            case .none: return "xmark.circle.fill"
-                            case .unknown: return "questionmark.circle.fill"
-                            }
-                        }()
                         Text("•")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Image(systemName: icon)
+                        Image(systemName: "captions.bubble.fill")
                             .font(.caption2)
-                            .foregroundStyle(color)
+                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
                     }
                 }
             }

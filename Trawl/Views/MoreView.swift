@@ -28,8 +28,7 @@ enum MoreDestination: Hashable {
     case arrNamingConfig(service: ArrServiceType)
     case rootFolders
     case bazarrSettings
-    case bazarrSeries
-    case bazarrMovies
+    case bazarrLanguageProfiles
     case bazarrProviders
     case bazarrSeriesDetail(seriesId: Int)
     case bazarrMovieDetail(radarrId: Int)
@@ -126,14 +125,9 @@ struct MoreView: View {
                 }
 
                 Section {
-                    NavigationLink(value: MoreDestination.bazarrSeries) {
-                        moreRow(icon: "tv.fill", color: .teal,
-                                title: "Series Subtitles", subtitle: "Browse subtitle status for series")
-                    }
-
-                    NavigationLink(value: MoreDestination.bazarrMovies) {
-                        moreRow(icon: "film.fill", color: .teal,
-                                title: "Movie Subtitles", subtitle: "Browse subtitle status for movies")
+                    NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
+                        moreRow(icon: "globe", color: .teal,
+                                title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
                     }
 
                     NavigationLink(value: MoreDestination.bazarrProviders) {
@@ -306,12 +300,8 @@ struct MoreView: View {
                     ArrServiceSettingsView(serviceType: .bazarr)
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
-                case .bazarrSeries:
-                    BazarrSeriesListView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .bazarrMovies:
-                    BazarrMovieListView()
+                case .bazarrLanguageProfiles:
+                    BazarrLanguageProfilesView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .bazarrProviders:

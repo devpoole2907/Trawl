@@ -62,6 +62,10 @@ final class RadarrViewModel {
 
     private(set) var filteredMovies: [RadarrMovie] = []
 
+    func refreshFilters() {
+        rebuildFilteredMovies()
+    }
+
     private func rebuildFilteredMovies() {
         filteredMovies = FilterSortPipeline.apply(
             items: movies,
@@ -85,6 +89,8 @@ final class RadarrViewModel {
                     movie.hasFile == true
                 case .wanted:
                     movie.hasFile != true && movie.monitored == true && movie.isAvailable == true
+                case .subtitlesPresent:
+                    serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) == .allPresent
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -577,6 +583,7 @@ enum RadarrFilter: String, CaseIterable, Identifiable {
     case missing = "Missing"
     case downloaded = "Downloaded"
     case wanted = "Wanted"
+    case subtitlesPresent = "Subtitles Present"
 
     var id: String { rawValue }
 }

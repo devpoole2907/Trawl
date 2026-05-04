@@ -13,7 +13,10 @@ struct BazarrSubtitleStatusCard: View {
     @State private var movie: BazarrMovie?
     @State private var series: BazarrSeries?
     @State private var isSearching = false
+    @State private var isUpdatingProfile = false
     @State private var showInteractiveSearch = false
+    @State private var showProfilePicker = false
+    @State private var selectedProfileId: Int?
 
     private var accent: Color { .teal }
 
@@ -38,6 +41,9 @@ struct BazarrSubtitleStatusCard: View {
                 )
             }
         }
+                .sheet(isPresented: $showProfilePicker) {
+                    profilePickerSheet
+                }
         }
     }
 
@@ -96,7 +102,7 @@ struct BazarrSubtitleStatusCard: View {
         } else if hasLoadedMedia {
             Text("Complete")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.green)
+                .foregroundStyle(accent)
         }
     }
 
@@ -150,6 +156,8 @@ struct BazarrSubtitleStatusCard: View {
     private var loadedContent: some View {
         if hasLoadedMedia {
             VStack(alignment: .leading, spacing: 12) {
+                profileButton
+
                 Text(summaryText)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -192,6 +200,43 @@ struct BazarrSubtitleStatusCard: View {
             Text("Bazarr has not imported this item yet. Make sure Bazarr is connected to the matching Sonarr/Radarr library.")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var profileButton: some View {
+        if hasLoadedMedia {
+            Button {
+                selectedProfileId = currentProfileId
+                showProfilePicker = true
+            } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Language Profile")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                        Text(currentProfileName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+
+                    Spacer()
+
+                    if isUpdatingProfile {
+                        ProgressView()
+                            .controlSize(.small)
+                            .tint(.white)
+                    } else {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(activeLanguageProfiles.isEmpty || isUpdatingProfile)
         }
     }
 
@@ -243,6 +288,22 @@ struct BazarrSubtitleStatusCard: View {
         movie != nil || series != nil
     }
 
+    private var activeLanguageProfiles: [BazarrLanguageProfile] {
+        serviceManager.activeBazarrEntry?.languageProfiles ?? []
+    }
+
+    private var currentProfileId: Int? {
+        if let movie {
+            return movie.profileId
+        }
+        return series?.profileId
+    }
+
+    private var currentProfileName: String {
+        guard let currentProfileId else { return activeLanguageProfiles.isEmpty ? "No Bazarr profiles available" : "None" }
+        return activeLanguageProfiles.first(where: { $0.profileId == currentProfileId })?.name ?? "Profile \(currentProfileId)"
+    }
+
     private var missingCount: Int {
         if let movie {
             return movie.missingSubtitles.count
@@ -267,6 +328,34 @@ struct BazarrSubtitleStatusCard: View {
             return "\(series.episodeMissingCount) missing subtitle\(series.episodeMissingCount == 1 ? "" : "s") across \(series.episodeFileCount) episode file\(series.episodeFileCount == 1 ? "" : "s")."
         }
         return ""
+    }
+
+    private var profilePickerSheet: some View {
+        NavigationStack {
+            List {
+                Picker("Profile", selection: $selectedProfileId) {
+                    Text("None").tag(nil as Int?)
+                    ForEach(activeLanguageProfiles) { profile in
+                        Text(profile.name).tag(profile.profileId as Int?)
+                    }
+                }
+                .pickerStyle(.inline)
+            }
+            .navigationTitle("Language Profile")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        showProfilePicker = false
+                        Task { await updateProfile() }
+                    }
+                    .disabled(isUpdatingProfile)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showProfilePicker = false }
+                }
+            }
+        }
+        .presentationDetents([.medium])
     }
 
     private func load(force: Bool = false) async {
@@ -313,6 +402,35 @@ struct BazarrSubtitleStatusCard: View {
             await load(force: true)
         } catch {
             InAppNotificationCenter.shared.showError(title: "Subtitle Search Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func updateProfile() async {
+        guard let client = serviceManager.activeBazarrEntry?.client else { return }
+        isUpdatingProfile = true
+        defer { isUpdatingProfile = false }
+
+        do {
+            switch media {
+            case .movie(let radarrId, _):
+                try await client.updateMovieProfile(
+                    radarrIds: [radarrId],
+                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                )
+            case .series(let seriesId, _):
+                try await client.updateSeriesProfile(
+                    seriesIds: [seriesId],
+                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                )
+            }
+
+            movie = nil
+            series = nil
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            await load(force: true)
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Failed", message: error.localizedDescription)
         }
     }
 }

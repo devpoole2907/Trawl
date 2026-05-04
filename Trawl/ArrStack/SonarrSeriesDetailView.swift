@@ -90,6 +90,11 @@ struct SonarrSeriesDetailView: View {
         return viewModel.episodes[id] ?? []
     }
 
+    private func bazarrEpisode(for file: SonarrEpisodeFile) -> BazarrEpisode? {
+        guard let episode = episodes.first(where: { $0.episodeFileId == file.id }) else { return nil }
+        return bazarrEpisodes.first { $0.sonarrEpisodeId == episode.id }
+    }
+
     private var seasonNumbers: [Int] {
         if let s = series?.seasons, !s.isEmpty {
             return s.map(\.seasonNumber).sorted(by: >)
@@ -413,6 +418,15 @@ struct SonarrSeriesDetailView: View {
                     color: .purple
                 ))
             }
+        }
+
+        if serviceManager.hasAnyConnectedBazarrInstance, !bazarrEpisodes.isEmpty {
+            let allComplete = bazarrEpisodes.allSatisfy { $0.missingSubtitles.isEmpty }
+            badges.append(DetailBadge(
+                icon: "captions.bubble.fill",
+                label: allComplete ? "Complete" : "None",
+                color: allComplete ? .teal : .white.opacity(0.6)
+            ))
         }
 
         return badges
@@ -1176,7 +1190,6 @@ struct SonarrSeriesDetailView: View {
 
         let bEps = bazarrEpisodes.filter { $0.season == seasonNum }
         let subtitleComplete = !bEps.isEmpty && bEps.allSatisfy { $0.missingSubtitles.isEmpty }
-        let subtitleMissing = bEps.filter { !$0.missingSubtitles.isEmpty }.count
 
         return NavigationLink {
             SonarrSeasonSearchView(
@@ -1214,14 +1227,10 @@ struct SonarrSeriesDetailView: View {
                     }
                 }
 
-                if subtitleComplete {
-                    Image(systemName: "checkmark.circle.fill")
+                if !bEps.isEmpty {
+                    Image(systemName: "captions.bubble.fill")
                         .font(.caption2)
-                        .foregroundStyle(.green)
-                } else if subtitleMissing > 0 {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(subtitleComplete ? .teal : .secondary)
                 }
 
                 Image(systemName: "chevron.right")
@@ -1322,7 +1331,11 @@ struct SonarrSeriesDetailView: View {
             if isFilesExpanded {
                 Divider()
                 ForEach(Array(episodeFiles.enumerated()), id: \.element.id) { index, file in
-                    EpisodeFileRow(file: file) {
+                    let bEp = bazarrEpisode(for: file)
+                    EpisodeFileRow(
+                        file: file,
+                        subtitles: bEp?.subtitles.isEmpty == false ? bEp?.subtitles : nil
+                    ) {
                         selectedEpisodeFileForDeletion = file
                     }
                     if index < episodeFiles.count - 1 {
@@ -1564,6 +1577,7 @@ private struct SonarrAddToLibrarySheet: View {
 
 private struct EpisodeFileRow: View {
     let file: SonarrEpisodeFile
+    let subtitles: [BazarrSubtitle]?
     let onDelete: () -> Void
 
     var body: some View {
@@ -1612,6 +1626,10 @@ private struct EpisodeFileRow: View {
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
+
+            if let subtitles, !subtitles.isEmpty {
+                subtitleFilesView
+            }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 11)
@@ -1619,6 +1637,40 @@ private struct EpisodeFileRow: View {
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive, action: onDelete) {
                 Label("Delete File", systemImage: "trash")
+            }
+        }
+    }
+
+    private var subtitleFilesView: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "captions.bubble.fill")
+                .font(.caption2)
+                .foregroundStyle(.teal)
+            ForEach(subtitles!, id: \.self) { sub in
+                HStack(spacing: 3) {
+                    Text(sub.code2)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.teal)
+                    if sub.hi {
+                        Text("HI")
+                            .font(.system(size: 7).weight(.bold))
+                            .foregroundStyle(.blue)
+                    }
+                    if sub.forced {
+                        Text("Forced")
+                            .font(.system(size: 7).weight(.bold))
+                            .foregroundStyle(.orange)
+                    }
+                    if let size = sub.fileSize {
+                        Text(ByteFormatter.format(bytes: Int64(size)))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.teal.opacity(0.12)))
+                .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
             }
         }
     }
@@ -2599,8 +2651,8 @@ private struct SonarrSeasonEpisodeRow: View {
                                 .foregroundStyle(.green)
                                 .font(.caption)
                             if let bEp = bazarrEpisode {
-                                Image(systemName: bEp.missingSubtitles.isEmpty ? "captions.bubble.fill" : "exclamationmark.triangle.fill")
-                                    .foregroundStyle(bEp.missingSubtitles.isEmpty ? .green : .orange)
+                                Image(systemName: "captions.bubble.fill")
+                                    .foregroundStyle(bEp.missingSubtitles.isEmpty ? .teal : .secondary)
                                     .font(.caption)
                             }
                         }
@@ -2842,11 +2894,12 @@ struct SonarrEpisodeSearchView: View {
         }
         
         if let bEp = activeBazarrEpisode {
-            if bEp.missingSubtitles.isEmpty {
-                episodeStatusBadge("Subtitles", tint: .green, systemImage: "captions.bubble.fill")
-            } else {
-                episodeStatusBadge("\(bEp.missingSubtitles.count) Missing", tint: .orange, systemImage: "captions.bubble.fill")
-            }
+            let allComplete = bEp.missingSubtitles.isEmpty
+            episodeStatusBadge(
+                allComplete ? "Complete" : "None",
+                tint: allComplete ? .teal : .secondary,
+                systemImage: "captions.bubble.fill"
+            )
         }
     }
 
