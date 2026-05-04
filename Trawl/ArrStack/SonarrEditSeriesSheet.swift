@@ -55,21 +55,17 @@ struct SonarrEditSeriesSheet: View {
         ) {
             Form {
                 Section {
-                    Toggle("Monitored", isOn: $monitored)
+                    ArrMonitoredToggle(isMonitored: $monitored)
                     Toggle("Season Folder", isOn: $seasonFolder)
 
-                    Picker("Quality Profile", selection: $qualityProfileId) {
-                        ForEach(viewModel.qualityProfiles) { profile in
-                            Text(profile.name).tag(profile.id)
-                        }
-                    }
-
-                    if let selectedQualityProfile {
-                        Button {
-                            qualityProfileForDetails = selectedQualityProfile
-                        } label: {
-                            Label("View Selected Profile Details", systemImage: "info.circle")
-                        }
+                    ArrQualityProfilePicker(
+                        selection: Binding(
+                            get: { qualityProfileId },
+                            set: { if let val = $0 { qualityProfileId = val } }
+                        ),
+                        profiles: viewModel.qualityProfiles
+                    ) { profile in
+                        qualityProfileForDetails = profile
                     }
 
                     Picker("Series Type", selection: $seriesType) {
@@ -78,13 +74,13 @@ struct SonarrEditSeriesSheet: View {
                         Text("Anime").tag("anime")
                     }
 
-                    Picker("Root Folder", selection: $rootFolderPath) {
-                        ForEach(rootFolderOptions, id: \.self) { path in
-                            let freeSpace = viewModel.rootFolders.first(where: { $0.path == path })?.freeSpace
-                            let freeLabel = freeSpace.map { " · " + ByteFormatter.formatRounded(bytes: $0) + " free" } ?? ""
-                            Text(path + freeLabel).tag(path)
-                        }
-                    }
+                    ArrRootFolderPicker(
+                        selection: Binding(
+                            get: { rootFolderPath },
+                            set: { if let val = $0 { rootFolderPath = val } }
+                        ),
+                        folders: viewModel.rootFolders
+                    )
 
                     if rootFolderChanged && hasExistingFiles {
                         Toggle("Move Existing Files", isOn: $moveFiles)

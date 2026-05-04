@@ -75,13 +75,17 @@ struct SSHProfileEditSheet: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Server" : "New SSH Server")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar { toolbarContent }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
+            .modalFormStyle(
+                title: isEditing ? "Edit Server" : "New SSH Server",
+                primaryTitle: "Save",
+                isPrimaryDisabled: false,
+                isSaving: isSaving
+            ) {
+                hasAttemptedSubmit = true
+                guard canSave else { return }
+                isSaving = true
+                Task { await save() }
+            }
             .confirmationDialog(
                 "Remove \"\(existing?.displayName ?? "this server")\"?",
                 isPresented: $showDeleteConfirm,
@@ -117,13 +121,7 @@ struct SSHProfileEditSheet: View {
                 .textInputAutocapitalization(.words)
                 #endif
 
-            TextField("Host or IP", text: $host)
-                #if os(iOS)
-                .keyboardType(.URL)
-                .textInputAutocapitalization(.never)
-                .textContentType(.URL)
-                #endif
-                .autocorrectionDisabled()
+            ServerURLField(url: $host, title: "Host or IP")
 
             TextField("Port", text: $portString)
                 #if os(iOS)
@@ -203,27 +201,6 @@ struct SSHProfileEditSheet: View {
         Label(message, systemImage: "exclamationmark.circle.fill")
             .foregroundStyle(.red)
             .font(.footnote)
-    }
-
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        ToolbarItem(placement: .cancellationAction) {
-            Button("Cancel") { dismiss() }
-                .disabled(isSaving)
-        }
-        ToolbarItem(placement: .confirmationAction) {
-            if isSaving {
-                ProgressView()
-            } else {
-                Button("Save") {
-                    hasAttemptedSubmit = true
-                    guard canSave else { return }
-                    isSaving = true
-                    Task { await save() }
-                }
-                .fontWeight(.semibold)
-            }
-        }
     }
 
     // MARK: - Load existing

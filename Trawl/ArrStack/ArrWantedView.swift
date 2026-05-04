@@ -100,102 +100,97 @@ struct ArrWantedView: View {
                     systemImage: "network.slash",
                     description: Text("Unable to reach your configured Sonarr, Radarr, or Bazarr servers.")
                 )
-            } else if isLoading && isEmpty {
-                ProgressView("Loading wanted items...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if isEmpty && hasError {
-                ContentUnavailableView(
-                    "Load Failed",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorDescription)
-                )
-            } else if isEmpty && !hasError {
-                ContentUnavailableView(
-                    "Nothing Missing",
-                    systemImage: "checkmark.circle",
-                    description: Text("There are no monitored files or subtitles missing right now.")
-                )
             } else {
-                List {
-                    if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
-                        Section("Series") {
-                            ForEach(sonarrViewModel.wantedEpisodes) { episode in
-                                WantedEpisodeRow(episode: episode) {
-                                    await searchEpisode(episode, in: sonarrViewModel)
+                ArrLoadingErrorEmptyView(
+                    isLoading: isLoading,
+                    error: hasError ? errorDescription : nil,
+                    isEmpty: isEmpty,
+                    emptyTitle: "Nothing Missing",
+                    emptyIcon: "checkmark.circle",
+                    emptyDescription: "There are no monitored files or subtitles missing right now.",
+                    onRetry: nil
+                ) {
+                    List {
+                        if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
+                            Section("Series") {
+                                ForEach(sonarrViewModel.wantedEpisodes) { episode in
+                                    WantedEpisodeRow(episode: episode) {
+                                        await searchEpisode(episode, in: sonarrViewModel)
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button {
+                                            Task { await searchEpisode(episode, in: sonarrViewModel) }
+                                        } label: {
+                                            Label("Search", systemImage: "magnifyingglass")
+                                        }
+                                        .tint(.purple)
+                                    }
                                 }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+
+                                if sonarrViewModel.canLoadMoreWantedMissing {
                                     Button {
-                                        Task { await searchEpisode(episode, in: sonarrViewModel) }
+                                        Task { await sonarrViewModel.loadMoreWantedMissing() }
                                     } label: {
-                                        Label("Search", systemImage: "magnifyingglass")
+                                        loadMoreLabel(isLoading: sonarrViewModel.isLoadingWantedMissing)
                                     }
-                                    .tint(.purple)
-                                }
-                            }
-
-                            if sonarrViewModel.canLoadMoreWantedMissing {
-                                Button {
-                                    Task { await sonarrViewModel.loadMoreWantedMissing() }
-                                } label: {
-                                    loadMoreLabel(isLoading: sonarrViewModel.isLoadingWantedMissing)
                                 }
                             }
                         }
-                    }
 
-                    if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
-                        Section("Movies") {
-                            ForEach(radarrViewModel.wantedMovies) { movie in
-                                WantedMovieRow(movie: movie) {
-                                    await searchMovie(movie, in: radarrViewModel)
+                        if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
+                            Section("Movies") {
+                                ForEach(radarrViewModel.wantedMovies) { movie in
+                                    WantedMovieRow(movie: movie) {
+                                        await searchMovie(movie, in: radarrViewModel)
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                        Button {
+                                            Task { await searchMovie(movie, in: radarrViewModel) }
+                                        } label: {
+                                            Label("Search", systemImage: "magnifyingglass")
+                                        }
+                                        .tint(.purple)
+                                    }
                                 }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+
+                                if radarrViewModel.canLoadMoreWantedMissing {
                                     Button {
-                                        Task { await searchMovie(movie, in: radarrViewModel) }
+                                        Task { await radarrViewModel.loadMoreWantedMissing() }
                                     } label: {
-                                        Label("Search", systemImage: "magnifyingglass")
-                                    }
-                                    .tint(.purple)
-                                }
-                            }
-
-                            if radarrViewModel.canLoadMoreWantedMissing {
-                                Button {
-                                    Task { await radarrViewModel.loadMoreWantedMissing() }
-                                } label: {
-                                    loadMoreLabel(isLoading: radarrViewModel.isLoadingWantedMissing)
-                                }
-                            }
-                        }
-                    }
-
-                    if scope.includesSubtitles, let bazarrViewModel {
-                        let missingSeries = bazarrViewModel.filteredSeries.filter { $0.episodeMissingCount > 0 }
-                        let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
-
-                        if !missingSeries.isEmpty {
-                            Section("Subtitle Gaps - Series") {
-                                ForEach(missingSeries) { series in
-                                    BazarrWantedSeriesRow(series: series) {
-                                        await searchBazarrSeries(series, in: bazarrViewModel)
+                                        loadMoreLabel(isLoading: radarrViewModel.isLoadingWantedMissing)
                                     }
                                 }
                             }
                         }
 
-                        if !missingMovies.isEmpty {
-                            Section("Subtitle Gaps - Movies") {
-                                ForEach(missingMovies) { movie in
-                                    BazarrWantedMovieRow(movie: movie) {
-                                        await searchBazarrMovie(movie, in: bazarrViewModel)
+                        if scope.includesSubtitles, let bazarrViewModel {
+                            let missingSeries = bazarrViewModel.filteredSeries.filter { $0.episodeMissingCount > 0 }
+                            let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
+
+                            if !missingSeries.isEmpty {
+                                Section("Subtitle Gaps - Series") {
+                                    ForEach(missingSeries) { series in
+                                        BazarrWantedSeriesRow(series: series) {
+                                            await searchBazarrSeries(series, in: bazarrViewModel)
+                                        }
+                                    }
+                                }
+                            }
+
+                            if !missingMovies.isEmpty {
+                                Section("Subtitle Gaps - Movies") {
+                                    ForEach(missingMovies) { movie in
+                                        BazarrWantedMovieRow(movie: movie) {
+                                            await searchBazarrMovie(movie, in: bazarrViewModel)
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    .scrollContentBackground(.hidden)
+                    .background(backgroundGradient)
                 }
-                .scrollContentBackground(.hidden)
-                .background(backgroundGradient)
             }
         }
         .navigationTitle("Wanted / Missing")

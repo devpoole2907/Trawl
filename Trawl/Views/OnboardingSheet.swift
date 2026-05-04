@@ -16,29 +16,20 @@ struct OnboardingSheet: View {
     var body: some View {
         NavigationStack {
             onboardingForm
-            .navigationTitle(serverProfile == nil ? "Add Server" : "Edit Server")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Connect") {
-                        Task {
-                            let success = await viewModel.validateAndSave(modelContext: modelContext, editingServer: serverProfile)
-                            if success {
-                                dismiss()
-                                onComplete()
-                            }
-                        }
+            .modalFormStyle(
+                title: serverProfile == nil ? "Add Server" : "Edit Server",
+                primaryTitle: "Connect",
+                isPrimaryDisabled: viewModel.isValidating,
+                isSaving: false
+            ) {
+                Task {
+                    let success = await viewModel.validateAndSave(modelContext: modelContext, editingServer: serverProfile)
+                    if success {
+                        dismiss()
+                        onComplete()
                     }
-                    .disabled(viewModel.isValidating)
                 }
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
             #if os(macOS)
             .frame(minWidth: 560, idealWidth: 620, minHeight: 480)
             #endif
@@ -58,17 +49,11 @@ struct OnboardingSheet: View {
             }
 
             Section {
-                TextField("Server address", text: $viewModel.hostURL)
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    .textContentType(.URL)
-                    #endif
-                    .autocorrectionDisabled()
+                ServerURLField(url: $viewModel.hostURL)
 
                 TextField("Display Name (optional)", text: $viewModel.displayName)
 
-                Toggle("Allow Self-Signed Certificates", isOn: $viewModel.allowsUntrustedTLS)
+                AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)
             } header: {
                 Text("Server")
             } footer: {
@@ -81,41 +66,13 @@ struct OnboardingSheet: View {
                 }
             }
 
-            Section {
-                TextField("Username", text: $viewModel.username)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .textContentType(.username)
-                    #endif
-                    .autocorrectionDisabled()
+            CredentialsSection(
+                username: $viewModel.username,
+                password: $viewModel.password,
+                footerMessage: (viewModel.hasAttemptedSubmit && (viewModel.username.isEmpty || viewModel.password.isEmpty)) ? "Username and password are required." : nil
+            )
 
-                SecureField("Password", text: $viewModel.password)
-                    #if os(iOS)
-                    .textContentType(.password)
-                    #endif
-            } header: {
-                Text("Credentials")
-            } footer: {
-                if viewModel.hasAttemptedSubmit && (viewModel.username.isEmpty || viewModel.password.isEmpty) {
-                    Label("Username and password are required.", systemImage: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-            }
-
-            if let error = viewModel.validationError {
-                Section {
-                    HStack(spacing: 10) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.red)
-
-                        Text(error)
-                            .foregroundStyle(.primary)
-                            .font(.subheadline)
-                    }
-                    .padding(.vertical, 2)
-                }
-            }
+            ValidationErrorSection(error: viewModel.validationError)
 
             if viewModel.isValidating {
                 Section {

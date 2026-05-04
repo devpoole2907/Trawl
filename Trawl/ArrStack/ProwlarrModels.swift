@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Indexer
 
-nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable {
+nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable, ArrAPIIdentifiable {
     let id: Int
     var name: String?
     var enable: Bool

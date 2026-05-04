@@ -75,17 +75,18 @@ struct ArrBlocklistView: View {
                     systemImage: "network.slash",
                     description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
-            } else if serviceManager.isLoadingBlocklist && serviceManager.sonarrBlocklist.isEmpty && serviceManager.radarrBlocklist.isEmpty {
-                ProgressView("Loading blocklist…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if isEmpty {
-                ContentUnavailableView(
-                    "Blocklist Empty",
-                    systemImage: "checkmark.shield",
-                    description: Text("No blocked releases for the selected scope.")
-                )
             } else {
-                blocklistContent
+                ArrLoadingErrorEmptyView(
+                    isLoading: serviceManager.isLoadingBlocklist && serviceManager.sonarrBlocklist.isEmpty && serviceManager.radarrBlocklist.isEmpty,
+                    error: nil,
+                    isEmpty: isEmpty,
+                    emptyTitle: "Blocklist Empty",
+                    emptyIcon: "checkmark.shield",
+                    emptyDescription: "No blocked releases for the selected scope.",
+                    onRetry: nil
+                ) {
+                    blocklistContent
+                }
             }
         }
         .background(backgroundGradient)

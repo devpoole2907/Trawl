@@ -246,3 +246,418 @@ struct ArrReleaseActionContent: View {
         let tint: Color
     }
 }
+
+struct ArrReleaseRowView: View {
+    let release: ArrRelease
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(release.title ?? "Unknown Release")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 6) {
+                Text(release.indexer ?? "Unknown Indexer")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if let age = release.ageDescription {
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    Text(age)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    if release.approved != true {
+                        releaseChip(release.rejected == true ? "Rejected" : "Not Approved", color: .orange)
+                    }
+                    releaseChip(release.qualityName, color: .primary)
+                    if let size = release.size, size > 0 {
+                        releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
+                    }
+                    releaseChip(release.protocolName, color: .secondary)
+                    if let seederLabel {
+                        releaseChip(seederLabel, color: seederColor(for: release.seeders ?? 0), isProminent: true)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var seederLabel: String? {
+        switch (release.seeders, release.leechers) {
+        case let (seeders?, leechers?):
+            "S:\(seeders) L:\(leechers)"
+        case let (seeders?, nil):
+            "S:\(seeders)"
+        case let (nil, leechers?):
+            "L:\(leechers)"
+        case (nil, nil):
+            nil
+        }
+    }
+
+    private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
+        Text(label)
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(color)
+            .padding(.horizontal, 7)
+            .padding(.vertical, 4)
+            .background(color.opacity(isProminent ? 0.22 : 0.1))
+            .clipShape(Capsule())
+    }
+
+    private func seederColor(for seeders: Int) -> Color {
+        switch seeders {
+        case 50...: .green
+        case 10...: .mint
+        case 1...: .orange
+        default: .red
+        }
+    }
+}
+
+struct ArrInteractiveSearchBrowser<Destination: View>: View {
+    @Environment(\.dismiss) private var dismiss
+
+    let title: String
+    let emptyDescription: String
+    let loadingDescription: String
+    let supportsSeasonPackFiltering: Bool
+    let loadAction: () async throws -> [ArrRelease]
+    let grabAction: (ArrRelease) async -> Bool
+    let currentErrorMessage: () -> String?
+    @ViewBuilder let destination: (ArrRelease, Bool, @escaping () async -> Void) -> Destination
+
+    @State private var releases: [ArrRelease] = []
+    @State private var isLoading = false
+    @State private var grabbingReleaseID: String?
+    @State private var hasLoaded = false
+    @State private var searchText = ""
+    @State private var releaseSort: ArrReleaseSort
+    @State private var searchError: String?
+
+    init(
+        title: String,
+        emptyDescription: String,
+        loadingDescription: String,
+        supportsSeasonPackFiltering: Bool = false,
+        initialSort: ArrReleaseSort = ArrReleaseSort(),
+        loadAction: @escaping () async throws -> [ArrRelease],
+        grabAction: @escaping (ArrRelease) async -> Bool,
+        currentErrorMessage: @escaping () -> String?,
+        @ViewBuilder destination: @escaping (ArrRelease, Bool, @escaping () async -> Void) -> Destination
+    ) {
+        self.title = title
+        self.emptyDescription = emptyDescription
+        self.loadingDescription = loadingDescription
+        self.supportsSeasonPackFiltering = supportsSeasonPackFiltering
+        self.loadAction = loadAction
+        self.grabAction = grabAction
+        self.currentErrorMessage = currentErrorMessage
+        self.destination = destination
+        self._releaseSort = State(initialValue: initialSort)
+    }
+
+    private var availableIndexers: [String] {
+        Array(Set(releases.compactMap(\.indexer))).sorted()
+    }
+
+    private var availableQualities: [String] {
+        Array(Set(releases.map(\.qualityName))).sorted()
+    }
+
+    private var sortedFilteredReleases: [ArrRelease] {
+        let filtered = releases.filter { release in
+            let matchesIndexer = releaseSort.indexer.isEmpty || releaseSort.indexer == release.indexer
+            let matchesQuality = releaseSort.quality.isEmpty || releaseSort.quality == release.qualityName
+            let matchesApproved = !releaseSort.approvedOnly || release.approved == true
+            let matchesSeasonPack = matchesSeasonPack(for: release)
+            return matchesIndexer && matchesQuality && matchesApproved && matchesSeasonPack
+        }
+        guard releaseSort.option != .default else { return filtered }
+        return filtered.sorted { lhs, rhs in
+            let asc = releaseSort.isAscending
+            switch releaseSort.option {
+            case .default: return false
+            case .age:
+                let lhsAge = lhs.ageHours ?? Double(lhs.age ?? 0) * 24
+                let rhsAge = rhs.ageHours ?? Double(rhs.age ?? 0) * 24
+                return asc ? lhsAge < rhsAge : lhsAge > rhsAge
+            case .quality:
+                return asc ? lhs.qualityName < rhs.qualityName : lhs.qualityName > rhs.qualityName
+            case .size:
+                return asc ? (lhs.size ?? 0) < (rhs.size ?? 0) : (lhs.size ?? 0) > (rhs.size ?? 0)
+            case .seeders:
+                return asc ? (lhs.seeders ?? 0) < (rhs.seeders ?? 0) : (lhs.seeders ?? 0) > (rhs.seeders ?? 0)
+            }
+        }
+    }
+
+    private var displayedReleases: [ArrRelease] {
+        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return sortedFilteredReleases }
+        return sortedFilteredReleases.filter { release in
+            release.title?.localizedCaseInsensitiveContains(text) == true ||
+            release.indexer?.localizedCaseInsensitiveContains(text) == true
+        }
+    }
+
+    private var hiddenByFiltersCount: Int {
+        releases.count - sortedFilteredReleases.count
+    }
+
+    private var releaseCountSubtitle: String {
+        guard !releases.isEmpty else { return "" }
+        let shown = displayedReleases.count
+        let total = releases.count
+        if shown == total {
+            return total == 1 ? "\(total) release" : "\(total) releases"
+        }
+        return total == 1 ? "\(shown) of \(total) release" : "\(shown) of \(total) releases"
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let error = searchError, !error.isEmpty {
+                    ContentUnavailableView {
+                        Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
+                    } description: {
+                        Text(error)
+                    } actions: {
+                        Button("Retry", systemImage: "arrow.clockwise") {
+                            searchError = nil
+                            hasLoaded = false
+                            Task { await loadReleases() }
+                        }
+                    }
+                } else if releases.isEmpty && hasLoaded {
+                    ContentUnavailableView(
+                        "No Releases Found",
+                        systemImage: "magnifyingglass",
+                        description: Text(emptyDescription)
+                    )
+                } else if !releases.isEmpty && displayedReleases.isEmpty {
+                    ContentUnavailableView {
+                        Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
+                    } description: {
+                        Text("Some releases are hidden by the selected filters.")
+                    } actions: {
+                        Button("Clear Filters") { clearFilters() }
+                    }
+                } else {
+                    List {
+                        if isLoading && releases.isEmpty {
+                            Section {
+                                HStack(spacing: 10) {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text("Searching indexers…")
+                                            .font(.subheadline.weight(.semibold))
+                                        Text(loadingDescription)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                }
+                                .padding(.vertical, 4)
+                            }
+                        }
+
+                        ForEach(displayedReleases) { release in
+                            NavigationLink {
+                                destination(
+                                    release,
+                                    grabbingReleaseID == release.id,
+                                    { await grab(release: release) }
+                                )
+                            } label: {
+                                ArrReleaseRowView(release: release)
+                            }
+                        }
+                        .animation(.default, value: displayedReleases.map(\.id))
+
+                        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
+                            Section {
+                                EmptyView()
+                            } footer: {
+                                Label(
+                                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
+                                    systemImage: "line.3.horizontal.decrease.circle"
+                                )
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                            }
+                        }
+                    }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
+                }
+            }
+            .searchable(text: $searchText, prompt: "Search releases…")
+            .navigationTitle(title)
+            .navigationSubtitle(releaseCountSubtitle)
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    sortMenu
+                    filterMenu
+                }
+            }
+            .task {
+                await loadReleases()
+            }
+            .onChange(of: releaseSort.option) { _, _ in
+                releaseSort.isAscending = false
+            }
+        }
+    }
+
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort By", selection: $releaseSort.option) {
+                ForEach(ArrReleaseSortKey.allCases) { key in
+                    Label(key.rawValue, systemImage: key.systemImage).tag(key)
+                }
+            }
+            .pickerStyle(.inline)
+            .menuIndicator(.hidden)
+
+            if releaseSort.option != .default {
+                Picker("Direction", selection: $releaseSort.isAscending) {
+                    Label("Descending", systemImage: "arrow.down").tag(false)
+                    Label("Ascending", systemImage: "arrow.up").tag(true)
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+        } label: {
+            Image(systemName: releaseSort.option != .default ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
+        }
+    }
+
+    private var filterMenu: some View {
+        Menu {
+            if supportsSeasonPackFiltering {
+                Picker("Type", selection: $releaseSort.seasonPack) {
+                    ForEach(ArrSeasonPackFilter.allCases) { filter in
+                        Text(filter.rawValue).tag(filter)
+                    }
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+
+            if !availableIndexers.isEmpty {
+                Picker("Indexer", selection: $releaseSort.indexer) {
+                    Text("All Indexers").tag("")
+                    ForEach(availableIndexers, id: \.self) { indexer in
+                        Text(indexer).tag(indexer)
+                    }
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+
+            if !availableQualities.isEmpty {
+                Picker("Quality", selection: $releaseSort.quality) {
+                    Text("All Qualities").tag("")
+                    ForEach(availableQualities, id: \.self) { quality in
+                        Text(quality).tag(quality)
+                    }
+                }
+                .pickerStyle(.inline)
+                .menuIndicator(.hidden)
+            }
+
+            Toggle("Approved Only", isOn: $releaseSort.approvedOnly)
+        } label: {
+            Image(systemName: releaseSort.isFiltered ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+        }
+    }
+
+    private func matchesSeasonPack(for release: ArrRelease) -> Bool {
+        guard supportsSeasonPackFiltering else { return true }
+        switch releaseSort.seasonPack {
+        case .any:
+            return true
+        case .season:
+            return release.fullSeason == true
+        case .episode:
+            return release.fullSeason != true
+        }
+    }
+
+    private func clearFilters() {
+        releaseSort.indexer = ""
+        releaseSort.quality = ""
+        releaseSort.approvedOnly = false
+        releaseSort.seasonPack = .any
+    }
+
+    private func loadReleases() async {
+        guard !hasLoaded else { return }
+        isLoading = true
+        releases = []
+        searchError = nil
+        do {
+            let results = try await loadAction()
+            isLoading = false
+            let batchSize = results.count > 30 ? 6 : 3
+            for batch in results.chunked(into: batchSize) {
+                guard !Task.isCancelled else { break }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    releases.append(contentsOf: batch)
+                }
+                try? await Task.sleep(nanoseconds: 18_000_000)
+            }
+            hasLoaded = true
+        } catch is CancellationError {
+            hasLoaded = false
+            isLoading = false
+        } catch {
+            searchError = interactiveSearchErrorMessage(error)
+            hasLoaded = true
+            isLoading = false
+        }
+    }
+
+    private func grab(release: ArrRelease) async {
+        guard grabbingReleaseID == nil else { return }
+        grabbingReleaseID = release.id
+        let didGrab = await grabAction(release)
+        grabbingReleaseID = nil
+
+        if didGrab {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Release Sent",
+                message: release.title ?? "The selected release was sent to the download client."
+            )
+            dismiss()
+        } else if let error = currentErrorMessage(), !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error)
+        }
+    }
+
+    private func interactiveSearchErrorMessage(_ error: Error) -> String {
+        let nsError = error as NSError
+        return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
+    }
+}

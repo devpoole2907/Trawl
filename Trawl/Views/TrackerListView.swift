@@ -21,7 +21,11 @@ struct TrackerListView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .navigationTitle("Trackers")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

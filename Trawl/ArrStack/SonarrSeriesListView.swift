@@ -34,7 +34,9 @@ struct SonarrSeriesListView: View {
             if let vm = viewModel {
                 seriesContent(vm: vm)
             } else if isShowingConnectingState {
-                connectingContent
+                ArrConnectingView(profile: sonarrProfile) {
+                    showSettings = true
+                }
             } else if let errorMessage = serviceManager.sonarrConnectionError {
                 ContentUnavailableView {
                     Label("Connection Failed", systemImage: "wifi.exclamationmark")
@@ -274,70 +276,23 @@ struct SonarrSeriesListView: View {
 
     @ViewBuilder
     private func seriesContent(vm: SonarrViewModel) -> some View {
-        if vm.isLoading && vm.series.isEmpty {
-            ProgressView("Loading series...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if vm.filteredSeries.isEmpty {
-            ContentUnavailableView {
-                Label("No Series", systemImage: "tv")
-            } description: {
-                Text("No series match the current filter.")
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            seriesList(vm: vm)
-                .scrollPosition(id: $listScrollPosition)
-                .animation(.default, value: vm.filteredSeries)
-                .searchable(text: $localSeriesSearch, prompt: "Search series")
-        }
-    }
-
-    @ViewBuilder
-    private func seriesList(vm: SonarrViewModel) -> some View {
-        if vm.sortOrder == .title {
-            let sections = seriesTitleSections(for: vm.filteredSeries)
-            #if os(iOS)
-            if #available(iOS 26.0, *) {
-                List {
-                    ForEach(sections) { section in
-                        Section(section.title) {
-                            ForEach(section.series) { show in
-                                seriesRow(show, vm: vm)
-                            }
-                        }
-                        .sectionIndexLabel(Text(section.indexLabel))
-                    }
-                }
-                .listSectionIndexVisibility(.visible)
-            } else {
-                List {
-                    ForEach(sections) { section in
-                        Section(section.title) {
-                            ForEach(section.series) { show in
-                                seriesRow(show, vm: vm)
-                            }
-                        }
-                    }
-                }
-            }
-            #else
-            List {
-                ForEach(sections) { section in
-                    Section(section.title) {
-                        ForEach(section.series) { show in
-                            seriesRow(show, vm: vm)
-                        }
-                    }
-                }
-            }
-            #endif
-        } else {
-            List {
-                ForEach(vm.filteredSeries) { show in
-                    seriesRow(show, vm: vm)
-                }
-            }
-        }
+        ArrLibraryListView(
+            items: vm.filteredSeries,
+            isLoading: vm.isLoading && vm.series.isEmpty,
+            error: nil,
+            nounSingular: "Series",
+            nounPlural: "Series",
+            emptyIcon: "tv",
+            titleKeyPath: \.title,
+            sectionTitle: { $0.sortTitle ?? $0.title },
+            usesTitleSections: vm.sortOrder == .title,
+            selectedIDs: selectedSeriesIDs,
+            row: { show, _ in seriesRow(show, vm: vm) },
+            retry: nil
+        )
+        .scrollPosition(id: $listScrollPosition)
+        .animation(.default, value: vm.filteredSeries)
+        .searchable(text: $localSeriesSearch, prompt: "Search series")
     }
 
     @ViewBuilder
@@ -596,46 +551,11 @@ struct SonarrSeriesListView: View {
     }
 
     private func instanceDisplayName(for profile: ArrServiceProfile) -> String {
-        let baseName = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchingNames = sonarrProfiles.filter {
-            $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(baseName) == .orderedSame
-        }
-
-        if !baseName.isEmpty,
-           baseName.localizedCaseInsensitiveCompare(ArrServiceType.sonarr.displayName) != .orderedSame,
-           matchingNames.count == 1 {
-            return baseName
-        }
-
-        if let index = sonarrProfiles.firstIndex(where: { $0.id == profile.id }) {
-            return "\(ArrServiceType.sonarr.displayName) (\(index + 1))"
-        }
-
-        return ArrServiceType.sonarr.displayName
-    }
-
-    private var connectingContent: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Connecting…")
-                .font(.headline)
-            if let profile = sonarrProfile {
-                VStack(spacing: 4) {
-                    Text(profile.displayName)
-                    Text(profile.hostURL)
-                        .foregroundStyle(.secondary)
-                }
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-            }
-            Button("Edit Server", systemImage: "server.rack") {
-                showSettings = true
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        InstanceDisplayNameResolver.displayName(
+            for: profile,
+            in: sonarrProfiles,
+            serviceType: .sonarr
+        )
     }
 }
 
@@ -649,37 +569,6 @@ private var sonarrLeadingToolbarPlacement: ToolbarItemPlacement {
 
 private var sonarrTrailingToolbarPlacement: ToolbarItemPlacement {
     platformTopBarTrailingPlacement
-}
-
-private struct SonarrSeriesTitleSection: Identifiable {
-    let title: String
-    let indexLabel: String
-    let series: [SonarrSeries]
-
-    var id: String { indexLabel }
-}
-
-private func seriesTitleSections(for series: [SonarrSeries]) -> [SonarrSeriesTitleSection] {
-    let grouped = Dictionary(grouping: series) { show in
-        sonarrListSectionLabel(for: show.sortTitle ?? show.title)
-    }
-
-    return grouped.keys.sorted().map { label in
-        SonarrSeriesTitleSection(
-            title: label,
-            indexLabel: label,
-            series: grouped[label] ?? []
-        )
-    }
-}
-
-private func sonarrListSectionLabel(for title: String) -> String {
-    guard let scalar = title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.first else {
-        return "#"
-    }
-
-    let label = String(scalar).uppercased()
-    return label.range(of: "[A-Z]", options: .regularExpression) != nil ? label : "#"
 }
 
 // MARK: - Series Row
@@ -752,11 +641,8 @@ struct SonarrSeriesRow: View {
                         .foregroundStyle(.orange)
                 }
 
-                if series.monitored == true {
-                    Image(systemName: "bookmark.fill")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
-                }
+                ArrMonitorBadge(isMonitored: series.monitored == true)
+                    .font(.caption)
             }
         }
         .padding(.vertical, 2)

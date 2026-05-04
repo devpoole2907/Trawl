@@ -98,10 +98,7 @@ struct ArrActivityView: View {
 
     @ViewBuilder
     private var queueContentView: some View {
-        if isLoading && activityRows.isEmpty {
-            ProgressView("Loading activity...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !hasConfiguredService {
+        if !hasConfiguredService {
             ContentUnavailableView(
                 "No Services Configured",
                 systemImage: "server.rack",
@@ -113,54 +110,58 @@ struct ArrActivityView: View {
                 systemImage: "network.slash",
                 description: Text("Unable to reach your configured services.")
             )
-        } else if activityRows.isEmpty {
-            ContentUnavailableView(
-                "No Activity",
-                systemImage: "tray",
-                description: Text("Nothing is currently downloading, importing, or running.")
-            )
         } else {
-            List {
-                ForEach(activityRows) { row in
-                    switch row {
-                    case .queue(let activityItem):
-                        Button {
-                            selectedItem = activityItem
-                        } label: {
-                            QueueItemRow(item: activityItem.item, source: activityItem.source)
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                Task { await removeItem(activityItem) }
+            ArrLoadingErrorEmptyView(
+                isLoading: isLoading,
+                error: nil,
+                isEmpty: activityRows.isEmpty,
+                emptyTitle: "No Activity",
+                emptyIcon: "tray",
+                emptyDescription: "Nothing is currently downloading, importing, or running.",
+                onRetry: nil
+            ) {
+                List {
+                    ForEach(activityRows) { row in
+                        switch row {
+                        case .queue(let activityItem):
+                            Button {
+                                selectedItem = activityItem
                             } label: {
-                                Label("Remove", systemImage: "trash")
+                                QueueItemRow(item: activityItem.item, source: activityItem.source)
                             }
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            if let path = activityItem.item.outputPath,
-                               activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
-                                Button {
-                                    manualImportService = activityItem.source
-                                    manualImportPath = path
+                            .buttonStyle(.plain)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    Task { await removeItem(activityItem) }
                                 } label: {
-                                    Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                    Label("Remove", systemImage: "trash")
                                 }
-                                .tint(.blue)
                             }
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                if let path = activityItem.item.outputPath,
+                                   activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                    Button {
+                                        manualImportService = activityItem.source
+                                        manualImportPath = path
+                                    } label: {
+                                        Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                    }
+                                    .tint(.blue)
+                                }
+                            }
+                        case .bazarrTask(let task):
+                            BazarrTaskRow(task: task)
                         }
-                    case .bazarrTask(let task):
-                        BazarrTaskRow(task: task)
                     }
                 }
+                .animation(.default, value: activityRows.map(\.id))
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
             }
-            .animation(.default, value: activityRows.map(\.id))
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
-            .scrollContentBackground(.hidden)
         }
     }
 

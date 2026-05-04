@@ -15,12 +15,9 @@ enum ArrServiceError: Error, LocalizedError {
 
 @MainActor
 @Observable
-final class SonarrViewModel {
+final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> {
     // Library state
     private(set) var series: [SonarrSeries] = [] { didSet { rebuildFilteredSeries() } }
-    private(set) var isLoading: Bool = false
-    private(set) var error: String?
-
     // Episode state (for detail views)
     private(set) var episodes: [Int: [SonarrEpisode]] = [:]  // seriesId -> episodes
     private(set) var isLoadingEpisodes: Bool = false
@@ -28,22 +25,20 @@ final class SonarrViewModel {
     private(set) var wantedEpisodes: [SonarrEpisode] = []
     private(set) var isLoadingWantedMissing: Bool = false
     private(set) var wantedMissingTotalRecords: Int = 0
-    private var wantedMissingPage = 1
-    private let wantedMissingPageSize = 20
+    private var wantedMissingLoader = PaginatedLoader<SonarrEpisode>(pageSize: 20)
 
     // Search state
     var searchText: String = "" { didSet { rebuildFilteredSeries() } }
     private(set) var searchResults: [SonarrSeries] = []
     private(set) var isSearching: Bool = false
-    private var searchRequestToken: UUID?
+    private var searchTracker = StreamingSearchTracker<SonarrSeries>()
 
     // Queue state
     private(set) var queue: [ArrQueueItem] = []
     private(set) var history: [ArrHistoryRecord] = []
     private(set) var isLoadingHistory: Bool = false
     private(set) var historyTotalRecords: Int = 0
-    private var historyPage = 1
-    private let historyPageSize = 20
+    private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
 
     // Updates
     private(set) var availableUpdates: [ArrUpdateInfo] = []
@@ -53,20 +48,17 @@ final class SonarrViewModel {
     var selectedFilter: SonarrFilter = .all { didSet { rebuildFilteredSeries() } }
     var sortOrder: SonarrSortOrder = .title { didSet { rebuildFilteredSeries() } }
 
-    private let serviceManager: ArrServiceManager
-
     init(serviceManager: ArrServiceManager) {
-        self.serviceManager = serviceManager
+        super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
     }
 
     /// Convenience init that pre-seeds the series list (used by Search to avoid a fresh empty load).
     init(serviceManager: ArrServiceManager, preloadedSeries: [SonarrSeries]) {
-        self.serviceManager = serviceManager
+        super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
         self.series = preloadedSeries
+        setLibraryItems(preloadedSeries)
         rebuildFilteredSeries()
     }
-
-    private var client: SonarrAPIClient? { serviceManager.sonarrClient }
 
     // MARK: - Filtered (cached, updated via didSet observers)
 
@@ -137,15 +129,9 @@ final class SonarrViewModel {
     // MARK: - Library
 
     func loadSeries() async {
-        guard let client else { return }
-        isLoading = true
-        error = nil
-        do {
-            series = try await client.getSeries()
-        } catch {
-            self.error = error.localizedDescription
-        }
-        isLoading = false
+        guard let loadedSeries = await performLoad({ try await $0.getSeries() }) else { return }
+        series = loadedSeries
+        setLibraryItems(loadedSeries)
     }
 
     func refreshSeries() async throws {
@@ -333,10 +319,14 @@ final class SonarrViewModel {
         defer { isLoadingWantedMissing = false }
         error = nil
         do {
-            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingPageSize)
-            wantedEpisodes = page.records ?? []
-            wantedMissingPage = page.page ?? 1
-            wantedMissingTotalRecords = page.totalRecords ?? wantedEpisodes.count
+            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingLoader.pageSize)
+            wantedMissingLoader.replace(
+                with: page.records ?? [],
+                page: page.page ?? 1,
+                totalRecords: page.totalRecords
+            )
+            wantedEpisodes = wantedMissingLoader.items
+            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -348,12 +338,16 @@ final class SonarrViewModel {
         isLoadingWantedMissing = true
         defer { isLoadingWantedMissing = false }
 
-        let nextPage = wantedMissingPage + 1
+        let nextPage = wantedMissingLoader.page + 1
         do {
-            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingPageSize)
-            wantedEpisodes.append(contentsOf: page.records ?? [])
-            wantedMissingPage = page.page ?? nextPage
-            wantedMissingTotalRecords = page.totalRecords ?? wantedEpisodes.count
+            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingLoader.pageSize)
+            wantedMissingLoader.append(
+                page.records ?? [],
+                page: page.page ?? nextPage,
+                totalRecords: page.totalRecords
+            )
+            wantedEpisodes = wantedMissingLoader.items
+            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -364,12 +358,11 @@ final class SonarrViewModel {
     func searchForNewSeries(term: String) async {
         guard let client, !term.isEmpty else {
             searchResults = []
-            searchRequestToken = nil
+            searchTracker.cancel()
             return
         }
 
-        let requestToken = UUID()
-        searchRequestToken = requestToken
+        let requestToken = searchTracker.begin()
         isSearching = true
         searchResults = []
         error = nil
@@ -377,31 +370,26 @@ final class SonarrViewModel {
         do {
             let results = try await client.lookupSeries(term: term)
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else {
+            guard searchTracker.isCurrent(requestToken) else {
                 return
             }
-            
-            // Stream in the results one by one for a more async feel
-            for result in results {
-                guard !Task.isCancelled && searchRequestToken == requestToken else { break }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    searchResults.append(result)
-                }
-                try? await Task.sleep(for: .milliseconds(40))
+
+            await searchTracker.stream(results, token: requestToken) { item in
+                self.searchResults.append(item)
             }
 
             // Only turn off spinner if still the active request
-            if !Task.isCancelled && searchRequestToken == requestToken {
+            if !Task.isCancelled && searchTracker.isCurrent(requestToken) {
                 isSearching = false
             }
         } catch is CancellationError {
-            if searchRequestToken == requestToken {
+            if searchTracker.isCurrent(requestToken) {
                 isSearching = false
             }
             return
         } catch {
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else {
+            guard searchTracker.isCurrent(requestToken) else {
                 return
             }
             self.error = error.localizedDescription
@@ -414,7 +402,7 @@ final class SonarrViewModel {
         searchResults = []
         error = nil
         isSearching = false
-        searchRequestToken = nil
+        searchTracker.cancel()
     }
 
     func addSeries(
@@ -574,17 +562,25 @@ final class SonarrViewModel {
         defer { isLoadingHistory = false }
 
         do {
-            let historyPageResult = try await client.getHistory(page: page, pageSize: historyPageSize)
+            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
             let records = historyPageResult.records ?? []
 
             if page == 1 {
-                history = records
+                historyLoader.replace(
+                    with: records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
             } else {
-                history.append(contentsOf: records)
+                historyLoader.append(
+                    records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
             }
 
-            historyPage = historyPageResult.page ?? page
-            historyTotalRecords = historyPageResult.totalRecords ?? history.count
+            history = historyLoader.items
+            historyTotalRecords = historyLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -592,7 +588,7 @@ final class SonarrViewModel {
 
     func loadNextHistoryPage() async {
         guard !isLoadingHistory && canLoadMoreHistory else { return }
-        await loadHistory(page: historyPage + 1)
+        await loadHistory(page: historyLoader.page + 1)
     }
 
     func removeQueueItem(id: Int, blocklist: Bool = false) async {

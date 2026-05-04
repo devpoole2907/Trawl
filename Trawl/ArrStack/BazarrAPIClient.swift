@@ -1,7 +1,8 @@
 import Foundation
 
-actor BazarrAPIClient {
+actor BazarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
+    let apiPath = "/api"
 
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
         self.base = ArrAPIClient(

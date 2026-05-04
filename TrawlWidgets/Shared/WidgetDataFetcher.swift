@@ -84,13 +84,13 @@ enum WidgetDataFetcher {
             throw WidgetError.missingCredentials
         }
 
-        let authService = AuthService(serverProfileID: snapshot.serverID, allowsUntrustedTLS: snapshot.allowsUntrustedTLS)
-        let client = QBittorrentAPIClient(
+        let client = try await QBittorrentClientFactory.makeAndLogin(
             baseURL: snapshot.hostURL,
-            authService: authService,
-            allowsUntrustedTLS: snapshot.allowsUntrustedTLS
+            serverProfileID: snapshot.serverID,
+            allowsUntrustedTLS: snapshot.allowsUntrustedTLS,
+            username: username,
+            password: password
         )
-        try await client.login(username: username, password: password)
         return (try await client.getTransferInfo(), snapshot.displayName)
     }
 

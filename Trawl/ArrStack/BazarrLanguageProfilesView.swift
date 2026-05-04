@@ -578,7 +578,9 @@ private struct LanguageProfileEditorView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        #if os(iOS)
         .environment(\.editMode, .constant(.active))
+        #endif
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if isSaving {

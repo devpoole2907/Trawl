@@ -319,27 +319,18 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     systemImage: "network.slash",
                     description: Text("Unable to reach your configured Sonarr or Radarr servers.")
                 )
-            } else if viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty {
-                ProgressView("Loading calendar...")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let loadError = viewModel.initialLoadErrorMessage {
-                ContentUnavailableView {
-                    Label("Calendar Unavailable", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(loadError)
-                } actions: {
-                    Button("Retry") {
-                        Task { await serviceManager.calendarViewModel.refresh() }
-                    }
-                }
-            } else if totalVisibleEventCount == 0 {
-                ContentUnavailableView(
-                    "No Upcoming Releases",
-                    systemImage: "calendar.badge.exclamationmark",
-                    description: Text("Nothing is scheduled for the selected scope in the loaded date range.")
-                )
             } else {
-                calendarContent
+                ArrLoadingErrorEmptyView(
+                    isLoading: viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty,
+                    error: viewModel.initialLoadErrorMessage,
+                    isEmpty: totalVisibleEventCount == 0,
+                    emptyTitle: "No Upcoming Releases",
+                    emptyIcon: "calendar.badge.exclamationmark",
+                    emptyDescription: "Nothing is scheduled for the selected scope in the loaded date range.",
+                    onRetry: { await serviceManager.calendarViewModel.refresh() }
+                ) {
+                    calendarContent
+                }
             }
         }
         .moreDestinationBackground(.calendar)

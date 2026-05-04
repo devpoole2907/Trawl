@@ -99,45 +99,33 @@ struct BazarrBrowserView: View {
 
     // MARK: - Series List
 
+    @ViewBuilder
     private var seriesList: some View {
-        Group {
-            if viewModel.isLoadingSeries && viewModel.series.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.seriesError, viewModel.series.isEmpty {
-                ContentUnavailableView {
-                    Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry") {
-                        Task { await viewModel.loadSeries() }
+        let effectiveError: String? = viewModel.series.isEmpty ? viewModel.seriesError : nil
+        let seriesItems: [BazarrSeries] = viewModel.filteredSeries
+        ArrLoadingErrorEmptyView(
+            isLoading: viewModel.isLoadingSeries,
+            error: effectiveError,
+            isEmpty: seriesItems.isEmpty,
+            emptyTitle: "No Series Found",
+            emptyIcon: "tv",
+            emptyDescription: LocalizedStringKey(viewModel.searchText.isEmpty ? "No series are being tracked by Bazarr." : "No series match your search."),
+            onRetry: { await viewModel.loadSeries() }
+        ) {
+            List {
+                ForEach(seriesItems, id: \.sonarrSeriesId) { item in
+                    NavigationLink(value: MoreDestination.bazarrSeriesDetail(seriesId: item.sonarrSeriesId)) {
+                        seriesRow(item)
                     }
                 }
-            } else if viewModel.filteredSeries.isEmpty {
-                ContentUnavailableView {
-                    Label("No Series Found", systemImage: "tv")
-                } description: {
-                    Text(viewModel.searchText.isEmpty ? "No series are being tracked by Bazarr." : "No series match your search.")
-                }
-            } else {
-                List {
-                    seriesFilterBar
-                    ForEach(viewModel.filteredSeries) { item in
-                        NavigationLink(value: MoreDestination.bazarrSeriesDetail(seriesId: item.sonarrSeriesId)) {
-                            seriesRow(item)
-                        }
-                    }
-                }
-                #if os(iOS)
-                .listStyle(.insetGrouped)
-                #else
-                .listStyle(.inset)
-                #endif
-                .refreshable {
-                    await viewModel.loadSeries()
-                    await viewModel.loadMovies()
-                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+            .refreshable {
+                await viewModel.loadSeries()
             }
         }
     }
@@ -209,43 +197,32 @@ struct BazarrBrowserView: View {
 
     // MARK: - Movies List
 
+    @ViewBuilder
     private var moviesList: some View {
-        Group {
-            if viewModel.isLoadingMovies && viewModel.movies.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error = viewModel.moviesError, viewModel.movies.isEmpty {
-                ContentUnavailableView {
-                    Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry") {
-                        Task { await viewModel.loadMovies() }
+        let effectiveError: String? = viewModel.movies.isEmpty ? viewModel.moviesError : nil
+        ArrLoadingErrorEmptyView(
+            isLoading: viewModel.isLoadingMovies,
+            error: effectiveError,
+            isEmpty: viewModel.filteredMovies.isEmpty,
+            emptyTitle: "No Movies Found",
+            emptyIcon: "film",
+            emptyDescription: LocalizedStringKey(viewModel.searchText.isEmpty ? "No movies are being tracked by Bazarr." : "No movies match your search."),
+            onRetry: { await viewModel.loadMovies() }
+        ) {
+            List {
+                ForEach(viewModel.filteredMovies) { item in
+                    NavigationLink(value: MoreDestination.bazarrMovieDetail(radarrId: item.radarrId)) {
+                        movieRow(item)
                     }
                 }
-            } else if viewModel.filteredMovies.isEmpty {
-                ContentUnavailableView {
-                    Label("No Movies Found", systemImage: "film")
-                } description: {
-                    Text(viewModel.searchText.isEmpty ? "No movies are being tracked by Bazarr." : "No movies match your search.")
-                }
-            } else {
-                List {
-                    ForEach(viewModel.filteredMovies) { item in
-                        NavigationLink(value: MoreDestination.bazarrMovieDetail(radarrId: item.radarrId)) {
-                            movieRow(item)
-                        }
-                    }
-                }
-                #if os(iOS)
-                .listStyle(.insetGrouped)
-                #else
-                .listStyle(.inset)
-                #endif
-                .refreshable {
-                    await viewModel.loadMovies()
-                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+            .refreshable {
+                await viewModel.loadMovies()
             }
         }
     }

@@ -30,25 +30,20 @@ struct ArrSetupSheet: View {
                     ProgressView()
                 }
             }
-            .navigationTitle(existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" } ?? (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"))
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        guard let vm = viewModel else { return }
-                        Task {
-                            if await vm.validateAndSave(modelContext: modelContext) {
-                                dismiss()
-                                onComplete()
-                            }
-                        }
+            .modalFormStyle(
+                title: existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" } ?? (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"),
+                primaryTitle: "Save",
+                isPrimaryDisabled: viewModel?.hostURL.isEmpty ?? true || viewModel?.apiKey.isEmpty ?? true || viewModel?.isValidating ?? false,
+                isSaving: false
+            ) {
+                guard let vm = viewModel else { return }
+                Task {
+                    if await vm.validateAndSave(modelContext: modelContext) {
+                        dismiss()
+                        onComplete()
                     }
-                    .disabled(viewModel?.hostURL.isEmpty ?? true || viewModel?.apiKey.isEmpty ?? true || viewModel?.isValidating ?? false)
                 }
             }
-            .presentationDetents([.medium, .large])
             .task(id: existingProfile?.id) {
                 let vm = ArrSetupViewModel(serviceManager: serviceManager)
                 if let existingProfile {
@@ -88,12 +83,7 @@ struct ArrSetupSheet: View {
             }
 
             Section("Connection") {
-                TextField("http://192.168.1.100:\(vm.serviceType.defaultPort)", text: $vm.hostURL)
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .autocorrectionDisabled()
+                ServerURLField(url: $vm.hostURL, title: "http://192.168.1.100:\(vm.serviceType.defaultPort)")
 
                 SecureField("API Key", text: $vm.apiKey)
                     #if os(iOS)
@@ -102,7 +92,7 @@ struct ArrSetupSheet: View {
 
                 TextField("Display Name (optional)", text: $vm.displayName)
 
-                Toggle("Allow Self-Signed Certificates", isOn: $vm.allowsUntrustedTLS)
+                AllowUntrustedTLSToggle(allow: $vm.allowsUntrustedTLS)
             }
 
             Section {
@@ -127,12 +117,7 @@ struct ArrSetupSheet: View {
                 }
             }
 
-            if let error = vm.validationError {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
-                }
-            }
+            ValidationErrorSection(error: vm.validationError)
 
             if let status = vm.validatedStatus {
                 Section("Connected") {
