@@ -225,7 +225,7 @@ struct ArrDownloadClientEditorSheet: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 schemas = try await client.getDownloadClientSchema()
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 schemaTemplate = nil
                 return
             }
@@ -378,7 +378,7 @@ struct ArrDownloadClientEditorSheet: View {
                 saved = isEditing
                     ? try await client.updateDownloadClient(payload)
                     : try await client.createDownloadClient(payload)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 throw ArrError.noServiceConfigured
             }
             onComplete(saved)

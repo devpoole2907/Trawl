@@ -17,6 +17,10 @@ struct ArrDownloadClientListView: View {
     @State private var reachability: [Int: Bool] = [:]
     @State private var isCheckingIDs: Set<Int> = []
 
+    private var supportsDownloadClients: Bool {
+        serviceType == .sonarr || serviceType == .radarr
+    }
+
     var body: some View {
         List {
             if isLoading && clients.isEmpty {
@@ -33,6 +37,13 @@ struct ArrDownloadClientListView: View {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }
+            } else if !supportsDownloadClients {
+                ContentUnavailableView(
+                    "Not Supported",
+                    systemImage: "nosign",
+                    description: Text("\(serviceType.displayName) does not support download client management in Trawl.")
+                )
+                .listRowBackground(Color.clear)
             } else if clients.isEmpty {
                 ContentUnavailableView(
                     "No Download Clients",
@@ -49,15 +60,17 @@ struct ArrDownloadClientListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Label("Add Download Client", systemImage: "plus")
+            if supportsDownloadClients {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label("Add Download Client", systemImage: "plus")
+                    }
                 }
             }
         }
-        .sheet(isPresented: $showAddSheet) {
+        .sheet(isPresented: supportsDownloadClients ? $showAddSheet : .constant(false)) {
             ArrDownloadClientEditorSheet(serviceType: serviceType) { saved in
                 clients.append(saved)
                 clients.sort { ($0.name ?? "") < ($1.name ?? "") }
@@ -69,7 +82,7 @@ struct ArrDownloadClientListView: View {
             }
             .environment(serviceManager)
         }
-        .sheet(item: $clientBeingEdited) { client in
+        .sheet(item: supportsDownloadClients ? $clientBeingEdited : .constant(nil)) { client in
             ArrDownloadClientEditorSheet(serviceType: serviceType, existingClient: client) { saved in
                 if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
                     clients[idx] = saved
@@ -357,6 +370,8 @@ struct ArrDownloadClientListView: View {
                     .sorted { ($0.name ?? "") < ($1.name ?? "") }
             case .prowlarr:
                 clients = []
+            case .bazarr:
+                clients = []
             }
         } catch {
             loadError = error.localizedDescription
@@ -366,6 +381,7 @@ struct ArrDownloadClientListView: View {
     // MARK: - Reachability
 
     private func checkReachabilityForAll() {
+        guard supportsDownloadClients else { return }
         let enabled = clients.filter { $0.enable }
         isCheckingIDs = Set(enabled.map { $0.id })
         for client in enabled {
@@ -374,6 +390,7 @@ struct ArrDownloadClientListView: View {
     }
 
     private func checkReachability(for client: ArrDownloadClient) {
+        guard supportsDownloadClients else { return }
         guard client.enable else { return }
         isCheckingIDs.insert(client.id)
         Task {
@@ -397,6 +414,10 @@ struct ArrDownloadClientListView: View {
                     reachability[client.id] = false
                     isCheckingIDs.remove(client.id)
                     return
+                case .bazarr:
+                    reachability[client.id] = false
+                    isCheckingIDs.remove(client.id)
+                    return
                 }
                 reachability[client.id] = true
             } catch {
@@ -409,6 +430,7 @@ struct ArrDownloadClientListView: View {
     // MARK: - Actions
 
     private func toggleEnable(_ downloadClient: ArrDownloadClient) async {
+        guard supportsDownloadClients else { return }
         guard isTogglingID == nil else { return }
         isTogglingID = downloadClient.id
         defer { isTogglingID = nil }
@@ -427,6 +449,8 @@ struct ArrDownloadClientListView: View {
                 saved = try await client.updateDownloadClient(updated)
             case .prowlarr:
                 return
+            case .bazarr:
+                return
             }
             if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
                 clients[idx] = saved
@@ -442,6 +466,7 @@ struct ArrDownloadClientListView: View {
     }
 
     private func testClient(_ downloadClient: ArrDownloadClient) async {
+        guard supportsDownloadClients else { return }
         guard isTestingID == nil else { return }
         isTestingID = downloadClient.id
         defer { isTestingID = nil }
@@ -456,6 +481,8 @@ struct ArrDownloadClientListView: View {
                 try await client.testDownloadClient(downloadClient)
             case .prowlarr:
                 return
+            case .bazarr:
+                return
             }
             reachability[downloadClient.id] = true
             inAppNotificationCenter.showSuccess(
@@ -469,6 +496,7 @@ struct ArrDownloadClientListView: View {
     }
 
     private func deleteClient(_ downloadClient: ArrDownloadClient) async {
+        guard supportsDownloadClients else { return }
         do {
             switch serviceType {
             case .sonarr:
@@ -478,6 +506,8 @@ struct ArrDownloadClientListView: View {
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
                 try await client.deleteDownloadClient(id: downloadClient.id)
             case .prowlarr:
+                return
+            case .bazarr:
                 return
             }
             clients.removeAll { $0.id == downloadClient.id }

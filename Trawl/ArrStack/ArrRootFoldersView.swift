@@ -144,7 +144,10 @@ struct ArrRootFoldersView: View {
                     .lineLimit(2)
 
                 if folder.accessible == false {
-                    Label("Not accessible", systemImage: "exclamationmark.triangle.fill")
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("Not accessible")
+                    }
                         .font(.caption)
                         .foregroundStyle(.red)
                 }
@@ -163,7 +166,7 @@ struct ArrRootFoldersView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return false }
                 _ = try await client.createRootFolder(path: path)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return false
             }
             await serviceManager.refreshConfiguration()
@@ -186,7 +189,7 @@ struct ArrRootFoldersView: View {
             case .radarr:
                 guard let client = serviceManager.radarrClient else { return }
                 try await client.deleteRootFolder(id: folder.id)
-            case .prowlarr:
+            case .prowlarr, .bazarr:
                 return
             }
             await serviceManager.refreshConfiguration()

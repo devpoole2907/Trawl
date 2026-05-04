@@ -122,6 +122,10 @@ struct RadarrMovieListView: View {
                 async let loadMovies = viewModel.loadMovies()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadMovies, loadQueue)
+                if serviceManager.hasAnyConnectedBazarrInstance {
+                    await serviceManager.refreshActiveBazarrSubtitleCache()
+                }
+                viewModel.refreshFilters()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -207,6 +211,14 @@ struct RadarrMovieListView: View {
                 }
                 knownQueueIds = currentIds
             }
+        }
+        .task(id: serviceManager.activeBazarrProfileID) {
+            guard serviceManager.hasAnyConnectedBazarrInstance else {
+                viewModel?.refreshFilters()
+                return
+            }
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            viewModel?.refreshFilters()
         }
 
         if shouldShowInstanceTitleMenu {
@@ -299,6 +311,7 @@ struct RadarrMovieListView: View {
 
     @ViewBuilder
     private func movieRow(_ movie: RadarrMovie, vm: RadarrViewModel) -> some View {
+        let bazarrStatus = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
         if editMode.isEditing {
             Button {
                 toggleMovieSelection(movie)
@@ -311,7 +324,8 @@ struct RadarrMovieListView: View {
                         movie: movie,
                         hasIssue: vm.queue.contains {
                             $0.movieId == movie.id && $0.isImportIssueQueueItem
-                        }
+                        },
+                        bazarrStatus: bazarrStatus
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -324,7 +338,8 @@ struct RadarrMovieListView: View {
                     movie: movie,
                     hasIssue: vm.queue.contains {
                         $0.movieId == movie.id && $0.isImportIssueQueueItem
-                    }
+                    },
+                    bazarrStatus: bazarrStatus
                 )
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -542,6 +557,7 @@ struct RadarrMovieListView: View {
         case .missing:     "exclamationmark.circle"
         case .downloaded:  "checkmark.circle"
         case .wanted:      "magnifyingglass.circle"
+        case .subtitlesPresent: "captions.bubble"
         }
     }
 
@@ -653,6 +669,7 @@ private func listSectionLabel(for title: String) -> String {
 struct RadarrMovieRow: View {
     let movie: RadarrMovie
     let hasIssue: Bool
+    var bazarrStatus: BazarrSubtitleStatus? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -689,6 +706,15 @@ struct RadarrMovieRow: View {
                         Text("• \(ByteFormatter.format(bytes: size))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                    }
+
+                    if let bazarrStatus {
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "captions.bubble.fill")
+                            .font(.caption2)
+                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
                     }
                 }
             }

@@ -94,7 +94,7 @@ struct ArrHistoryView: View {
         case .sonarr: serviceManager.hasSonarrInstance
         case .radarr: serviceManager.hasRadarrInstance
         case .all: serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
-        case .prowlarr: false
+        case .prowlarr, .bazarr: false
         }
     }
 
@@ -103,7 +103,7 @@ struct ArrHistoryView: View {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
         case .all: serviceManager.sonarrConnected || serviceManager.radarrConnected
-        case .prowlarr: false
+        case .prowlarr, .bazarr: false
         }
     }
 
@@ -148,7 +148,7 @@ struct ArrHistoryView: View {
             return sonarrViewModel?.canLoadMoreHistory == true
         case .radarr:
             return radarrViewModel?.canLoadMoreHistory == true
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             return false
         }
     }
@@ -304,6 +304,7 @@ private struct HistoryRow: View {
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
+        case .bazarr: .secondary
         }
     }
 
@@ -312,6 +313,7 @@ private struct HistoryRow: View {
         case .sonarr: "tv"
         case .radarr: "film"
         case .prowlarr: "network"
+        case .bazarr: "questionmark"
         }
     }
 }

@@ -57,22 +57,32 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func detailContent(vm: TorrentDetailViewModel, torrent: Torrent) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        List {
+            Section {
                 headerSection(torrent: torrent, vm: vm)
-                infoSection(torrent: torrent, vm: vm)
+            }
+
+            Section("Browse") {
                 navigationSection(vm: vm)
-                if let error = vm.error {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
+            }
+
+            Section("Info") {
+                infoSection(torrent: torrent, vm: vm)
+            }
+
+            if let error = vm.error {
+                Section {
+                    HStack(spacing: 4) {
+                        Image(systemName: "xmark.circle.fill")
+                        Text(error)
+                    }
                         .foregroundStyle(.red)
                         .font(.subheadline)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding()
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18))
                 }
             }
-            .padding()
         }
+        .listStyle(.insetGrouped)
         .alert("Delete Torrent?", isPresented: $showDeleteAlert) {
             Button("Delete and Remove Files", role: .destructive) {
                 Task {
@@ -175,53 +185,43 @@ struct TorrentDetailView: View {
             if hasDownload || hasUpload || hasETA {
                 HStack(spacing: 16) {
                     if hasDownload {
-                        Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
+                        compactStatLabel(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
                             .foregroundStyle(.blue)
                     }
                     if hasUpload {
-                        Label(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
+                        compactStatLabel(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
                             .foregroundStyle(.green)
                     }
                     if hasETA {
-                        Label(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
+                        compactStatLabel(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
                             .foregroundStyle(.secondary)
                     }
                 }
                 .font(.subheadline)
             }
         }
-        .padding()
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
     }
 
     @ViewBuilder
     private func infoSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Info")
-                .font(.subheadline)
-                .bold()
+        InfoRow(label: "Size", value: ByteFormatter.format(bytes: torrent.totalSize))
+        InfoRow(label: "Downloaded", value: ByteFormatter.format(bytes: torrent.totalSize - torrent.amountLeft))
+        InfoRow(label: "Ratio", value: String(format: "%.2f", torrent.ratio))
+        InfoRow(label: "Seeds", value: "\(torrent.numSeeds)")
+        InfoRow(label: "Peers", value: "\(torrent.numLeechs)")
+        InfoRow(label: "Added", value: dateString(from: torrent.addedOn))
+        InfoRow(label: "Save Path", value: torrent.savePath)
 
-            InfoRow(label: "Size", value: ByteFormatter.format(bytes: torrent.totalSize))
-            InfoRow(label: "Downloaded", value: ByteFormatter.format(bytes: torrent.totalSize - torrent.amountLeft))
-            InfoRow(label: "Ratio", value: String(format: "%.2f", torrent.ratio))
-            InfoRow(label: "Seeds", value: "\(torrent.numSeeds)")
-            InfoRow(label: "Peers", value: "\(torrent.numLeechs)")
-            InfoRow(label: "Added", value: dateString(from: torrent.addedOn))
-            InfoRow(label: "Save Path", value: torrent.savePath)
-
-            if let props = vm.properties {
-                InfoRow(label: "Total Uploaded", value: ByteFormatter.format(bytes: props.totalUploaded))
-                InfoRow(label: "Total Downloaded", value: ByteFormatter.format(bytes: props.totalDownloaded))
-                InfoRow(label: "Connections", value: "\(props.nbConnections)")
-                InfoRow(label: "Pieces", value: "\(props.piecesHave)/\(props.piecesNum)")
-            }
-
-            if let comment = torrent.comment, !comment.isEmpty {
-                InfoRow(label: "Comment", value: comment)
-            }
+        if let props = vm.properties {
+            InfoRow(label: "Total Uploaded", value: ByteFormatter.format(bytes: props.totalUploaded))
+            InfoRow(label: "Total Downloaded", value: ByteFormatter.format(bytes: props.totalDownloaded))
+            InfoRow(label: "Connections", value: "\(props.nbConnections)")
+            InfoRow(label: "Pieces", value: "\(props.piecesHave)/\(props.piecesNum)")
         }
-        .padding()
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+
+        if let comment = torrent.comment, !comment.isEmpty {
+            InfoRow(label: "Comment", value: comment)
+        }
     }
 
     @ViewBuilder
@@ -357,40 +357,27 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func navigationSection(vm: TorrentDetailViewModel) -> some View {
-        VStack(spacing: 0) {
-            NavigationLink {
-                FileListView(viewModel: vm)
-            } label: {
-                HStack {
-                    Label("Files", systemImage: "doc.on.doc")
-                    Spacer()
-                    Text("\(vm.files.count)")
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
-            }
-
-            Divider().padding(.leading)
-
-            NavigationLink {
-                TrackerListView(viewModel: vm)
-            } label: {
-                HStack {
-                    Label("Trackers", systemImage: "antenna.radiowaves.left.and.right")
-                    Spacer()
-                    Text("\(vm.trackers.count)")
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "chevron.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .padding()
+        NavigationLink {
+            FileListView(viewModel: vm)
+        } label: {
+            HStack {
+                Label("Files", systemImage: "doc.on.doc")
+                Spacer()
+                Text("\(vm.files.count)")
+                    .foregroundStyle(.secondary)
             }
         }
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20))
+
+        NavigationLink {
+            TrackerListView(viewModel: vm)
+        } label: {
+            HStack {
+                Label("Trackers", systemImage: "antenna.radiowaves.left.and.right")
+                Spacer()
+                Text("\(vm.trackers.count)")
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 
     // MARK: - Helpers
@@ -442,6 +429,13 @@ struct TorrentDetailView: View {
             return fallback == 0 ? "Use Global (Unlimited)" : "Use Global (\(ByteFormatter.formatSpeed(bytesPerSecond: fallback)))"
         }
         return ByteFormatter.formatSpeed(bytesPerSecond: limit)
+    }
+
+    private func compactStatLabel(_ text: String, systemImage: String) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
     }
 }
 

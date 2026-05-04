@@ -77,7 +77,6 @@ struct SonarrSeriesListView: View {
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
-        .searchable(text: $localSeriesSearch, prompt: "Search series")
         .onChange(of: localSeriesSearch) { _, newValue in
             viewModel?.searchText = newValue
         }
@@ -128,6 +127,10 @@ struct SonarrSeriesListView: View {
                 async let loadSeries = viewModel.loadSeries()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadSeries, loadQueue)
+                if serviceManager.hasAnyConnectedBazarrInstance {
+                    await serviceManager.refreshActiveBazarrSubtitleCache()
+                }
+                viewModel.refreshFilters()
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -240,6 +243,14 @@ struct SonarrSeriesListView: View {
                 knownQueueIds = currentIds
             }
         }
+        .task(id: serviceManager.activeBazarrProfileID) {
+            guard serviceManager.hasAnyConnectedBazarrInstance else {
+                viewModel?.refreshFilters()
+                return
+            }
+            await serviceManager.refreshActiveBazarrSubtitleCache()
+            viewModel?.refreshFilters()
+        }
 
         if shouldShowInstanceTitleMenu {
             baseContent.toolbarTitleMenu {
@@ -275,8 +286,9 @@ struct SonarrSeriesListView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
             seriesList(vm: vm)
-            .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredSeries)
+                .scrollPosition(id: $listScrollPosition)
+                .animation(.default, value: vm.filteredSeries)
+                .searchable(text: $localSeriesSearch, prompt: "Search series")
         }
     }
 
@@ -330,6 +342,7 @@ struct SonarrSeriesListView: View {
 
     @ViewBuilder
     private func seriesRow(_ show: SonarrSeries, vm: SonarrViewModel) -> some View {
+        let bazarrStatus = serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: show.id)
         if editMode.isEditing {
             Button {
                 toggleSeriesSelection(show)
@@ -342,7 +355,8 @@ struct SonarrSeriesListView: View {
                         series: show,
                         hasIssue: vm.queue.contains {
                             $0.seriesId == show.id && $0.isImportIssueQueueItem
-                        }
+                        },
+                        bazarrStatus: bazarrStatus
                     )
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -355,7 +369,8 @@ struct SonarrSeriesListView: View {
                     series: show,
                     hasIssue: vm.queue.contains {
                         $0.seriesId == show.id && $0.isImportIssueQueueItem
-                    }
+                    },
+                    bazarrStatus: bazarrStatus
                 )
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -548,6 +563,7 @@ struct SonarrSeriesListView: View {
         case .continuing:  "play.circle"
         case .ended:       "stop.circle"
         case .missing:     "exclamationmark.circle"
+        case .subtitlesPresent: "captions.bubble"
         }
     }
 
@@ -671,6 +687,7 @@ private func sonarrListSectionLabel(for title: String) -> String {
 struct SonarrSeriesRow: View {
     let series: SonarrSeries
     let hasIssue: Bool
+    var bazarrStatus: BazarrSubtitleStatus? = nil
 
     var body: some View {
         HStack(spacing: 12) {
@@ -703,14 +720,26 @@ struct SonarrSeriesRow: View {
                         .foregroundStyle(series.status == "continuing" ? .green : .secondary)
                 }
 
-                if let stats = series.statistics {
-                    let fileCount = stats.episodeFileCount ?? 0
-                    let totalCount = stats.episodeCount ?? 0
-                    ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
-                        .tint(fileCount == totalCount ? .green : .blue)
-                    Text("\(fileCount)/\(totalCount) episodes")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    if let stats = series.statistics {
+                        let fileCount = stats.episodeFileCount ?? 0
+                        let totalCount = stats.episodeCount ?? 0
+                        ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
+                            .tint(fileCount == totalCount ? .green : .blue)
+                            .frame(width: 40)
+                        Text("\(fileCount)/\(totalCount) eps")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let bazarrStatus {
+                        Text("•")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "captions.bubble.fill")
+                            .font(.caption2)
+                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
+                    }
                 }
             }
 

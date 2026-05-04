@@ -43,6 +43,7 @@ struct RadarrMovieDetailView: View {
     @State private var isQueueExpanded = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: PendingQueueAction?
+    @State private var bazarrMovieSubtitles: [BazarrSubtitle]?
 
     /// Library init — movie lives in the ViewModel's loaded library.
     init(movieId: Int, viewModel: RadarrViewModel) {
@@ -100,6 +101,15 @@ struct RadarrMovieDetailView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isInLibrary)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.movieFiles.map(\.id))
+        .task(id: movie?.id) {
+            bazarrMovieSubtitles = nil
+            guard let movie, let client = serviceManager.activeBazarrEntry?.client else { return }
+            if let page = try? await client.getMovies(ids: [movie.id]),
+               let fetched = page.data.first,
+               !fetched.subtitles.isEmpty {
+                bazarrMovieSubtitles = fetched.subtitles
+            }
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -387,6 +397,15 @@ struct RadarrMovieDetailView: View {
             ))
         }
 
+        if serviceManager.hasAnyConnectedBazarrInstance,
+           let status = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) {
+            badges.append(DetailBadge(
+                icon: "captions.bubble.fill",
+                label: status == .allPresent ? "Complete" : "None",
+                color: status == .allPresent ? .teal : .white.opacity(0.6)
+            ))
+        }
+
         return badges
     }
 
@@ -416,6 +435,7 @@ struct RadarrMovieDetailView: View {
 
         if isInLibrary {
             searchActionsCard(movie)
+            BazarrSubtitleStatusCard(media: .movie(radarrId: movie.id, title: movie.title))
         }
 
         if !activeQueueItems.isEmpty {
@@ -1217,7 +1237,7 @@ struct RadarrMovieDetailView: View {
 
                 if isFilesExpanded {
                     ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
-                        fileRow(file)
+                        fileRow(file, subtitles: bazarrMovieSubtitles)
                         if index < files.count - 1 {
                             Divider().padding(.leading, 16)
                         }
@@ -1229,7 +1249,7 @@ struct RadarrMovieDetailView: View {
         }
     }
 
-    private func fileRow(_ file: RadarrMovieFile) -> some View {
+    private func fileRow(_ file: RadarrMovieFile, subtitles: [BazarrSubtitle]?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 VStack(alignment: .leading, spacing: 2) {
@@ -1268,6 +1288,10 @@ struct RadarrMovieDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+
+            if let subtitles, !subtitles.isEmpty {
+                subtitleFilesView(subtitles)
+            }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -1277,6 +1301,40 @@ struct RadarrMovieDetailView: View {
                 showDeleteFileAlert = true
             } label: {
                 Label("Delete", systemImage: "trash")
+            }
+        }
+    }
+
+    private func subtitleFilesView(_ subtitles: [BazarrSubtitle]) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: "captions.bubble.fill")
+                .font(.caption2)
+                .foregroundStyle(.teal)
+            ForEach(subtitles, id: \.self) { sub in
+                HStack(spacing: 3) {
+                    Text(sub.code2)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.teal)
+                    if sub.hi {
+                        Text("HI")
+                            .font(.system(size: 7).weight(.bold))
+                            .foregroundStyle(.blue)
+                    }
+                    if sub.forced {
+                        Text("Forced")
+                            .font(.system(size: 7).weight(.bold))
+                            .foregroundStyle(.orange)
+                    }
+                    if let size = sub.fileSize {
+                        Text(ByteFormatter.format(bytes: Int64(size)))
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.horizontal, 5)
+                .padding(.vertical, 2)
+                .background(Capsule().fill(Color.teal.opacity(0.12)))
+                .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
             }
         }
     }
@@ -1620,6 +1678,7 @@ struct RadarrMovieSearchView: View {
     }
 
     @Bindable var viewModel: RadarrViewModel
+    @Environment(ArrServiceManager.self) private var serviceManager
     let movie: RadarrMovie
 
     @State private var isDispatchingAutomaticSearch = false
@@ -1653,6 +1712,15 @@ struct RadarrMovieSearchView: View {
                                     isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
                                     tint: isIssue ? .orange : .purple,
                                     systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
+                                )
+                            }
+
+                            if serviceManager.hasAnyConnectedBazarrInstance,
+                               let status = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) {
+                                movieStatusBadge(
+                                    status == .allPresent ? "Complete" : "None",
+                                    tint: status == .allPresent ? .teal : .secondary,
+                                    systemImage: "captions.bubble.fill"
                                 )
                             }
                         }

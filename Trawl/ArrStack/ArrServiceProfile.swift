@@ -43,6 +43,7 @@ public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
     case sonarr
     case radarr
     case prowlarr
+    case bazarr
 
     public var id: String { rawValue }
 
@@ -51,6 +52,7 @@ public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         case .sonarr: "Sonarr"
         case .radarr: "Radarr"
         case .prowlarr: "Prowlarr"
+        case .bazarr: "Bazarr"
         }
     }
 
@@ -59,6 +61,7 @@ public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         case .sonarr: 8989
         case .radarr: 7878
         case .prowlarr: 9696
+        case .bazarr: 6767
         }
     }
 
@@ -67,6 +70,7 @@ public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
         case .sonarr: "tv"
         case .radarr: "film"
         case .prowlarr: "magnifyingglass.circle"
+        case .bazarr: "captions.bubble"
         }
     }
 }

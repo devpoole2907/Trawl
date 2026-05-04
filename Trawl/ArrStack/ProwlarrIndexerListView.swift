@@ -578,12 +578,10 @@ struct ProwlarrIndexerListView: View {
 
     private func color(for serviceType: ArrServiceType) -> Color {
         switch serviceType {
-        case .prowlarr:
-            .yellow
-        case .sonarr:
-            .blue
-        case .radarr:
-            .orange
+        case .prowlarr: .yellow
+        case .sonarr: .blue
+        case .radarr: .orange
+        case .bazarr: .secondary
         }
     }
 
@@ -620,7 +618,7 @@ struct ProwlarrIndexerListView: View {
                 error = serviceManager.sonarrInstances.first(where: { $0.id == profile.id })?.connectionError
             case .radarr:
                 error = serviceManager.radarrInstances.first(where: { $0.id == profile.id })?.connectionError
-            case .none:
+            case .none, .bazarr:
                 error = nil
             }
 
@@ -651,6 +649,8 @@ struct ProwlarrIndexerListView: View {
         case .radarr:
             let isConnecting = serviceManager.radarrInstances.contains { $0.id == profile.id && $0.isConnecting }
             return !isConnecting && !serviceManager.isConnected(.radarr, profileID: profile.id)
+        case .bazarr:
+            return false
         }
     }
 
@@ -735,7 +735,7 @@ struct ProwlarrIndexerListView: View {
             expectedType = .sonarr
         case .radarr:
             expectedType = .radarr
-        case .prowlarr:
+        case .prowlarr, .bazarr:
             return nil
         }
 
@@ -1295,12 +1295,10 @@ private struct DirectIndexerEditorView: View {
 
     private var linkedApplicationDisplayName: String {
         switch serviceType {
-        case .sonarr:
-            "Sonarr"
-        case .radarr:
-            "Radarr"
-        case .prowlarr:
-            "Prowlarr"
+        case .sonarr: "Sonarr"
+        case .radarr: "Radarr"
+        case .prowlarr: "Prowlarr"
+        case .bazarr: "Bazarr"
         }
     }
 

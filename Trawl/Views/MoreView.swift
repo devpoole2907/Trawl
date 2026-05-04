@@ -27,6 +27,11 @@ enum MoreDestination: Hashable {
     case mediaManagement
     case arrNamingConfig(service: ArrServiceType)
     case rootFolders
+    case bazarrSettings
+    case bazarrLanguageProfiles
+    case bazarrProviders
+    case bazarrSeriesDetail(seriesId: Int)
+    case bazarrMovieDetail(radarrId: Int)
 }
 
 enum MoreDestinationAccent {
@@ -95,7 +100,7 @@ struct MoreView: View {
 
                     NavigationLink(value: MoreDestination.wanted) {
                         moreRow(icon: "exclamationmark.triangle.fill", color: .orange,
-                                title: "Wanted / Missing", subtitle: "Monitored items without files")
+                                title: "Wanted / Missing", subtitle: "Missing files and subtitles")
                     }
 
                     NavigationLink(value: MoreDestination.calendar) {
@@ -116,6 +121,18 @@ struct MoreView: View {
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                                 title: "Indexers", subtitle: "Manage indexers across your services")
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
+                        moreRow(icon: "globe", color: .teal,
+                                title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
+                    }
+
+                    NavigationLink(value: MoreDestination.bazarrProviders) {
+                        moreRow(icon: "person.2.fill", color: .teal,
+                                title: "Providers", subtitle: "Manage Bazarr subtitle providers")
                     }
                 }
 
@@ -278,6 +295,24 @@ struct MoreView: View {
                     ArrRootFoldersView()
                         .environment(arrServiceManager)
                         .environment(inAppNotificationCenter)
+                        .moreDestinationTitleStyle()
+                case .bazarrSettings:
+                    ArrServiceSettingsView(serviceType: .bazarr)
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .bazarrLanguageProfiles:
+                    BazarrLanguageProfilesView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .bazarrProviders:
+                    BazarrProvidersView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .bazarrSeriesDetail(let seriesId):
+                    BazarrSeriesDetailView(seriesId: seriesId, viewModel: BazarrViewModel(serviceManager: arrServiceManager))
+                        .moreDestinationTitleStyle()
+                case .bazarrMovieDetail(let radarrId):
+                    BazarrMovieDetailView(radarrId: radarrId, viewModel: BazarrViewModel(serviceManager: arrServiceManager))
                         .moreDestinationTitleStyle()
                 }
             }

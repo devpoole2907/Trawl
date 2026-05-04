@@ -3,39 +3,39 @@ import SwiftUI
 struct TrackerListView: View {
     @Bindable var viewModel: TorrentDetailViewModel
     @Environment(\.dismiss) private var dismiss
+    @State private var isRefreshing = false
 
     var body: some View {
-        ZStack {
-            backgroundGradient
-            
-            ScrollView {
-                VStack(spacing: 12) {
-                    if viewModel.trackers.isEmpty {
-                        ContentUnavailableView(
-                            "No Trackers",
-                            systemImage: "antenna.radiowaves.left.and.right",
-                            description: Text("No tracker information available for this torrent.")
-                        )
-                        .padding(.top, 40)
-                    } else {
-                        ForEach(viewModel.trackers) { tracker in
-                            TrackerRow(tracker: tracker)
-                        }
+        List {
+            if viewModel.trackers.isEmpty {
+                ContentUnavailableView(
+                    "No Trackers",
+                    systemImage: "antenna.radiowaves.left.and.right",
+                    description: Text("No tracker information available for this torrent.")
+                )
+            } else {
+                Section {
+                    ForEach(viewModel.trackers) { tracker in
+                        TrackerRow(tracker: tracker)
                     }
                 }
-                .padding(16)
             }
         }
+        .listStyle(.insetGrouped)
         .navigationTitle("Trackers")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
             ToolbarItem(placement: trackerRefreshToolbarPlacement) {
-                Button {
-                    Task { await viewModel.loadTrackers() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                if isRefreshing {
+                    ProgressView()
+                } else {
+                    Button {
+                        Task { await refreshTrackers() }
+                    } label: {
+                        Image(systemName: "arrow.clockwise")
+                    }
                 }
             }
         }
@@ -44,13 +44,15 @@ struct TrackerListView: View {
         }
     }
 
-    private var backgroundGradient: some View {
-        LinearGradient(
-            colors: [Color.indigo.opacity(0.12), Color.clear],
-            startPoint: .top,
-            endPoint: .bottom
-        )
-        .ignoresSafeArea()
+    private func refreshTrackers() async {
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        async let refresh: Void = viewModel.loadTrackers()
+        async let feedback: Void = {
+            try? await Task.sleep(for: .seconds(2))
+        }()
+        _ = await (refresh, feedback)
+        isRefreshing = false
     }
 }
 
@@ -94,8 +96,6 @@ private struct TrackerRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             }
         }
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private var displayUrl: String {

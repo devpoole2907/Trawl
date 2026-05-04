@@ -72,6 +72,10 @@ final class SonarrViewModel {
 
     private(set) var filteredSeries: [SonarrSeries] = []
 
+    func refreshFilters() {
+        rebuildFilteredSeries()
+    }
+
     private func rebuildFilteredSeries() {
         filteredSeries = FilterSortPipeline.apply(
             items: series,
@@ -96,6 +100,8 @@ final class SonarrViewModel {
                 case .missing:
                     guard let stats = series.statistics else { return false }
                     return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
+                case .subtitlesPresent:
+                    return serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: series.id) == .allPresent
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -648,6 +654,7 @@ enum SonarrFilter: String, CaseIterable, Identifiable {
     case continuing = "Continuing"
     case ended = "Ended"
     case missing = "Missing"
+    case subtitlesPresent = "Subtitles Present"
 
     var id: String { rawValue }
 }

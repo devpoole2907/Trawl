@@ -26,6 +26,18 @@ struct FileListView: View {
         .environment(\.editMode, swiftUIEditMode)
         #endif
         .toolbar {
+            if editMode.isEditing {
+                ToolbarItem(placement: fileSelectionLeadingToolbarPlacement) {
+                    Button(selectedIndices.count == viewModel.files.count ? "Deselect All" : "Select All") {
+                        if selectedIndices.count == viewModel.files.count {
+                            selectedIndices = []
+                        } else {
+                            selectedIndices = Set(viewModel.files.map(\.index))
+                        }
+                    }
+                }
+            }
+
             ToolbarItem(placement: fileEditToolbarPlacement) {
                 if !viewModel.files.isEmpty {
                     Button(editMode.isEditing ? "Done" : "Edit") {
@@ -42,36 +54,24 @@ struct FileListView: View {
             }
             
             if editMode.isEditing {
-                ToolbarItem(placement: fileSelectionToolbarPlacement) {
-                    HStack {
-                        Button(selectedIndices.count == viewModel.files.count ? "Deselect All" : "Select All") {
-                            if selectedIndices.count == viewModel.files.count {
-                                selectedIndices = []
-                            } else {
-                                selectedIndices = Set(viewModel.files.map(\.index))
-                            }
-                        }
-                        
-                        Spacer()
-                        
-                        Menu("Set Priority") {
-                            ForEach(FilePriority.allCases) { priority in
-                                Button {
-                                    let indices = Array(selectedIndices)
-                                    Task {
-                                        await viewModel.setFilePriority(indices: indices, priority: priority)
-                                        selectedIndices = []
-                                        withAnimation {
-                                            editMode = .inactive
-                                        }
+                ToolbarItem(placement: fileSelectionTrailingToolbarPlacement) {
+                    Menu("Set Priority") {
+                        ForEach(FilePriority.allCases) { priority in
+                            Button {
+                                let indices = Array(selectedIndices)
+                                Task {
+                                    await viewModel.setFilePriority(indices: indices, priority: priority)
+                                    selectedIndices = []
+                                    withAnimation {
+                                        editMode = .inactive
                                     }
-                                } label: {
-                                    Label(priority.displayName, systemImage: priority.systemImage)
                                 }
+                            } label: {
+                                Label(priority.displayName, systemImage: priority.systemImage)
                             }
                         }
-                        .disabled(selectedIndices.isEmpty)
                     }
+                    .disabled(selectedIndices.isEmpty)
                 }
             }
         }
@@ -103,6 +103,22 @@ private var fileSelectionToolbarPlacement: ToolbarItemPlacement {
     .bottomBar
     #else
     .automatic
+    #endif
+}
+
+private var fileSelectionLeadingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .automatic
+    #endif
+}
+
+private var fileSelectionTrailingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .primaryAction
     #endif
 }
 
