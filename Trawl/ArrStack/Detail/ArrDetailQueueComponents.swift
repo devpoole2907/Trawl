@@ -263,7 +263,7 @@ struct ArrDetailQueueItemRow: View {
             }
 
             if let messages = item.statusMessages?.compactMap(\.messages).flatMap({ $0 }),
-               let message = messages.first,
+               let message = messages.first(where: { !$0.isEmpty }),
                !message.isEmpty {
                 Text(message)
                     .font(.caption)

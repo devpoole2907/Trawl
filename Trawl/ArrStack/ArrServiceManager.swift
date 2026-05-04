@@ -773,6 +773,11 @@ final class ArrServiceManager {
             if let tags { entry.tags = tags }
             entry.connectionError = error
         }
+        if let error = error {
+            connectionErrors[id.uuidString] = error
+        } else {
+            connectionErrors.removeValue(forKey: id.uuidString)
+        }
     }
 
     /// Refresh cached configuration data for all connected services.

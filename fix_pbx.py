@@ -1,6 +1,6 @@
 import re
 
-with open('Trawl.xcodeproj/project.pbxproj', 'r') as f:
+with open('Trawl.xcodeproj/project.pbxproj', 'r', encoding='utf-8') as f:
     content = f.read()
 
 new_files = [
@@ -15,7 +15,16 @@ new_files = [
     "Views/FormComponents/ServerURLField.swift",
     "Views/FormComponents/ValidationErrorSection.swift",
     "ArrStack/Detail/ArrItemDetailView.swift",
-    "ArrStack/Detail/ArrDetailHeaderView.swift"
+    "ArrStack/Detail/ArrDetailHeaderView.swift",
+    "ArrStack/ArrLibraryViewModel.swift",
+    "ArrStack/Detail/ArrDetailCardComponents.swift",
+    "ArrStack/Detail/ArrDetailQueueComponents.swift",
+    "ArrStack/Detail/ArrDetailSharedTypes.swift",
+    "ArrStack/Library/ArrConnectingView.swift",
+    "ArrStack/Library/ArrEmptyStateView.swift",
+    "ArrStack/Library/ArrLibraryListView.swift",
+    "ArrStack/Library/InstanceDisplayNameResolver.swift",
+    "ArrStack/Library/TitleSectioning.swift"
 ]
 
 def insert_exceptions(target_block, files):
@@ -51,13 +60,13 @@ if section_start != -1 and section_end != -1:
     blocks = re.split(r'(?=\t\t[A-F0-9]{24} /\* Exceptions)', section_content)
     
     for i in range(len(blocks)):
-        if "TrawlShare" in blocks[i] or "TrawlWidgets" in blocks[i]:
+        if "TrawlShare" in blocks[i] or ("TrawlWidgets" in blocks[i] and "Trawl/" in blocks[i]):
             blocks[i] = insert_exceptions(blocks[i], new_files)
             
     new_section_content = "".join(blocks)
     content = content[:section_start] + new_section_content + content[section_end:]
     
-    with open('Trawl.xcodeproj/project.pbxproj', 'w') as f:
+    with open('Trawl.xcodeproj/project.pbxproj', 'w', encoding='utf-8') as f:
         f.write(content)
     print("Successfully updated project.pbxproj")
 else:

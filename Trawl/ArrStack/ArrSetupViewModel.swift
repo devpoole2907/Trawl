@@ -13,6 +13,7 @@ final class ArrSetupViewModel {
     var serviceType: ArrServiceType = .sonarr
     var allowsUntrustedTLS: Bool = false
     var isValidating: Bool = false
+    var isSaving: Bool = false
     var validationError: String?
     var validatedStatus: ArrSystemStatus?
 
@@ -26,6 +27,8 @@ final class ArrSetupViewModel {
 
     /// Validate the connection and save the profile.
     func validateAndSave(modelContext: ModelContext) async -> Bool {
+        guard !Task.isCancelled else { return false }
+
         let trimmedURLInput = hostURL.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -50,6 +53,10 @@ final class ArrSetupViewModel {
         validationError = nil
 
         do {
+            guard !Task.isCancelled else {
+                isValidating = false
+                return false
+            }
             let status = try await serviceManager.testConnection(
                 hostURL: trimmedURL,
                 apiKey: trimmedKey,
@@ -126,6 +133,15 @@ final class ArrSetupViewModel {
                 for existing in allProfiles where existing.id != profile.id && existing.resolvedServiceType == .prowlarr {
                     existing.isEnabled = false
                 }
+            }
+
+            guard !Task.isCancelled else {
+                isValidating = false
+                if !isEditing {
+                    modelContext.rollback()
+                    try? await KeychainHelper.shared.delete(key: keychainKey)
+                }
+                return false
             }
 
             do {

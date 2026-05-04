@@ -7,6 +7,7 @@ struct ArrSetupSheet: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: ArrSetupViewModel?
+    @State private var saveTask: Task<Void, Never>?
     let initialServiceType: ArrServiceType?
     let existingProfile: ArrServiceProfile?
     let onComplete: () -> Void
@@ -34,15 +35,22 @@ struct ArrSetupSheet: View {
                 title: existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" } ?? (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"),
                 primaryTitle: "Save",
                 isPrimaryDisabled: viewModel?.hostURL.isEmpty ?? true || viewModel?.apiKey.isEmpty ?? true || viewModel?.isValidating ?? false,
-                isSaving: false
+                isSaving: viewModel?.isSaving ?? false
             ) {
                 guard let vm = viewModel else { return }
-                Task {
-                    if await vm.validateAndSave(modelContext: modelContext) {
+                saveTask?.cancel()
+                vm.isSaving = true
+                saveTask = Task {
+                    let success = await vm.validateAndSave(modelContext: modelContext)
+                    vm.isSaving = false
+                    if success && !Task.isCancelled {
                         dismiss()
                         onComplete()
                     }
                 }
+            }
+            .onDisappear {
+                saveTask?.cancel()
             }
             .task(id: existingProfile?.id) {
                 let vm = ArrSetupViewModel(serviceManager: serviceManager)

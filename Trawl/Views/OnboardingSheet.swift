@@ -5,6 +5,7 @@ struct OnboardingSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = OnboardingViewModel()
+    @State private var saveTask: Task<Void, Never>?
     let serverProfile: ServerProfile?
     let onComplete: () -> Void
 
@@ -20,15 +21,19 @@ struct OnboardingSheet: View {
                 title: serverProfile == nil ? "Add Server" : "Edit Server",
                 primaryTitle: "Connect",
                 isPrimaryDisabled: viewModel.isValidating,
-                isSaving: false
+                isSaving: viewModel.isValidating
             ) {
-                Task {
+                saveTask?.cancel()
+                saveTask = Task {
                     let success = await viewModel.validateAndSave(modelContext: modelContext, editingServer: serverProfile)
-                    if success {
+                    if success && !Task.isCancelled {
                         dismiss()
                         onComplete()
                     }
                 }
+            }
+            .onDisappear {
+                saveTask?.cancel()
             }
             #if os(macOS)
             .frame(minWidth: 560, idealWidth: 620, minHeight: 480)

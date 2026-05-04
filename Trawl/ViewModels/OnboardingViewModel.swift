@@ -32,6 +32,8 @@ final class OnboardingViewModel {
     /// Validates the connection and saves the server profile.
     /// Returns true if saved successfully.
     func validateAndSave(modelContext: ModelContext, editingServer: ServerProfile? = nil) async -> Bool {
+        guard !Task.isCancelled else { return false }
+
         let trimmedURLInput = hostURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         hasAttemptedSubmit = true
@@ -58,6 +60,10 @@ final class OnboardingViewModel {
         validationError = nil
 
         do {
+            guard !Task.isCancelled else {
+                isValidating = false
+                return false
+            }
             // Create a temporary API client to test the connection
             let tempAuth = AuthService(serverProfileID: UUID(), allowsUntrustedTLS: allowsUntrustedTLS)
             let tempClient = QBittorrentAPIClient(
@@ -99,6 +105,14 @@ final class OnboardingViewModel {
             // Save credentials to Keychain
             try await KeychainHelper.shared.save(key: profile.usernameKey, value: username)
             try await KeychainHelper.shared.save(key: profile.passwordKey, value: password)
+
+            guard !Task.isCancelled else {
+                isValidating = false
+                if editingServer == nil {
+                    modelContext.rollback()
+                }
+                return false
+            }
 
             try modelContext.save()
 

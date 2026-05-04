@@ -8,6 +8,7 @@ struct ArrQualityProfilePicker: View {
     
     var body: some View {
         Picker("Quality Profile", selection: $selection) {
+            Text("None").tag(Optional<Int>.none)
             ForEach(profiles, id: \.id) { profile in
                 Text(profile.name).tag(Optional(profile.id))
             }

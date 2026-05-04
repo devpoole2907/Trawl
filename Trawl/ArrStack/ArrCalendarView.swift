@@ -323,7 +323,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                 ArrLoadingErrorEmptyView(
                     isLoading: viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty,
                     error: viewModel.initialLoadErrorMessage,
-                    isEmpty: totalVisibleEventCount == 0,
+                    isEmpty: viewModel.loadedMonths.isEmpty && !viewModel.isLoadingInitial,
                     emptyTitle: "No Upcoming Releases",
                     emptyIcon: "calendar.badge.exclamationmark",
                     emptyDescription: "Nothing is scheduled for the selected scope in the loaded date range.",
