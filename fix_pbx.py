@@ -37,7 +37,7 @@ def insert_exceptions(target_block, files):
     
     for f in files:
         if f + "," not in lines and '"' + f + '",' not in lines:
-            lines.append(f + ",")
+            lines.append('"' + f + '",')
             
     lines.sort()
     

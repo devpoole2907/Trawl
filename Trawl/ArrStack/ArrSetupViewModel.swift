@@ -137,7 +137,31 @@ final class ArrSetupViewModel {
 
             guard !Task.isCancelled else {
                 isValidating = false
-                if !isEditing {
+                if isEditing {
+                    // Restore original state on cancellation for edits
+                    profile.displayName = originalDisplayName
+                    profile.hostURL = originalHostURL
+                    profile.serviceType = originalServiceType
+                    profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                    profile.apiVersion = originalApiVersion
+                    profile.isEnabled = originalIsEnabled
+
+                    for existing in allProfiles where existing.resolvedServiceType == .prowlarr {
+                        if let wasEnabled = originalProwlarrEnabledStates[existing.id] {
+                            existing.isEnabled = wasEnabled
+                        }
+                    }
+
+                    do {
+                        if let originalAPIKey {
+                            try await KeychainHelper.shared.save(key: keychainKey, value: originalAPIKey)
+                        } else {
+                            try await KeychainHelper.shared.delete(key: keychainKey)
+                        }
+                    } catch {
+                        logger.error("Keychain rollback failed after cancellation: \(error.localizedDescription, privacy: .public)")
+                    }
+                } else {
                     modelContext.rollback()
                     try? await KeychainHelper.shared.delete(key: keychainKey)
                 }

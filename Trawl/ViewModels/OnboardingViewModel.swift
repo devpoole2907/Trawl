@@ -78,14 +78,34 @@ final class OnboardingViewModel {
             // Connection successful — save the profile
             let name = displayName.isEmpty ? trimmedURL : displayName
             let profile: ServerProfile
+            let originalDisplayName: String?
+            let originalHostURL: String?
+            let originalAllowsUntrustedTLS: Bool?
+            let originalIsActive: Bool?
+            let originalUsername: String?
+            let originalPassword: String?
 
             if let editingServer {
+                originalDisplayName = editingServer.displayName
+                originalHostURL = editingServer.hostURL
+                originalAllowsUntrustedTLS = editingServer.allowsUntrustedTLS
+                originalIsActive = editingServer.isActive
+                originalUsername = try? await KeychainHelper.shared.read(key: editingServer.usernameKey)
+                originalPassword = try? await KeychainHelper.shared.read(key: editingServer.passwordKey)
+
                 editingServer.displayName = name
                 editingServer.hostURL = trimmedURL
                 editingServer.allowsUntrustedTLS = allowsUntrustedTLS
                 editingServer.isActive = true
                 profile = editingServer
             } else {
+                originalDisplayName = nil
+                originalHostURL = nil
+                originalAllowsUntrustedTLS = nil
+                originalIsActive = nil
+                originalUsername = nil
+                originalPassword = nil
+
                 profile = ServerProfile(
                     displayName: name,
                     hostURL: trimmedURL,
@@ -108,8 +128,41 @@ final class OnboardingViewModel {
 
             guard !Task.isCancelled else {
                 isValidating = false
-                if editingServer == nil {
+                if let editingServer {
+                    // Restore original state for edits
+                    if let originalDisplayName {
+                        editingServer.displayName = originalDisplayName
+                    }
+                    if let originalHostURL {
+                        editingServer.hostURL = originalHostURL
+                    }
+                    if let originalAllowsUntrustedTLS {
+                        editingServer.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                    }
+                    if let originalIsActive {
+                        editingServer.isActive = originalIsActive
+                    }
+
+                    // Restore original credentials
+                    do {
+                        if let originalUsername {
+                            try await KeychainHelper.shared.save(key: profile.usernameKey, value: originalUsername)
+                        } else {
+                            try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                        }
+                        if let originalPassword {
+                            try await KeychainHelper.shared.save(key: profile.passwordKey, value: originalPassword)
+                        } else {
+                            try? await KeychainHelper.shared.delete(key: profile.passwordKey)
+                        }
+                    } catch {
+                        // Best-effort rollback
+                    }
+                } else {
+                    // Clean up new profile
                     modelContext.rollback()
+                    try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                    try? await KeychainHelper.shared.delete(key: profile.passwordKey)
                 }
                 return false
             }

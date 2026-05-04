@@ -17,6 +17,7 @@ final class ArrCalendarViewModel {
     
     // State
     var isLoadingInitial = true
+    var isRefreshing = false
     var isLoadingMore = false
     var isLoadingEarlier = false
     private var lastRefreshKey: String = ""
@@ -40,11 +41,12 @@ final class ArrCalendarViewModel {
     }
     
     func refresh() async {
+        isRefreshing = true
         let currentKey = "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
         lastRefreshKey = currentKey
-        
+
         await loadLibraries()
-        
+
         // Clear existing data for a clean refresh of the initial window
         loadedMonths = []
         eventsByDay = [:]
@@ -78,10 +80,11 @@ final class ArrCalendarViewModel {
             }
         }
         self.loadedMonths.sort()
-        
+
         if scrollID == nil {
             scrollID = today
         }
+        isRefreshing = false
     }
     
     func loadNextMonth() async {
@@ -321,12 +324,12 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                 )
             } else {
                 ArrLoadingErrorEmptyView(
-                    isLoading: viewModel.isLoadingInitial && viewModel.loadedMonths.isEmpty,
+                    isLoading: viewModel.isLoadingInitial || viewModel.isRefreshing,
                     error: viewModel.initialLoadErrorMessage,
-                    isEmpty: viewModel.loadedMonths.isEmpty && !viewModel.isLoadingInitial,
+                    isEmpty: viewModel.loadedMonths.isEmpty && !(viewModel.isLoadingInitial || viewModel.isRefreshing),
                     emptyTitle: "No Upcoming Releases",
                     emptyIcon: "calendar.badge.exclamationmark",
-                    emptyDescription: "Nothing is scheduled for the selected scope in the loaded date range.",
+                    emptyDescription: "No calendar data has been loaded for the selected date range.",
                     onRetry: { await serviceManager.calendarViewModel.refresh() }
                 ) {
                     calendarContent
