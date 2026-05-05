@@ -59,6 +59,60 @@ final class OnboardingViewModel {
         isValidating = true
         validationError = nil
 
+        // Capture original state outside of do block for proper error handling
+        var originalDisplayName: String?
+        var originalHostURL: String?
+        var originalAllowsUntrustedTLS: Bool?
+        var originalIsActive: Bool?
+        var originalUsername: String?
+        var originalPassword: String?
+        var profile: ServerProfile?
+        var committed = false
+
+        // Defer-based rollback to ensure cleanup on any error path
+        defer {
+            if !committed, let profile = profile {
+                Task { @MainActor in
+                    if let editingServer = editingServer {
+                        // Restore original state for edits
+                        if let originalDisplayName {
+                            editingServer.displayName = originalDisplayName
+                        }
+                        if let originalHostURL {
+                            editingServer.hostURL = originalHostURL
+                        }
+                        if let originalAllowsUntrustedTLS {
+                            editingServer.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                        }
+                        if let originalIsActive {
+                            editingServer.isActive = originalIsActive
+                        }
+
+                        // Restore original credentials
+                        do {
+                            if let originalUsername {
+                                try await KeychainHelper.shared.save(key: profile.usernameKey, value: originalUsername)
+                            } else {
+                                try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                            }
+                            if let originalPassword {
+                                try await KeychainHelper.shared.save(key: profile.passwordKey, value: originalPassword)
+                            } else {
+                                try? await KeychainHelper.shared.delete(key: profile.passwordKey)
+                            }
+                        } catch {
+                            // Best-effort rollback
+                        }
+                    } else {
+                        // Clean up new profile
+                        modelContext.rollback()
+                        try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                        try? await KeychainHelper.shared.delete(key: profile.passwordKey)
+                    }
+                }
+            }
+        }
+
         do {
             guard !Task.isCancelled else {
                 isValidating = false
@@ -77,13 +131,6 @@ final class OnboardingViewModel {
 
             // Connection successful — save the profile
             let name = displayName.isEmpty ? trimmedURL : displayName
-            let profile: ServerProfile
-            let originalDisplayName: String?
-            let originalHostURL: String?
-            let originalAllowsUntrustedTLS: Bool?
-            let originalIsActive: Bool?
-            let originalUsername: String?
-            let originalPassword: String?
 
             if let editingServer {
                 originalDisplayName = editingServer.displayName
@@ -119,56 +166,21 @@ final class OnboardingViewModel {
                     server.isActive = false
                 }
 
-                modelContext.insert(profile)
+                modelContext.insert(profile!)
             }
 
             // Save credentials to Keychain
-            try await KeychainHelper.shared.save(key: profile.usernameKey, value: username)
-            try await KeychainHelper.shared.save(key: profile.passwordKey, value: password)
+            try await KeychainHelper.shared.save(key: profile!.usernameKey, value: username)
+            try await KeychainHelper.shared.save(key: profile!.passwordKey, value: password)
 
             guard !Task.isCancelled else {
                 isValidating = false
-                if let editingServer {
-                    // Restore original state for edits
-                    if let originalDisplayName {
-                        editingServer.displayName = originalDisplayName
-                    }
-                    if let originalHostURL {
-                        editingServer.hostURL = originalHostURL
-                    }
-                    if let originalAllowsUntrustedTLS {
-                        editingServer.allowsUntrustedTLS = originalAllowsUntrustedTLS
-                    }
-                    if let originalIsActive {
-                        editingServer.isActive = originalIsActive
-                    }
-
-                    // Restore original credentials
-                    do {
-                        if let originalUsername {
-                            try await KeychainHelper.shared.save(key: profile.usernameKey, value: originalUsername)
-                        } else {
-                            try? await KeychainHelper.shared.delete(key: profile.usernameKey)
-                        }
-                        if let originalPassword {
-                            try await KeychainHelper.shared.save(key: profile.passwordKey, value: originalPassword)
-                        } else {
-                            try? await KeychainHelper.shared.delete(key: profile.passwordKey)
-                        }
-                    } catch {
-                        // Best-effort rollback
-                    }
-                } else {
-                    // Clean up new profile
-                    modelContext.rollback()
-                    try? await KeychainHelper.shared.delete(key: profile.usernameKey)
-                    try? await KeychainHelper.shared.delete(key: profile.passwordKey)
-                }
                 return false
             }
 
             try modelContext.save()
 
+            committed = true
             isValid = true
             isValidating = false
             return true

@@ -61,7 +61,7 @@ if section_start != -1 and section_end != -1:
     blocks = re.split(r'(?=\t\t[A-F0-9]{24} /\* Exceptions)', section_content)
     
     for i in range(len(blocks)):
-        if "TrawlShare" in blocks[i] or ("TrawlWidgets" in blocks[i] and "Trawl/" in blocks[i]):
+        if ("TrawlShare" in blocks[i] and "Trawl/" in blocks[i]) or ("TrawlWidgets" in blocks[i] and "Trawl/" in blocks[i]):
             blocks[i] = insert_exceptions(blocks[i], new_files)
             
     new_section_content = "".join(blocks)
