@@ -30,7 +30,8 @@ new_files = [
 def insert_exceptions(target_block, files):
     # Find the membershipExceptions = ( ... ); block inside the target block
     match = re.search(r'membershipExceptions\s*=\s*\((.*?)\);', target_block, re.DOTALL)
-    if not match: return target_block
+    if not match:
+        return target_block
     
     existing = match.group(1)
     lines = [line.strip() for line in existing.split('\n') if line.strip()]

@@ -90,8 +90,8 @@ final class OnboardingViewModel {
                 originalHostURL = editingServer.hostURL
                 originalAllowsUntrustedTLS = editingServer.allowsUntrustedTLS
                 originalIsActive = editingServer.isActive
-                originalUsername = try? await KeychainHelper.shared.read(key: editingServer.usernameKey)
-                originalPassword = try? await KeychainHelper.shared.read(key: editingServer.passwordKey)
+                originalUsername = try await KeychainHelper.shared.read(key: editingServer.usernameKey)
+                originalPassword = try await KeychainHelper.shared.read(key: editingServer.passwordKey)
 
                 editingServer.displayName = name
                 editingServer.hostURL = trimmedURL
