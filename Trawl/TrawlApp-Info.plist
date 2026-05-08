@@ -2,10 +2,6 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>BGTaskSchedulerPermittedIdentifiers</key>
-	<array>
-		<string>com.poole.james.Trawl.sshKeepalive</string>
-	</array>
 	<key>CFBundleDisplayName</key>
 	<string>Trawl</string>
 	<key>CFBundleExecutable</key>
@@ -43,14 +39,8 @@
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
-	<key>NSSupportsLiveActivities</key>
-	<true/>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Trawl uses Face ID to lock access to your downloads, library, and connected servers.</string>
-	<key>UIBackgroundModes</key>
-	<array>
-		<string>fetch</string>
-	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

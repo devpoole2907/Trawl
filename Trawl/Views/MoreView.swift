@@ -9,8 +9,6 @@ enum MoreDestination: Hashable {
     case health
     case history
     case wanted
-    case ssh
-    case sshSession
     case settings
     case qbittorrentSettings
     case sonarrSettings
@@ -62,9 +60,6 @@ struct MoreView: View {
     @Query private var servers: [ServerProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
-    let openSSHSession: () -> Void
-    let selectSSHProfile: (SSHProfile) -> Void
-    @Environment(SSHSessionStore.self) private var sshSessionStore
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var showingNotificationsSheet = false
@@ -74,19 +69,6 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if sshSessionStore.hasSession {
-                    Section("Live Session") {
-                        Button {
-                            sshSessionStore.focusSession()
-                            openSSHSession()
-                        } label: {
-                            activeSessionRow
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-
                 Section {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
@@ -152,13 +134,6 @@ struct MoreView: View {
                                 title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
                     }
                 }
-
-                Section {
-                    NavigationLink(value: MoreDestination.ssh) {
-                        sshRow
-                    }
-                }
-
                 Section {
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
@@ -222,14 +197,6 @@ struct MoreView: View {
                 case .wanted:
                     ArrWantedView()
                         .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .ssh:
-                    SSHProfileListView { profile in
-                        selectSSHProfile(profile)
-                    }
-                    .moreDestinationTitleStyle()
-                case .sshSession:
-                    SSHSessionContainerView()
                         .moreDestinationTitleStyle()
                 case .settings:
                     settingsDestination
@@ -373,53 +340,6 @@ struct MoreView: View {
                 Text("Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.")
             }
         }
-    }
-
-    private var sshRow: some View {
-        moreRow(
-            icon: "terminal.fill",
-            color: .green,
-            title: "SSH",
-            subtitle: sshSessionStore.hasSession ? "Profiles and active shell access" : "Profiles and remote shell access"
-        )
-    }
-
-    private var activeSessionRow: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(.green.opacity(0.16))
-                    .frame(width: 46, height: 46)
-                Image(systemName: "terminal")
-                    .font(.system(size: 20, weight: .semibold))
-                    .foregroundStyle(.green)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(sshSessionStore.sessionTitle)
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text(sshSessionStore.sessionSubtitle)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            HStack(spacing: 6) {
-                Circle()
-                    .fill(sshSessionStore.statusColor)
-                    .frame(width: 8, height: 8)
-                Text(sshSessionStore.statusText)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassEffect(.regular, in: Capsule())
-        }
-        .padding(.vertical, 4)
     }
 
     @ViewBuilder

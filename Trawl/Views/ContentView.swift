@@ -24,8 +24,6 @@ struct ContentView: View {
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
     @State private var showArrSetup = false
-    @State private var showSSHDisconnectConfirm = false
-    @State private var showSSHSessionSheet = false
     @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
@@ -35,9 +33,6 @@ struct ContentView: View {
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
     #endif
-
-    @Environment(SSHSessionStore.self) private var sshSessionStore
-
     var body: some View {
         Group {
             if shouldShowWelcomeScreen {
@@ -135,16 +130,6 @@ struct ContentView: View {
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
-                    case "ssh-session":
-                        guard sshSessionStore.hasSession else { return }
-                        if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                            .queryItems?
-                            .first(where: { $0.name == "profile" })?
-                            .value,
-                           sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
-                            return
-                        }
-                        openSSHSession()
                     default:
                         return
                     }
@@ -451,12 +436,7 @@ struct ContentView: View {
             Tab("More", systemImage: "ellipsis.circle", value: RootTab.more) {
                 MoreView(
                     appServices: appServices,
-                    path: $morePath,
-                    openSSHSession: { openSSHSession() },
-                    selectSSHProfile: { profile in
-                        sshSessionStore.addSession(for: profile)
-                        openSSHSession()
-                    }
+                    path: $morePath
                 )
                     .environment(arrServiceManager)
                     .environment(\.navigateToSeriesTab) {
@@ -485,56 +465,11 @@ struct ContentView: View {
         .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .modifier(SSHSessionAccessoryModifier(
-            isEnabled: isAccessoryVisible,
-            title: sshSessionStore.sessionTitle,
-            subtitle: sshSessionStore.sessionSubtitle,
-            statusText: sshSessionStore.statusText,
-            statusColor: sshSessionStore.statusColor,
-            openSession: openSSHSession,
-            closeSession: { showSSHDisconnectConfirm = true }
-        ))
         #endif
-        .onChange(of: selectedTab) { _, newValue in
-            if newValue != .more {
-                sshSessionStore.hideKeyboard()
-            }
-        }
-        .onChange(of: morePath) { _, newValue in
-            if !newValue.contains(MoreDestination.sshSession) {
-                sshSessionStore.hideKeyboard()
-            }
-        }
         .sheet(item: $magnetDeepLink) { link in
             AddTorrentSheet(initialMagnetURL: link.url)
                 .environment(services.syncService)
                 .environment(services.torrentService)
-        }
-        #if os(iOS)
-        .sheet(isPresented: $showSSHSessionSheet, onDismiss: {
-            sshSessionStore.wantsKeyboard = false
-        }) {
-            NavigationStack {
-                SSHSessionContainerView()
-            }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
-        }
-        #endif
-        .alert("Disconnect?", isPresented: $showSSHDisconnectConfirm) {
-            Button("Disconnect", role: .destructive) {
-                Task { @MainActor in
-                    await sshSessionStore.disconnect()
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                        showSSHSessionSheet = false
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            let count = sshSessionStore.sessions.count
-            Text(count > 1 ? "All \(count) terminal sessions will be closed." : "Your terminal session will be closed.")
         }
     }
 
@@ -631,14 +566,6 @@ struct ContentView: View {
         didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
     }
 
-    private var isShowingSSHSession: Bool {
-        showSSHSessionSheet
-    }
-
-    private var isAccessoryVisible: Bool {
-        sshSessionStore.hasSession && !isShowingSSHSession
-    }
-
     private func initializeServices() {
         servicesTask?.cancel()
 
@@ -728,23 +655,6 @@ struct ContentView: View {
         Task {
             await arrServiceManager.refreshConfiguration()
         }
-    }
-
-    private func openSSHSession() {
-        if sshSessionStore.activeProfile != nil {
-            #if os(iOS)
-            presentSSHSession()
-            #else
-            selectedTab = .more
-            morePath = [.ssh, .sshSession]
-            sshSessionStore.focusSession()
-            #endif
-        }
-    }
-
-    private func presentSSHSession() {
-        sshSessionStore.focusSession()
-        showSSHSessionSheet = true
     }
 }
 
@@ -876,39 +786,3 @@ private enum SetupTarget: Identifiable {
         }
     }
 }
-#if os(iOS)
-private struct SSHSessionAccessoryModifier: ViewModifier {
-    let isEnabled: Bool
-    let title: String
-    let subtitle: String
-    let statusText: String
-    let statusColor: Color
-    let openSession: () -> Void
-    let closeSession: () -> Void
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: isEnabled) {
-                accessoryView
-            }
-        } else {
-            content.tabViewBottomAccessory {
-                if isEnabled {
-                    accessoryView
-                }
-            }
-        }
-    }
-
-    private var accessoryView: some View {
-        SSHSessionAccessoryView(
-            title: title,
-            subtitle: subtitle,
-            statusText: statusText,
-            statusColor: statusColor,
-            openSession: openSession,
-            closeSession: closeSession
-        )
-    }
-}
-#endif

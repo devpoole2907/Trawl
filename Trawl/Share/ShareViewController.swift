@@ -79,8 +79,7 @@ final class ShareViewController: UIViewController {
             ServerProfile.self,
             CachedTorrentState.self,
             RecentSavePath.self,
-            ArrServiceProfile.self,
-            SSHProfile.self
+            ArrServiceProfile.self
         ])
         let config = ModelConfiguration(
             schema: schema,
