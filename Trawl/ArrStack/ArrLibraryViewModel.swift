@@ -47,6 +47,10 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
         self.items = items
     }
 
+    func refreshConfiguration() async {
+        await serviceManager.refreshConfiguration()
+    }
+
     func afterMutation(reload: () async -> Void, refreshCalendar: Bool = true) async {
         await reload()
         if refreshCalendar {

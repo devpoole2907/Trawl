@@ -62,10 +62,16 @@ struct ArrRootFoldersView: View {
                 #if os(iOS)
                 .scrollContentBackground(.hidden)
                 #endif
+                .refreshable {
+                    await refreshRootFolders()
+                }
             }
         }
         .navigationTitle("Root Folders")
         .moreDestinationBackground(.rootFolders)
+        .task {
+            await refreshRootFolders()
+        }
         .toolbar {
             if hasAnyConnectedService {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
@@ -129,6 +135,10 @@ struct ArrRootFoldersView: View {
 
     private var radarrFolders: [ArrRootFolder] {
         serviceManager.radarrRootFolders
+    }
+
+    private func refreshRootFolders() async {
+        await serviceManager.refreshConfiguration()
     }
 
     private func rootFolderRow(_ folder: ArrRootFolder, color: Color) -> some View {

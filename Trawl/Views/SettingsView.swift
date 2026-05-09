@@ -24,7 +24,10 @@ struct SettingsView: View {
     @Environment(\.navigateToRadarrSettings) private var navigateToRadarrSettings
     @Environment(\.navigateToProwlarrSettings) private var navigateToProwlarrSettings
     @Environment(\.navigateToBazarrSettings) private var navigateToBazarrSettings
-
+    @Environment(\.navigateToSeerrSettings) private var navigateToSeerrSettings
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Query private var seerrProfiles: [SeerrServiceProfile]
+    
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
     }
@@ -112,6 +115,10 @@ struct SettingsView: View {
         arrProfiles.filter { $0.resolvedServiceType == .bazarr && $0.isEnabled }
     }
 
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map {
@@ -181,6 +188,18 @@ struct SettingsView: View {
                         url: serviceRowSubtitle(profile: bazarrProfile, count: bazarrProfiles.count),
                         isConnected: arrServiceManager.hasAnyConnectedBazarrInstance,
                         isConfigured: bazarrProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToSeerrSettings) {
+                    serviceRow(
+                        icon: "arrow.down.circle", color: .blue,
+                        name: seerrProfile?.displayName ?? "Seerr",
+                        url: seerrProfile?.hostURL,
+                        isConnected: seerrServiceManager.isConnected,
+                        isConfigured: seerrProfile != nil
                     )
                     .contentShape(Rectangle())
                 }

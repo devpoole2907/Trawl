@@ -177,12 +177,12 @@ struct BazarrLanguageProfilesView: View {
     private var backgroundGradient: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.teal.opacity(0.10), Color.blue.opacity(0.05), Color.clear],
+                colors: [MoreDestinationAccent.languageProfiles.color.opacity(0.10), Color.indigo.opacity(0.05), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
             RadialGradient(
-                colors: [Color.teal.opacity(0.12), Color.clear],
+                colors: [MoreDestinationAccent.languageProfiles.color.opacity(0.12), Color.clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 240
@@ -293,7 +293,7 @@ private struct LanguageProfileRowView: View {
     var body: some View {
         HStack(spacing: 12) {
             RoundedRectangle(cornerRadius: 3)
-                .fill(Color.teal)
+                .fill(MoreDestinationAccent.languageProfiles.color)
                 .frame(width: 4, height: 42)
 
             VStack(alignment: .leading, spacing: 4) {
@@ -311,7 +311,7 @@ private struct LanguageProfileRowView: View {
 
             Image(systemName: "circle.fill")
                 .font(.caption)
-                .foregroundStyle(.teal)
+                .foregroundStyle(MoreDestinationAccent.languageProfiles.color)
         }
         .padding(.vertical, 4)
     }
@@ -522,7 +522,7 @@ private struct LanguageProfileEditorView: View {
                     languagePickerPresented = true
                 } label: {
                     Label("Add Language", systemImage: "plus.circle.fill")
-                        .foregroundStyle(.teal)
+                        .foregroundStyle(MoreDestinationAccent.languageProfiles.color)
                 }
             } header: {
                 Text("Languages")
@@ -540,7 +540,7 @@ private struct LanguageProfileEditorView: View {
                         newMustContain = ""
                     }
                     .disabled(newMustContain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .tint(.teal)
+                    .tint(MoreDestinationAccent.languageProfiles.color)
                 }
                 ForEach(draft.mustContain, id: \.self) { phrase in
                     Text(phrase)
@@ -562,7 +562,7 @@ private struct LanguageProfileEditorView: View {
                         newMustNotContain = ""
                     }
                     .disabled(newMustNotContain.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .tint(.teal)
+                    .tint(MoreDestinationAccent.languageProfiles.color)
                 }
                 ForEach(draft.mustNotContain, id: \.self) { phrase in
                     Text(phrase)

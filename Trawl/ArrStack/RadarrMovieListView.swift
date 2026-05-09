@@ -347,9 +347,7 @@ struct RadarrMovieListView: View {
         selectedMovieIDs = []
         withAnimation { editMode = .inactive }
         Task {
-            for id in idsToDelete {
-                _ = await vm.deleteMovie(id: id, deleteFiles: deleteFiles)
-            }
+            await vm.deleteMovies(ids: idsToDelete, deleteFiles: deleteFiles)
         }
     }
 

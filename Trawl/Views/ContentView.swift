@@ -8,10 +8,12 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
+    @Query private var seerrProfiles: [SeerrServiceProfile]
     @State private var showOnboarding = false
     @State private var appServices: AppServices?
     @State private var disconnectedServices = AppServices.disconnected()
@@ -82,6 +84,8 @@ struct ContentView: View {
             case .bazarr:
                 ArrSetupSheet(initialServiceType: .bazarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
+            case .seerr:
+                SeerrSetupSheet()
             }
         }
         .sheet(isPresented: $showArrSetup) {
@@ -130,12 +134,22 @@ struct ContentView: View {
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
+                    case "seerr-issue":
+                        selectedTab = .more
+                        morePath = [.seerrIssues]
+                        // We could deep link directly to the issue if we had a MoreDestination for it
                     default:
                         return
                     }
                 }
             default:
                 return
+            }
+        }
+        .task(id: seerrProfilesSyncKey) {
+            await seerrServiceManager.initialize(from: seerrProfiles)
+            if !seerrProfiles.isEmpty {
+                isInWelcomeFlow = false
             }
         }
         .task(id: arrProfilesSyncKey) {
@@ -239,6 +253,9 @@ struct ContentView: View {
                 featureRow(icon: "captions.bubble.fill", color: .teal,
                            title: "Bazarr",
                            description: "Manage subtitles for series and movies")
+                featureRow(icon: "arrow.down.circle", color: .blue,
+                           title: "Seerr",
+                           description: "Manage requests and users")
             }
             .padding(.horizontal, 8)
 
@@ -317,6 +334,16 @@ struct ContentView: View {
                     isConfigured: bazarrProfile != nil
                 ) {
                     setupTarget = .bazarr
+                }
+
+                setupRow(
+                    icon: "arrow.down.circle",
+                    color: .blue,
+                    title: "Seerr",
+                    description: "Manage requests and users",
+                    isConfigured: seerrProfile != nil
+                ) {
+                    setupTarget = .seerr
                 }
             }
 
@@ -460,6 +487,15 @@ struct ContentView: View {
                     .environment(\.navigateToBazarrSettings) {
                         morePath.append(.bazarrSettings)
                     }
+                    .environment(\.navigateToSeerrSettings) {
+                        morePath.append(.seerrSettings)
+                    }
+                    .environment(\.navigateToSeerrIssues) {
+                        morePath.append(.seerrIssues)
+                    }
+                    .environment(\.navigateToSeerrUserManagement) {
+                        morePath.append(.seerrUserManagement)
+                    }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -551,13 +587,24 @@ struct ContentView: View {
         arrServiceManager.resolvedProfile(for: .bazarr, in: arrProfiles)
     }
 
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map { "\($0.id.uuidString):\($0.serviceType):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
+    private var seerrProfilesSyncKey: String {
+        seerrProfiles
+            .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
             .sorted()
             .joined(separator: "|")
     }
@@ -775,6 +822,7 @@ private enum SetupTarget: Identifiable {
     case radarr
     case prowlarr
     case bazarr
+    case seerr
 
     var id: String {
         switch self {
@@ -783,6 +831,7 @@ private enum SetupTarget: Identifiable {
         case .radarr: "radarr"
         case .prowlarr: "prowlarr"
         case .bazarr: "bazarr"
+        case .seerr: "seerr"
         }
     }
 }

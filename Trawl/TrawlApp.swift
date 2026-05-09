@@ -15,6 +15,7 @@ struct TrawlApp: App {
 
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
+    @State private var seerrServiceManager = SeerrServiceManager()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     @State private var appLockController = AppLockController()
 
@@ -23,7 +24,8 @@ struct TrawlApp: App {
             ServerProfile.self,
             CachedTorrentState.self,
             RecentSavePath.self,
-            ArrServiceProfile.self
+            ArrServiceProfile.self,
+            SeerrServiceProfile.self
         ])
 
         do {
@@ -67,6 +69,7 @@ struct TrawlApp: App {
         WindowGroup {
             ContentView()
                 .environment(arrServiceManager)
+                .environment(seerrServiceManager)
                 .environment(inAppNotificationCenter)
                 .environment(appLockController)
                 .task {

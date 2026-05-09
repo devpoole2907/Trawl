@@ -154,7 +154,7 @@ struct BazarrProvidersView: View {
                             BazarrProviderRowView(
                                 title: provider.displayName,
                                 subtitle: subtitle(for: provider),
-                                barColor: .teal,
+                                barColor: MoreDestinationAccent.providers.color,
                                 isEnabled: true,
                                 warningState: warningState(for: provider)
                             )
@@ -221,12 +221,12 @@ struct BazarrProvidersView: View {
     private var backgroundGradient: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.teal.opacity(0.10), Color.blue.opacity(0.05), Color.clear],
+                colors: [MoreDestinationAccent.providers.color.opacity(0.10), Color.orange.opacity(0.05), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
             RadialGradient(
-                colors: [Color.teal.opacity(0.12), Color.clear],
+                colors: [MoreDestinationAccent.providers.color.opacity(0.12), Color.clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 240
@@ -314,7 +314,7 @@ struct BazarrProvidersView: View {
                         Spacer()
                     }
                 }
-                .tint(.teal)
+                .tint(MoreDestinationAccent.providers.color)
                 .disabled(isSavingAntiCaptcha || !canSaveAntiCaptcha)
             } else {
                 LabeledContent("Service", value: antiCaptchaProvider.displayName)
@@ -354,7 +354,7 @@ struct BazarrProvidersView: View {
                         Spacer()
                     }
                 }
-                .tint(.teal)
+                .tint(MoreDestinationAccent.providers.color)
             }
         } header: {
             Text("Anti-Captcha")
@@ -519,7 +519,7 @@ private struct BazarrProviderPickerView: View {
                         BazarrProviderRowView(
                             title: provider.displayName,
                             subtitle: provider.description ?? "Bazarr",
-                            barColor: .teal,
+                            barColor: MoreDestinationAccent.providers.color,
                             isEnabled: true,
                             warningState: .available
                         )
@@ -771,7 +771,7 @@ private struct BazarrProviderRowView: View {
     private var warningIconColor: Color {
         switch warningState {
         case .enabled: .green
-        case .available: .teal
+        case .available: MoreDestinationAccent.providers.color
         case .warning: .orange
         }
     }

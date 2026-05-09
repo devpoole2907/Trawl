@@ -398,6 +398,66 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
         }
     }
 
+    func deleteMovies(ids: Set<Int>, deleteFiles: Bool = false) async {
+        let idsToDelete = ids.sorted()
+        guard !idsToDelete.isEmpty else { return }
+        guard let client else {
+            error = ArrServiceError.clientNotAvailable.localizedDescription
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: ArrServiceError.clientNotAvailable.localizedDescription
+            )
+            return
+        }
+
+        let titlesByID = Dictionary(uniqueKeysWithValues: movies
+            .filter { ids.contains($0.id) }
+            .map { ($0.id, $0.title) })
+        var deletedIDs = Set<Int>()
+        var failures: [String] = []
+
+        for id in idsToDelete {
+            let movieTitle = titlesByID[id] ?? "Movie \(id)"
+            do {
+                try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
+                deletedIDs.insert(id)
+            } catch {
+                failures.append("\(movieTitle): \(error.localizedDescription)")
+            }
+        }
+
+        if !deletedIDs.isEmpty {
+            movies.removeAll { deletedIDs.contains($0.id) }
+            await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Deleted",
+                message: Self.bulkDeleteSuccessMessage(count: deletedIDs.count, singular: "movie", plural: "movies")
+            )
+        }
+
+        if failures.isEmpty {
+            error = nil
+        } else {
+            error = failures.first
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: Self.bulkDeleteFailureMessage(failures, singular: "movie", plural: "movies")
+            )
+        }
+    }
+
+    private static func bulkDeleteSuccessMessage(count: Int, singular: String, plural: String) -> String {
+        count == 1 ? "1 \(singular) removed." : "\(count) \(plural) removed."
+    }
+
+    private static func bulkDeleteFailureMessage(_ failures: [String], singular: String, plural: String) -> String {
+        let itemLabel = failures.count == 1 ? singular : plural
+        let visibleFailures = failures.prefix(3).joined(separator: "\n")
+        let remainingCount = failures.count - min(failures.count, 3)
+        let remainingMessage = remainingCount > 0 ? "\n...and \(remainingCount) more failed." : ""
+        return "\(failures.count) \(itemLabel) failed:\n\(visibleFailures)\(remainingMessage)"
+    }
+
     // MARK: - Search for existing
 
     @discardableResult

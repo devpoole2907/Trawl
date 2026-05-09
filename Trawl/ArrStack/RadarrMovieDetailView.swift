@@ -731,15 +731,19 @@ struct RadarrMovieDetailView: View {
 
     private func fileRow(_ file: RadarrMovieFile, subtitles: [BazarrSubtitle]?) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
+            HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(file.relativePath ?? "Unknown File")
                         .font(.subheadline.weight(.medium))
+                        .lineLimit(2)
+                        .truncationMode(.middle)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text(ByteFormatter.format(bytes: file.size ?? 0))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Spacer()
+                .frame(maxWidth: .infinity, alignment: .leading)
+
                 Menu {
                     Button(role: .destructive) {
                         movieFileToDelete = file.id
@@ -767,6 +771,9 @@ struct RadarrMovieDetailView: View {
                 Text(info.joined(separator: " • "))
                     .font(.caption2)
                     .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                    .fixedSize(horizontal: false, vertical: true)
             }
 
             if let subtitles, !subtitles.isEmpty {
@@ -775,6 +782,7 @@ struct RadarrMovieDetailView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 movieFileToDelete = file.id
@@ -786,37 +794,40 @@ struct RadarrMovieDetailView: View {
     }
 
     private func subtitleFilesView(_ subtitles: [BazarrSubtitle]) -> some View {
-        HStack(spacing: 6) {
-            Image(systemName: "captions.bubble.fill")
-                .font(.caption2)
-                .foregroundStyle(.teal)
-            ForEach(subtitles, id: \.self) { sub in
-                HStack(spacing: 3) {
-                    Text(sub.code2)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.teal)
-                    if sub.hi {
-                        Text("HI")
-                            .font(.system(size: 7).weight(.bold))
-                            .foregroundStyle(.blue)
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Image(systemName: "captions.bubble.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.teal)
+                ForEach(subtitles, id: \.self) { sub in
+                    HStack(spacing: 3) {
+                        Text(sub.code2)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.teal)
+                        if sub.hi {
+                            Text("HI")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.blue)
+                        }
+                        if sub.forced {
+                            Text("Forced")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.orange)
+                        }
+                        if let size = sub.fileSize {
+                            Text(ByteFormatter.format(bytes: Int64(size)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
                     }
-                    if sub.forced {
-                        Text("Forced")
-                            .font(.system(size: 7).weight(.bold))
-                            .foregroundStyle(.orange)
-                    }
-                    if let size = sub.fileSize {
-                        Text(ByteFormatter.format(bytes: Int64(size)))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.teal.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
                 }
-                .padding(.horizontal, 5)
-                .padding(.vertical, 2)
-                .background(Capsule().fill(Color.teal.opacity(0.12)))
-                .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Shared rows card
@@ -1034,12 +1045,7 @@ private struct RadarrAddToLibrarySheet: View {
                 }
             }
             .task {
-                if selectedQualityProfileId == nil {
-                    selectedQualityProfileId = viewModel.qualityProfiles.first?.id
-                }
-                if selectedRootFolderPath == nil {
-                    selectedRootFolderPath = viewModel.rootFolders.first?.path
-                }
+                await refreshConfigurationAndDefaults()
             }
         }
         .presentationDetents([.medium, .large])
@@ -1052,6 +1058,16 @@ private struct RadarrAddToLibrarySheet: View {
         selectedQualityProfileId != nil &&
         selectedRootFolderPath != nil &&
         movie.tmdbId != nil
+    }
+
+    private func refreshConfigurationAndDefaults() async {
+        await viewModel.refreshConfiguration()
+        if selectedQualityProfileId == nil {
+            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
+        }
+        if selectedRootFolderPath == nil {
+            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        }
     }
 
     private func addMovie() async {

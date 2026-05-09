@@ -111,6 +111,9 @@ struct RadarrEditMovieSheet: View {
                 }
             }
         }
+        .task {
+            await refreshConfiguration()
+        }
         .sheet(item: $qualityProfileForDetails) { profile in
             NavigationStack {
                 ArrQualityProfileDetailView(serviceType: .radarr, profile: profile)
@@ -133,6 +136,16 @@ struct RadarrEditMovieSheet: View {
 
     private var selectedQualityProfile: ArrQualityProfile? {
         viewModel.qualityProfiles.first { $0.id == qualityProfileId }
+    }
+
+    private func refreshConfiguration() async {
+        await viewModel.refreshConfiguration()
+        if qualityProfileId == 0, let id = viewModel.qualityProfiles.first?.id {
+            qualityProfileId = id
+        }
+        if rootFolderPath.isEmpty, let path = viewModel.rootFolders.first?.path {
+            rootFolderPath = path
+        }
     }
 
     private func saveChanges() async {

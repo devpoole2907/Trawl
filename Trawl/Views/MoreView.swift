@@ -30,6 +30,10 @@ enum MoreDestination: Hashable {
     case bazarrProviders
     case bazarrSeriesDetail(seriesId: Int)
     case bazarrMovieDetail(radarrId: Int)
+    case seerrSettings
+    case seerrAdmin
+    case seerrIssues
+    case seerrUserManagement
 }
 
 enum MoreDestinationAccent {
@@ -41,6 +45,8 @@ enum MoreDestinationAccent {
     case sonarrNaming
     case radarrNaming
     case rootFolders
+    case languageProfiles
+    case providers
 
     var color: Color {
         switch self {
@@ -52,19 +58,27 @@ enum MoreDestinationAccent {
         case .sonarrNaming: return .purple
         case .radarrNaming: return .orange
         case .rootFolders: return .indigo
+        case .languageProfiles: return .cyan
+        case .providers: return .pink
         }
     }
 }
 
 struct MoreView: View {
     @Query private var servers: [ServerProfile]
+    @Query private var seerrProfiles: [SeerrServiceProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var showingNotificationsSheet = false
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
+
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -108,12 +122,12 @@ struct MoreView: View {
 
                 Section {
                     NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
-                        moreRow(icon: "globe", color: .teal,
+                        moreRow(icon: "globe", color: MoreDestinationAccent.languageProfiles.color,
                                 title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
                     }
 
                     NavigationLink(value: MoreDestination.bazarrProviders) {
-                        moreRow(icon: "person.2.fill", color: .teal,
+                        moreRow(icon: "person.2.fill", color: MoreDestinationAccent.providers.color,
                                 title: "Providers", subtitle: "Manage Bazarr subtitle providers")
                     }
                 }
@@ -135,6 +149,15 @@ struct MoreView: View {
                     }
                 }
                 Section {
+                    NavigationLink(value: MoreDestination.seerrAdmin) {
+                        moreRow(
+                            icon: "shield.fill",
+                            color: .indigo,
+                            title: "Seerr Admin",
+                            subtitle: seerrProfile == nil ? "Not configured" : "Dashboard, issues, and user management"
+                        )
+                    }
+                    
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
                                 title: "Settings", subtitle: "App and server configuration")
@@ -237,6 +260,22 @@ struct MoreView: View {
                     )
                         .environment(arrServiceManager)
                         .injectSyncService(appServices)
+                        .moreDestinationTitleStyle()
+                case .seerrAdmin:
+                    seerrAdminDestination
+                        .moreDestinationTitleStyle()
+                case .seerrUserManagement:
+                    if let client = seerrServiceManager.activeClient {
+                        SeerrUserManagementView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    }
+                case .seerrIssues:
+                    if let client = seerrServiceManager.activeClient {
+                        SeerrIssueListView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    }
+                case .seerrSettings:
+                    SeerrSettingsView()
                         .moreDestinationTitleStyle()
                 case .calendarSeries(let id):
                     SonarrSeriesDetailView(seriesId: id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
@@ -411,6 +450,43 @@ struct MoreView: View {
             } description: {
                 Text("Add a qBittorrent server before managing RSS feeds.")
             }
+        }
+    }
+
+    @ViewBuilder
+    private var seerrAdminDestination: some View {
+        if seerrServiceManager.isConnected {
+            SeerrDashboardView()
+        } else if seerrServiceManager.isConnecting {
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Connecting to Seerr…")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Seerr Admin")
+        } else if let seerrProfile {
+            ContentUnavailableView {
+                Label("Seerr Unreachable", systemImage: "network.slash")
+            } description: {
+                Text(seerrServiceManager.connectionError ?? "Unable to reach your configured Seerr server.")
+            } actions: {
+                Button("Retry Connection") {
+                    Task {
+                        await seerrServiceManager.connectService(seerrProfile)
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            .navigationTitle("Seerr Admin")
+        } else {
+            ContentUnavailableView {
+                Label("Seerr Not Configured", systemImage: "shield")
+            } description: {
+                Text("Add a Seerr server in Settings to use the admin dashboard.")
+            }
+            .navigationTitle("Seerr Admin")
         }
     }
 

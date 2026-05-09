@@ -357,13 +357,13 @@ struct SonarrSeriesListView: View {
     }
 
     private func bulkDeleteSeries(deleteFiles: Bool) {
+        guard let vm = viewModel else { return }
         let ids = selectedSeriesIDs
+        guard !ids.isEmpty else { return }
         selectedSeriesIDs = []
         withAnimation { editMode = .inactive }
         Task {
-            for id in ids {
-                _ = await viewModel?.deleteSeries(id: id, deleteFiles: deleteFiles)
-            }
+            await vm.deleteSeries(ids: ids, deleteFiles: deleteFiles)
         }
     }
 

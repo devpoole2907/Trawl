@@ -94,8 +94,7 @@ struct SonarrAddSeriesSheet: View {
             .listStyle(.inset)
             #endif
             .task {
-                selectedQualityProfileId = viewModel.qualityProfiles.first?.id
-                selectedRootFolderPath = viewModel.rootFolders.first?.path
+                await refreshConfigurationAndDefaults()
             }
         }
         .sheet(item: $qualityProfileForDetails) { profile in
@@ -116,6 +115,16 @@ struct SonarrAddSeriesSheet: View {
     private var selectedQualityProfile: ArrQualityProfile? {
         guard let selectedQualityProfileId else { return nil }
         return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
+    }
+
+    private func refreshConfigurationAndDefaults() async {
+        await viewModel.refreshConfiguration()
+        if selectedQualityProfileId == nil {
+            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
+        }
+        if selectedRootFolderPath == nil {
+            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        }
     }
 
     private func performSearch() async {
