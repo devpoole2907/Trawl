@@ -34,6 +34,7 @@ enum MoreDestination: Hashable {
     case seerrAdmin
     case seerrIssues
     case seerrUserManagement
+    case seerrLogs
 }
 
 enum MoreDestinationAccent {
@@ -83,7 +84,7 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section {
+                Section("ARR") {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
                                 title: "Activity", subtitle: "Queue, downloads, and import history")
@@ -120,7 +121,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section {
+                Section("Bazarr") {
                     NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
                         moreRow(icon: "globe", color: MoreDestinationAccent.languageProfiles.color,
                                 title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
@@ -132,7 +133,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section {
+                Section("qBittorrent") {
                     NavigationLink(value: MoreDestination.categoriesAndTags) {
                         moreRow(icon: "tag.fill", color: MoreDestinationAccent.categoriesAndTags.color,
                                 title: "Categories & Tags", subtitle: "Manage your torrent organization")
@@ -148,16 +149,33 @@ struct MoreView: View {
                                 title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
                     }
                 }
-                Section {
+                Section("Seerr") {
                     NavigationLink(value: MoreDestination.seerrAdmin) {
                         moreRow(
                             icon: "shield.fill",
                             color: .indigo,
                             title: "Seerr Admin",
-                            subtitle: seerrProfile == nil ? "Not configured" : "Dashboard, issues, and user management"
+                            subtitle: seerrProfile == nil ? "Not configured" : "Dashboard overview"
                         )
                     }
-                    
+
+                    NavigationLink(value: MoreDestination.seerrIssues) {
+                        moreRow(icon: "exclamationmark.bubble.fill", color: .orange,
+                                title: "Manage Issues", subtitle: "Review and respond to user issues")
+                    }
+
+                    NavigationLink(value: MoreDestination.seerrUserManagement) {
+                        moreRow(icon: "person.2.badge.gearshape", color: .blue,
+                                title: "Manage Users", subtitle: "Edit permissions and remove users")
+                    }
+
+                    NavigationLink(value: MoreDestination.seerrLogs) {
+                        moreRow(icon: "doc.text.magnifyingglass", color: .pink,
+                                title: "Seerr Logs", subtitle: "Notification logs and health alerts")
+                    }
+                }
+
+                Section("App") {
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
                                 title: "Settings", subtitle: "App and server configuration")
@@ -267,6 +285,7 @@ struct MoreView: View {
                 case .seerrUserManagement:
                     if let client = seerrServiceManager.activeClient {
                         SeerrUserManagementView(apiClient: client)
+                            .moreDestinationBackground(.mediaManagement)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
@@ -275,11 +294,15 @@ struct MoreView: View {
                 case .seerrIssues:
                     if let client = seerrServiceManager.activeClient {
                         SeerrIssueListView(apiClient: client)
+                            .moreDestinationBackground(.mediaManagement)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
                             .moreDestinationTitleStyle()
                     }
+                case .seerrLogs:
+                    SeerrLogsView()
+                        .moreDestinationTitleStyle()
                 case .seerrSettings:
                     SeerrSettingsView()
                         .moreDestinationTitleStyle()
@@ -615,11 +638,15 @@ private struct RecentNotificationsSheet: View {
         }
     }
 
-    private func icon(for style: InAppBannerStyle) -> String {
-        switch style {
-        case .success: "checkmark.circle.fill"
-        case .error: "exclamationmark.triangle.fill"
-        case .progress: "arrow.triangle.2.circlepath"
+    private func icon(for entry: NotificationLogEntry) -> String {
+        let blob = "\(entry.title) \(entry.message)".lowercased()
+        if blob.contains("health") || blob.contains("warning") || blob.contains("issue") { return "heart.text.square.fill" }
+        if blob.contains("user") { return "person.crop.circle.badge.exclamationmark" }
+        if blob.contains("download") || blob.contains("import") { return "arrow.down.circle.fill" }
+        switch entry.style {
+        case .success: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        case .progress: return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -645,7 +672,7 @@ private struct RecentNotificationsSheet: View {
                 NavigationLink {
                     NotificationDetailView(
                         entry: entry,
-                        icon: icon(for: entry.style),
+                        icon: icon(for: entry),
                         tint: color(for: entry.style)
                     )
                 } label: {
@@ -671,7 +698,7 @@ private struct RecentNotificationsSheet: View {
                 Circle()
                     .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
                     .frame(width: 7, height: 7)
-                Image(systemName: icon(for: entry.style))
+                Image(systemName: icon(for: entry))
                     .foregroundStyle(color(for: entry.style))
                 Text(entry.title)
                     .font(.headline)
@@ -746,5 +773,53 @@ private struct NotificationDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+}
+
+private struct SeerrLogsView: View {
+    @Environment(InAppNotificationCenter.self) private var center
+    @State private var selectedEntry: NotificationLogEntry?
+
+    private var seerrEntries: [NotificationLogEntry] {
+        center.recentNotifications.filter { e in
+            let blob = "\(e.title) \(e.message)".lowercased()
+            return blob.contains("seerr") || blob.contains("issue") || blob.contains("user")
+        }
+    }
+
+    var body: some View {
+        Group {
+            if seerrEntries.isEmpty {
+                ContentUnavailableView("No Seerr Logs", systemImage: "doc.text.magnifyingglass", description: Text("Seerr-related notification logs will appear here."))
+            } else {
+                List {
+                    ForEach(seerrEntries) { entry in
+                        Button { selectedEntry = entry } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text(entry.title).font(.headline)
+                                if !entry.message.isEmpty { Text(entry.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
+                                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
+            }
+        }
+        .background(MoreDestinationGradientBackground(accent: .providers))
+        .navigationTitle("Seerr Logs")
+        .sheet(item: $selectedEntry) { entry in
+            NotificationDetailView(entry: entry, icon: "doc.text.fill", tint: .pink)
+                .presentationDetents([.medium])
+        }
     }
 }
