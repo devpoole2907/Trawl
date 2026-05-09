@@ -3,66 +3,85 @@ import OSLog
 import Observation
 import SwiftUI
 
+enum ProwlarrOperation: Hashable {
+    case indexer
+    case schema
+    case search
+    case stats
+}
+
+protocol IndexerCapableClient {
+    func getIndexers() async throws -> [ArrManagedIndexer]
+    func getIndexerSchema() async throws -> [ArrManagedIndexer]
+    func createIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer
+    func updateIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer
+    func deleteIndexer(id: Int) async throws
+    func testIndexer(_ indexer: ArrManagedIndexer) async throws
+}
+
+extension SonarrAPIClient: IndexerCapableClient {}
+extension RadarrAPIClient: IndexerCapableClient {}
+
 @MainActor
 @Observable
-final class ProwlarrViewModel {
+final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIClient> {
     private let logger = Logger(subsystem: "com.poole.james.Trawl", category: "ProwlarrViewModel")
-    private let serviceManager: ArrServiceManager
 
     // MARK: - Indexer State
     private(set) var indexers: [ProwlarrIndexer] = []
     private(set) var indexerStatuses: [ProwlarrIndexerStatus] = []
     private(set) var isLoadingIndexers = false
-    private(set) var indexerError: String?
+    private(set) var errors: [ProwlarrOperation: String] = [:]
     private(set) var testResult: String?
     private(set) var testSucceeded: Bool?
     private(set) var isTesting = false
     private(set) var isSyncingApplications = false
 
+    var indexerError: String? { errors[.indexer] }
+    var schemaError: String? { errors[.schema] }
+    var searchError: String? { errors[.search] }
+    var statsError: String? { errors[.stats] }
+
     // MARK: - Schema State
     private(set) var schemaIndexers: [ProwlarrIndexer] = []
     private(set) var isLoadingSchema = false
-    private(set) var schemaError: String?
 
     // MARK: - Search State
     var searchQuery = ""
     var searchType: ProwlarrSearchType = .search
     var selectedIndexerIds: Set<Int> = []
     private(set) var searchResults: [ProwlarrSearchResult] = []
-    private(set) var isSearching = false
-    private(set) var searchError: String?
-    private var currentRequestToken: UUID?
+    private(set) var isSearching: Bool = false
+    private var searchTracker = StreamingSearchTracker<ProwlarrSearchResult>()
 
     // MARK: - Stats State
     private(set) var indexerStats: ProwlarrIndexerStats?
     private(set) var isLoadingStats = false
-    private(set) var statsError: String?
 
     init(serviceManager: ArrServiceManager) {
-        self.serviceManager = serviceManager
+        super.init(serviceManager: serviceManager, client: serviceManager.prowlarrClient)
     }
-
-    private var client: ProwlarrAPIClient? { serviceManager.prowlarrClient }
 
     // MARK: - Indexer Operations
 
     func loadIndexers() async {
         guard let client else {
-            indexerError = "Prowlarr not connected."
+            errors[.indexer] = "Prowlarr not connected."
             return
         }
         isLoadingIndexers = true
-        indexerError = nil
+        errors[.indexer] = nil
 
         // Load indexers and statuses together
         do {
-            async let fetchedIndexers = client.getIndexers()
+            async let fetchedIndexers: [ProwlarrIndexer] = client.getIndexers()
             async let fetchedStatuses = client.getIndexerStatuses()
             let (loaded, statuses) = try await (fetchedIndexers, fetchedStatuses)
             indexers = loaded.sorted { ($0.name ?? "") < ($1.name ?? "") }
+            setLibraryItems(indexers)
             indexerStatuses = statuses
         } catch {
-            indexerError = error.localizedDescription
+            errors[.indexer] = error.localizedDescription
         }
 
         isLoadingIndexers = false
@@ -70,11 +89,11 @@ final class ProwlarrViewModel {
         // Load stats separately so failures don't affect indexers/statuses
         isLoadingStats = true
         defer { isLoadingStats = false }
-        statsError = nil
+        errors[.stats] = nil
         do {
             indexerStats = try await client.getIndexerStats()
         } catch {
-            statsError = error.localizedDescription
+            errors[.stats] = error.localizedDescription
         }
     }
 
@@ -102,7 +121,7 @@ final class ProwlarrViewModel {
             if let idx = indexers.firstIndex(where: { $0.id == indexer.id }) {
                 indexers[idx] = indexer
             }
-            indexerError = error.localizedDescription
+            errors[.indexer] = error.localizedDescription
         }
     }
 
@@ -111,16 +130,16 @@ final class ProwlarrViewModel {
         do {
             try await client.deleteIndexer(id: indexer.id)
             indexers.removeAll { $0.id == indexer.id }
-            indexerError = nil
+            errors[.indexer] = nil
             return true
         } catch {
-            indexerError = error.localizedDescription
+            errors[.indexer] = error.localizedDescription
             return false
         }
     }
 
     func clearIndexerError() {
-        indexerError = nil
+        errors[.indexer] = nil
     }
 
     func containsIndexer(id: Int) -> Bool {
@@ -129,7 +148,7 @@ final class ProwlarrViewModel {
 
     func reloadSchema() async {
         schemaIndexers = []
-        schemaError = nil
+        errors[.schema] = nil
         await loadSchema()
     }
 
@@ -137,27 +156,28 @@ final class ProwlarrViewModel {
         guard let client else { return }
         guard schemaIndexers.isEmpty else { return }
         isLoadingSchema = true
-        schemaError = nil
+        errors[.schema] = nil
         do {
-            schemaIndexers = try await client.getIndexerSchema()
+            let schemas: [ProwlarrIndexer] = try await client.getIndexerSchema()
+            schemaIndexers = schemas
                 .sorted { ($0.name ?? "") < ($1.name ?? "") }
         } catch {
             logger.error("Failed to load Prowlarr schema: \(error.localizedDescription, privacy: .public)")
-            schemaError = error.localizedDescription
+            errors[.schema] = error.localizedDescription
         }
         isLoadingSchema = false
     }
 
     func addIndexer(_ indexer: ProwlarrIndexer) async -> Bool {
         guard let client else { return false }
-        indexerError = nil
+        errors[.indexer] = nil
         do {
             let created = try await client.createIndexer(indexer)
             indexers.append(created)
             indexers.sort { ($0.name ?? "") < ($1.name ?? "") }
             return true
         } catch {
-            indexerError = error.localizedDescription
+            errors[.indexer] = error.localizedDescription
             return false
         }
     }
@@ -169,7 +189,7 @@ final class ProwlarrViewModel {
 
     func clearTestOutcome() {
         clearTestResult()
-        indexerError = nil
+        errors[.indexer] = nil
     }
 
     func testIndexer(_ indexer: ProwlarrIndexer) async {
@@ -274,17 +294,16 @@ final class ProwlarrViewModel {
 
     func performSearch() async {
         guard let client else {
-            searchError = "Prowlarr not connected."
+            errors[.search] = "Prowlarr not connected."
             return
         }
         let trimmed = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
 
-        let requestToken = UUID()
-        currentRequestToken = requestToken
+        let requestToken = searchTracker.begin()
 
         isSearching = true
-        searchError = nil
+        errors[.search] = nil
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             searchResults = []
         }
@@ -294,31 +313,32 @@ final class ProwlarrViewModel {
             let results = try await client.search(query: trimmed, indexerIds: ids, type: searchType)
 
             // Only apply results if this is still the current request
-            guard currentRequestToken == requestToken else { return }
+            guard searchTracker.isCurrent(requestToken) else { return }
 
-            let batchSize = results.count > 30 ? 10 : 5
-            for batch in results.chunked(into: batchSize) {
-                guard currentRequestToken == requestToken && !Task.isCancelled else { break }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    searchResults.append(contentsOf: batch)
-                }
+            await searchTracker.stream(results, token: requestToken) { item in
+                self.searchResults.append(item)
             }
+        } catch is CancellationError {
+            if searchTracker.isCurrent(requestToken) {
+                isSearching = false
+            }
+            return
         } catch {
             // Only apply error if this is still the current request
-            guard currentRequestToken == requestToken else { return }
-            searchError = error.localizedDescription
+            guard searchTracker.isCurrent(requestToken) else { return }
+            errors[.search] = error.localizedDescription
         }
 
         // Only update isSearching if this is still the current request
-        guard currentRequestToken == requestToken && !Task.isCancelled else { return }
+        guard searchTracker.isCurrent(requestToken) && !Task.isCancelled else { return }
         isSearching = false
     }
 
     func clearSearch() {
         searchQuery = ""
         searchResults = []
-        searchError = nil
-        currentRequestToken = nil
+        errors[.search] = nil
+        searchTracker.cancel()
         isSearching = false
     }
 
@@ -326,15 +346,15 @@ final class ProwlarrViewModel {
 
     func loadStats() async {
         guard let client else {
-            statsError = "Prowlarr not connected."
+            errors[.stats] = "Prowlarr not connected."
             return
         }
         isLoadingStats = true
-        statsError = nil
+        errors[.stats] = nil
         do {
             indexerStats = try await client.getIndexerStats()
         } catch {
-            statsError = error.localizedDescription
+            errors[.stats] = error.localizedDescription
         }
         isLoadingStats = false
     }
@@ -533,14 +553,8 @@ final class ArrIndexerManagementViewModel {
     }
 
     func indexers(for profileID: UUID, serviceType: ArrServiceType) -> [ArrManagedIndexer] {
-        switch serviceType {
-        case .sonarr:
-            sonarrIndexersByProfileID[profileID] ?? []
-        case .radarr:
-            radarrIndexersByProfileID[profileID] ?? []
-        case .prowlarr, .bazarr:
-            []
-        }
+        guard let keyPath = indexerStorageKeyPath(for: serviceType) else { return [] }
+        return self[keyPath: keyPath][profileID] ?? []
     }
 
     func schema(for profileID: UUID) -> [ArrManagedIndexer] {
@@ -620,92 +634,76 @@ final class ArrIndexerManagementViewModel {
         testSucceeded = nil
     }
 
-    private func fetchIndexers(for profileID: UUID, serviceType: ArrServiceType) async throws -> [ArrManagedIndexer] {
+    private func withIndexerClient<T>(
+        profileID: UUID,
+        serviceType: ArrServiceType,
+        op: (any IndexerCapableClient) async throws -> T
+    ) async throws -> T {
         switch serviceType {
         case .sonarr:
             guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.getIndexers()
+            return try await op(client)
         case .radarr:
             guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.getIndexers()
+            return try await op(client)
         case .prowlarr, .bazarr:
-            return []
+            throw ArrError.unsupportedIndexerService(serviceType.displayName)
+        }
+    }
+
+    private func fetchIndexers(for profileID: UUID, serviceType: ArrServiceType) async throws -> [ArrManagedIndexer] {
+        if serviceType == .prowlarr || serviceType == .bazarr { return [] }
+        return try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
+            try await client.getIndexers()
         }
     }
 
     private func fetchSchema(for profileID: UUID, serviceType: ArrServiceType) async throws -> [ArrManagedIndexer] {
-        switch serviceType {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.getIndexerSchema()
-        case .radarr:
-            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.getIndexerSchema()
-        case .prowlarr, .bazarr:
-            return []
+        if serviceType == .prowlarr || serviceType == .bazarr { return [] }
+        return try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
+            try await client.getIndexerSchema()
         }
     }
 
     private func createIndexer(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws -> ArrManagedIndexer {
-        switch serviceType {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.createIndexer(indexer)
-        case .radarr:
-            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.createIndexer(indexer)
-        case .prowlarr, .bazarr:
-            throw ArrError.unsupportedIndexerService(serviceType.displayName)
+        try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
+            try await client.createIndexer(indexer)
         }
     }
 
     private func updateIndexerRequest(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws -> ArrManagedIndexer {
-        switch serviceType {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.updateIndexer(indexer)
-        case .radarr:
-            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            return try await client.updateIndexer(indexer)
-        case .prowlarr, .bazarr:
-            throw ArrError.unsupportedIndexerService(serviceType.displayName)
+        try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
+            try await client.updateIndexer(indexer)
         }
     }
 
     private func deleteIndexerRequest(id: Int, for profileID: UUID, serviceType: ArrServiceType) async throws {
-        switch serviceType {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+        try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
             try await client.deleteIndexer(id: id)
-        case .radarr:
-            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            try await client.deleteIndexer(id: id)
-        case .prowlarr, .bazarr:
-            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 
     private func testIndexerRequest(_ indexer: ArrManagedIndexer, for profileID: UUID, serviceType: ArrServiceType) async throws {
-        switch serviceType {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
+        try await withIndexerClient(profileID: profileID, serviceType: serviceType) { client in
             try await client.testIndexer(indexer)
-        case .radarr:
-            guard let client = serviceManager.radarrClient(for: profileID) else { throw ArrError.noServiceConfigured }
-            try await client.testIndexer(indexer)
-        case .prowlarr, .bazarr:
-            throw ArrError.unsupportedIndexerService(serviceType.displayName)
         }
     }
 
     private func assign(_ indexers: [ArrManagedIndexer], to profileID: UUID, serviceType: ArrServiceType) {
+        guard let keyPath = indexerStorageKeyPath(for: serviceType) else { return }
+        self[keyPath: keyPath][profileID] = indexers
+    }
+
+    private func indexerStorageKeyPath(
+        for serviceType: ArrServiceType
+    ) -> ReferenceWritableKeyPath<ArrIndexerManagementViewModel, [UUID: [ArrManagedIndexer]]>? {
         switch serviceType {
         case .sonarr:
-            sonarrIndexersByProfileID[profileID] = indexers
+            \.sonarrIndexersByProfileID
         case .radarr:
-            radarrIndexersByProfileID[profileID] = indexers
+            \.radarrIndexersByProfileID
         case .prowlarr, .bazarr:
-            break
+            nil
         }
     }
 

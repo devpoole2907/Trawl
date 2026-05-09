@@ -35,7 +35,7 @@ actor AuthService {
         request.httpMethod = "POST"
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
 
-        let body = "username=\(urlEncode(username))&password=\(urlEncode(password))"
+        let body = "username=\(URLEncoding.unreservedEncode(username))&password=\(URLEncoding.unreservedEncode(password))"
         request.httpBody = body.data(using: .utf8)
 
         let (data, response) = try await session.data(for: request)
@@ -85,12 +85,5 @@ actor AuthService {
             }
         }
         return nil
-    }
-
-    private func urlEncode(_ string: String) -> String {
-        // Must encode &, =, + which are delimiters in application/x-www-form-urlencoded
-        var allowed = CharacterSet.alphanumerics
-        allowed.insert(charactersIn: "-._~")
-        return string.addingPercentEncoding(withAllowedCharacters: allowed) ?? string
     }
 }

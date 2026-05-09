@@ -42,50 +42,51 @@ struct ArrHistoryView: View {
                 systemImage: "network.slash",
                 description: Text("Unable to reach your configured Sonarr or Radarr servers.")
             )
-        } else if isLoading && groupedItems.isEmpty {
-            ProgressView("Loading history...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if groupedItems.isEmpty {
-            ContentUnavailableView(
-                "No History",
-                systemImage: "tray",
-                description: Text("No download or import events are available yet.")
-            )
         } else {
-            List {
-                ForEach(groupedItems) { section in
-                    Section(section.title) {
-                        ForEach(section.items) { item in
-                            HistoryRow(item: item)
-                        }
-                    }
-                }
-                .animation(.default, value: groupedItems.map(\.id))
-
-                if shouldShowLoadMore {
-                    Button {
-                        Task { await loadMoreHistory() }
-                    } label: {
-                        HStack {
-                            Spacer()
-                            if isLoadingMore {
-                                ProgressView()
-                                    .controlSize(.small)
-                            } else {
-                                Text("Load More")
+            ArrLoadingErrorEmptyView(
+                isLoading: isLoading,
+                error: nil,
+                isEmpty: groupedItems.isEmpty,
+                emptyTitle: "No History",
+                emptyIcon: "tray",
+                emptyDescription: "No download or import events are available yet.",
+                onRetry: nil
+            ) {
+                List {
+                    ForEach(groupedItems) { section in
+                        Section(section.title) {
+                            ForEach(section.items) { item in
+                                HistoryRow(item: item)
                             }
-                            Spacer()
                         }
                     }
-                    .disabled(isLoadingMore)
+                    .animation(.default, value: groupedItems.map(\.id))
+
+                    if shouldShowLoadMore {
+                        Button {
+                            Task { await loadMoreHistory() }
+                        } label: {
+                            HStack {
+                                Spacer()
+                                if isLoadingMore {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Text("Load More")
+                                }
+                                Spacer()
+                            }
+                        }
+                        .disabled(isLoadingMore)
+                    }
                 }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
             }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
-            .scrollContentBackground(.hidden)
         }
     }
 

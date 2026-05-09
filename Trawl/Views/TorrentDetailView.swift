@@ -82,7 +82,11 @@ struct TorrentDetailView: View {
                 }
             }
         }
+        #if os(iOS)
         .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
         .alert("Delete Torrent?", isPresented: $showDeleteAlert) {
             Button("Delete and Remove Files", role: .destructive) {
                 Task {

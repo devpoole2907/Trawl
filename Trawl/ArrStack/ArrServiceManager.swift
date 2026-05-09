@@ -5,10 +5,10 @@ import SwiftUI
 
 // MARK: - Instance Entry Types
 
-struct SonarrClientEntry: Identifiable {
+struct ArrClientEntry<Client: SharedArrClient>: Identifiable {
     let id: UUID
     let displayName: String
-    var client: SonarrAPIClient?
+    var client: Client?
     var isConnected: Bool = false
     var isConnecting: Bool = false
     var connectionError: String?
@@ -22,22 +22,8 @@ struct SonarrClientEntry: Identifiable {
     }
 }
 
-struct RadarrClientEntry: Identifiable {
-    let id: UUID
-    let displayName: String
-    var client: RadarrAPIClient?
-    var isConnected: Bool = false
-    var isConnecting: Bool = false
-    var connectionError: String?
-    var qualityProfiles: [ArrQualityProfile] = []
-    var rootFolders: [ArrRootFolder] = []
-    var tags: [ArrTag] = []
-
-    init(id: UUID, displayName: String) {
-        self.id = id
-        self.displayName = displayName
-    }
-}
+typealias SonarrClientEntry = ArrClientEntry<SonarrAPIClient>
+typealias RadarrClientEntry = ArrClientEntry<RadarrAPIClient>
 
 struct BazarrClientEntry: Identifiable {
     let id: UUID
@@ -415,7 +401,7 @@ final class ArrServiceManager {
                 let (fetchedProfiles, folders, fetchedTags) = try await (qp, rf, t)
 
                 if sonarrInstances.contains(where: { $0.id == profile.id }) {
-                    updateSonarrEntry(id: profile.id) { entry in
+                    updateEntry(in: &sonarrInstances, id: profile.id) { entry in
                         entry.client = client
                         entry.isConnected = true
                         entry.connectionError = nil
@@ -455,7 +441,7 @@ final class ArrServiceManager {
                 let (fetchedProfiles, folders, fetchedTags) = try await (qp, rf, t)
 
                 if radarrInstances.contains(where: { $0.id == profile.id }) {
-                    updateRadarrEntry(id: profile.id) { entry in
+                    updateEntry(in: &radarrInstances, id: profile.id) { entry in
                         entry.client = client
                         entry.isConnected = true
                         entry.connectionError = nil
@@ -509,8 +495,7 @@ final class ArrServiceManager {
                 async let lang = client.getLanguages()
                 let (profiles, languages) = try await (lp, lang)
 
-                if bazarrInstances.contains(where: { $0.id == profile.id }) {
-                    updateBazarrEntry(id: profile.id) { entry in
+                if bazarrInstances.contains(where: { $0.id == profile.id }) { updateEntry(in: &bazarrInstances, id: profile.id) { entry in
                         entry.client = client
                         entry.isConnected = true
                         entry.connectionError = nil
@@ -545,7 +530,7 @@ final class ArrServiceManager {
         async let seriesPage = try? client.getSeries(start: 0, length: -1)
         async let moviesPage = try? client.getMovies(start: 0, length: -1)
         let (series, movies) = await (seriesPage, moviesPage)
-        updateBazarrEntry(id: id) { entry in
+        updateEntry(in: &bazarrInstances, id: id) { entry in
             if let s = series { entry.cachedSeries = s.data }
             if let m = movies { entry.cachedMovies = m.data }
         }
@@ -714,9 +699,9 @@ final class ArrServiceManager {
         }
         isLoadingHealth = true
         defer { isLoadingHealth = false }
-        async let s = _fetchHealth(sonarrClient)
-        async let r = _fetchHealth(radarrClient)
-        async let p = _fetchProwlarrHealth()
+        async let s = fetchHealth(sonarrClient)
+        async let r = fetchHealth(radarrClient)
+        async let p = fetchHealth(prowlarrClient)
         let (sv, rv, pv) = await (s, r, p)
         sonarrHealthChecks = sv
         radarrHealthChecks = rv
@@ -731,8 +716,8 @@ final class ArrServiceManager {
         }
         isLoadingBlocklist = true
         defer { isLoadingBlocklist = false }
-        async let s = _fetchBlocklist(sonarrClient)
-        async let r = _fetchBlocklist(radarrClient)
+        async let s = fetchBlocklist(sonarrClient)
+        async let r = fetchBlocklist(radarrClient)
         let (sv, rv) = await (s, r)
         sonarrBlocklist = sv
         radarrBlocklist = rv
@@ -764,77 +749,44 @@ final class ArrServiceManager {
         radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
     }
 
-    private func _fetchHealth(_ client: SonarrAPIClient?) async -> [ArrHealthCheck] {
+    private func fetchHealth<C: SharedArrClient>(_ client: C?) async -> [ArrHealthCheck] {
         guard let client else { return [] }
         return (try? await client.getHealth()) ?? []
     }
 
-    private func _fetchHealth(_ client: RadarrAPIClient?) async -> [ArrHealthCheck] {
-        guard let client else { return [] }
-        return (try? await client.getHealth()) ?? []
-    }
-
-    private func _fetchProwlarrHealth() async -> [ArrHealthCheck] {
-        guard let client = prowlarrClient else { return [] }
-        return (try? await client.getHealth()) ?? []
-    }
-
-    private func _fetchBlocklist(_ client: SonarrAPIClient?) async -> [ArrBlocklistItem] {
+    private func fetchBlocklist<C: SharedArrClient>(_ client: C?) async -> [ArrBlocklistItem] {
         guard let client else { return [] }
         return (try? await client.getBlocklist().records) ?? []
     }
 
-    private func _fetchBlocklist(_ client: RadarrAPIClient?) async -> [ArrBlocklistItem] {
-        guard let client else { return [] }
-        return (try? await client.getBlocklist().records) ?? []
+    private func applyConfigurationUpdate<C: SharedArrClient>(
+        in array: inout [ArrClientEntry<C>],
+        id: UUID,
+        profiles: [ArrQualityProfile]?,
+        folders: [ArrRootFolder]?,
+        tags: [ArrTag]?,
+        error: String?
+    ) {
+        updateEntry(in: &array, id: id) { entry in
+            if let profiles { entry.qualityProfiles = profiles }
+            if let folders { entry.rootFolders = folders }
+            if let tags { entry.tags = tags }
+            entry.connectionError = error
+        }
+        if let error = error {
+            connectionErrors[id.uuidString] = error
+        } else {
+            connectionErrors.removeValue(forKey: id.uuidString)
+        }
     }
 
     /// Refresh cached configuration data for all connected services.
     func refreshConfiguration() async {
-        let sonarrSnapshots = sonarrInstances.compactMap { entry -> (UUID, SonarrAPIClient)? in
-            guard entry.isConnected, let client = entry.client else { return nil }
-            return (entry.id, client)
+        await refreshConfiguration(snapshots: configurationSnapshots(from: sonarrInstances)) { id, profiles, folders, tags, error in
+            applyConfigurationUpdate(in: &sonarrInstances, id: id, profiles: profiles, folders: folders, tags: tags, error: error)
         }
-        for (id, client) in sonarrSnapshots {
-            do {
-                async let qp = client.getQualityProfiles()
-                async let rf = client.getRootFolders()
-                async let t = client.getTags()
-                let (profiles, folders, tags) = try await (qp, rf, t)
-                updateSonarrEntry(id: id) { entry in
-                    entry.qualityProfiles = profiles
-                    entry.rootFolders = folders
-                    entry.tags = tags
-                    entry.connectionError = nil
-                }
-            } catch {
-                updateSonarrEntry(id: id) { entry in
-                    entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
-                }
-            }
-        }
-
-        let radarrSnapshots = radarrInstances.compactMap { entry -> (UUID, RadarrAPIClient)? in
-            guard entry.isConnected, let client = entry.client else { return nil }
-            return (entry.id, client)
-        }
-        for (id, client) in radarrSnapshots {
-            do {
-                async let qp = client.getQualityProfiles()
-                async let rf = client.getRootFolders()
-                async let t = client.getTags()
-                let (profiles, folders, tags) = try await (qp, rf, t)
-                updateRadarrEntry(id: id) { entry in
-                    entry.qualityProfiles = profiles
-                    entry.rootFolders = folders
-                    entry.tags = tags
-                    entry.connectionError = nil
-                }
-            } catch {
-                updateRadarrEntry(id: id) { entry in
-                    entry.connectionError = "Failed to refresh config: \(error.localizedDescription)"
-                }
-            }
+        await refreshConfiguration(snapshots: configurationSnapshots(from: radarrInstances)) { id, profiles, folders, tags, error in
+            applyConfigurationUpdate(in: &radarrInstances, id: id, profiles: profiles, folders: folders, tags: tags, error: error)
         }
     }
 
@@ -843,33 +795,27 @@ final class ArrServiceManager {
     private func setConnecting(_ value: Bool, for serviceType: ArrServiceType, id: UUID) {
         switch serviceType {
         case .sonarr:
-            updateSonarrEntry(id: id) { entry in
-                entry.isConnecting = value
-            }
+            updateEntry(in: &sonarrInstances, id: id) { $0.isConnecting = value }
         case .radarr:
-            updateRadarrEntry(id: id) { entry in
-                entry.isConnecting = value
-            }
+            updateEntry(in: &radarrInstances, id: id) { $0.isConnecting = value }
         case .prowlarr:
             prowlarrIsConnecting = value
         case .bazarr:
-            updateBazarrEntry(id: id) { entry in
-                entry.isConnecting = value
-            }
+            updateEntry(in: &bazarrInstances, id: id) { $0.isConnecting = value }
         }
     }
 
     private func setError(_ message: String?, for serviceType: ArrServiceType, id: UUID) {
         switch serviceType {
         case .sonarr:
-            updateSonarrEntry(id: id) { entry in
-                entry.connectionError = message
-                entry.isConnected = false
+            updateEntry(in: &sonarrInstances, id: id) {
+                $0.connectionError = message
+                $0.isConnected = false
             }
         case .radarr:
-            updateRadarrEntry(id: id) { entry in
-                entry.connectionError = message
-                entry.isConnected = false
+            updateEntry(in: &radarrInstances, id: id) {
+                $0.connectionError = message
+                $0.isConnected = false
             }
         case .prowlarr:
             if activeProwlarrProfileID == id {
@@ -879,32 +825,42 @@ final class ArrServiceManager {
                 activeProwlarrProfileID = nil
             }
         case .bazarr:
-            updateBazarrEntry(id: id) { entry in
-                entry.connectionError = message
-                entry.isConnected = false
+            updateEntry(in: &bazarrInstances, id: id) {
+                $0.connectionError = message
+                $0.isConnected = false
             }
         }
     }
 
-    private func updateSonarrEntry(id: UUID, _ mutate: (inout SonarrClientEntry) -> Void) {
-        guard let idx = sonarrInstances.firstIndex(where: { $0.id == id }) else { return }
-        var entry = sonarrInstances[idx]
+    private func updateEntry<T: Identifiable>(in array: inout [T], id: T.ID, _ mutate: (inout T) -> Void) {
+        guard let idx = array.firstIndex(where: { $0.id == id }) else { return }
+        var entry = array[idx]
         mutate(&entry)
-        sonarrInstances[idx] = entry
+        array[idx] = entry
     }
 
-    private func updateRadarrEntry(id: UUID, _ mutate: (inout RadarrClientEntry) -> Void) {
-        guard let idx = radarrInstances.firstIndex(where: { $0.id == id }) else { return }
-        var entry = radarrInstances[idx]
-        mutate(&entry)
-        radarrInstances[idx] = entry
+    private func configurationSnapshots<C: SharedArrClient>(from entries: [ArrClientEntry<C>]) -> [(UUID, C)] {
+        entries.compactMap { entry in
+            guard entry.isConnected, let client = entry.client else { return nil }
+            return (entry.id, client)
+        }
     }
 
-    private func updateBazarrEntry(id: UUID, _ mutate: (inout BazarrClientEntry) -> Void) {
-        guard let idx = bazarrInstances.firstIndex(where: { $0.id == id }) else { return }
-        var entry = bazarrInstances[idx]
-        mutate(&entry)
-        bazarrInstances[idx] = entry
+    private func refreshConfiguration<C: SharedArrClient>(
+        snapshots: [(UUID, C)],
+        update: (UUID, [ArrQualityProfile]?, [ArrRootFolder]?, [ArrTag]?, String?) -> Void
+    ) async {
+        for (id, client) in snapshots {
+            do {
+                async let qp = client.getQualityProfiles()
+                async let rf = client.getRootFolders()
+                async let t = client.getTags()
+                let (profiles, folders, tags) = try await (qp, rf, t)
+                update(id, profiles, folders, tags, nil)
+            } catch {
+                update(id, nil, nil, nil, "Failed to refresh config: \(error.localizedDescription)")
+            }
+        }
     }
 
     private func normalizedNotificationWorkerURL(from rawValue: String) throws -> String {

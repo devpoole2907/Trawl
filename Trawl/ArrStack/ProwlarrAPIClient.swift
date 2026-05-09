@@ -2,143 +2,18 @@ import Foundation
 
 /// Prowlarr-specific API methods. Wraps ArrAPIClient.
 /// Prowlarr uses /api/v1/ (not /api/v3/ like Sonarr/Radarr).
-actor ProwlarrAPIClient {
+actor ProwlarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
+    let apiPath = "/api/v1"
 
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
         self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
     }
 
-    // MARK: - System
-
-    func getSystemStatus() async throws -> ArrSystemStatus {
-        try await base.get("/api/v1/system/status")
-    }
-
-    func getHealth() async throws -> [ArrHealthCheck] {
-        try await base.get("/api/v1/health")
-    }
-
-    func getQualityProfiles() async throws -> [ArrQualityProfile] {
-        try await base.get("/api/v1/qualityprofile")
-    }
-
-    func getRootFolders() async throws -> [ArrRootFolder] {
-        try await base.get("/api/v1/rootfolder")
-    }
-
-    func getQueue(
-        page: Int = 1,
-        pageSize: Int = ArrAPIClient.defaultPageSize,
-        includeUnknownMovieItems: Bool = true
-    ) async throws -> ArrQueuePage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "includeUnknownMovieItems", value: String(includeUnknownMovieItems)),
-            URLQueryItem(name: "includeUnknownSeriesItems", value: "true")
-        ]
-        return try await base.get("/api/v1/queue", queryItems: params)
-    }
-
-    func getHistory(
-        page: Int = 1,
-        pageSize: Int = ArrAPIClient.defaultPageSize,
-        sortKey: String = "date",
-        sortDirection: String = "descending"
-    ) async throws -> ArrHistoryPage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "sortKey", value: sortKey),
-            URLQueryItem(name: "sortDirection", value: sortDirection)
-        ]
-        return try await base.get("/api/v1/history", queryItems: params)
-    }
-
-    func getDiskSpace() async throws -> [ArrDiskSpace] {
-        try await base.get("/api/v1/diskspace")
-    }
-
     // MARK: - Indexers
-
-    func getIndexers() async throws -> [ProwlarrIndexer] {
-        try await base.get("/api/v1/indexer")
-    }
-
-    func getIndexer(id: Int) async throws -> ProwlarrIndexer {
-        try await base.get("/api/v1/indexer/\(id)")
-    }
-
-    func deleteIndexer(id: Int) async throws {
-        try await base.delete("/api/v1/indexer/\(id)")
-    }
-
-    func updateIndexer(_ indexer: ProwlarrIndexer) async throws -> ProwlarrIndexer {
-        try await base.putCodable("/api/v1/indexer/\(indexer.id)", body: indexer)
-    }
-
-    func getIndexerSchema() async throws -> [ProwlarrIndexer] {
-        try await base.get("/api/v1/indexer/schema")
-    }
-
-    func createIndexer(_ indexer: ProwlarrIndexer) async throws -> ProwlarrIndexer {
-        try await base.postCodable("/api/v1/indexer", body: indexer)
-    }
-
-    func testIndexer(_ indexer: ProwlarrIndexer) async throws {
-        try await base.postVoidCodable("/api/v1/indexer/test", body: indexer)
-    }
 
     func testAllIndexers() async throws {
         try await base.postVoid("/api/v1/indexer/testall", jsonBody: [:])
-    }
-
-    func getCommand(id: Int) async throws -> ArrCommand {
-        try await base.get("/api/v1/command/\(id)")
-    }
-
-    func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
-        var body: [String: Any] = ["name": name]
-        if let additionalParams {
-            for (key, value) in additionalParams {
-                body[key] = value
-            }
-        }
-        return try await base.post("/api/v1/command", jsonBody: body)
-    }
-
-    func postCommandAndWait(
-        name: String,
-        additionalParams: [String: Any]? = nil,
-        timeout: Duration = .seconds(30)
-    ) async throws -> ArrCommand {
-        let command = try await postCommand(name: name, additionalParams: additionalParams)
-        guard let commandID = command.id else { return command }
-
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            try await Task.sleep(for: .seconds(1))
-            try Task.checkCancellation()
-
-            do {
-                let updated = try await getCommand(id: commandID)
-                if updated.isTerminal {
-                    return updated
-                }
-            } catch is CancellationError {
-                throw CancellationError()
-            } catch {
-                continue
-            }
-        }
-
-        let finalCommand = (try? await getCommand(id: commandID)) ?? command
-        if !finalCommand.isTerminal {
-            throw ArrError.commandTimeout(commandId: commandID, lastKnownCommand: finalCommand)
-        }
-
-        return finalCommand
     }
 
     func syncApplications() async throws -> ArrCommand {

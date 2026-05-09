@@ -11,8 +11,7 @@ enum BazarrSubtitleStatus {
 
 @MainActor
 @Observable
-final class BazarrViewModel {
-    let serviceManager: ArrServiceManager
+final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> {
 
     private(set) var series: [BazarrSeries] = []
     private(set) var movies: [BazarrMovie] = []
@@ -43,11 +42,7 @@ final class BazarrViewModel {
     var selectedTab: BazarrBrowserTab = .series
 
     init(serviceManager: ArrServiceManager) {
-        self.serviceManager = serviceManager
-    }
-
-    private var client: BazarrAPIClient? {
-        serviceManager.activeBazarrEntry?.client
+        super.init(serviceManager: serviceManager, client: serviceManager.activeBazarrEntry?.client)
     }
 
     var isConnected: Bool {
@@ -98,10 +93,12 @@ final class BazarrViewModel {
         do {
             let page = try await client.getSeries(start: 0, length: -1)
             series = page.data
+            setLibraryItems(page.data)
             await applyFilters()
         } catch {
             seriesError = error.localizedDescription
             series = []
+            setLibraryItems([])
             await applyFilters()
         }
         isLoadingSeries = false

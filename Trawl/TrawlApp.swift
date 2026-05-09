@@ -1,9 +1,6 @@
 import SwiftUI
 import SwiftData
 import OSLog
-#if os(iOS)
-import BackgroundTasks
-#endif
 #if os(macOS)
 import CoreServices
 #endif
@@ -18,18 +15,17 @@ struct TrawlApp: App {
 
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
-    @State private var sshSessionStore = SSHSessionStore()
+    @State private var seerrServiceManager = SeerrServiceManager()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     @State private var appLockController = AppLockController()
 
     init() {
-        try? Libssh2RuntimeBootstrap.bootstrap()
         let schema = Schema([
             ServerProfile.self,
             CachedTorrentState.self,
             RecentSavePath.self,
             ArrServiceProfile.self,
-            SSHProfile.self
+            SeerrServiceProfile.self
         ])
 
         do {
@@ -67,28 +63,13 @@ struct TrawlApp: App {
         #if os(macOS)
         LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
         #endif
-
-        #if os(iOS)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: SSHBackgroundService.taskIdentifier,
-            using: nil
-        ) { task in
-            guard let refreshTask = task as? BGAppRefreshTask else {
-                task.setTaskCompleted(success: false)
-                return
-            }
-            Task { @MainActor in
-                SSHBackgroundService.shared.handleBackgroundTask(refreshTask)
-            }
-        }
-        #endif
     }
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environment(arrServiceManager)
-                .environment(sshSessionStore)
+                .environment(seerrServiceManager)
                 .environment(inAppNotificationCenter)
                 .environment(appLockController)
                 .task {
@@ -134,15 +115,11 @@ struct TrawlApp: App {
             var arrProfileDescriptor = FetchDescriptor<ArrServiceProfile>()
             arrProfileDescriptor.fetchLimit = 1
 
-            var sshProfileDescriptor = FetchDescriptor<SSHProfile>()
-            sshProfileDescriptor.fetchLimit = 1
-
             return
                 try !context.fetch(serverDescriptor).isEmpty ||
                 !context.fetch(cachedStateDescriptor).isEmpty ||
                 !context.fetch(recentPathDescriptor).isEmpty ||
-                !context.fetch(arrProfileDescriptor).isEmpty ||
-                !context.fetch(sshProfileDescriptor).isEmpty
+                !context.fetch(arrProfileDescriptor).isEmpty
         } catch {
             logger.error("SwiftData migration probe failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -200,20 +177,6 @@ struct TrawlApp: App {
                 copy.lastSynced = arrProfile.lastSynced
                 copy.apiVersion = arrProfile.apiVersion
                 copy.importFolders = arrProfile.importFolders
-                destinationContext.insert(copy)
-            }
-
-            for sshProfile in try sourceContext.fetch(FetchDescriptor<SSHProfile>()) {
-                let copy = SSHProfile(
-                    displayName: sshProfile.displayName,
-                    host: sshProfile.host,
-                    port: sshProfile.port,
-                    username: sshProfile.username,
-                    authType: sshProfile.authType
-                )
-                copy.id = sshProfile.id
-                copy.knownHostFingerprint = sshProfile.knownHostFingerprint
-                copy.createdAt = sshProfile.createdAt
                 destinationContext.insert(copy)
             }
         } catch {

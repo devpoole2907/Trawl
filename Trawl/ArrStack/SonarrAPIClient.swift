@@ -82,10 +82,10 @@ actor SonarrAPIClient: SharedArrClient {
 
     /// Get upcoming episodes within a date range
     func getCalendar(start: Date? = nil, end: Date? = nil, unmonitored: Bool = false, includeSeries: Bool = true) async throws -> [SonarrEpisode] {
-        var params: [URLQueryItem] = []
-        let formatter = ISO8601DateFormatter()
-        if let start { params.append(URLQueryItem(name: "start", value: formatter.string(from: start))) }
-        if let end { params.append(URLQueryItem(name: "end", value: formatter.string(from: end))) }
+        var params = [
+            calendarDateParam(name: "start", value: start),
+            calendarDateParam(name: "end", value: end)
+        ].compactMap { $0 }
         params.append(URLQueryItem(name: "unmonitored", value: String(unmonitored)))
         params.append(URLQueryItem(name: "includeSeries", value: String(includeSeries)))
         return try await base.get("/api/v3/calendar", queryItems: params)
@@ -103,36 +103,6 @@ actor SonarrAPIClient: SharedArrClient {
             params.append(URLQueryItem(name: "seasonNumber", value: String(seasonNumber)))
         }
         return try await base.get("/api/v3/release", queryItems: params)
-    }
-
-    // MARK: - Indexers
-
-    func getIndexers() async throws -> [ArrManagedIndexer] {
-        try await base.get("/api/v3/indexer")
-    }
-
-    func getIndexer(id: Int) async throws -> ArrManagedIndexer {
-        try await base.get("/api/v3/indexer/\(id)")
-    }
-
-    func getIndexerSchema() async throws -> [ArrManagedIndexer] {
-        try await base.get("/api/v3/indexer/schema")
-    }
-
-    func createIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer {
-        try await base.postCodable("/api/v3/indexer", body: indexer)
-    }
-
-    func updateIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer {
-        try await base.putCodable("/api/v3/indexer/\(indexer.id)", body: indexer)
-    }
-
-    func deleteIndexer(id: Int) async throws {
-        try await base.delete("/api/v3/indexer/\(id)")
-    }
-
-    func testIndexer(_ indexer: ArrManagedIndexer) async throws {
-        try await base.postVoidCodable("/api/v3/indexer/test", body: indexer)
     }
 
     func grabRelease(_ release: ArrRelease) async throws {
@@ -155,34 +125,14 @@ actor SonarrAPIClient: SharedArrClient {
         sortKey: String = "airDateUtc",
         sortDirection: String = "descending"
     ) async throws -> SonarrWantedPage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "sortKey", value: sortKey),
-            URLQueryItem(name: "sortDirection", value: sortDirection),
-            URLQueryItem(name: "includeSeries", value: "true")
-        ]
+        let params = wantedMissingParams(
+            page: page,
+            pageSize: pageSize,
+            sortKey: sortKey,
+            sortDirection: sortDirection,
+            extraItems: [URLQueryItem(name: "includeSeries", value: "true")]
+        )
         return try await base.get("/api/v3/wanted/missing", queryItems: params)
-    }
-
-    // MARK: - Blocklist
-
-    func getBlocklist(page: Int = 1, pageSize: Int = ArrAPIClient.defaultPageSize) async throws -> ArrBlocklistPage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "sortKey", value: "date"),
-            URLQueryItem(name: "sortDirection", value: "descending")
-        ]
-        return try await base.get("/api/v3/blocklist", queryItems: params)
-    }
-
-    func deleteBlocklistItem(id: Int) async throws {
-        try await base.delete("/api/v3/blocklist/\(id)")
-    }
-
-    func deleteBlocklistItems(ids: [Int]) async throws {
-        try await base.deleteWithBody("/api/v3/blocklist/bulk", jsonBody: ["ids": ids])
     }
 
     // MARK: - Commands
@@ -230,43 +180,6 @@ actor SonarrAPIClient: SharedArrClient {
         try await base.postCommand(name: SonarrCommand.applicationUpdate.rawValue)
     }
 
-    // MARK: - Manual Import
-
-    /// Get list of files that can be manually imported from a folder
-    func getManualImport(folder: String, seriesId: Int? = nil, filterExistingFiles: Bool = true) async throws -> [JSONValue] {
-        var params = [
-            URLQueryItem(name: "folder", value: folder),
-            URLQueryItem(name: "filterExistingFiles", value: String(filterExistingFiles))
-        ]
-        if let seriesId {
-            params.append(URLQueryItem(name: "seriesId", value: String(seriesId)))
-        }
-        return try await base.get("/api/v3/manualimport", queryItems: params)
-    }
-
-    // MARK: - Naming Config
-
-    func getNamingConfig() async throws -> SonarrNamingConfig {
-        try await base.get("/api/v3/config/naming")
-    }
-
-    func updateNamingConfig(_ config: SonarrNamingConfig) async throws -> SonarrNamingConfig {
-        guard let id = config.id else { throw ArrError.invalidResponse }
-        return try await base.putCodable("/api/v3/config/naming/\(id)", body: config)
-    }
-
-    /// Perform a manual import of specific files, waiting for the command to complete.
-    func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
-        let additionalParams: [String: Any] = [
-            "files": files.map { $0.rawValue },
-            "importMode": importMode
-        ]
-        return try await base.postCommandAndWait(
-            name: "ManualImport",
-            additionalParams: additionalParams,
-            timeout: .seconds(600)
-        )
-    }
 }
 
 // MARK: - Wanted Page (Sonarr-specific paged response)

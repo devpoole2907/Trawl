@@ -17,26 +17,23 @@ struct BazarrMovieDetailView: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading && movie == nil {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error, movie == nil {
-                ContentUnavailableView {
-                    Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry") { Task { await load() } }
-                }
-            } else {
+        ArrItemDetailView(
+            item: movie,
+            title: movie?.title ?? "Movie",
+            backgroundURL: movie?.poster.flatMap(URL.init(string:))
+        ) {
+            ArrLoadingErrorEmptyView(
+                isLoading: isLoading,
+                error: error,
+                isEmpty: movie == nil,
+                emptyTitle: "Movie Not Found",
+                emptyIcon: "film",
+                emptyDescription: "This movie is not tracked in Bazarr.",
+                onRetry: { await load() }
+            ) {
                 contentView
             }
         }
-        .navigationTitle(movie?.title ?? "Movie")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             if movie != nil {
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {

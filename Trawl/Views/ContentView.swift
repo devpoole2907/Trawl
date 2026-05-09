@@ -8,10 +8,12 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
+    @Query private var seerrProfiles: [SeerrServiceProfile]
     @State private var showOnboarding = false
     @State private var appServices: AppServices?
     @State private var disconnectedServices = AppServices.disconnected()
@@ -24,8 +26,6 @@ struct ContentView: View {
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
     @State private var showArrSetup = false
-    @State private var showSSHDisconnectConfirm = false
-    @State private var showSSHSessionSheet = false
     @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var hasAutoSelectedTorrents = false
@@ -35,9 +35,6 @@ struct ContentView: View {
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
     #endif
-
-    @Environment(SSHSessionStore.self) private var sshSessionStore
-
     var body: some View {
         Group {
             if shouldShowWelcomeScreen {
@@ -87,6 +84,8 @@ struct ContentView: View {
             case .bazarr:
                 ArrSetupSheet(initialServiceType: .bazarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
+            case .seerr:
+                SeerrSetupSheet()
             }
         }
         .sheet(isPresented: $showArrSetup) {
@@ -135,22 +134,22 @@ struct ContentView: View {
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
-                    case "ssh-session":
-                        guard sshSessionStore.hasSession else { return }
-                        if let requestedProfileID = URLComponents(url: url, resolvingAgainstBaseURL: false)?
-                            .queryItems?
-                            .first(where: { $0.name == "profile" })?
-                            .value,
-                           sshSessionStore.activeProfile?.id.uuidString != requestedProfileID {
-                            return
-                        }
-                        openSSHSession()
+                    case "seerr-issue":
+                        selectedTab = .more
+                        morePath = [.seerrIssues]
+                        // We could deep link directly to the issue if we had a MoreDestination for it
                     default:
                         return
                     }
                 }
             default:
                 return
+            }
+        }
+        .task(id: seerrProfilesSyncKey) {
+            await seerrServiceManager.initialize(from: seerrProfiles)
+            if !seerrProfiles.isEmpty {
+                isInWelcomeFlow = false
             }
         }
         .task(id: arrProfilesSyncKey) {
@@ -254,6 +253,9 @@ struct ContentView: View {
                 featureRow(icon: "captions.bubble.fill", color: .teal,
                            title: "Bazarr",
                            description: "Manage subtitles for series and movies")
+                featureRow(icon: "arrow.down.circle", color: .blue,
+                           title: "Seerr",
+                           description: "Manage requests and users")
             }
             .padding(.horizontal, 8)
 
@@ -332,6 +334,16 @@ struct ContentView: View {
                     isConfigured: bazarrProfile != nil
                 ) {
                     setupTarget = .bazarr
+                }
+
+                setupRow(
+                    icon: "arrow.down.circle",
+                    color: .blue,
+                    title: "Seerr",
+                    description: "Manage requests and users",
+                    isConfigured: seerrProfile != nil
+                ) {
+                    setupTarget = .seerr
                 }
             }
 
@@ -451,12 +463,7 @@ struct ContentView: View {
             Tab("More", systemImage: "ellipsis.circle", value: RootTab.more) {
                 MoreView(
                     appServices: appServices,
-                    path: $morePath,
-                    openSSHSession: { openSSHSession() },
-                    selectSSHProfile: { profile in
-                        sshSessionStore.addSession(for: profile)
-                        openSSHSession()
-                    }
+                    path: $morePath
                 )
                     .environment(arrServiceManager)
                     .environment(\.navigateToSeriesTab) {
@@ -480,61 +487,25 @@ struct ContentView: View {
                     .environment(\.navigateToBazarrSettings) {
                         morePath.append(.bazarrSettings)
                     }
+                    .environment(\.navigateToSeerrSettings) {
+                        morePath.append(.seerrSettings)
+                    }
+                    .environment(\.navigateToSeerrIssues) {
+                        morePath.append(.seerrIssues)
+                    }
+                    .environment(\.navigateToSeerrUserManagement) {
+                        morePath.append(.seerrUserManagement)
+                    }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
         .tabBarMinimizeBehavior(.onScrollDown)
-        .modifier(SSHSessionAccessoryModifier(
-            isEnabled: isAccessoryVisible,
-            title: sshSessionStore.sessionTitle,
-            subtitle: sshSessionStore.sessionSubtitle,
-            statusText: sshSessionStore.statusText,
-            statusColor: sshSessionStore.statusColor,
-            openSession: openSSHSession,
-            closeSession: { showSSHDisconnectConfirm = true }
-        ))
         #endif
-        .onChange(of: selectedTab) { _, newValue in
-            if newValue != .more {
-                sshSessionStore.hideKeyboard()
-            }
-        }
-        .onChange(of: morePath) { _, newValue in
-            if !newValue.contains(MoreDestination.sshSession) {
-                sshSessionStore.hideKeyboard()
-            }
-        }
         .sheet(item: $magnetDeepLink) { link in
             AddTorrentSheet(initialMagnetURL: link.url)
                 .environment(services.syncService)
                 .environment(services.torrentService)
-        }
-        #if os(iOS)
-        .sheet(isPresented: $showSSHSessionSheet, onDismiss: {
-            sshSessionStore.wantsKeyboard = false
-        }) {
-            NavigationStack {
-                SSHSessionContainerView()
-            }
-            .presentationDetents([.large])
-            .presentationDragIndicator(.visible)
-            .presentationCornerRadius(28)
-        }
-        #endif
-        .alert("Disconnect?", isPresented: $showSSHDisconnectConfirm) {
-            Button("Disconnect", role: .destructive) {
-                Task { @MainActor in
-                    await sshSessionStore.disconnect()
-                    withAnimation(.easeInOut(duration: 0.22)) {
-                        showSSHSessionSheet = false
-                    }
-                }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            let count = sshSessionStore.sessions.count
-            Text(count > 1 ? "All \(count) terminal sessions will be closed." : "Your terminal session will be closed.")
         }
     }
 
@@ -616,8 +587,12 @@ struct ContentView: View {
         arrServiceManager.resolvedProfile(for: .bazarr, in: arrProfiles)
     }
 
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
@@ -627,16 +602,15 @@ struct ContentView: View {
             .joined(separator: "|")
     }
 
+    private var seerrProfilesSyncKey: String {
+        seerrProfiles
+            .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
     private var shouldShowWelcomeScreen: Bool {
         didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
-    }
-
-    private var isShowingSSHSession: Bool {
-        showSSHSessionSheet
-    }
-
-    private var isAccessoryVisible: Bool {
-        sshSessionStore.hasSession && !isShowingSSHSession
     }
 
     private func initializeServices() {
@@ -728,23 +702,6 @@ struct ContentView: View {
         Task {
             await arrServiceManager.refreshConfiguration()
         }
-    }
-
-    private func openSSHSession() {
-        if sshSessionStore.activeProfile != nil {
-            #if os(iOS)
-            presentSSHSession()
-            #else
-            selectedTab = .more
-            morePath = [.ssh, .sshSession]
-            sshSessionStore.focusSession()
-            #endif
-        }
-    }
-
-    private func presentSSHSession() {
-        sshSessionStore.focusSession()
-        showSSHSessionSheet = true
     }
 }
 
@@ -865,6 +822,7 @@ private enum SetupTarget: Identifiable {
     case radarr
     case prowlarr
     case bazarr
+    case seerr
 
     var id: String {
         switch self {
@@ -873,42 +831,7 @@ private enum SetupTarget: Identifiable {
         case .radarr: "radarr"
         case .prowlarr: "prowlarr"
         case .bazarr: "bazarr"
+        case .seerr: "seerr"
         }
     }
 }
-#if os(iOS)
-private struct SSHSessionAccessoryModifier: ViewModifier {
-    let isEnabled: Bool
-    let title: String
-    let subtitle: String
-    let statusText: String
-    let statusColor: Color
-    let openSession: () -> Void
-    let closeSession: () -> Void
-
-    func body(content: Content) -> some View {
-        if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: isEnabled) {
-                accessoryView
-            }
-        } else {
-            content.tabViewBottomAccessory {
-                if isEnabled {
-                    accessoryView
-                }
-            }
-        }
-    }
-
-    private var accessoryView: some View {
-        SSHSessionAccessoryView(
-            title: title,
-            subtitle: subtitle,
-            statusText: statusText,
-            statusColor: statusColor,
-            openSession: openSession,
-            closeSession: closeSession
-        )
-    }
-}
-#endif

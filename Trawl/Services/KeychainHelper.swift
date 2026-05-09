@@ -101,10 +101,6 @@ actor KeychainHelper {
     }
 
     private func accessibility(for key: String) -> CFString {
-        if key.hasPrefix("ssh.privatekey.") || key.hasPrefix("ssh.passphrase.") || key.hasPrefix("ssh.password.") {
-            return kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-        }
-
         if key.hasPrefix("server_") {
             return kSecAttrAccessibleAfterFirstUnlock
         }

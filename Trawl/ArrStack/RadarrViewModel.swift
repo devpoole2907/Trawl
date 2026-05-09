@@ -5,32 +5,28 @@ import SwiftUI
 
 @MainActor
 @Observable
-final class RadarrViewModel {
+final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
     // Library state
     private(set) var movies: [RadarrMovie] = [] { didSet { rebuildFilteredMovies() } }
     private(set) var movieFiles: [RadarrMovieFile] = []
-    private(set) var isLoading: Bool = false
     private(set) var isLoadingFiles: Bool = false
-    private(set) var error: String?
 
     // Search state
     var searchText: String = "" { didSet { rebuildFilteredMovies() } }
     private(set) var searchResults: [RadarrMovie] = []
     private(set) var isSearching: Bool = false
-    private var searchRequestToken: UUID?
+    private var searchTracker = StreamingSearchTracker<RadarrMovie>()
     private(set) var wantedMovies: [RadarrMovie] = []
     private(set) var isLoadingWantedMissing: Bool = false
     private(set) var wantedMissingTotalRecords: Int = 0
-    private var wantedMissingPage = 1
-    private let wantedMissingPageSize = 20
+    private var wantedMissingLoader = PaginatedLoader<RadarrMovie>(pageSize: 20)
 
     // Queue state
     private(set) var queue: [ArrQueueItem] = []
     private(set) var history: [ArrHistoryRecord] = []
     private(set) var isLoadingHistory: Bool = false
     private(set) var historyTotalRecords: Int = 0
-    private var historyPage = 1
-    private let historyPageSize = 20
+    private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
 
     // Updates
     private(set) var availableUpdates: [ArrUpdateInfo] = []
@@ -43,20 +39,17 @@ final class RadarrViewModel {
     // Race-condition guard for loadMovieFiles
     private var latestRequestedMovieId: Int?
 
-    private let serviceManager: ArrServiceManager
-
     init(serviceManager: ArrServiceManager) {
-        self.serviceManager = serviceManager
+        super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
     }
 
     /// Convenience init that pre-seeds the movie list (used by Search to avoid a fresh empty load).
     init(serviceManager: ArrServiceManager, preloadedMovies: [RadarrMovie]) {
-        self.serviceManager = serviceManager
+        super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
         self.movies = preloadedMovies
+        setLibraryItems(preloadedMovies)
         rebuildFilteredMovies()
     }
-
-    private var client: RadarrAPIClient? { serviceManager.radarrClient }
 
     // MARK: - Filtered (cached, updated via didSet observers)
 
@@ -116,15 +109,9 @@ final class RadarrViewModel {
     // MARK: - Library
 
     func loadMovies() async {
-        guard let client else { return }
-        isLoading = true
-        error = nil
-        do {
-            movies = try await client.getMovies()
-        } catch {
-            self.error = error.localizedDescription
-        }
-        isLoading = false
+        guard let loadedMovies = await performLoad({ try await $0.getMovies() }) else { return }
+        movies = loadedMovies
+        setLibraryItems(loadedMovies)
     }
 
     func loadMovieFiles(movieId: Int) async {
@@ -180,10 +167,14 @@ final class RadarrViewModel {
         defer { isLoadingWantedMissing = false }
         error = nil
         do {
-            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingPageSize)
-            wantedMovies = page.records ?? []
-            wantedMissingPage = page.page ?? 1
-            wantedMissingTotalRecords = page.totalRecords ?? wantedMovies.count
+            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingLoader.pageSize)
+            wantedMissingLoader.replace(
+                with: page.records ?? [],
+                page: page.page ?? 1,
+                totalRecords: page.totalRecords
+            )
+            wantedMovies = wantedMissingLoader.items
+            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -195,12 +186,16 @@ final class RadarrViewModel {
         isLoadingWantedMissing = true
         defer { isLoadingWantedMissing = false }
 
-        let nextPage = wantedMissingPage + 1
+        let nextPage = wantedMissingLoader.page + 1
         do {
-            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingPageSize)
-            wantedMovies.append(contentsOf: page.records ?? [])
-            wantedMissingPage = page.page ?? nextPage
-            wantedMissingTotalRecords = page.totalRecords ?? wantedMovies.count
+            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingLoader.pageSize)
+            wantedMissingLoader.append(
+                page.records ?? [],
+                page: page.page ?? nextPage,
+                totalRecords: page.totalRecords
+            )
+            wantedMovies = wantedMissingLoader.items
+            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -212,12 +207,11 @@ final class RadarrViewModel {
         guard let client, !term.isEmpty else {
             isSearching = false
             searchResults = []
-            searchRequestToken = nil
+            searchTracker.cancel()
             return
         }
 
-        let requestToken = UUID()
-        searchRequestToken = requestToken
+        let requestToken = searchTracker.begin()
         isSearching = true
         searchResults = []
         error = nil
@@ -225,31 +219,26 @@ final class RadarrViewModel {
         do {
             let results = try await client.lookupMovie(term: term)
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else {
+            guard searchTracker.isCurrent(requestToken) else {
                 return
             }
 
-            // Stream in the results one by one for a more async feel
-            for result in results {
-                guard !Task.isCancelled && searchRequestToken == requestToken else { break }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    searchResults.append(result)
-                }
-                try? await Task.sleep(for: .milliseconds(40))
+            await searchTracker.stream(results, token: requestToken) { item in
+                self.searchResults.append(item)
             }
 
             // Only turn off spinner if still the active request
-            if !Task.isCancelled && searchRequestToken == requestToken {
+            if !Task.isCancelled && searchTracker.isCurrent(requestToken) {
                 isSearching = false
             }
         } catch is CancellationError {
-            if searchRequestToken == requestToken {
+            if searchTracker.isCurrent(requestToken) {
                 isSearching = false
             }
             return
         } catch {
             guard !Task.isCancelled else { return }
-            guard searchRequestToken == requestToken else {
+            guard searchTracker.isCurrent(requestToken) else {
                 return
             }
             self.error = error.localizedDescription
@@ -262,7 +251,7 @@ final class RadarrViewModel {
         searchResults = []
         error = nil
         isSearching = false
-        searchRequestToken = nil
+        searchTracker.cancel()
     }
 
     func addMovie(
@@ -409,6 +398,66 @@ final class RadarrViewModel {
         }
     }
 
+    func deleteMovies(ids: Set<Int>, deleteFiles: Bool = false) async {
+        let idsToDelete = ids.sorted()
+        guard !idsToDelete.isEmpty else { return }
+        guard let client else {
+            error = ArrServiceError.clientNotAvailable.localizedDescription
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: ArrServiceError.clientNotAvailable.localizedDescription
+            )
+            return
+        }
+
+        let titlesByID = Dictionary(uniqueKeysWithValues: movies
+            .filter { ids.contains($0.id) }
+            .map { ($0.id, $0.title) })
+        var deletedIDs = Set<Int>()
+        var failures: [String] = []
+
+        for id in idsToDelete {
+            let movieTitle = titlesByID[id] ?? "Movie \(id)"
+            do {
+                try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
+                deletedIDs.insert(id)
+            } catch {
+                failures.append("\(movieTitle): \(error.localizedDescription)")
+            }
+        }
+
+        if !deletedIDs.isEmpty {
+            movies.removeAll { deletedIDs.contains($0.id) }
+            await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Deleted",
+                message: Self.bulkDeleteSuccessMessage(count: deletedIDs.count, singular: "movie", plural: "movies")
+            )
+        }
+
+        if failures.isEmpty {
+            error = nil
+        } else {
+            error = failures.first
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: Self.bulkDeleteFailureMessage(failures, singular: "movie", plural: "movies")
+            )
+        }
+    }
+
+    private static func bulkDeleteSuccessMessage(count: Int, singular: String, plural: String) -> String {
+        count == 1 ? "1 \(singular) removed." : "\(count) \(plural) removed."
+    }
+
+    private static func bulkDeleteFailureMessage(_ failures: [String], singular: String, plural: String) -> String {
+        let itemLabel = failures.count == 1 ? singular : plural
+        let visibleFailures = failures.prefix(3).joined(separator: "\n")
+        let remainingCount = failures.count - min(failures.count, 3)
+        let remainingMessage = remainingCount > 0 ? "\n...and \(remainingCount) more failed." : ""
+        return "\(failures.count) \(itemLabel) failed:\n\(visibleFailures)\(remainingMessage)"
+    }
+
     // MARK: - Search for existing
 
     @discardableResult
@@ -515,17 +564,25 @@ final class RadarrViewModel {
         defer { isLoadingHistory = false }
 
         do {
-            let historyPageResult = try await client.getHistory(page: page, pageSize: historyPageSize)
+            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
             let records = historyPageResult.records ?? []
 
             if page == 1 {
-                history = records
+                historyLoader.replace(
+                    with: records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
             } else {
-                history.append(contentsOf: records)
+                historyLoader.append(
+                    records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
             }
 
-            historyPage = historyPageResult.page ?? page
-            historyTotalRecords = historyPageResult.totalRecords ?? history.count
+            history = historyLoader.items
+            historyTotalRecords = historyLoader.totalRecords
         } catch {
             self.error = error.localizedDescription
         }
@@ -533,7 +590,7 @@ final class RadarrViewModel {
 
     func loadNextHistoryPage() async {
         guard !isLoadingHistory && canLoadMoreHistory else { return }
-        await loadHistory(page: historyPage + 1)
+        await loadHistory(page: historyLoader.page + 1)
     }
 
     func removeQueueItem(id: Int, blocklist: Bool = false) async {

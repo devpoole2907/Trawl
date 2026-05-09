@@ -32,6 +32,8 @@ final class OnboardingViewModel {
     /// Validates the connection and saves the server profile.
     /// Returns true if saved successfully.
     func validateAndSave(modelContext: ModelContext, editingServer: ServerProfile? = nil) async -> Bool {
+        guard !Task.isCancelled else { return false }
+
         let trimmedURLInput = hostURL.trimmingCharacters(in: .whitespacesAndNewlines)
 
         hasAttemptedSubmit = true
@@ -57,7 +59,65 @@ final class OnboardingViewModel {
         isValidating = true
         validationError = nil
 
+        // Capture original state outside of do block for proper error handling
+        var originalDisplayName: String?
+        var originalHostURL: String?
+        var originalAllowsUntrustedTLS: Bool?
+        var originalIsActive: Bool?
+        var originalUsername: String?
+        var originalPassword: String?
+        var profile: ServerProfile?
+        var committed = false
+
+        // Defer-based rollback to ensure cleanup on any error path
+        defer {
+            if !committed, let profile = profile {
+                Task { @MainActor in
+                    if let editingServer = editingServer {
+                        // Restore original state for edits
+                        if let originalDisplayName {
+                            editingServer.displayName = originalDisplayName
+                        }
+                        if let originalHostURL {
+                            editingServer.hostURL = originalHostURL
+                        }
+                        if let originalAllowsUntrustedTLS {
+                            editingServer.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                        }
+                        if let originalIsActive {
+                            editingServer.isActive = originalIsActive
+                        }
+
+                        // Restore original credentials
+                        do {
+                            if let originalUsername {
+                                try await KeychainHelper.shared.save(key: profile.usernameKey, value: originalUsername)
+                            } else {
+                                try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                            }
+                            if let originalPassword {
+                                try await KeychainHelper.shared.save(key: profile.passwordKey, value: originalPassword)
+                            } else {
+                                try? await KeychainHelper.shared.delete(key: profile.passwordKey)
+                            }
+                        } catch {
+                            // Best-effort rollback
+                        }
+                    } else {
+                        // Clean up new profile
+                        modelContext.rollback()
+                        try? await KeychainHelper.shared.delete(key: profile.usernameKey)
+                        try? await KeychainHelper.shared.delete(key: profile.passwordKey)
+                    }
+                }
+            }
+        }
+
         do {
+            guard !Task.isCancelled else {
+                isValidating = false
+                return false
+            }
             // Create a temporary API client to test the connection
             let tempAuth = AuthService(serverProfileID: UUID(), allowsUntrustedTLS: allowsUntrustedTLS)
             let tempClient = QBittorrentAPIClient(
@@ -71,15 +131,28 @@ final class OnboardingViewModel {
 
             // Connection successful — save the profile
             let name = displayName.isEmpty ? trimmedURL : displayName
-            let profile: ServerProfile
 
             if let editingServer {
+                originalDisplayName = editingServer.displayName
+                originalHostURL = editingServer.hostURL
+                originalAllowsUntrustedTLS = editingServer.allowsUntrustedTLS
+                originalIsActive = editingServer.isActive
+                originalUsername = try await KeychainHelper.shared.read(key: editingServer.usernameKey)
+                originalPassword = try await KeychainHelper.shared.read(key: editingServer.passwordKey)
+
                 editingServer.displayName = name
                 editingServer.hostURL = trimmedURL
                 editingServer.allowsUntrustedTLS = allowsUntrustedTLS
                 editingServer.isActive = true
                 profile = editingServer
             } else {
+                originalDisplayName = nil
+                originalHostURL = nil
+                originalAllowsUntrustedTLS = nil
+                originalIsActive = nil
+                originalUsername = nil
+                originalPassword = nil
+
                 profile = ServerProfile(
                     displayName: name,
                     hostURL: trimmedURL,
@@ -93,15 +166,21 @@ final class OnboardingViewModel {
                     server.isActive = false
                 }
 
-                modelContext.insert(profile)
+                modelContext.insert(profile!)
             }
 
             // Save credentials to Keychain
-            try await KeychainHelper.shared.save(key: profile.usernameKey, value: username)
-            try await KeychainHelper.shared.save(key: profile.passwordKey, value: password)
+            try await KeychainHelper.shared.save(key: profile!.usernameKey, value: username)
+            try await KeychainHelper.shared.save(key: profile!.passwordKey, value: password)
+
+            guard !Task.isCancelled else {
+                isValidating = false
+                return false
+            }
 
             try modelContext.save()
 
+            committed = true
             isValid = true
             isValidating = false
             return true

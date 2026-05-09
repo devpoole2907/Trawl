@@ -19,26 +19,23 @@ struct BazarrSeriesDetailView: View {
     }
 
     var body: some View {
-        Group {
-            if isLoading && episodes.isEmpty {
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let error, episodes.isEmpty {
-                ContentUnavailableView {
-                    Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry") { Task { await load() } }
-                }
-            } else {
+        ArrItemDetailView(
+            item: series,
+            title: series?.title ?? "Series",
+            backgroundURL: series?.poster.flatMap(URL.init(string:))
+        ) {
+            ArrLoadingErrorEmptyView(
+                isLoading: isLoading,
+                error: error,
+                isEmpty: episodes.isEmpty,
+                emptyTitle: "No Episodes Found",
+                emptyIcon: "tv",
+                emptyDescription: "This series has no tracked episodes in Bazarr.",
+                onRetry: { await load() }
+            ) {
                 contentView
             }
         }
-        .navigationTitle(series?.title ?? "Series")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .toolbar {
             if series != nil {
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {

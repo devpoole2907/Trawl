@@ -106,7 +106,7 @@ nonisolated enum ArrIndexerProtocol: String, Codable, Sendable {
     }
 }
 
-nonisolated struct ArrManagedIndexer: Codable, Identifiable, Sendable {
+nonisolated struct ArrManagedIndexer: Codable, Identifiable, Sendable, ArrAPIIdentifiable {
     let id: Int
     var name: String?
     let fields: [ArrIndexerField]?
@@ -1084,7 +1084,7 @@ enum ArrColonReplacementFormat: Int, Codable, CaseIterable, Identifiable, Sendab
     }
 }
 
-nonisolated struct SonarrNamingConfig: Codable, Sendable {
+nonisolated struct SonarrNamingConfig: Codable, Sendable, ArrAPIOptionalIdentifiable {
     var id: Int?
     var renameEpisodes: Bool?
     var replaceIllegalCharacters: Bool?
@@ -1098,7 +1098,7 @@ nonisolated struct SonarrNamingConfig: Codable, Sendable {
     var specialsFolderFormat: String?
 }
 
-nonisolated struct RadarrNamingConfig: Codable, Sendable {
+nonisolated struct RadarrNamingConfig: Codable, Sendable, ArrAPIOptionalIdentifiable {
     var id: Int?
     var renameMovies: Bool?
     var replaceIllegalCharacters: Bool?

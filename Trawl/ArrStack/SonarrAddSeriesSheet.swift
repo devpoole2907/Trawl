@@ -24,22 +24,9 @@ struct SonarrAddSeriesSheet: View {
         ) {
             List {
                 Section {
-                    HStack {
-                        Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
-                        TextField("Search TV shows...", text: $searchQuery)
-                            #if os(iOS)
-                            .textInputAutocapitalization(.never)
-                            #endif
-                            .onSubmit {
-                                Task { await performSearch() }
-                            }
+                    ArrAddItemSearchBar(text: $searchQuery, placeholder: "Search TV shows...") {
+                        Task { await performSearch() }
                     }
-                    .padding(10)
-                    .background(.quaternary)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
-                    .listRowBackground(Color.clear)
                 }
 
                 if viewModel.isSearching {
@@ -65,27 +52,16 @@ struct SonarrAddSeriesSheet: View {
                 if let selectedSeries, !isInLibrary(selectedSeries) {
                     Section {
                         DisclosureGroup("Options", isExpanded: $optionsExpanded) {
-                            Picker("Quality Profile", selection: $selectedQualityProfileId) {
-                                ForEach(viewModel.qualityProfiles, id: \.id) { profile in
-                                    Text(profile.name).tag(Optional(profile.id))
-                                }
-                            }
+                            ArrQualityProfilePicker(
+                                selection: $selectedQualityProfileId,
+                                profiles: viewModel.qualityProfiles,
+                                onInfo: { qualityProfileForDetails = $0 }
+                            )
 
-                            if let selectedQualityProfile {
-                                Button {
-                                    qualityProfileForDetails = selectedQualityProfile
-                                } label: {
-                                    Label("View Selected Profile Details", systemImage: "info.circle")
-                                }
-                            }
-
-                            Picker("Root Folder", selection: $selectedRootFolderPath) {
-                                ForEach(viewModel.rootFolders, id: \.path) { folder in
-                                    let freeLabel = folder.freeSpace.map { " · " + ByteFormatter.formatRounded(bytes: $0) + " free" } ?? ""
-                                    Text(folder.path + freeLabel)
-                                        .tag(Optional(folder.path))
-                                }
-                            }
+                            ArrRootFolderPicker(
+                                selection: $selectedRootFolderPath,
+                                folders: viewModel.rootFolders
+                            )
 
                             Picker("Monitor", selection: $monitorOption) {
                                 ForEach(SonarrMonitorOption.allCases) { option in
@@ -118,8 +94,7 @@ struct SonarrAddSeriesSheet: View {
             .listStyle(.inset)
             #endif
             .task {
-                selectedQualityProfileId = viewModel.qualityProfiles.first?.id
-                selectedRootFolderPath = viewModel.rootFolders.first?.path
+                await refreshConfigurationAndDefaults()
             }
         }
         .sheet(item: $qualityProfileForDetails) { profile in
@@ -140,6 +115,16 @@ struct SonarrAddSeriesSheet: View {
     private var selectedQualityProfile: ArrQualityProfile? {
         guard let selectedQualityProfileId else { return nil }
         return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
+    }
+
+    private func refreshConfigurationAndDefaults() async {
+        await viewModel.refreshConfiguration()
+        if selectedQualityProfileId == nil {
+            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
+        }
+        if selectedRootFolderPath == nil {
+            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        }
     }
 
     private func performSearch() async {

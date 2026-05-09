@@ -617,13 +617,21 @@ private final class ManualImportScanViewModel {
                 throw ManualImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Sonarr manual import scan for \(folder, privacy: .public)")
-            return try await client.getManualImport(folder: folder, seriesId: libraryItemID)
+            return try await client.getManualImport(
+                folder: folder,
+                libraryItemId: libraryItemID,
+                libraryItemIDQueryName: "seriesId"
+            )
         case .radarr:
             guard let client = serviceManager.radarrClient else {
                 throw ManualImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Radarr manual import scan for \(folder, privacy: .public)")
-            return try await client.getManualImport(folder: folder, movieId: libraryItemID)
+            return try await client.getManualImport(
+                folder: folder,
+                libraryItemId: libraryItemID,
+                libraryItemIDQueryName: "movieId"
+            )
         case .prowlarr, .bazarr:
             throw ManualImportServiceClientUnavailableError(service: service)
         }

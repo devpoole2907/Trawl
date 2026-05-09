@@ -3,62 +3,203 @@ import OSLog
 
 protocol SharedArrClient: Actor {
     var base: ArrAPIClient { get }
+    var apiPath: String { get }
 }
 
 extension SharedArrClient {
-    func getSystemStatus() async throws -> ArrSystemStatus { try await base.getSystemStatus() }
-    func getHealth() async throws -> [ArrHealthCheck] { try await base.getHealth() }
-    func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.getQualityProfiles() }
-    func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.createQualityProfile(profile) }
-    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.updateQualityProfile(profile) }
-    func deleteQualityProfile(id: Int) async throws { try await base.deleteQualityProfile(id: id) }
-    func getRootFolders() async throws -> [ArrRootFolder] { try await base.getRootFolders() }
-    func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.createRootFolder(path: path) }
-    func deleteRootFolder(id: Int) async throws { try await base.deleteRootFolder(id: id) }
-    func getTags() async throws -> [ArrTag] { try await base.getTags() }
-    func getNotifications() async throws -> [ArrNotification] { try await base.getNotifications() }
-    func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.createNotification(notification) }
-    func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.updateNotification(notification) }
+    var apiPath: String { "/api/v3" }
+
+    func getSystemStatus() async throws -> ArrSystemStatus { try await base.get("\(apiPath)/system/status") }
+    func getHealth() async throws -> [ArrHealthCheck] { try await base.get("\(apiPath)/health") }
+    func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.get("\(apiPath)/qualityprofile") }
+    func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.postCodable("\(apiPath)/qualityprofile", body: profile) }
+    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.putCodable("\(apiPath)/qualityprofile/\(profile.id)", body: profile) }
+    func deleteQualityProfile(id: Int) async throws { try await base.delete("\(apiPath)/qualityprofile/\(id)") }
+    func getRootFolders() async throws -> [ArrRootFolder] { try await base.get("\(apiPath)/rootfolder") }
+    func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.postCodable("\(apiPath)/rootfolder", body: ["path": path]) }
+    func deleteRootFolder(id: Int) async throws { try await base.delete("\(apiPath)/rootfolder/\(id)") }
+    func getTags() async throws -> [ArrTag] { try await base.get("\(apiPath)/tag") }
+    func getNotifications() async throws -> [ArrNotification] { try await base.get("\(apiPath)/notification") }
+    func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.postCodable("\(apiPath)/notification", body: notification) }
+    func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification {
+        guard let id = notification.id else { throw ArrError.invalidResponse }
+        return try await base.putCodable("\(apiPath)/notification/\(id)", body: notification)
+    }
 
     func getQueue(
         page: Int = 1,
         pageSize: Int = ArrAPIClient.defaultPageSize,
         includeUnknownMovieItems: Bool = true
     ) async throws -> ArrQueuePage {
-        try await base.getQueue(
-            page: page,
-            pageSize: pageSize,
-            includeUnknownMovieItems: includeUnknownMovieItems
-        )
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "includeUnknownMovieItems", value: String(includeUnknownMovieItems)),
+            URLQueryItem(name: "includeUnknownSeriesItems", value: "true")
+        ]
+        return try await base.get("\(apiPath)/queue", queryItems: params)
     }
 
     func deleteQueueItem(id: Int, removeFromClient: Bool = true, blocklist: Bool = false) async throws {
-        try await base.deleteQueueItem(
-            id: id,
-            removeFromClient: removeFromClient,
-            blocklist: blocklist
-        )
+        let params = [
+            URLQueryItem(name: "removeFromClient", value: String(removeFromClient)),
+            URLQueryItem(name: "blocklist", value: String(blocklist))
+        ]
+        try await base.delete("\(apiPath)/queue/\(id)", queryItems: params)
     }
 
     func getHistory(
         page: Int = 1,
         pageSize: Int = ArrAPIClient.defaultPageSize
     ) async throws -> ArrHistoryPage {
-        try await base.getHistory(page: page, pageSize: pageSize)
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: "date"),
+            URLQueryItem(name: "sortDirection", value: "descending")
+        ]
+        return try await base.get("\(apiPath)/history", queryItems: params)
     }
 
-    func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.getDiskSpace() }
-    func getUpdates() async throws -> [ArrUpdateInfo] { try await base.getUpdates() }
-    func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.getDownloadClients() }
-    func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.getDownloadClientSchema() }
-    func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.createDownloadClient(client) }
-    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.updateDownloadClient(client) }
-    func deleteDownloadClient(id: Int) async throws { try await base.deleteDownloadClient(id: id) }
-    func testDownloadClient(_ client: ArrDownloadClient) async throws { try await base.testDownloadClient(client) }
-    func getRemotePathMappings() async throws -> [ArrRemotePathMapping] { try await base.getRemotePathMappings() }
-    func createRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.createRemotePathMapping(mapping) }
-    func updateRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.updateRemotePathMapping(mapping) }
-    func deleteRemotePathMapping(id: Int) async throws { try await base.deleteRemotePathMapping(id: id) }
+    func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.get("\(apiPath)/diskspace") }
+    func getUpdates() async throws -> [ArrUpdateInfo] { try await base.get("\(apiPath)/update") }
+    func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
+    func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }
+    func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.postCodable("\(apiPath)/downloadclient", body: client) }
+    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient { try await base.putCodable("\(apiPath)/downloadclient/\(client.id)", body: client) }
+    func deleteDownloadClient(id: Int) async throws { try await base.delete("\(apiPath)/downloadclient/\(id)") }
+    func testDownloadClient(_ client: ArrDownloadClient) async throws { try await base.postVoidCodable("\(apiPath)/downloadclient/test", body: client) }
+    func getRemotePathMappings() async throws -> [ArrRemotePathMapping] { try await base.get("\(apiPath)/remotepathmapping") }
+    func createRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.postCodable("\(apiPath)/remotepathmapping", body: mapping) }
+    func updateRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping { try await base.putCodable("\(apiPath)/remotepathmapping/\(mapping.id)", body: mapping) }
+    func deleteRemotePathMapping(id: Int) async throws { try await base.delete("\(apiPath)/remotepathmapping/\(id)") }
+
+    func getBlocklist(page: Int = 1, pageSize: Int = ArrAPIClient.defaultPageSize) async throws -> ArrBlocklistPage {
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: "date"),
+            URLQueryItem(name: "sortDirection", value: "descending")
+        ]
+        return try await base.get("\(apiPath)/blocklist", queryItems: params)
+    }
+
+    func deleteBlocklistItem(id: Int) async throws {
+        try await base.delete("\(apiPath)/blocklist/\(id)")
+    }
+
+    func deleteBlocklistItems(ids: [Int]) async throws {
+        try await base.deleteWithBody("\(apiPath)/blocklist/bulk", jsonBody: ["ids": ids])
+    }
+
+    func getManualImport(
+        folder: String,
+        libraryItemId: Int? = nil,
+        libraryItemIDQueryName: String,
+        filterExistingFiles: Bool = true
+    ) async throws -> [JSONValue] {
+        var params = [
+            URLQueryItem(name: "folder", value: folder),
+            URLQueryItem(name: "filterExistingFiles", value: String(filterExistingFiles))
+        ]
+        if let libraryItemId {
+            params.append(URLQueryItem(name: libraryItemIDQueryName, value: String(libraryItemId)))
+        }
+        return try await base.get("\(apiPath)/manualimport", queryItems: params)
+    }
+
+    func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
+        let additionalParams: [String: Any] = [
+            "files": files.map(\.rawValue),
+            "importMode": importMode
+        ]
+        return try await postCommandAndWait(
+            name: "ManualImport",
+            additionalParams: additionalParams,
+            timeout: .seconds(600)
+        )
+    }
+
+    func getNamingConfig<T: Decodable>() async throws -> T {
+        try await base.get("\(apiPath)/config/naming")
+    }
+
+    func updateNamingConfig<T: Codable & ArrAPIOptionalIdentifiable>(_ config: T) async throws -> T {
+        guard let id = config.id else { throw ArrError.invalidResponse }
+        return try await base.putCodable("\(apiPath)/config/naming/\(id)", body: config)
+    }
+
+    func getIndexers<T: Decodable>() async throws -> [T] {
+        try await base.get("\(apiPath)/indexer")
+    }
+
+    func getIndexer<T: Decodable>(id: Int) async throws -> T {
+        try await base.get("\(apiPath)/indexer/\(id)")
+    }
+
+    func getIndexerSchema<T: Decodable>() async throws -> [T] {
+        try await base.get("\(apiPath)/indexer/schema")
+    }
+
+    func createIndexer<T: Codable>(_ indexer: T) async throws -> T {
+        try await base.postCodable("\(apiPath)/indexer", body: indexer)
+    }
+
+    func updateIndexer<T: Codable & ArrAPIIdentifiable>(_ indexer: T) async throws -> T {
+        try await base.putCodable("\(apiPath)/indexer/\(indexer.id)", body: indexer)
+    }
+
+    func deleteIndexer(id: Int) async throws {
+        try await base.delete("\(apiPath)/indexer/\(id)")
+    }
+
+    func testIndexer<T: Encodable>(_ indexer: T) async throws {
+        try await base.postVoidCodable("\(apiPath)/indexer/test", body: indexer)
+    }
+
+    func getCommand(id: Int) async throws -> ArrCommand {
+        try await base.getCommand(id: id, apiPath: apiPath)
+    }
+
+    func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
+        try await base.postCommand(name: name, additionalParams: additionalParams, apiPath: apiPath)
+    }
+
+    func postCommandAndWait(
+        name: String,
+        additionalParams: [String: Any]? = nil,
+        timeout: Duration = .seconds(30)
+    ) async throws -> ArrCommand {
+        try await base.postCommandAndWait(name: name, additionalParams: additionalParams, timeout: timeout, apiPath: apiPath)
+    }
+
+    func calendarDateParam(name: String, value: Date?) -> URLQueryItem? {
+        guard let value else { return nil }
+        return URLQueryItem(name: name, value: ISO8601DateFormatter().string(from: value))
+    }
+
+    func wantedMissingParams(
+        page: Int,
+        pageSize: Int,
+        sortKey: String,
+        sortDirection: String,
+        extraItems: [URLQueryItem] = []
+    ) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: sortKey),
+            URLQueryItem(name: "sortDirection", value: sortDirection)
+        ] + extraItems
+    }
+}
+
+protocol ArrAPIIdentifiable {
+    nonisolated var id: Int { get }
+}
+
+protocol ArrAPIOptionalIdentifiable {
+    nonisolated var id: Int? { get }
 }
 
 /// Base actor handling shared HTTP infrastructure for all *arr services.
@@ -82,7 +223,7 @@ actor ArrAPIClient {
         self.apiKeyHeaderName = apiKeyHeaderName
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
 
-        let config = URLSessionConfiguration.default
+        let config = URLSessionConfiguration.makeTrawlSecure()
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
@@ -230,14 +371,19 @@ actor ArrAPIClient {
         try await delete("/api/v3/remotepathmapping/\(id)")
     }
 
-    func getCommand(id: Int) async throws -> ArrCommand {
-        return try await get("/api/v3/command/\(id)")
+    func getCommand(id: Int, apiPath: String = "/api/v3") async throws -> ArrCommand {
+        return try await get("\(apiPath)/command/\(id)")
     }
 
     /// Posts a command and polls until it reaches a terminal state (completed/failed) or the timeout elapses.
     /// Throws ArrError.commandTimeout if the command does not reach a terminal state within the timeout period.
-    func postCommandAndWait(name: String, additionalParams: [String: Any]? = nil, timeout: Duration = .seconds(30)) async throws -> ArrCommand {
-        let command = try await postCommand(name: name, additionalParams: additionalParams)
+    func postCommandAndWait(
+        name: String,
+        additionalParams: [String: Any]? = nil,
+        timeout: Duration = .seconds(30),
+        apiPath: String = "/api/v3"
+    ) async throws -> ArrCommand {
+        let command = try await postCommand(name: name, additionalParams: additionalParams, apiPath: apiPath)
         guard let commandId = command.id else { return command }
 
         let deadline = ContinuousClock.now + timeout
@@ -245,7 +391,7 @@ actor ArrAPIClient {
             try await Task.sleep(for: .seconds(1))
             try Task.checkCancellation()
             do {
-                let updated = try await getCommand(id: commandId)
+                let updated = try await getCommand(id: commandId, apiPath: apiPath)
                 if updated.isTerminal { return updated }
             } catch is CancellationError {
                 throw CancellationError()
@@ -254,19 +400,23 @@ actor ArrAPIClient {
             }
         }
         // Timed out — fetch final state and throw if non-terminal
-        let finalCommand = (try? await getCommand(id: commandId)) ?? command
+        let finalCommand = (try? await getCommand(id: commandId, apiPath: apiPath)) ?? command
         if !finalCommand.isTerminal {
             throw ArrError.commandTimeout(commandId: commandId, lastKnownCommand: finalCommand)
         }
         return finalCommand
     }
 
-    func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
+    func postCommand(
+        name: String,
+        additionalParams: [String: Any]? = nil,
+        apiPath: String = "/api/v3"
+    ) async throws -> ArrCommand {
         var body: [String: Any] = ["name": name]
         if let params = additionalParams {
             for (key, value) in params { body[key] = value }
         }
-        return try await post("/api/v3/command", jsonBody: body)
+        return try await post("\(apiPath)/command", jsonBody: body)
     }
 
     // MARK: - HTTP Infrastructure

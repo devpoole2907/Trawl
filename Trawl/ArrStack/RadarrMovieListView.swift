@@ -33,7 +33,9 @@ struct RadarrMovieListView: View {
             if let vm = viewModel {
                 movieContent(vm: vm)
             } else if isShowingConnectingState {
-                connectingContent
+                ArrConnectingView(profile: radarrProfile) {
+                    showSettings = true
+                }
             } else if let errorMessage = serviceManager.radarrConnectionError {
                 ContentUnavailableView {
                     Label("Connection Failed", systemImage: "wifi.exclamationmark")
@@ -243,70 +245,23 @@ struct RadarrMovieListView: View {
 
     @ViewBuilder
     private func movieContent(vm: RadarrViewModel) -> some View {
-        if vm.isLoading && vm.movies.isEmpty {
-            ProgressView("Loading movies...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if vm.filteredMovies.isEmpty {
-            ContentUnavailableView {
-                Label("No Movies", systemImage: "film")
-            } description: {
-                Text("No movies match the current filter.")
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            movieList(vm: vm)
-            .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredMovies)
-            .searchable(text: movieSearchText, prompt: "Search movies")
-        }
-    }
-
-    @ViewBuilder
-    private func movieList(vm: RadarrViewModel) -> some View {
-        if vm.sortOrder == .title {
-            let sections = movieTitleSections(for: vm.filteredMovies)
-            #if os(iOS)
-            if #available(iOS 26.0, *) {
-                List {
-                    ForEach(sections) { section in
-                        Section(section.title) {
-                            ForEach(section.movies) { movie in
-                                movieRow(movie, vm: vm)
-                            }
-                        }
-                        .sectionIndexLabel(Text(section.indexLabel))
-                    }
-                }
-                .listSectionIndexVisibility(.visible)
-            } else {
-                List {
-                    ForEach(sections) { section in
-                        Section(section.title) {
-                            ForEach(section.movies) { movie in
-                                movieRow(movie, vm: vm)
-                            }
-                        }
-                    }
-                }
-            }
-            #else
-            List {
-                ForEach(sections) { section in
-                    Section(section.title) {
-                        ForEach(section.movies) { movie in
-                            movieRow(movie, vm: vm)
-                        }
-                    }
-                }
-            }
-            #endif
-        } else {
-            List {
-                ForEach(vm.filteredMovies) { movie in
-                    movieRow(movie, vm: vm)
-                }
-            }
-        }
+        ArrLibraryListView(
+            items: vm.filteredMovies,
+            isLoading: vm.isLoading && vm.movies.isEmpty,
+            error: nil,
+            nounSingular: "Movie",
+            nounPlural: "Movies",
+            emptyIcon: "film",
+            titleKeyPath: \.title,
+            sectionTitle: { $0.sortTitle ?? $0.title },
+            usesTitleSections: vm.sortOrder == .title,
+            selectedIDs: selectedMovieIDs,
+            row: { movie, _ in movieRow(movie, vm: vm) },
+            retry: nil
+        )
+        .scrollPosition(id: $listScrollPosition)
+        .animation(.default, value: vm.filteredMovies)
+        .searchable(text: movieSearchText, prompt: "Search movies")
     }
 
     @ViewBuilder
@@ -392,9 +347,7 @@ struct RadarrMovieListView: View {
         selectedMovieIDs = []
         withAnimation { editMode = .inactive }
         Task {
-            for id in idsToDelete {
-                _ = await vm.deleteMovie(id: id, deleteFiles: deleteFiles)
-            }
+            await vm.deleteMovies(ids: idsToDelete, deleteFiles: deleteFiles)
         }
     }
 
@@ -590,78 +543,12 @@ struct RadarrMovieListView: View {
     }
 
     private func instanceDisplayName(for profile: ArrServiceProfile) -> String {
-        let baseName = profile.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        let matchingNames = radarrProfiles.filter {
-            $0.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-                .localizedCaseInsensitiveCompare(baseName) == .orderedSame
-        }
-
-        if !baseName.isEmpty,
-           baseName.localizedCaseInsensitiveCompare(ArrServiceType.radarr.displayName) != .orderedSame,
-           matchingNames.count == 1 {
-            return baseName
-        }
-
-        if let index = radarrProfiles.firstIndex(where: { $0.id == profile.id }) {
-            return "\(ArrServiceType.radarr.displayName) (\(index + 1))"
-        }
-
-        return ArrServiceType.radarr.displayName
-    }
-
-    private var connectingContent: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Connecting…")
-                .font(.headline)
-            if let profile = radarrProfile {
-                VStack(spacing: 4) {
-                    Text(profile.displayName)
-                    Text(profile.hostURL)
-                        .foregroundStyle(.secondary)
-                }
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-            }
-            Button("Edit Server", systemImage: "server.rack") {
-                showSettings = true
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-private struct RadarrMovieTitleSection: Identifiable {
-    let title: String
-    let indexLabel: String
-    let movies: [RadarrMovie]
-
-    var id: String { indexLabel }
-}
-
-private func movieTitleSections(for movies: [RadarrMovie]) -> [RadarrMovieTitleSection] {
-    let grouped = Dictionary(grouping: movies) { movie in
-        listSectionLabel(for: movie.sortTitle ?? movie.title)
-    }
-
-    return grouped.keys.sorted().map { label in
-        RadarrMovieTitleSection(
-            title: label,
-            indexLabel: label,
-            movies: grouped[label] ?? []
+        InstanceDisplayNameResolver.displayName(
+            for: profile,
+            in: radarrProfiles,
+            serviceType: .radarr
         )
     }
-}
-
-private func listSectionLabel(for title: String) -> String {
-    guard let scalar = title.trimmingCharacters(in: .whitespacesAndNewlines).unicodeScalars.first else {
-        return "#"
-    }
-
-    let label = String(scalar).uppercased()
-    return label.range(of: "[A-Z]", options: .regularExpression) != nil ? label : "#"
 }
 
 // MARK: - Movie Row
@@ -728,11 +615,8 @@ struct RadarrMovieRow: View {
                         .foregroundStyle(.orange)
                 }
 
-                if movie.monitored == true {
-                    Image(systemName: "bookmark.fill")
-                        .font(.caption)
-                        .foregroundStyle(.blue)
-                }
+                ArrMonitorBadge(isMonitored: movie.monitored == true)
+                    .font(.caption)
             }
         }
         .padding(.vertical, 2)

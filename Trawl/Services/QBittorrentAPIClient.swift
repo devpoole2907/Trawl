@@ -1,7 +1,7 @@
 import Foundation
 
 actor QBittorrentAPIClient {
-    private let authService: AuthService
+    let authService: AuthService
     private let session: URLSession
     private let trustPolicy: ServerTrustPolicy
     private let baseURL: String
@@ -153,7 +153,7 @@ actor QBittorrentAPIClient {
 
     func deleteTorrents(hashes: [String], deleteFiles: Bool) async throws {
         let params: [String: String] = [
-            "hashes": hashes.joined(separator: "|"),
+            "hashes": hashes.qbittorrentJoined(),
             "deleteFiles": deleteFiles ? "true" : "false"
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/delete", params: params)
@@ -161,7 +161,7 @@ actor QBittorrentAPIClient {
     }
 
     func pauseTorrents(hashes: [String]) async throws {
-        let params = ["hashes": hashes.joined(separator: "|")]
+        let params = ["hashes": hashes.qbittorrentJoined()]
         // qBittorrent v5+ uses /stop; v4 used /pause
         let request = try buildFormRequest(path: "/api/v2/torrents/stop", params: params)
         let (_, response) = try await performRequest(request)
@@ -173,7 +173,7 @@ actor QBittorrentAPIClient {
     }
 
     func resumeTorrents(hashes: [String]) async throws {
-        let params = ["hashes": hashes.joined(separator: "|")]
+        let params = ["hashes": hashes.qbittorrentJoined()]
         // qBittorrent v5+ uses /start; v4 used /resume
         let request = try buildFormRequest(path: "/api/v2/torrents/start", params: params)
         let (_, response) = try await performRequest(request)
@@ -185,7 +185,7 @@ actor QBittorrentAPIClient {
     }
 
     func recheckTorrents(hashes: [String]) async throws {
-        let params = ["hashes": hashes.joined(separator: "|")]
+        let params = ["hashes": hashes.qbittorrentJoined()]
         let request = try buildFormRequest(path: "/api/v2/torrents/recheck", params: params)
         try await performSuccessfulMutation(request, failureMessage: "Failed to recheck torrents")
     }
@@ -201,7 +201,7 @@ actor QBittorrentAPIClient {
     func setFilePriority(hash: String, fileIndices: [Int], priority: FilePriority) async throws {
         let params: [String: String] = [
             "hash": hash,
-            "id": fileIndices.map(String.init).joined(separator: "|"),
+            "id": fileIndices.map(String.init).qbittorrentJoined(),
             "priority": String(priority.rawValue)
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/filePrio", params: params)
@@ -216,7 +216,7 @@ actor QBittorrentAPIClient {
 
     func setTorrentLocation(hashes: [String], location: String) async throws {
         let params: [String: String] = [
-            "hashes": hashes.joined(separator: "|"),
+            "hashes": hashes.qbittorrentJoined(),
             "location": location
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setLocation", params: params)
@@ -225,7 +225,7 @@ actor QBittorrentAPIClient {
 
     func setTorrentCategory(hashes: [String], category: String) async throws {
         let params: [String: String] = [
-            "hashes": hashes.joined(separator: "|"),
+            "hashes": hashes.qbittorrentJoined(),
             "category": category
         ]
         let request = try buildFormRequest(path: "/api/v2/torrents/setCategory", params: params)
@@ -296,7 +296,7 @@ actor QBittorrentAPIClient {
         let request = try buildFormRequest(
             path: "/api/v2/torrents/addTags",
             params: [
-                "hashes": filteredHashes.joined(separator: "|"),
+                "hashes": filteredHashes.qbittorrentJoined(),
                 "tags": filteredTags.joined(separator: ",")
             ]
         )
@@ -310,7 +310,7 @@ actor QBittorrentAPIClient {
         let request = try buildFormRequest(
             path: "/api/v2/torrents/removeTags",
             params: [
-                "hashes": filteredHashes.joined(separator: "|"),
+                "hashes": filteredHashes.qbittorrentJoined(),
                 "tags": filteredTags.joined(separator: ",")
             ]
         )
@@ -374,7 +374,7 @@ actor QBittorrentAPIClient {
         let request = try buildFormRequest(
             path: "/api/v2/torrents/setDownloadLimit",
             params: [
-                "hashes": hashes.joined(separator: "|"),
+                "hashes": hashes.qbittorrentJoined(),
                 "limit": String(limit)
             ]
         )
@@ -385,7 +385,7 @@ actor QBittorrentAPIClient {
         let request = try buildFormRequest(
             path: "/api/v2/torrents/setUploadLimit",
             params: [
-                "hashes": hashes.joined(separator: "|"),
+                "hashes": hashes.qbittorrentJoined(),
                 "limit": String(limit)
             ]
         )
@@ -393,21 +393,21 @@ actor QBittorrentAPIClient {
     }
 
     func toggleSequentialDownload(hashes: [String]) async throws {
-        let sanitized = hashes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let sanitized = hashes.trimmedNonEmpty()
         guard !sanitized.isEmpty else { return }
         let request = try buildFormRequest(
             path: "/api/v2/torrents/toggleSequentialDownload",
-            params: ["hashes": sanitized.joined(separator: "|")]
+            params: ["hashes": sanitized.qbittorrentJoined()]
         )
         try await performSuccessfulMutation(request, failureMessage: "Failed to toggle sequential download")
     }
 
     func toggleFirstLastPiecePriority(hashes: [String]) async throws {
-        let sanitized = hashes.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let sanitized = hashes.trimmedNonEmpty()
         guard !sanitized.isEmpty else { return }
         let request = try buildFormRequest(
             path: "/api/v2/torrents/toggleFirstLastPiecePrio",
-            params: ["hashes": sanitized.joined(separator: "|")]
+            params: ["hashes": sanitized.qbittorrentJoined()]
         )
         try await performSuccessfulMutation(request, failureMessage: "Failed to toggle first and last piece priority")
     }
@@ -576,17 +576,9 @@ actor QBittorrentAPIClient {
     private func buildFormRequest(path: String, params: [String: String]) throws -> URLRequest {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        let body = params.map { "\($0.key)=\(formEncode($0.value))" }.joined(separator: "&")
+        let body = params.map { "\($0.key)=\(URLEncoding.formEncode($0.value))" }.joined(separator: "&")
         request.httpBody = body.data(using: .utf8)
         return request
-    }
-
-    private func formEncode(_ value: String) -> String {
-        var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove("+")
-        allowed.remove("&")
-        allowed.remove("=")
-        return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 
     private func performSuccessfulMutation(
@@ -617,20 +609,14 @@ actor QBittorrentAPIClient {
         return value
     }
 }
-
-// MARK: - Multipart Data Helpers
-
-private extension Data {
-    nonisolated mutating func appendMultipart(boundary: String, name: String, filename: String, data: Data) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n\r\n".data(using: .utf8)!)
-        append(data)
-        append("\r\n".data(using: .utf8)!)
+// MARK: - Helpers
+extension Array where Element == String {
+    nonisolated func qbittorrentJoined() -> String {
+        joined(separator: "|")
     }
 
-    nonisolated mutating func appendMultipartField(boundary: String, name: String, value: String) {
-        append("--\(boundary)\r\n".data(using: .utf8)!)
-        append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
-        append("\(value)\r\n".data(using: .utf8)!)
+    nonisolated func trimmedNonEmpty() -> [String] {
+        map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
     }
 }
