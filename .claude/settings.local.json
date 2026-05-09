@@ -56,7 +56,11 @@
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination id=47004A65-AF74-5697-87D0-551D09EC309E -configuration Debug clean build)",
       "Bash(python3 -m json.tool)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d['data'][0] if d.get\\('data'\\) else {}, indent=2\\)\\)\")",
-      "Bash(grep -rn \"audioLanguage[^s]\\\\|\\\\.audioLanguage$\" \"/Users/jamespoole/Documents/Trawl Project/Trawl/Trawl/Trawl/\" --include=\"*.swift\")"
+      "Bash(grep -rn \"audioLanguage[^s]\\\\|\\\\.audioLanguage$\" \"/Users/jamespoole/Documents/Trawl Project/Trawl/Trawl/Trawl/\" --include=\"*.swift\")",
+      "Bash(xcodebuild -project Trawl.xcodeproj -list)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'generic/platform=iOS Simulator' -configuration Debug build)",
+      "Bash(awk '/Exceptions for \"Trawl\" folder in \"TrawlShare\"/,/target = / { print NR\": \"$0 }' Trawl.xcodeproj/project.pbxproj)",
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'generic/platform=macOS' -configuration Debug build)"
     ]
   }
 }

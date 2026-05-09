@@ -14,6 +14,7 @@ struct TorrentListView: View {
     @State private var batchDeleteFiles = false
     @State private var editMode: SelectionMode = .inactive
     @State private var listScrollPosition: String?
+    @State private var searchText: String = ""
     private let title: String
 
     init(title: String = "Trawl") {
@@ -37,6 +38,10 @@ struct TorrentListView: View {
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
         .toolbar { toolbarContent }
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search torrents")
+        .onChange(of: searchText) { _, newValue in
+            viewModel?.searchText = newValue
+        }
         .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
         .refreshable {
             await viewModel?.refresh()

@@ -233,7 +233,7 @@ struct QBittorrentCategoriesAndTagsView: View {
                 name: name,
                 savePath: savePath.isEmpty ? nil : savePath
             )
-            syncService.addCategoryLocally(name: name, savePath: savePath.isEmpty ? nil : savePath)
+            withAnimation { syncService.addCategoryLocally(name: name, savePath: savePath.isEmpty ? nil : savePath) }
             await syncService.refreshNow()
             actionErrorAlert = nil
             resetCategoryInputs()
@@ -251,7 +251,7 @@ struct QBittorrentCategoriesAndTagsView: View {
         isSubmitting = true
         do {
             try await torrentService.removeCategories(names: [category])
-            syncService.removeCategoriesLocally(names: [category])
+            withAnimation { syncService.removeCategoriesLocally(names: [category]) }
             await syncService.refreshNow()
             actionErrorAlert = nil
         } catch {
@@ -272,7 +272,7 @@ struct QBittorrentCategoriesAndTagsView: View {
         defer { isSubmitting = false }
         do {
             try await torrentService.createTags(tags: [name])
-            syncService.addTagLocally(name: name)
+            withAnimation { syncService.addTagLocally(name: name) }
             await syncService.refreshNow()
             actionErrorAlert = nil
             resetTagInputs()
@@ -289,7 +289,7 @@ struct QBittorrentCategoriesAndTagsView: View {
         isSubmitting = true
         do {
             try await torrentService.deleteTags(tags: [tag])
-            syncService.removeTagsLocally(names: [tag])
+            withAnimation { syncService.removeTagsLocally(names: [tag]) }
             await syncService.refreshNow()
             actionErrorAlert = nil
         } catch {

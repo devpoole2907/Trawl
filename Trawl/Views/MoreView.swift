@@ -48,6 +48,8 @@ enum MoreDestinationAccent {
     case rootFolders
     case languageProfiles
     case providers
+    case userManagement
+    case seerr
 
     var color: Color {
         switch self {
@@ -61,6 +63,8 @@ enum MoreDestinationAccent {
         case .rootFolders: return .indigo
         case .languageProfiles: return .cyan
         case .providers: return .pink
+        case .userManagement: return .blue
+        case .seerr: return .indigo
         }
     }
 }
@@ -84,7 +88,7 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section("ARR") {
+                Section("Automation") {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
                                 title: "Activity", subtitle: "Queue, downloads, and import history")
@@ -121,7 +125,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section("Bazarr") {
+                Section("Subtitles") {
                     NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
                         moreRow(icon: "globe", color: MoreDestinationAccent.languageProfiles.color,
                                 title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
@@ -133,7 +137,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section("qBittorrent") {
+                Section("Torrents") {
                     NavigationLink(value: MoreDestination.categoriesAndTags) {
                         moreRow(icon: "tag.fill", color: MoreDestinationAccent.categoriesAndTags.color,
                                 title: "Categories & Tags", subtitle: "Manage your torrent organization")
@@ -149,13 +153,13 @@ struct MoreView: View {
                                 title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
                     }
                 }
-                Section("Seerr") {
+                Section("Requests") {
                     NavigationLink(value: MoreDestination.seerrAdmin) {
                         moreRow(
-                            icon: "shield.fill",
+                            icon: "tray.full.fill",
                             color: .indigo,
-                            title: "Seerr Admin",
-                            subtitle: seerrProfile == nil ? "Not configured" : "Dashboard overview"
+                            title: "Requests",
+                            subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
                         )
                     }
 
@@ -170,8 +174,8 @@ struct MoreView: View {
                     }
 
                     NavigationLink(value: MoreDestination.seerrLogs) {
-                        moreRow(icon: "doc.text.magnifyingglass", color: .pink,
-                                title: "Seerr Logs", subtitle: "Notification logs and health alerts")
+                        moreRow(icon: "doc.text.magnifyingglass", color: .indigo,
+                                title: "Seerr Logs", subtitle: "Live Seerr server logs")
                     }
                 }
 
@@ -285,7 +289,7 @@ struct MoreView: View {
                 case .seerrUserManagement:
                     if let client = seerrServiceManager.activeClient {
                         SeerrUserManagementView(apiClient: client)
-                            .moreDestinationBackground(.providers)
+                            .moreDestinationBackground(.userManagement)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
@@ -294,15 +298,19 @@ struct MoreView: View {
                 case .seerrIssues:
                     if let client = seerrServiceManager.activeClient {
                         SeerrIssueListView(apiClient: client)
-                            .moreDestinationBackground(.providers)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
                             .moreDestinationTitleStyle()
                     }
                 case .seerrLogs:
-                    SeerrLogsView()
-                        .moreDestinationTitleStyle()
+                    if let client = seerrServiceManager.activeClient {
+                        SeerrLogsView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        seerrAdminDestination
+                            .moreDestinationTitleStyle()
+                    }
                 case .seerrSettings:
                     SeerrSettingsView()
                         .moreDestinationTitleStyle()
@@ -494,7 +502,7 @@ struct MoreView: View {
                     .font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         } else if let seerrProfile {
             ContentUnavailableView {
                 Label("Seerr Unreachable", systemImage: "network.slash")
@@ -508,14 +516,14 @@ struct MoreView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         } else {
             ContentUnavailableView {
-                Label("Seerr Not Configured", systemImage: "shield")
+                Label("Seerr Not Configured", systemImage: "eye")
             } description: {
-                Text("Add a Seerr server in Settings to use the admin dashboard.")
+                Text("Add a Seerr server in Settings to manage requests.")
             }
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         }
     }
 
@@ -776,50 +784,3 @@ private struct NotificationDetailView: View {
     }
 }
 
-private struct SeerrLogsView: View {
-    @Environment(InAppNotificationCenter.self) private var center
-    @State private var selectedEntry: NotificationLogEntry?
-
-    private var seerrEntries: [NotificationLogEntry] {
-        center.recentNotifications.filter { e in
-            let blob = "\(e.title) \(e.message)".lowercased()
-            return blob.contains("seerr") || blob.contains("issue") || blob.contains("user")
-        }
-    }
-
-    var body: some View {
-        Group {
-            if seerrEntries.isEmpty {
-                ContentUnavailableView("No Seerr Logs", systemImage: "doc.text.magnifyingglass", description: Text("Seerr-related notification logs will appear here."))
-            } else {
-                List {
-                    ForEach(seerrEntries) { entry in
-                        Button { selectedEntry = entry } label: {
-                            VStack(alignment: .leading, spacing: 6) {
-                                Text(entry.title).font(.headline)
-                                if !entry.message.isEmpty { Text(entry.message).font(.subheadline).foregroundStyle(.secondary).lineLimit(2) }
-                                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                            .padding(.vertical, 4)
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                #if os(iOS)
-                .listStyle(.insetGrouped)
-                #else
-                .listStyle(.inset)
-                #endif
-                .scrollContentBackground(.hidden)
-            }
-        }
-        .background(MoreDestinationGradientBackground(accent: .providers))
-        .navigationTitle("Seerr Logs")
-        .sheet(item: $selectedEntry) { entry in
-            NotificationDetailView(entry: entry, icon: "doc.text.fill", tint: .pink)
-                .presentationDetents([.medium])
-        }
-    }
-}

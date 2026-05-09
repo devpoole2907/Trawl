@@ -1,11 +1,8 @@
 import Foundation
 
-struct SeerrIssueListResponse: Codable, Sendable {
-    let pageInfo: SeerrPageInfo
-    let results: [SeerrIssue]
-}
+typealias SeerrIssueListResponse = SeerrPagedResponse<SeerrIssue>
 
-struct SeerrIssue: Codable, Identifiable, Sendable {
+struct SeerrIssue: nonisolated Codable, Identifiable, Sendable {
     let id: Int
     let issueType: Int?
     let status: Int?
@@ -31,27 +28,15 @@ struct SeerrIssue: Codable, Identifiable, Sendable {
     }
 
     var createdAtRelativeText: String? {
-        Self.relativeDateText(from: createdAt)
+        SeerrDateFormatter.relativeDateText(from: createdAt)
     }
 
     var updatedAtRelativeText: String? {
-        Self.relativeDateText(from: updatedAt)
+        SeerrDateFormatter.relativeDateText(from: updatedAt)
     }
-
-    fileprivate static func relativeDateText(from value: String?) -> String? {
-        guard let value, let date = isoFormatter.date(from: value) else { return nil }
-        return relativeFormatter.localizedString(for: date, relativeTo: .now)
-    }
-
-    private static let isoFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-    private static let relativeFormatter = RelativeDateTimeFormatter()
 }
 
-struct SeerrIssueMedia: Codable, Sendable {
+struct SeerrIssueMedia: nonisolated Codable, Sendable {
     let id: Int?
     let tmdbId: Int?
     let mediaType: String?
@@ -69,7 +54,7 @@ struct SeerrIssueMedia: Codable, Sendable {
     var displayTitle: String { title ?? name ?? originalTitle ?? originalName ?? "Unknown Media" }
 }
 
-struct SeerrIssueComment: Codable, Identifiable, Sendable {
+struct SeerrIssueComment: nonisolated Codable, Identifiable, Sendable {
     let id: Int
     let user: SeerrUser?
     let message: String
@@ -77,11 +62,11 @@ struct SeerrIssueComment: Codable, Identifiable, Sendable {
     let updatedAt: String?
 
     var createdAtRelativeText: String? {
-        SeerrIssue.relativeDateText(from: createdAt)
+        SeerrDateFormatter.relativeDateText(from: createdAt)
     }
 }
 
-enum SeerrIssueStatus: Int, Codable, Sendable {
+enum SeerrIssueStatus: Int, nonisolated Codable, Sendable {
     case open = 1
     case resolved = 2
 
@@ -107,7 +92,7 @@ enum SeerrIssueStatus: Int, Codable, Sendable {
     }
 }
 
-enum SeerrIssueType: Int, Codable, CaseIterable, Identifiable, Sendable {
+enum SeerrIssueType: Int, nonisolated Codable, CaseIterable, Identifiable, Sendable {
     case video = 1
     case audio = 2
     case subtitle = 3
@@ -134,16 +119,42 @@ enum SeerrIssueType: Int, Codable, CaseIterable, Identifiable, Sendable {
     }
 }
 
-struct SeerrUpdateUserBody: Codable, Sendable {
+struct SeerrUpdateUserBody: nonisolated Codable, Sendable {
     let permissions: Int
 }
 
-struct SeerrImportJellyfinUsersBody: Codable, Sendable {
+struct SeerrImportJellyfinUsersBody: nonisolated Codable, Sendable {
     let jellyfinUserIds: [String]
 }
 
-struct SeerrIssueCommentBody: Codable, Sendable {
+struct SeerrIssueCommentBody: nonisolated Codable, Sendable {
     let message: String
 }
 
-struct EmptyRequestBody: Codable, Sendable {}
+struct EmptyRequestBody: nonisolated Codable, Sendable {}
+
+enum SeerrDateFormatter {
+    static func date(from value: String?) -> Date? {
+        guard let value else { return nil }
+        return fractionalISOFormatter.date(from: value) ?? internetISOFormatter.date(from: value)
+    }
+
+    static func relativeDateText(from value: String?) -> String? {
+        guard let date = date(from: value) else { return nil }
+        return relativeFormatter.localizedString(for: date, relativeTo: .now)
+    }
+
+    private static let fractionalISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let internetISOFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let relativeFormatter = RelativeDateTimeFormatter()
+}

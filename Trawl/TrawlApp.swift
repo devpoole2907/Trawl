@@ -115,11 +115,15 @@ struct TrawlApp: App {
             var arrProfileDescriptor = FetchDescriptor<ArrServiceProfile>()
             arrProfileDescriptor.fetchLimit = 1
 
+            var seerrProfileDescriptor = FetchDescriptor<SeerrServiceProfile>()
+            seerrProfileDescriptor.fetchLimit = 1
+
             return
                 try !context.fetch(serverDescriptor).isEmpty ||
                 !context.fetch(cachedStateDescriptor).isEmpty ||
                 !context.fetch(recentPathDescriptor).isEmpty ||
-                !context.fetch(arrProfileDescriptor).isEmpty
+                !context.fetch(arrProfileDescriptor).isEmpty ||
+                !context.fetch(seerrProfileDescriptor).isEmpty
         } catch {
             logger.error("SwiftData migration probe failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -177,6 +181,18 @@ struct TrawlApp: App {
                 copy.lastSynced = arrProfile.lastSynced
                 copy.apiVersion = arrProfile.apiVersion
                 copy.importFolders = arrProfile.importFolders
+                destinationContext.insert(copy)
+            }
+
+            for seerrProfile in try sourceContext.fetch(FetchDescriptor<SeerrServiceProfile>()) {
+                let copy = SeerrServiceProfile(
+                    displayName: seerrProfile.displayName,
+                    hostURL: seerrProfile.hostURL,
+                    allowsUntrustedTLS: seerrProfile.allowsUntrustedTLS
+                )
+                copy.id = seerrProfile.id
+                copy.isEnabled = seerrProfile.isEnabled
+                copy.dateAdded = seerrProfile.dateAdded
                 destinationContext.insert(copy)
             }
         } catch {

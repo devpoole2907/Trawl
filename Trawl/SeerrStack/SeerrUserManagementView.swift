@@ -3,16 +3,46 @@ import SwiftUI
 struct SeerrUserManagementView: View {
     let apiClient: SeerrAPIClient
 
-    @State private var viewModel: SeerrUserManagementViewModel
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @State private var viewModel: SeerrUserManagementViewModel?
     @State private var errorAlert: ErrorAlertItem?
     @State private var userPendingDeletion: SeerrUser?
+    @State private var showingJellyfinImport = false
 
     init(apiClient: SeerrAPIClient) {
         self.apiClient = apiClient
-        self._viewModel = State(initialValue: SeerrUserManagementViewModel(apiClient: apiClient))
+    }
+
+    private var subtitle: String? {
+        let count = viewModel?.totalUserCount ?? seerrServiceManager.cachedUserCount
+        guard let count else { return nil }
+        return "\(count) \(count == 1 ? "user" : "users")"
     }
 
     var body: some View {
+        Group {
+            if let viewModel {
+                content(viewModel: viewModel)
+            } else {
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .navigationTitle("User Management")
+        .modifier(SeerrUserSubtitleModifier(subtitle: subtitle))
+        .task {
+            if viewModel == nil {
+                viewModel = SeerrUserManagementViewModel(
+                    apiClient: apiClient,
+                    serviceManager: seerrServiceManager
+                )
+            }
+            await viewModel?.loadIfNeeded()
+        }
+    }
+
+    @ViewBuilder
+    private func content(viewModel: SeerrUserManagementViewModel) -> some View {
         List {
             if !viewModel.users.isEmpty {
                 Section {
@@ -38,7 +68,7 @@ struct SeerrUserManagementView: View {
                                 viewModel.applyUpdatedUser(updatedUser)
                             }
                         } label: {
-                            SeerrUserRow(user: user)
+                            SeerrUserRow(user: user, baseURL: apiClient.baseURL)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -59,20 +89,59 @@ struct SeerrUserManagementView: View {
                 }
             }
         }
-        .navigationTitle("User Management")
-        .modifier(SeerrUserSubtitleModifier(subtitle: viewModel.users.isEmpty ? nil : "\(viewModel.totalUserCount) users"))
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
         .refreshable { await viewModel.loadUsers() }
-        .task { await viewModel.loadIfNeeded() }
         .toolbar {
             ToolbarItem(placement: .automatic) {
                 if viewModel.isImporting {
                     ProgressView()
                 } else {
-                    Button("Import Jellyfin", systemImage: "arrow.down.circle") {
-                        Task { await viewModel.importFromJellyfin() }
+                    Menu {
+                        Button {
+                            showingJellyfinImport = true
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Import Jellyfin Users")
+                                    Text("Pick which Jellyfin accounts to add as Seerr users.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "person.crop.circle.badge.plus")
+                            }
+                        }
+
+                        Button {
+                            Task { await viewModel.loadUsers() }
+                        } label: {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("Refresh User List")
+                                    Text("Reload the imported users from Seerr.")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            } icon: {
+                                Image(systemName: "arrow.clockwise")
+                            }
+                        }
+                        .disabled(viewModel.isLoading)
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
                     }
-                    .disabled(viewModel.isLoading)
+                    .accessibilityLabel("User Management Actions")
                 }
+            }
+        }
+        .sheet(isPresented: $showingJellyfinImport) {
+            SeerrJellyfinImportSheet(apiClient: apiClient) { ids in
+                Task { await viewModel.importJellyfinUsers(ids: ids) }
             }
         }
         .confirmationDialog("Delete User?", isPresented: deleteDialogPresented) {
@@ -99,10 +168,11 @@ struct SeerrUserManagementView: View {
 
 private struct SeerrUserRow: View {
     let user: SeerrUser
+    let baseURL: String
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: user.avatarURL) { image in
+            AsyncImage(url: user.avatarURL(baseURL: baseURL)) { image in
                 image.resizable().aspectRatio(contentMode: .fill)
             } placeholder: {
                 Circle()

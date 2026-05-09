@@ -2,10 +2,11 @@ import Foundation
 
 /// Core Seerr HTTP client for Trawl's admin features.
 actor SeerrAPIClient {
-    let baseURL: String
+    nonisolated let baseURL: String
     private let session: URLSession
     private var sessionCookie: String?
     private let trustPolicy: ServerTrustPolicy
+    private var onCookieUpdate: (@Sendable (String) -> Void)?
 
     init(baseURL: String, sessionCookie: String? = nil, allowsUntrustedTLS: Bool = false) {
         var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -21,21 +22,26 @@ actor SeerrAPIClient {
         self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
+    /// Registers a handler invoked whenever Seerr issues a fresh `connect.sid` cookie
+    /// on a response. The owner can persist the updated cookie so future launches use
+    /// the latest value rather than the original one captured at sign-in.
+    func setCookieUpdateHandler(_ handler: @escaping @Sendable (String) -> Void) {
+        self.onCookieUpdate = handler
+    }
+
     // MARK: - Auth
 
     func loginJellyfin(username: String, password: String) async throws -> SeerrUser {
         let body: [String: String] = ["username": username, "password": password]
         let (data, response) = try await postRaw("/api/v1/auth/jellyfin", jsonBody: body)
 
-        if let setCookie = response.value(forHTTPHeaderField: "Set-Cookie") {
-            sessionCookie = extractSessionCookie(from: setCookie)
-        }
+        captureRollingCookie(from: response)
 
         guard response.statusCode == 200 else {
             if response.statusCode == 401 || response.statusCode == 403 {
-                throw URLError(.userAuthenticationRequired)
+                throw SeerrAPIError.unauthorized
             }
-            throw URLError(.badServerResponse)
+            throw SeerrAPIError.http(status: response.statusCode, body: bodyString(from: data))
         }
 
         return try decode(SeerrUser.self, from: data)
@@ -66,18 +72,45 @@ actor SeerrAPIClient {
         try await put("/api/v1/user/\(id)", body: SeerrUpdateUserBody(permissions: permissions))
     }
 
-    func deleteUser(id: Int) async throws -> SeerrUser {
-        try await delete("/api/v1/user/\(id)")
+    func deleteUser(id: Int) async throws {
+        try await deleteVoid("/api/v1/user/\(id)")
     }
 
-    func importUsersFromJellyfin(jellyfinUserIds: [String]? = nil) async throws -> [SeerrUser] {
-        if let jellyfinUserIds, !jellyfinUserIds.isEmpty {
-            return try await post(
-                "/api/v1/user/import-from-jellyfin",
-                body: SeerrImportJellyfinUsersBody(jellyfinUserIds: jellyfinUserIds)
-            )
-        }
-        return try await post("/api/v1/user/import-from-jellyfin", body: EmptyRequestBody())
+    func importUsersFromJellyfin(jellyfinUserIds: [String]) async throws -> [SeerrUser] {
+        try await post(
+            "/api/v1/user/import-from-jellyfin",
+            body: SeerrImportJellyfinUsersBody(jellyfinUserIds: jellyfinUserIds)
+        )
+    }
+
+    func getJellyfinUsers() async throws -> [SeerrJellyfinUser] {
+        try await get("/api/v1/settings/jellyfin/users")
+    }
+
+    // MARK: - Linked Applications (Sonarr / Radarr)
+
+    func getDVRSettings(_ kind: SeerrDVRKind) async throws -> [SeerrDVRSettings] {
+        try await get(kind.settingsPath)
+    }
+
+    func testDVRConnection(_ kind: SeerrDVRKind, body: SeerrDVRTestBody) async throws -> SeerrDVRTestResponse {
+        try await post(kind.testPath, body: body)
+    }
+
+    func getDVRService(_ kind: SeerrDVRKind, id: Int) async throws -> SeerrDVRServiceResponse {
+        try await get(kind.servicePath(id: id))
+    }
+
+    func createDVRSettings(_ kind: SeerrDVRKind, body: SeerrDVRSettings) async throws -> SeerrDVRSettings {
+        try await post(kind.settingsPath, body: body)
+    }
+
+    func updateDVRSettings(_ kind: SeerrDVRKind, id: Int, body: SeerrDVRSettings) async throws -> SeerrDVRSettings {
+        try await put(kind.settingsItemPath(id: id), body: body)
+    }
+
+    func deleteDVRSettings(_ kind: SeerrDVRKind, id: Int) async throws {
+        try await deleteVoid(kind.settingsItemPath(id: id))
     }
 
     // MARK: - Admin Endpoints (Issues)
@@ -116,6 +149,54 @@ actor SeerrAPIClient {
         try await get("/api/v1/request/count")
     }
 
+    func getRequests(
+        take: Int = 20,
+        skip: Int = 0,
+        filter: String = "pending",
+        sort: String = "added",
+        sortDirection: String = "desc",
+        mediaType: String = "all"
+    ) async throws -> SeerrRequestListResponse {
+        try await get("/api/v1/request", params: [
+            "take": String(take),
+            "skip": String(skip),
+            "filter": filter,
+            "sort": sort,
+            "sortDirection": sortDirection,
+            "mediaType": mediaType
+        ])
+    }
+
+    func approveRequest(id: Int) async throws -> SeerrMediaRequest {
+        try await post("/api/v1/request/\(id)/approve", body: EmptyRequestBody())
+    }
+
+    func declineRequest(id: Int) async throws -> SeerrMediaRequest {
+        try await post("/api/v1/request/\(id)/decline", body: EmptyRequestBody())
+    }
+
+    func deleteRequest(id: Int) async throws {
+        try await deleteVoid("/api/v1/request/\(id)")
+    }
+
+    func getMediaSummary(tmdbId: Int, mediaType: String) async throws -> SeerrMediaSummary {
+        let path = mediaType == "tv" ? "/api/v1/tv/\(tmdbId)" : "/api/v1/movie/\(tmdbId)"
+        return try await get(path)
+    }
+
+    func getLogs(take: Int = 100, skip: Int = 0, filter: String = "debug", search: String? = nil) async throws -> [SeerrServerLogEntry] {
+        var params = [
+            "take": String(take),
+            "skip": String(skip),
+            "filter": filter
+        ]
+        if let search, !search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            params["search"] = search
+        }
+        let response: SeerrPagedResponse<SeerrServerLogEntry> = try await get("/api/v1/settings/logs", params: params)
+        return response.results
+    }
+
     func getPublicSettings() async throws -> SeerrPublicSettings {
         try await get("/api/v1/settings/public")
     }
@@ -145,10 +226,7 @@ actor SeerrAPIClient {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(jsonBody)
-        let (_, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse, (200..<400).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
-        }
+        try await performVoid(request)
     }
 
     private func postRaw(_ path: String, jsonBody: [String: String]) async throws -> (Data, HTTPURLResponse) {
@@ -156,25 +234,25 @@ actor SeerrAPIClient {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
 
-        let (data, response) = try await session.data(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+        let (data, response) = try await sessionData(for: request)
+        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
         return (data, http)
     }
 
-    private func delete<T: Decodable>(_ path: String) async throws -> T {
+    private func deleteVoid(_ path: String) async throws {
         let request = try buildRequest(path: path, method: "DELETE")
-        return try await perform(request)
+        try await performVoid(request)
     }
 
     private func buildRequest(path: String, method: String, queryParams: [String: String] = [:]) throws -> URLRequest {
         guard var components = URLComponents(string: "\(baseURL)\(path)") else {
-            throw URLError(.badURL)
+            throw SeerrAPIError.badURL
         }
         if !queryParams.isEmpty {
             components.queryItems = queryParams.map { URLQueryItem(name: $0.key, value: $0.value) }
         }
         guard let url = components.url else {
-            throw URLError(.badURL)
+            throw SeerrAPIError.badURL
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
@@ -184,29 +262,54 @@ actor SeerrAPIClient {
         return request
     }
 
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let data: Data
-        let response: URLResponse
+    private func sessionData(for request: URLRequest) async throws -> (Data, URLResponse) {
         do {
-            (data, response) = try await session.data(for: request)
+            return try await session.data(for: request)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError {
+            if urlError.code == .cancelled { throw CancellationError() }
+            throw SeerrAPIError.transport(urlError)
         } catch {
-            throw URLError(.cannotConnectToHost)
+            throw SeerrAPIError.transport(URLError(.unknown))
         }
+    }
 
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let (data, response) = try await sessionData(for: request)
+
+        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
+
+        captureRollingCookie(from: http)
 
         if http.statusCode == 401 || http.statusCode == 403 {
-            throw URLError(.userAuthenticationRequired)
+            throw SeerrAPIError.unauthorized
         }
 
         guard (200..<400).contains(http.statusCode) else {
-            throw URLError(.badServerResponse)
+            throw SeerrAPIError.http(status: http.statusCode, body: bodyString(from: data))
         }
 
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
-            throw URLError(.cannotDecodeRawData)
+            throw SeerrAPIError.decode(reason: String(describing: error))
+        }
+    }
+
+    private func performVoid(_ request: URLRequest) async throws {
+        let (data, response) = try await sessionData(for: request)
+
+        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
+
+        captureRollingCookie(from: http)
+
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw SeerrAPIError.unauthorized
+        }
+
+        guard (200..<400).contains(http.statusCode) else {
+            throw SeerrAPIError.http(status: http.statusCode, body: bodyString(from: data))
         }
     }
 
@@ -214,17 +317,35 @@ actor SeerrAPIClient {
         do {
             return try JSONDecoder().decode(type, from: data)
         } catch {
-            throw URLError(.cannotDecodeRawData)
+            throw SeerrAPIError.decode(reason: String(describing: error))
         }
     }
 
-    private func extractSessionCookie(from header: String) -> String? {
-        for part in header.components(separatedBy: ";") {
-            let trimmed = part.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("connect.sid=") {
-                return String(trimmed.dropFirst("connect.sid=".count))
+    private func bodyString(from data: Data) -> String? {
+        guard !data.isEmpty else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    /// Parse `Set-Cookie` headers using `HTTPCookie` so multi-cookie responses and
+    /// header field name casing variations are handled correctly.
+    private func extractSessionCookie(from response: HTTPURLResponse) -> String? {
+        guard let url = response.url else { return nil }
+        let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, pair in
+            if let key = pair.key as? String, let value = pair.value as? String {
+                result[key] = value
             }
         }
-        return nil
+        let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
+        return cookies.first { $0.name == "connect.sid" }?.value
+    }
+
+    private func captureRollingCookie(from response: HTTPURLResponse) {
+        guard
+            let updated = extractSessionCookie(from: response),
+            !updated.isEmpty,
+            updated != sessionCookie
+        else { return }
+        sessionCookie = updated
+        onCookieUpdate?(updated)
     }
 }

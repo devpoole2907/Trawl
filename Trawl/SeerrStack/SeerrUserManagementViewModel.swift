@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 
+@MainActor
 @Observable
 final class SeerrUserManagementViewModel {
     private(set) var users: [SeerrUser] = []
@@ -10,12 +11,14 @@ final class SeerrUserManagementViewModel {
     private(set) var errorMessage: String?
 
     private let apiClient: SeerrAPIClient
+    private weak var serviceManager: SeerrServiceManager?
     private let pageSize = 20
     private var totalResults = 0
     private var hasLoaded = false
 
-    init(apiClient: SeerrAPIClient) {
+    init(apiClient: SeerrAPIClient, serviceManager: SeerrServiceManager? = nil) {
         self.apiClient = apiClient
+        self.serviceManager = serviceManager
     }
 
     var hasMore: Bool {
@@ -40,6 +43,7 @@ final class SeerrUserManagementViewModel {
             users = response.results
             totalResults = response.pageInfo.results ?? response.results.count
             hasLoaded = true
+            serviceManager?.updateCachedUserCount(totalResults)
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -58,17 +62,19 @@ final class SeerrUserManagementViewModel {
             let response = try await apiClient.getUsers(take: pageSize, skip: skip)
             users.append(contentsOf: response.results)
             totalResults = response.pageInfo.results ?? totalResults
+            serviceManager?.updateCachedUserCount(totalResults)
         } catch {
             errorMessage = error.localizedDescription
         }
     }
 
-    func importFromJellyfin() async {
+    func importJellyfinUsers(ids: [String]) async {
+        guard !ids.isEmpty else { return }
         isImporting = true
         errorMessage = nil
 
         do {
-            _ = try await apiClient.importUsersFromJellyfin()
+            _ = try await apiClient.importUsersFromJellyfin(jellyfinUserIds: ids)
             await loadUsers()
         } catch {
             errorMessage = error.localizedDescription
@@ -79,9 +85,10 @@ final class SeerrUserManagementViewModel {
 
     func deleteUser(_ user: SeerrUser) async {
         do {
-            _ = try await apiClient.deleteUser(id: user.id)
+            try await apiClient.deleteUser(id: user.id)
             users.removeAll { $0.id == user.id }
             totalResults = max(0, totalResults - 1)
+            serviceManager?.updateCachedUserCount(totalResults)
         } catch {
             errorMessage = error.localizedDescription
         }

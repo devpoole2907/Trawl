@@ -253,7 +253,7 @@ struct ContentView: View {
                 featureRow(icon: "captions.bubble.fill", color: .teal,
                            title: "Bazarr",
                            description: "Manage subtitles for series and movies")
-                featureRow(icon: "arrow.down.circle", color: .blue,
+                featureRow(icon: "eye.fill", color: .purple,
                            title: "Seerr",
                            description: "Manage requests and users")
             }
@@ -337,8 +337,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "arrow.down.circle",
-                    color: .blue,
+                    icon: "eye.fill",
+                    color: .purple,
                     title: "Seerr",
                     description: "Manage requests and users",
                     isConfigured: seerrProfile != nil
