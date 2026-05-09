@@ -268,10 +268,16 @@ struct MoreView: View {
                     if let client = seerrServiceManager.activeClient {
                         SeerrUserManagementView(apiClient: client)
                             .moreDestinationTitleStyle()
+                    } else {
+                        seerrAdminDestination
+                            .moreDestinationTitleStyle()
                     }
                 case .seerrIssues:
                     if let client = seerrServiceManager.activeClient {
                         SeerrIssueListView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        seerrAdminDestination
                             .moreDestinationTitleStyle()
                     }
                 case .seerrSettings:

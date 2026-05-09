@@ -28,11 +28,14 @@ final class SeerrServiceManager {
 
         do {
             guard let cookie = try await KeychainHelper.shared.read(key: profile.sessionCookieKey), !cookie.isEmpty else {
+                activeClient = nil
+                activeProfileID = nil
+                isConnected = false
                 connectionError = "Session cookie not found in Keychain."
                 return
             }
 
-            let client = SeerrAPIClient(baseURL: profile.hostURL, sessionCookie: cookie)
+            let client = SeerrAPIClient(baseURL: profile.hostURL, sessionCookie: cookie, allowsUntrustedTLS: profile.allowsUntrustedTLS)
             _ = try await client.getCurrentUser()
 
             activeClient = client

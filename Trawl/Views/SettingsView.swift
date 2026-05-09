@@ -195,7 +195,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToSeerrSettings) {
                     serviceRow(
-                        icon: "arrow.down.circle", color: .blue,
+                        icon: "popcorn.fill", color: .pink,
                         name: seerrProfile?.displayName ?? "Seerr",
                         url: seerrProfile?.hostURL,
                         isConnected: seerrServiceManager.isConnected,
@@ -839,6 +839,10 @@ private struct NavigateToBazarrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToSeerrSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -873,5 +877,10 @@ extension EnvironmentValues {
     var navigateToBazarrSettings: () -> Void {
         get { self[NavigateToBazarrSettingsKey.self] }
         set { self[NavigateToBazarrSettingsKey.self] = newValue }
+    }
+
+    var navigateToSeerrSettings: () -> Void {
+        get { self[NavigateToSeerrSettingsKey.self] }
+        set { self[NavigateToSeerrSettingsKey.self] = newValue }
     }
 }

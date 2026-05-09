@@ -29,7 +29,9 @@ struct SeerrSettingsView: View {
 
             Section("Server") {
                 TextField("Seerr URL (e.g. http://192.168.1.50:5055)", text: $viewModel.hostURL)
+                    #if os(iOS)
                     .keyboardType(.URL)
+                    #endif
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
             }

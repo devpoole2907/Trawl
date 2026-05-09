@@ -15,6 +15,7 @@ enum SeerrIssueFilter: String, CaseIterable, Identifiable {
     }
 }
 
+@MainActor
 @Observable
 final class SeerrIssueListViewModel {
     private(set) var issues: [SeerrIssue] = []

@@ -29,7 +29,7 @@ struct SeerrDashboardCard: View {
                     statBlock(title: "TV", value: requestCount?.tv ?? 0)
                 }
 
-                if let pending = requestCount?.pending {
+                if let pending = requestCount?.pending, pending > 0 {
                     Text(pending == 1 ? "1 request is waiting for approval." : "\(pending) requests are waiting for approval.")
                         .font(.caption)
                         .foregroundStyle(.secondary)

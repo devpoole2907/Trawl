@@ -5,18 +5,20 @@ actor SeerrAPIClient {
     let baseURL: String
     private let session: URLSession
     private var sessionCookie: String?
+    private let trustPolicy: ServerTrustPolicy
 
-    init(baseURL: String, sessionCookie: String? = nil) {
+    init(baseURL: String, sessionCookie: String? = nil, allowsUntrustedTLS: Bool = false) {
         var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         if url.hasSuffix("/") { url = String(url.dropLast()) }
         self.baseURL = url
         self.sessionCookie = sessionCookie
+        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
 
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config)
+        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
     }
 
     // MARK: - Auth

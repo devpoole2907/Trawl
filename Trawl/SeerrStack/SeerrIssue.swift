@@ -62,7 +62,10 @@ struct SeerrIssueMedia: Codable, Sendable {
     let originalName: String?
     let posterPath: String?
 
-    var posterURL: URL? { URL(string: "https://image.tmdb.org/t/p/w500\(posterPath ?? "")") }
+    var posterURL: URL? {
+        guard let posterPath = posterPath, !posterPath.isEmpty else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/w500\(posterPath)")
+    }
     var displayTitle: String { title ?? name ?? originalTitle ?? originalName ?? "Unknown Media" }
 }
 
