@@ -648,9 +648,21 @@ private struct RecentNotificationsSheet: View {
 
     private func icon(for entry: NotificationLogEntry) -> String {
         let blob = "\(entry.title) \(entry.message)".lowercased()
-        if blob.contains("health") || blob.contains("warning") || blob.contains("issue") { return "heart.text.square.fill" }
-        if blob.contains("user") { return "person.crop.circle.badge.exclamationmark" }
-        if blob.contains("download") || blob.contains("import") { return "arrow.down.circle.fill" }
+        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
+
+        if tokens.contains("health") || tokens.contains("warning") || tokens.contains("alert") {
+            return "heart.text.square.fill"
+        }
+        if tokens.contains("issue") {
+            return "exclamationmark.bubble.fill"
+        }
+        if tokens.contains("user") {
+            return "person.crop.circle.badge.exclamationmark"
+        }
+        if tokens.contains("download") || tokens.contains("import") {
+            return "arrow.down.circle.fill"
+        }
+
         switch entry.style {
         case .success: return "checkmark.circle.fill"
         case .error: return "exclamationmark.triangle.fill"

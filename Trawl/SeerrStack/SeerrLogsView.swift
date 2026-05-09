@@ -10,6 +10,7 @@ struct SeerrLogsView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var selectedEntry: SeerrServerLogEntry?
+    @State private var searchDebounceTask: Task<Void, Never>?
 
     var body: some View {
         List {
@@ -70,7 +71,12 @@ struct SeerrLogsView: View {
             }
         }
         .onChange(of: searchText) { _, newValue in
-            committedSearchText = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            searchDebounceTask?.cancel()
+            searchDebounceTask = Task {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+                committedSearchText = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
         }
         .sheet(item: $selectedEntry) { entry in
             SeerrLogDetailSheet(entry: entry)

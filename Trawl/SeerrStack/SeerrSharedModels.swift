@@ -113,12 +113,20 @@ enum SeerrRequestStatus: Int, nonisolated Codable, Sendable {
     case pending = 1
     case approved = 2
     case declined = 3
+    case processing = 4
+    case available = 5
+    case failed = 6
+    case completed = 7
 
     var title: String {
         switch self {
         case .pending: "Pending"
         case .approved: "Approved"
         case .declined: "Declined"
+        case .processing: "Processing"
+        case .available: "Available"
+        case .failed: "Failed"
+        case .completed: "Completed"
         }
     }
 }
@@ -145,9 +153,34 @@ struct SeerrServerLogEntry: nonisolated Codable, Identifiable, Sendable {
     let message: String?
     let timestamp: String?
     let data: SeerrJSONValue?
+    let uuid: UUID
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        label = try container.decodeIfPresent(String.self, forKey: .label)
+        level = try container.decodeIfPresent(String.self, forKey: .level)
+        message = try container.decodeIfPresent(String.self, forKey: .message)
+        timestamp = try container.decodeIfPresent(String.self, forKey: .timestamp)
+        data = try container.decodeIfPresent(SeerrJSONValue.self, forKey: .data)
+        uuid = (try? container.decodeIfPresent(UUID.self, forKey: .uuid)) ?? UUID()
+    }
+
+    func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(label, forKey: .label)
+        try container.encodeIfPresent(level, forKey: .level)
+        try container.encodeIfPresent(message, forKey: .message)
+        try container.encodeIfPresent(timestamp, forKey: .timestamp)
+        try container.encodeIfPresent(data, forKey: .data)
+        try container.encode(uuid, forKey: .uuid)
+    }
 
     var id: String {
-        "\(timestamp ?? "")-\(label ?? "")-\(level ?? "")-\(message ?? "")"
+        "\(uuid)-\(timestamp ?? "")-\(label ?? "")-\(level ?? "")-\(message ?? "")"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case label, level, message, timestamp, data, uuid
     }
 
     var timestampDate: Date? {

@@ -30,7 +30,11 @@ final class SeerrSetupViewModel {
         defer { isAuthenticating = false }
 
         do {
-            let client = SeerrAPIClient(baseURL: normalizedURL, allowsUntrustedTLS: false)
+            let profiles = try modelContext.fetch(FetchDescriptor<SeerrServiceProfile>())
+            let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first
+            let allowsUntrustedTLS = profile?.allowsUntrustedTLS ?? false
+
+            let client = SeerrAPIClient(baseURL: normalizedURL, allowsUntrustedTLS: allowsUntrustedTLS)
             let user = try await client.loginJellyfin(username: username, password: password)
             guard user.isAdmin else {
                 error = "You must be a Seerr admin to use Trawl."
@@ -43,8 +47,6 @@ final class SeerrSetupViewModel {
                 return false
             }
 
-            let profiles = try modelContext.fetch(FetchDescriptor<SeerrServiceProfile>())
-            let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first
             let isNewProfile = profile == nil
             let savedProfile = profile ?? SeerrServiceProfile(displayName: "Seerr", hostURL: normalizedURL)
             let originalDisplayName = savedProfile.displayName
@@ -58,7 +60,7 @@ final class SeerrSetupViewModel {
             savedProfile.displayName = originalDisplayName.isEmpty ? "Seerr" : originalDisplayName
             savedProfile.hostURL = normalizedURL
             savedProfile.isEnabled = true
-            savedProfile.allowsUntrustedTLS = false
+            savedProfile.allowsUntrustedTLS = allowsUntrustedTLS
 
             if isNewProfile {
                 modelContext.insert(savedProfile)

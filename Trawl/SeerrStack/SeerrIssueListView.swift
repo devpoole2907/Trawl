@@ -37,12 +37,12 @@ struct SeerrIssueListView: View {
     private var issueContentView: some View {
         ArrLoadingErrorEmptyView(
             isLoading: viewModel.isLoading,
-            error: nil,
+            error: viewModel.errorMessage,
             isEmpty: viewModel.issues.isEmpty,
             emptyTitle: "No Issues",
             emptyIcon: "checkmark.bubble",
             emptyDescription: "No issues match the current status filter.",
-            onRetry: nil
+            onRetry: { Task { await viewModel.loadIssues() } }
         ) {
             List {
                 Section {

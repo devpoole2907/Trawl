@@ -81,7 +81,9 @@ final class SeerrServiceManager {
     private func prefetchUserCount(using client: SeerrAPIClient) async {
         do {
             let response = try await client.getUsers(take: 1, skip: 0)
-            cachedUserCount = response.pageInfo.results ?? response.results.count
+            if let results = response.pageInfo.results {
+                cachedUserCount = results
+            }
         } catch {
             // Non-fatal — the user management screen will load fully on appear.
         }
