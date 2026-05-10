@@ -17,6 +17,7 @@ struct BazarrSubtitleStatusCard: View {
     @State private var showInteractiveSearch = false
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
+    @State private var isExpanded = false
 
     private var accent: Color { .teal }
 
@@ -24,6 +25,7 @@ struct BazarrSubtitleStatusCard: View {
         if serviceManager.hasBazarrInstance {
             cardContent
                 .task(id: taskID) {
+                    isExpanded = false
                     movie = nil
                     series = nil
                     await load()
@@ -65,6 +67,31 @@ struct BazarrSubtitleStatusCard: View {
     @ViewBuilder
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 14) {
+            header
+
+            if isExpanded {
+                if !serviceManager.hasAnyConnectedBazarrInstance {
+                    disconnectedContent
+                } else if isLoading && movie == nil && series == nil {
+                    loadingContent
+                } else if let errorMessage {
+                    errorContent(errorMessage)
+                } else {
+                    loadedContent
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var header: some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                isExpanded.toggle()
+            }
+        } label: {
             HStack(spacing: 10) {
                 Image(systemName: "captions.bubble.fill")
                     .foregroundStyle(accent)
@@ -72,21 +99,16 @@ struct BazarrSubtitleStatusCard: View {
                     .font(.headline)
                 Spacer()
                 statusBadge
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
             }
-
-            if !serviceManager.hasAnyConnectedBazarrInstance {
-                disconnectedContent
-            } else if isLoading && movie == nil && series == nil {
-                loadingContent
-            } else if let errorMessage {
-                errorContent(errorMessage)
-            } else {
-                loadedContent
-            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -98,10 +120,16 @@ struct BazarrSubtitleStatusCard: View {
         } else if missingCount > 0 {
             Text("\(missingCount) missing")
                 .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.red.opacity(0.16), in: Capsule())
                 .foregroundStyle(.red)
         } else if hasLoadedMedia {
             Text("Complete")
                 .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(accent.opacity(0.16), in: Capsule())
                 .foregroundStyle(accent)
         }
     }

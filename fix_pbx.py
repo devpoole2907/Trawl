@@ -42,7 +42,8 @@ new_files = [
     "JellyfinStack/JellyfinUserEditorView.swift",
     "JellyfinStack/JellyfinUserEditorViewModel.swift",
     "JellyfinStack/JellyfinUserManagementView.swift",
-    "JellyfinStack/JellyfinUserManagementViewModel.swift"
+    "JellyfinStack/JellyfinUserManagementViewModel.swift",
+    "SeerrStack/SeerrMediaRequestCard.swift"
 ]
 
 def insert_exceptions(target_block, files):

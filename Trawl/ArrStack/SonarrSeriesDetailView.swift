@@ -298,7 +298,8 @@ struct SonarrSeriesDetailView: View {
             networkOrStudio: series.network,
             year: series.year,
             runtime: series.runtime,
-            badges: seriesBadges(series)
+            badges: seriesBadges(series),
+            genres: series.genres ?? []
         )
     }
 
@@ -380,14 +381,20 @@ struct SonarrSeriesDetailView: View {
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
 
+        if isInLibrary {
+            seriesSearchCard(series)
+        }
+
+        if let ratings = series.ratings {
+            ratingsCard(ratings)
+        }
+
         if let overview = series.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
         }
 
         if isInLibrary {
             statsCard(series)
-            seriesSearchCard(series)
-            BazarrSubtitleStatusCard(media: .series(seriesId: series.id, title: series.title))
         }
 
         if !activeQueueItems.isEmpty {
@@ -413,12 +420,22 @@ struct SonarrSeriesDetailView: View {
             }
         }
 
-        if let genres = series.genres, !genres.isEmpty {
-            ArrDetailGenreChips(genres: genres)
+        if let tvdbId = series.tvdbId {
+            SeerrMediaRequestCard(media: .series(tvdbId: tvdbId, title: series.title))
         }
 
-        if let ratings = series.ratings {
-            ratingsCard(ratings)
+        JellyfinMediaAvailabilityCard(
+            media: .series(
+                title: series.title,
+                year: series.year,
+                tvdbId: series.tvdbId,
+                tmdbId: nil,
+                imdbId: series.imdbId
+            )
+        )
+
+        if isInLibrary {
+            BazarrSubtitleStatusCard(media: .series(seriesId: series.id, title: series.title))
         }
 
         // Library-only: episodes and files
@@ -553,7 +570,8 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }

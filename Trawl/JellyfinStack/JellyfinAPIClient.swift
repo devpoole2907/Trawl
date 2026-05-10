@@ -109,6 +109,56 @@ actor JellyfinAPIClient {
         try await get("/Library/VirtualFolders")
     }
 
+    func getLibraryItems(
+        includeItemTypes: [String],
+        fields: [String] = ["ProviderIds", "Path", "DateCreated", "MediaSources"],
+        recursive: Bool = true,
+        startIndex: Int = 0,
+        limit: Int = 500
+    ) async throws -> JellyfinItemsResponse {
+        var params = [
+            "Recursive": String(recursive),
+            "StartIndex": String(startIndex),
+            "Limit": String(limit)
+        ]
+        if !includeItemTypes.isEmpty {
+            params["IncludeItemTypes"] = includeItemTypes.joined(separator: ",")
+        }
+        if !fields.isEmpty {
+            params["Fields"] = fields.joined(separator: ",")
+        }
+        return try await get("/Items", params: params)
+    }
+
+    func getAllLibraryItems(
+        includeItemTypes: [String],
+        fields: [String] = ["ProviderIds", "Path", "DateCreated", "MediaSources"],
+        pageSize: Int = 500,
+        maxItems: Int = 5_000
+    ) async throws -> [JellyfinLibraryItem] {
+        var startIndex = 0
+        var allItems: [JellyfinLibraryItem] = []
+
+        while allItems.count < maxItems {
+            let response = try await getLibraryItems(
+                includeItemTypes: includeItemTypes,
+                fields: fields,
+                startIndex: startIndex,
+                limit: min(pageSize, maxItems - allItems.count)
+            )
+            allItems.append(contentsOf: response.items)
+
+            let loadedCount = startIndex + response.items.count
+            guard
+                !response.items.isEmpty,
+                loadedCount < (response.totalRecordCount ?? loadedCount)
+            else { break }
+            startIndex = loadedCount
+        }
+
+        return allItems
+    }
+
     func refreshAllLibraries() async throws {
         try await postEmpty("/Library/Refresh")
     }

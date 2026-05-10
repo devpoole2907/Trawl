@@ -293,7 +293,8 @@ struct RadarrMovieDetailView: View {
             networkOrStudio: movie.studio,
             year: movie.year,
             runtime: movie.runtime,
-            badges: movieBadges(movie)
+            badges: movieBadges(movie),
+            genres: movie.genres ?? []
         )
     }
 
@@ -357,14 +358,34 @@ struct RadarrMovieDetailView: View {
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
 
+        if isInLibrary {
+            searchActionsCard(movie)
+        }
+
+        if let ratings = movie.ratings {
+            ratingsCard(ratings)
+        }
+
         if let overview = movie.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
         }
 
         statsCard(movie)
 
+        JellyfinMediaAvailabilityCard(
+            media: .movie(
+                title: movie.title,
+                year: movie.year,
+                tmdbId: movie.tmdbId,
+                imdbId: movie.imdbId
+            )
+        )
+
+        if let tmdbId = movie.tmdbId {
+            SeerrMediaRequestCard(media: .movie(tmdbId: tmdbId, title: movie.title))
+        }
+
         if isInLibrary {
-            searchActionsCard(movie)
             BazarrSubtitleStatusCard(media: .movie(radarrId: movie.id, title: movie.title))
         }
 
@@ -389,14 +410,6 @@ struct RadarrMovieDetailView: View {
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
             }
-        }
-
-        if let genres = movie.genres, !genres.isEmpty {
-            ArrDetailGenreChips(genres: genres)
-        }
-
-        if let ratings = movie.ratings {
-            ratingsCard(ratings)
         }
 
         releaseDatesCard(movie)
@@ -523,7 +536,8 @@ struct RadarrMovieDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }

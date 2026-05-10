@@ -55,18 +55,23 @@ struct ArrDetailGenreChips: View {
     let genres: [String]
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
+        ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                ForEach(genres.prefix(8), id: \.self) { genre in
-                    Text(genre)
-                        .font(.caption.weight(.medium))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .glassEffect(.regular, in: Capsule())
-                }
+                ForEach(genres.prefix(8), id: \.self) { genre in pill(genre) }
+            }
+            VStack(spacing: 8) {
+                ForEach(genres.prefix(8), id: \.self) { genre in pill(genre) }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private func pill(_ genre: String) -> some View {
+        Text(genre)
+            .font(.caption.weight(.medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .glassEffect(.regular, in: Capsule())
     }
 }
 

@@ -211,6 +211,89 @@ nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {
     }
 }
 
+nonisolated struct JellyfinItemsResponse: Decodable, Sendable {
+    let items: [JellyfinLibraryItem]
+    let totalRecordCount: Int?
+    let startIndex: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case items = "Items"
+        case totalRecordCount = "TotalRecordCount"
+        case startIndex = "StartIndex"
+    }
+}
+
+nonisolated struct JellyfinLibraryItem: Decodable, Identifiable, Sendable {
+    let id: String
+    let name: String?
+    let type: String?
+    let path: String?
+    let productionYear: Int?
+    let runTimeTicks: Int64?
+    let dateCreated: String?
+    let providerIds: [String: String]?
+    let mediaSources: [JellyfinMediaSource]?
+
+    var providerIDSummary: String {
+        guard let providerIds, !providerIds.isEmpty else { return "No provider IDs" }
+        return providerIds
+            .sorted { $0.key.localizedCaseInsensitiveCompare($1.key) == .orderedAscending }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: " · ")
+    }
+
+    var fileSize: Int64? {
+        mediaSources?.compactMap(\.size).first
+    }
+
+    var runtimeMinutes: Int? {
+        guard let runTimeTicks, runTimeTicks > 0 else { return nil }
+        return Int((Double(runTimeTicks) / 10_000_000 / 60).rounded())
+    }
+
+    func providerID(for keys: [String]) -> String? {
+        guard let providerIds else { return nil }
+        for key in keys {
+            if let exact = providerIds[key], !exact.isEmpty {
+                return exact
+            }
+            if let matched = providerIds.first(where: { $0.key.caseInsensitiveCompare(key) == .orderedSame })?.value,
+               !matched.isEmpty {
+                return matched
+            }
+        }
+        return nil
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case type = "Type"
+        case path = "Path"
+        case productionYear = "ProductionYear"
+        case runTimeTicks = "RunTimeTicks"
+        case dateCreated = "DateCreated"
+        case providerIds = "ProviderIds"
+        case mediaSources = "MediaSources"
+    }
+}
+
+nonisolated struct JellyfinMediaSource: Decodable, Sendable {
+    let id: String?
+    let path: String?
+    let size: Int64?
+    let container: String?
+    let videoType: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case path = "Path"
+        case size = "Size"
+        case container = "Container"
+        case videoType = "VideoType"
+    }
+}
+
 // MARK: - Sessions
 
 nonisolated struct JellyfinSession: Decodable, Identifiable, Sendable {
