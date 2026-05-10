@@ -678,6 +678,53 @@ private struct RecentNotificationsSheet: View {
         }
     }
 
+    private func serviceContext(for entry: NotificationLogEntry) -> NotificationServiceContext {
+        let blob = "\(entry.title) \(entry.message)".lowercased()
+        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
+
+        if tokens.contains("sonarr") { return .sonarr }
+        if tokens.contains("radarr") { return .radarr }
+        if tokens.contains("prowlarr") { return .prowlarr }
+        if tokens.contains("bazarr") { return .bazarr }
+        if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return .seerr }
+        if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return .qbittorrent }
+        return .trawl
+    }
+
+    private enum NotificationServiceContext {
+        case qbittorrent
+        case sonarr
+        case radarr
+        case prowlarr
+        case bazarr
+        case seerr
+        case trawl
+
+        var title: String {
+            switch self {
+            case .qbittorrent: "qBittorrent"
+            case .sonarr: "Sonarr"
+            case .radarr: "Radarr"
+            case .prowlarr: "Prowlarr"
+            case .bazarr: "Bazarr"
+            case .seerr: "Seerr"
+            case .trawl: "Trawl"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .qbittorrent: "arrow.down.circle"
+            case .sonarr: ArrServiceType.sonarr.systemImage
+            case .radarr: ArrServiceType.radarr.systemImage
+            case .prowlarr: ArrServiceType.prowlarr.systemImage
+            case .bazarr: ArrServiceType.bazarr.systemImage
+            case .seerr: "eye.fill"
+            case .trawl: "app.badge"
+            }
+        }
+    }
+
     private static let longMessageThreshold = 140
 
     private func isLongMessage(_ message: String) -> Bool {
@@ -713,20 +760,27 @@ private struct RecentNotificationsSheet: View {
 
     @ViewBuilder
     private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
+        let service = serviceContext(for: entry)
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
                     .frame(width: 7, height: 7)
-                Image(systemName: icon(for: entry))
-                    .foregroundStyle(color(for: entry.style))
-                Text(entry.title)
-                    .font(.headline)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: icon(for: entry))
+                        .foregroundStyle(color(for: entry.style))
+                    Text(entry.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
                 Spacer()
-                Text(entry.source.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: service.systemImage)
+                    Text(service.title)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             if !entry.message.isEmpty {
                 Text(entry.message)
@@ -795,4 +849,3 @@ private struct NotificationDetailView: View {
         #endif
     }
 }
-

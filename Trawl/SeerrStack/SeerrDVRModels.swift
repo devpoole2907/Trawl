@@ -1,6 +1,6 @@
 import Foundation
 
-enum SeerrDVRKind: String, Identifiable, CaseIterable, Sendable {
+nonisolated enum SeerrDVRKind: String, Identifiable, CaseIterable, Sendable {
     case sonarr
     case radarr
 
@@ -32,7 +32,7 @@ enum SeerrDVRKind: String, Identifiable, CaseIterable, Sendable {
 
 /// The settings record Overseerr returns from `/api/v1/settings/{sonarr|radarr}`.
 /// One struct works for both because the optional fields collapse appropriately.
-struct SeerrDVRSettings: Codable, Identifiable, Sendable {
+nonisolated struct SeerrDVRSettings: Codable, Identifiable, Sendable {
     var id: Int
     var name: String
     var hostname: String
@@ -71,7 +71,7 @@ struct SeerrDVRSettings: Codable, Identifiable, Sendable {
 
 /// Body posted to `/api/v1/settings/{sonarr|radarr}/test` to fetch profiles, root folders, and tags
 /// before a server has been saved.
-struct SeerrDVRTestBody: Codable, Sendable {
+nonisolated struct SeerrDVRTestBody: Codable, Sendable {
     var hostname: String
     var port: Int
     var apiKey: String
@@ -79,7 +79,7 @@ struct SeerrDVRTestBody: Codable, Sendable {
     var baseUrl: String?
 }
 
-struct SeerrDVRTestResponse: Codable, Sendable {
+nonisolated struct SeerrDVRTestResponse: Codable, Sendable {
     let profiles: [SeerrQualityProfile]?
     let rootFolders: [SeerrRootFolder]?
     let tags: [SeerrDVRTag]?
@@ -89,20 +89,20 @@ struct SeerrDVRTestResponse: Codable, Sendable {
 /// object alongside the picker data, but without credentials like `hostname` or
 /// `apiKey`. We already have the full settings from the list call, so we ignore the
 /// `server` field here and only decode what we need for the editor's pickers.
-struct SeerrDVRServiceResponse: Codable, Sendable {
+nonisolated struct SeerrDVRServiceResponse: Codable, Sendable {
     let profiles: [SeerrQualityProfile]?
     let rootFolders: [SeerrRootFolder]?
     let tags: [SeerrDVRTag]?
 }
 
-struct SeerrQualityProfile: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct SeerrQualityProfile: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let name: String?
 
     var displayName: String { name ?? "Profile \(id)" }
 }
 
-struct SeerrRootFolder: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct SeerrRootFolder: Codable, Identifiable, Hashable, Sendable {
     let id: Int?
     let path: String?
     let freeSpace: Int64?
@@ -115,14 +115,14 @@ extension SeerrRootFolder {
     var safeID: String { path ?? "id-\(id ?? 0)" }
 }
 
-struct SeerrDVRTag: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct SeerrDVRTag: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let label: String?
 
     var displayLabel: String { label ?? "Tag \(id)" }
 }
 
-enum SeerrRadarrAvailability: String, CaseIterable, Identifiable, Sendable {
+nonisolated enum SeerrRadarrAvailability: String, CaseIterable, Identifiable, Sendable {
     case announced
     case inCinemas = "inCinemas"
     case released

@@ -1,13 +1,13 @@
 import Foundation
 
-struct SeerrPageInfo: nonisolated Codable, Sendable {
+nonisolated struct SeerrPageInfo: Codable, Sendable {
     let pages: Int?
     let pageSize: Int?
     let results: Int?
     let page: Int?
 }
 
-struct SeerrRequestCount: nonisolated Codable, Sendable {
+nonisolated struct SeerrRequestCount: Codable, Sendable {
     let total: Int?
     let movie: Int?
     let tv: Int?
@@ -20,14 +20,14 @@ struct SeerrRequestCount: nonisolated Codable, Sendable {
     let completed: Int?
 }
 
-struct SeerrPagedResponse<Element>: nonisolated Codable, Sendable where Element: Codable & Sendable {
+nonisolated struct SeerrPagedResponse<Element>: Codable, Sendable where Element: Codable & Sendable {
     let pageInfo: SeerrPageInfo
     let results: [Element]
 }
 
 typealias SeerrRequestListResponse = SeerrPagedResponse<SeerrMediaRequest>
 
-struct SeerrMediaRequest: nonisolated Codable, Identifiable, Sendable {
+nonisolated struct SeerrMediaRequest: Codable, Identifiable, Sendable {
     let id: Int
     let status: Int?
     let media: SeerrRequestMedia?
@@ -47,7 +47,7 @@ struct SeerrMediaRequest: nonisolated Codable, Identifiable, Sendable {
     }
 }
 
-struct SeerrRequestMedia: nonisolated Codable, Sendable {
+nonisolated struct SeerrRequestMedia: Codable, Sendable {
     let id: Int?
     let tmdbId: Int?
     let tvdbId: Int?
@@ -83,7 +83,7 @@ struct SeerrRequestMedia: nonisolated Codable, Sendable {
     }
 }
 
-struct SeerrMediaSummary: nonisolated Codable, Sendable {
+nonisolated struct SeerrMediaSummary: Codable, Sendable {
     let id: Int?
     let title: String?
     let name: String?
@@ -109,7 +109,7 @@ struct SeerrMediaSummary: nonisolated Codable, Sendable {
     }
 }
 
-enum SeerrRequestStatus: Int, nonisolated Codable, Sendable {
+nonisolated enum SeerrRequestStatus: Int, Codable, Sendable {
     case pending = 1
     case approved = 2
     case declined = 3
@@ -147,7 +147,7 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     }
 }
 
-struct SeerrServerLogEntry: nonisolated Codable, Identifiable, Sendable {
+nonisolated struct SeerrServerLogEntry: Codable, Identifiable, Sendable {
     let label: String?
     let level: String?
     let message: String?
@@ -193,7 +193,7 @@ struct SeerrServerLogEntry: nonisolated Codable, Identifiable, Sendable {
     }
 }
 
-enum SeerrJSONValue: nonisolated Codable, Sendable {
+nonisolated enum SeerrJSONValue: Codable, Sendable {
     case null
     case bool(Bool)
     case integer(Int)

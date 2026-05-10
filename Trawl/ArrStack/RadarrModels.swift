@@ -3,7 +3,7 @@ import Foundation
 
 // MARK: - Movie
 
-struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let title: String
     let originalTitle: String?
@@ -351,7 +351,7 @@ struct RadarrAlternateTitle: Codable, Sendable {
 
 // MARK: - Movie File
 
-struct RadarrMovieFile: Codable, Identifiable, Sendable {
+nonisolated struct RadarrMovieFile: Codable, Identifiable, Sendable {
     let id: Int
     let movieId: Int?
     let relativePath: String?
@@ -390,7 +390,7 @@ struct RadarrCollection: Codable, Sendable {
 
 // MARK: - Add Movie Body
 
-struct RadarrAddMovieBody: Codable, Sendable {
+nonisolated struct RadarrAddMovieBody: Codable, Sendable {
     let title: String
     let tmdbId: Int
     let qualityProfileId: Int

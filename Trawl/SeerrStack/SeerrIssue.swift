@@ -133,28 +133,19 @@ struct SeerrIssueCommentBody: nonisolated Codable, Sendable {
 
 struct EmptyRequestBody: nonisolated Codable, Sendable {}
 
-enum SeerrDateFormatter {
+nonisolated enum SeerrDateFormatter {
     static func date(from value: String?) -> Date? {
         guard let value else { return nil }
+        let fractionalISOFormatter = ISO8601DateFormatter()
+        fractionalISOFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let internetISOFormatter = ISO8601DateFormatter()
+        internetISOFormatter.formatOptions = [.withInternetDateTime]
         return fractionalISOFormatter.date(from: value) ?? internetISOFormatter.date(from: value)
     }
 
     static func relativeDateText(from value: String?) -> String? {
         guard let date = date(from: value) else { return nil }
+        let relativeFormatter = RelativeDateTimeFormatter()
         return relativeFormatter.localizedString(for: date, relativeTo: .now)
     }
-
-    private static let fractionalISOFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let internetISOFormatter: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
-
-    private static let relativeFormatter = RelativeDateTimeFormatter()
 }

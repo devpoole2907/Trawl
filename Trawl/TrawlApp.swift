@@ -20,13 +20,7 @@ struct TrawlApp: App {
     @State private var appLockController = AppLockController()
 
     init() {
-        let schema = Schema([
-            ServerProfile.self,
-            CachedTorrentState.self,
-            RecentSavePath.self,
-            ArrServiceProfile.self,
-            SeerrServiceProfile.self
-        ])
+        let schema = TrawlModelSchema.full
 
         do {
             let groupConfiguration = ModelConfiguration(
@@ -34,7 +28,11 @@ struct TrawlApp: App {
                 groupContainer: .identifier(AppGroup.identifier)
             )
             let groupContainer = try ModelContainer(for: schema, configurations: [groupConfiguration])
-            try Self.migrateDefaultStoreIfNeeded(schema: schema, destination: groupContainer)
+            do {
+                try Self.migrateDefaultStoreIfNeeded(schema: schema, destination: groupContainer)
+            } catch {
+                Self.logger.warning("Default store migration skipped: \(error.localizedDescription, privacy: .public)")
+            }
             modelContainer = groupContainer
         } catch {
             Self.logger.error("Failed to initialize App Group ModelContainer: \(error.localizedDescription, privacy: .public)")
@@ -80,8 +78,9 @@ struct TrawlApp: App {
     }
 
     private static func migrateDefaultStoreIfNeeded(schema: Schema, destination: ModelContainer) throws {
+        guard defaultStoreExists() else { return }
+
         let destinationContext = ModelContext(destination)
-        guard !destinationContextHasData(destinationContext) else { return }
 
         let sourceConfiguration = ModelConfiguration(
             schema: schema,
@@ -93,12 +92,21 @@ struct TrawlApp: App {
         let sourceContext = ModelContext(sourceContainer)
         guard sourceContextHasData(sourceContext) else { return }
 
-        try copyModels(from: sourceContext, to: destinationContext)
+        try copyMissingModels(from: sourceContext, to: destinationContext)
         try destinationContext.save()
     }
 
-    private static func destinationContextHasData(_ context: ModelContext) -> Bool {
-        sourceContextHasData(context)
+    private static func defaultStoreExists() -> Bool {
+        guard let applicationSupportURL = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return false
+        }
+
+        return FileManager.default.fileExists(
+            atPath: applicationSupportURL.appendingPathComponent("default.store").path
+        )
     }
 
     private static func sourceContextHasData(_ context: ModelContext) -> Bool {
@@ -130,9 +138,11 @@ struct TrawlApp: App {
         }
     }
 
-    private static func copyModels(from sourceContext: ModelContext, to destinationContext: ModelContext) throws {
+    private static func copyMissingModels(from sourceContext: ModelContext, to destinationContext: ModelContext) throws {
         do {
+            let existingServerIDs = Set(try destinationContext.fetch(FetchDescriptor<ServerProfile>()).map(\.id))
             for profile in try sourceContext.fetch(FetchDescriptor<ServerProfile>()) {
+                guard !existingServerIDs.contains(profile.id) else { continue }
                 let copy = ServerProfile(
                     displayName: profile.displayName,
                     hostURL: profile.hostURL,
@@ -146,7 +156,9 @@ struct TrawlApp: App {
                 destinationContext.insert(copy)
             }
 
+            let existingCachedHashes = Set(try destinationContext.fetch(FetchDescriptor<CachedTorrentState>()).map(\.hash))
             for cachedState in try sourceContext.fetch(FetchDescriptor<CachedTorrentState>()) {
+                guard !existingCachedHashes.contains(cachedState.hash) else { continue }
                 let copy = CachedTorrentState(
                     hash: cachedState.hash,
                     name: cachedState.name,
@@ -157,14 +169,18 @@ struct TrawlApp: App {
                 destinationContext.insert(copy)
             }
 
+            let existingRecentPaths = Set(try destinationContext.fetch(FetchDescriptor<RecentSavePath>()).map(\.path))
             for recentPath in try sourceContext.fetch(FetchDescriptor<RecentSavePath>()) {
+                guard !existingRecentPaths.contains(recentPath.path) else { continue }
                 let copy = RecentSavePath(path: recentPath.path)
                 copy.lastUsed = recentPath.lastUsed
                 copy.useCount = recentPath.useCount
                 destinationContext.insert(copy)
             }
 
+            let existingArrIDs = Set(try destinationContext.fetch(FetchDescriptor<ArrServiceProfile>()).map(\.id))
             for arrProfile in try sourceContext.fetch(FetchDescriptor<ArrServiceProfile>()) {
+                guard !existingArrIDs.contains(arrProfile.id) else { continue }
                 guard let serviceType = arrProfile.resolvedServiceType else {
                     logger.warning("Skipping ArrServiceProfile with invalid service type: \(arrProfile.serviceType, privacy: .public)")
                     continue
@@ -184,7 +200,9 @@ struct TrawlApp: App {
                 destinationContext.insert(copy)
             }
 
+            let existingSeerrIDs = Set(try destinationContext.fetch(FetchDescriptor<SeerrServiceProfile>()).map(\.id))
             for seerrProfile in try sourceContext.fetch(FetchDescriptor<SeerrServiceProfile>()) {
+                guard !existingSeerrIDs.contains(seerrProfile.id) else { continue }
                 let copy = SeerrServiceProfile(
                     displayName: seerrProfile.displayName,
                     hostURL: seerrProfile.hostURL,

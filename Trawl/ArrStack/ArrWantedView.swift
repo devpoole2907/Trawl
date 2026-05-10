@@ -474,7 +474,7 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
-    let onSearch: () async -> Void
+    let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
@@ -544,7 +544,7 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
-    let onSearch: () async -> Void
+    let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
@@ -605,7 +605,7 @@ private struct WantedMovieRow: View {
 
 private struct BazarrWantedSeriesRow: View {
     let series: BazarrSeries
-    let onSearch: () async -> Void
+    let onSearch: @MainActor () async -> Void
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var isSearching = false
@@ -670,7 +670,7 @@ private struct BazarrWantedSeriesRow: View {
 
 private struct BazarrWantedMovieRow: View {
     let movie: BazarrMovie
-    let onSearch: () async -> Void
+    let onSearch: @MainActor () async -> Void
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var isSearching = false

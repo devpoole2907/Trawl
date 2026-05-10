@@ -593,20 +593,16 @@ struct SonarrSeriesRow: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    if let year = series.year {
-                        Text(String(year))
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    ForEach(Array(metadataItems.enumerated()), id: \.offset) { index, item in
+                        if index > 0 {
+                            Text("•")
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(item.title)
+                            .foregroundStyle(item.color)
                     }
-                    if let network = series.network {
-                        Text(network)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Text(series.status?.capitalized ?? "")
-                        .font(.caption2)
-                        .foregroundStyle(series.status == "continuing" ? .green : .secondary)
+                    .font(.caption2)
                 }
 
                 HStack(spacing: 6) {
@@ -647,4 +643,26 @@ struct SonarrSeriesRow: View {
         }
         .padding(.vertical, 2)
     }
+
+    private var metadataItems: [SeriesRowMetadataItem] {
+        var items: [SeriesRowMetadataItem] = []
+        if let year = series.year {
+            items.append(.init(title: String(year), color: .secondary))
+        }
+        if let network = series.network, !network.isEmpty {
+            items.append(.init(title: network, color: .secondary))
+        }
+        if let status = series.status, !status.isEmpty {
+            items.append(.init(
+                title: status.capitalized,
+                color: status == "continuing" ? .green : .secondary
+            ))
+        }
+        return items
+    }
+}
+
+private struct SeriesRowMetadataItem {
+    let title: String
+    let color: Color
 }

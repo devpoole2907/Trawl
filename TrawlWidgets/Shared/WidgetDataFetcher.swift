@@ -42,7 +42,7 @@ enum WidgetDataFetcher {
     // MARK: - Container
 
     nonisolated static func makeModelContainer() throws -> ModelContainer {
-        let schema = Schema([ServerProfile.self, ArrServiceProfile.self])
+        let schema = TrawlModelSchema.full
         let config = ModelConfiguration(
             schema: schema,
             groupContainer: .identifier(AppGroup.identifier)

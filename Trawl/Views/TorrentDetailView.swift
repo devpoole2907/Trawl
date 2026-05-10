@@ -135,25 +135,13 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func headerSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(torrent.name)
-                .font(.headline)
-                .textSelection(.enabled)
-
-            HStack(spacing: 6) {
-                DetailStatusBadge(
-                    title: torrent.state.displayName,
-                    systemImage: torrent.state.systemImage,
-                    tint: torrent.state.color
-                )
-                if let category = torrent.category, !category.isEmpty {
-                    DetailBadgeLabel(title: category)
-                }
-            }
-
-            ProgressView(value: torrent.progress)
-                .tint(torrent.progress >= 1.0 ? .green : .blue)
-
+        TorrentSummaryView(
+            torrent: torrent,
+            titleFont: .headline,
+            titleLineLimit: nil,
+            isTitleSelectable: true,
+            displayedSize: torrent.totalSize
+        ) {
             if !vm.currentTags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
@@ -171,37 +159,6 @@ struct TorrentDetailView: View {
                         .foregroundStyle(.cyan)
                 }
                 .buttonStyle(.plain)
-            }
-
-            HStack {
-                Text("\(Int(torrent.progress * 100))% complete")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text(ByteFormatter.format(bytes: torrent.totalSize))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            let hasDownload = torrent.dlspeed > 0
-            let hasUpload = torrent.upspeed > 0
-            let hasETA = !torrent.state.isCompleted && torrent.eta > 0
-            if hasDownload || hasUpload || hasETA {
-                HStack(spacing: 16) {
-                    if hasDownload {
-                        compactStatLabel(ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed), systemImage: "arrow.down")
-                            .foregroundStyle(.blue)
-                    }
-                    if hasUpload {
-                        compactStatLabel(ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed), systemImage: "arrow.up")
-                            .foregroundStyle(.green)
-                    }
-                    if hasETA {
-                        compactStatLabel(ByteFormatter.formatETA(seconds: torrent.eta), systemImage: "clock")
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .font(.subheadline)
             }
         }
     }
@@ -435,12 +392,6 @@ struct TorrentDetailView: View {
         return ByteFormatter.formatSpeed(bytesPerSecond: limit)
     }
 
-    private func compactStatLabel(_ text: String, systemImage: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: systemImage)
-            Text(text)
-        }
-    }
 }
 
 // MARK: - Supporting Views
@@ -460,35 +411,6 @@ private struct InfoRow: View {
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
-    }
-}
-
-private struct DetailStatusBadge: View {
-    let title: String
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        Label(title, systemImage: systemImage)
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(tint.opacity(0.12))
-            .foregroundStyle(tint)
-            .clipShape(Capsule())
-    }
-}
-
-private struct DetailBadgeLabel: View {
-    let title: String
-
-    var body: some View {
-        Text(title)
-            .font(.caption)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
-            .background(.tertiary)
-            .clipShape(Capsule())
     }
 }
 

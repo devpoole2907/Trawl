@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Generic Page
 
-nonisolated struct BazarrPage<T: Codable>: Codable {
+nonisolated struct BazarrPage<T: Codable & Sendable>: Codable, Sendable {
     let data: [T]
     let total: Int
 }
@@ -336,9 +336,72 @@ nonisolated struct BazarrLanguageProfile: Codable, Identifiable, Sendable {
         case originalFormat, tag
     }
 
+    init(
+        profileId: Int,
+        name: String,
+        cutoff: Int?,
+        itemsJSON: String?,
+        mustContain: [String]?,
+        mustNotContain: [String]?,
+        originalFormat: Int?,
+        tag: Int?
+    ) {
+        self.profileId = profileId
+        self.name = name
+        self.cutoff = cutoff
+        self.itemsJSON = itemsJSON
+        self.mustContain = mustContain
+        self.mustNotContain = mustNotContain
+        self.originalFormat = originalFormat
+        self.tag = tag
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        profileId = try container.decode(Int.self, forKey: .profileId)
+        name = try container.decode(String.self, forKey: .name)
+        cutoff = try container.decodeFlexibleIntIfPresent(forKey: .cutoff)
+        mustContain = try container.decodeStringListIfPresent(forKey: .mustContain)
+        mustNotContain = try container.decodeStringListIfPresent(forKey: .mustNotContain)
+        originalFormat = try container.decodeFlexibleIntIfPresent(forKey: .originalFormat)
+        tag = try container.decodeFlexibleIntIfPresent(forKey: .tag)
+
+        if let itemsString = try? container.decodeIfPresent(String.self, forKey: .itemsJSON) {
+            itemsJSON = itemsString
+        } else if let items = try? container.decodeIfPresent([BazarrLanguageProfileItem].self, forKey: .itemsJSON),
+                  let data = try? JSONEncoder().encode(items) {
+            itemsJSON = String(data: data, encoding: .utf8)
+        } else {
+            itemsJSON = nil
+        }
+    }
+
     var parsedItems: [BazarrLanguageProfileItem] {
         guard let json = itemsJSON, let data = json.data(using: .utf8) else { return [] }
         return (try? JSONDecoder().decode([BazarrLanguageProfileItem].self, from: data)) ?? []
+    }
+}
+
+private nonisolated extension KeyedDecodingContainer where Key == BazarrLanguageProfile.CodingKeys {
+    func decodeFlexibleIntIfPresent(forKey key: Key) throws -> Int? {
+        if let value = try? decodeIfPresent(Int.self, forKey: key) {
+            return value
+        }
+        if let string = try? decodeIfPresent(String.self, forKey: key) {
+            return Int(string)
+        }
+        return nil
+    }
+
+    func decodeStringListIfPresent(forKey key: Key) throws -> [String]? {
+        if let values = try? decodeIfPresent([String].self, forKey: key) {
+            return values
+        }
+        if let value = try? decodeIfPresent(String.self, forKey: key) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? [] : [trimmed]
+        }
+        return nil
     }
 }
 

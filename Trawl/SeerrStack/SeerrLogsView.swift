@@ -112,7 +112,9 @@ private struct SeerrLogLevelMenu: View {
         Menu {
             Picker("Log Level", selection: Binding(
                 get: { level },
-                set: { withAnimation { level = $0 } }
+                set: { newLevel in
+                    withAnimation { level = newLevel }
+                }
             )) {
                 ForEach(SeerrLogLevelFilter.allCases) { option in
                     Label(option.rawValue, systemImage: option.iconName).tag(option)

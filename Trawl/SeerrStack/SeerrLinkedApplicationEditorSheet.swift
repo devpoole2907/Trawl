@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 struct SeerrLinkedApplicationEditorSheet: View {
     let apiClient: SeerrAPIClient
@@ -6,8 +7,12 @@ struct SeerrLinkedApplicationEditorSheet: View {
     let onSaved: (SeerrDVRSettings) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Query private var allProfiles: [ArrServiceProfile]
 
     @State private var form: FormState
+    @State private var selectedRemoteProfileID = Self.customRemoteProfileID
+    @State private var seededAPIKey = ""
+    @State private var hasLoadedRemoteSelection = false
     @State private var profiles: [SeerrQualityProfile] = []
     @State private var rootFolders: [SeerrRootFolder] = []
     @State private var availableTags: [SeerrDVRTag] = []
@@ -16,6 +21,8 @@ struct SeerrLinkedApplicationEditorSheet: View {
     @State private var isLoadingMetadata = false
     @State private var statusMessage: StatusMessage?
     @State private var errorAlert: ErrorAlertItem?
+
+    private static let customRemoteProfileID = "custom"
 
     init(
         apiClient: SeerrAPIClient,
@@ -34,6 +41,27 @@ struct SeerrLinkedApplicationEditorSheet: View {
         return false
     }
 
+    private var remoteServiceType: ArrServiceType {
+        switch kind {
+        case .sonarr: .sonarr
+        case .radarr: .radarr
+        }
+    }
+
+    private var remoteProfiles: [ArrServiceProfile] {
+        allProfiles
+            .filter { $0.resolvedServiceType == remoteServiceType && $0.isEnabled }
+            .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+    }
+
+    private var selectedRemoteProfile: ArrServiceProfile? {
+        remoteProfiles.first { $0.id.uuidString == selectedRemoteProfileID }
+    }
+
+    private var isUsingSavedServer: Bool {
+        !isEditing && selectedRemoteProfile != nil
+    }
+
     var body: some View {
         NavigationStack {
             Form {
@@ -43,14 +71,6 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 tagsSection
                 advancedSection
                 behaviorSection
-
-                if let statusMessage {
-                    Section {
-                        Label(statusMessage.text, systemImage: statusMessage.iconName)
-                            .font(.subheadline)
-                            .foregroundStyle(statusMessage.tint)
-                    }
-                }
             }
             .navigationTitle(navigationTitle)
             #if os(iOS)
@@ -73,9 +93,14 @@ struct SeerrLinkedApplicationEditorSheet: View {
             }
             .errorAlert(item: $errorAlert)
             .task {
+                await loadRemoteSelectionIfNeeded()
                 if isEditing, case .edit(let entry) = context {
                     await loadServiceMetadata(for: entry.settings.id)
                 }
+            }
+            .onChange(of: selectedRemoteProfileID) { _, _ in
+                guard hasLoadedRemoteSelection, !isEditing else { return }
+                Task { await applySelectedRemoteProfile() }
             }
         }
     }
@@ -91,6 +116,15 @@ struct SeerrLinkedApplicationEditorSheet: View {
 
     private var generalSection: some View {
         Section {
+            if !isEditing && !remoteProfiles.isEmpty {
+                Picker("\(kind.displayName) Server", selection: $selectedRemoteProfileID) {
+                    ForEach(remoteProfiles) { profile in
+                        Text(profile.displayName).tag(profile.id.uuidString)
+                    }
+                    Text("Custom").tag(Self.customRemoteProfileID)
+                }
+            }
+
             Toggle("Default Server", isOn: $form.isDefault)
             Toggle("4K Server", isOn: $form.is4k)
         } header: {
@@ -109,6 +143,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     .textInputAutocapitalization(.words)
                     #endif
                     .autocorrectionDisabled()
+                    .disabled(isUsingSavedServer)
             }
 
             LabeledContent("Hostname or IP") {
@@ -119,6 +154,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
+                    .disabled(isUsingSavedServer)
             }
 
             LabeledContent("Port") {
@@ -127,9 +163,11 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     #if os(iOS)
                     .keyboardType(.numberPad)
                     #endif
+                    .disabled(isUsingSavedServer)
             }
 
             Toggle("Use SSL", isOn: $form.useSsl)
+                .disabled(isUsingSavedServer)
 
             LabeledContent("API Key") {
                 SecureField("API key", text: $form.apiKey)
@@ -138,6 +176,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
+                    .disabled(isUsingSavedServer)
             }
 
             LabeledContent("URL Base") {
@@ -148,6 +187,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .autocorrectionDisabled()
+                    .disabled(isUsingSavedServer)
             }
 
             Button {
@@ -162,6 +202,13 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 }
             }
             .disabled(!form.canTest || isTesting)
+
+            if let statusMessage {
+                Label(statusMessage.text, systemImage: statusMessage.iconName)
+                    .font(.subheadline)
+                    .foregroundStyle(statusMessage.tint)
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         } header: {
             Text("Connection")
         } footer: {
@@ -194,7 +241,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                     if form.activeDirectory.isEmpty {
                         Text("Select…").tag("")
                     }
-                    ForEach(rootFolders, id: \.safeID) { folder in
+                    ForEach(rootFolderPickerOptions, id: \.safeID) { folder in
                         Text(folder.displayPath).tag(folder.path ?? "")
                     }
                 }
@@ -272,11 +319,102 @@ struct SeerrLinkedApplicationEditorSheet: View {
         return "\(form.tagIDs.count) tags"
     }
 
+    private var rootFolderPickerOptions: [SeerrRootFolder] {
+        guard !form.activeDirectory.isEmpty else { return rootFolders }
+        let selected = normalizedRootFolderPath(form.activeDirectory)
+        if rootFolders.contains(where: { normalizedRootFolderPath($0.path ?? "") == selected }) {
+            return rootFolders
+        }
+        return [SeerrRootFolder(id: nil, path: form.activeDirectory, freeSpace: nil)] + rootFolders
+    }
+
     // MARK: - Actions
+
+    private func loadRemoteSelectionIfNeeded() async {
+        guard !hasLoadedRemoteSelection else { return }
+        defer { hasLoadedRemoteSelection = true }
+        guard !isEditing else {
+            seededAPIKey = form.apiKey
+            return
+        }
+
+        if let first = remoteProfiles.first {
+            selectedRemoteProfileID = first.id.uuidString
+            await applySelectedRemoteProfile()
+        } else {
+            selectedRemoteProfileID = Self.customRemoteProfileID
+        }
+    }
+
+    private func applySelectedRemoteProfile() async {
+        withAnimation(.snappy) {
+            statusMessage = nil
+            profiles = []
+            rootFolders = []
+            availableTags = []
+        }
+
+        guard selectedRemoteProfileID != Self.customRemoteProfileID else {
+            clearCustomServerFields()
+            return
+        }
+        guard let selectedRemoteProfile else { return }
+
+        do {
+            let parsed = try ParsedSeerrLinkedServerURL(
+                profileURL: selectedRemoteProfile.hostURL,
+                defaultPort: remoteServiceType.defaultPort
+            )
+            form.name = selectedRemoteProfile.displayName
+            form.hostname = parsed.host
+            form.portText = parsed.port
+            form.useSsl = parsed.isSSL
+            form.baseUrl = parsed.baseURL == "/" ? "" : parsed.baseURL
+        } catch {
+            withAnimation(.snappy) {
+                statusMessage = StatusMessage(
+                    text: error.localizedDescription,
+                    iconName: "exclamationmark.triangle.fill",
+                    tint: .orange
+                )
+            }
+            return
+        }
+
+        do {
+            let loaded = try await KeychainHelper.shared.read(key: selectedRemoteProfile.apiKeyKeychainKey) ?? ""
+            form.apiKey = loaded
+            seededAPIKey = loaded
+        } catch {
+            form.apiKey = ""
+            seededAPIKey = ""
+            withAnimation(.snappy) {
+                statusMessage = StatusMessage(
+                    text: "Couldn't load the saved API key: \(error.localizedDescription)",
+                    iconName: "exclamationmark.triangle.fill",
+                    tint: .orange
+                )
+            }
+        }
+    }
+
+    private func clearCustomServerFields() {
+        form.name = ""
+        form.hostname = ""
+        form.portText = kind == .sonarr ? "8989" : "7878"
+        form.useSsl = false
+        form.apiKey = ""
+        form.baseUrl = ""
+        form.activeProfileId = nil
+        form.activeDirectory = ""
+        seededAPIKey = ""
+    }
 
     private func testConnection() async {
         guard let port = Int(form.portText) else { return }
-        statusMessage = nil
+        withAnimation(.snappy) {
+            statusMessage = nil
+        }
         isTesting = true
         do {
             let result = try await apiClient.testDVRConnection(
@@ -290,17 +428,21 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 )
             )
             apply(profiles: result.profiles, rootFolders: result.rootFolders, tags: result.tags)
-            statusMessage = StatusMessage(
-                text: "Connection successful — pickers populated.",
-                iconName: "checkmark.circle.fill",
-                tint: .green
-            )
+            withAnimation(.snappy) {
+                statusMessage = StatusMessage(
+                    text: "Connection successful.",
+                    iconName: "checkmark.circle.fill",
+                    tint: .green
+                )
+            }
         } catch {
-            statusMessage = StatusMessage(
-                text: error.localizedDescription,
-                iconName: "exclamationmark.triangle.fill",
-                tint: .orange
-            )
+            withAnimation(.snappy) {
+                statusMessage = StatusMessage(
+                    text: error.localizedDescription,
+                    iconName: "exclamationmark.triangle.fill",
+                    tint: .orange
+                )
+            }
         }
         isTesting = false
     }
@@ -315,11 +457,13 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 tags: response.tags
             )
         } catch {
-            statusMessage = StatusMessage(
-                text: "Couldn't load profiles: \(error.localizedDescription)",
-                iconName: "exclamationmark.triangle.fill",
-                tint: .orange
-            )
+            withAnimation(.snappy) {
+                statusMessage = StatusMessage(
+                    text: "Couldn't load profiles: \(error.localizedDescription)",
+                    iconName: "exclamationmark.triangle.fill",
+                    tint: .orange
+                )
+            }
         }
         isLoadingMetadata = false
     }
@@ -330,8 +474,28 @@ struct SeerrLinkedApplicationEditorSheet: View {
         tags: [SeerrDVRTag]?
     ) {
         if let profiles { self.profiles = profiles }
-        if let rootFolders { self.rootFolders = rootFolders }
+        if let rootFolders {
+            self.rootFolders = rootFolders
+            reconcileActiveDirectory(with: rootFolders)
+        }
         if let tags { self.availableTags = tags }
+    }
+
+    private func reconcileActiveDirectory(with rootFolders: [SeerrRootFolder]) {
+        guard !form.activeDirectory.isEmpty else { return }
+        let selected = normalizedRootFolderPath(form.activeDirectory)
+        guard let match = rootFolders.first(where: { normalizedRootFolderPath($0.path ?? "") == selected }),
+              let path = match.path,
+              path != form.activeDirectory else { return }
+        form.activeDirectory = path
+    }
+
+    private func normalizedRootFolderPath(_ path: String) -> String {
+        var trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        while trimmed.count > 1 && trimmed.hasSuffix("/") {
+            trimmed.removeLast()
+        }
+        return trimmed
     }
 
     private func save() async {
@@ -497,6 +661,27 @@ private struct StatusMessage {
     let text: String
     let iconName: String
     let tint: Color
+}
+
+private struct ParsedSeerrLinkedServerURL {
+    let host: String
+    let port: String
+    let baseURL: String
+    let isSSL: Bool
+
+    init(profileURL: String, defaultPort: Int) throws {
+        guard let components = URLComponents(string: profileURL),
+              let scheme = components.scheme,
+              let parsedHost = components.host else {
+            throw ArrError.invalidURL
+        }
+
+        host = parsedHost
+        isSSL = scheme == "https"
+        let fallbackPort = isSSL ? 443 : defaultPort
+        port = String(components.port ?? fallbackPort)
+        baseURL = components.path.isEmpty ? "/" : components.path
+    }
 }
 
 // MARK: - Tag Picker

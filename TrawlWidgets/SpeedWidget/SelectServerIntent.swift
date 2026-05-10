@@ -5,8 +5,8 @@ import WidgetKit
 // MARK: - App Entity
 
 struct ServerAppEntity: AppEntity {
-    static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Server")
-    static var defaultQuery = ServerAppEntityQuery()
+    static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Server")
+    static let defaultQuery = ServerAppEntityQuery()
 
     var id: String
     var displayRepresentation: DisplayRepresentation
@@ -44,8 +44,8 @@ struct ServerAppEntityQuery: EntityQuery {
 // MARK: - Configuration Intent
 
 struct SelectServerIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource = "qBittorrent Server"
-    static var description = IntentDescription("Choose which server's speeds to display.")
+    static let title: LocalizedStringResource = "qBittorrent Server"
+    static let description = IntentDescription("Choose which server's speeds to display.")
 
     @Parameter(title: "Server") var server: ServerAppEntity?
 }

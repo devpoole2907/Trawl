@@ -118,6 +118,7 @@ struct SeerrUserEditorView: View {
                     )) {
                         Label(permission.title, systemImage: permission.symbolName)
                     }
+                    .disabled(viewModel.isAdminEnabled && permission != .admin)
                 }
             }
         }

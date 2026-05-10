@@ -39,7 +39,7 @@ public final class ArrServiceProfile {
     }
 }
 
-public enum ArrServiceType: String, Codable, CaseIterable, Identifiable {
+nonisolated public enum ArrServiceType: String, Codable, CaseIterable, Identifiable, Sendable {
     case sonarr
     case radarr
     case prowlarr

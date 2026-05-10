@@ -11,12 +11,12 @@ enum ProwlarrOperation: Hashable {
 }
 
 protocol IndexerCapableClient {
-    func getIndexers() async throws -> [ArrManagedIndexer]
-    func getIndexerSchema() async throws -> [ArrManagedIndexer]
-    func createIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer
-    func updateIndexer(_ indexer: ArrManagedIndexer) async throws -> ArrManagedIndexer
+    func getIndexers() async throws -> sending [ArrManagedIndexer]
+    func getIndexerSchema() async throws -> sending [ArrManagedIndexer]
+    func createIndexer(_ indexer: sending ArrManagedIndexer) async throws -> sending ArrManagedIndexer
+    func updateIndexer(_ indexer: sending ArrManagedIndexer) async throws -> sending ArrManagedIndexer
     func deleteIndexer(id: Int) async throws
-    func testIndexer(_ indexer: ArrManagedIndexer) async throws
+    func testIndexer(_ indexer: sending ArrManagedIndexer) async throws
 }
 
 extension SonarrAPIClient: IndexerCapableClient {}

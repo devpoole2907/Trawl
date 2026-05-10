@@ -75,12 +75,7 @@ final class ShareViewController: UIViewController {
     }
 
     private func presentShareUI() {
-        let schema = Schema([
-            ServerProfile.self,
-            CachedTorrentState.self,
-            RecentSavePath.self,
-            ArrServiceProfile.self
-        ])
+        let schema = TrawlModelSchema.full
         let config = ModelConfiguration(
             schema: schema,
             groupContainer: .identifier(AppGroup.identifier)

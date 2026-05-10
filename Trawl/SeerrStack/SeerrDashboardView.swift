@@ -5,6 +5,7 @@ struct SeerrDashboardView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @State private var viewModel: SeerrRequestManagementViewModel?
     @State private var deleteTarget: SeerrRequestDisplayItem?
+    @State private var isOverviewExpanded = true
 
     var body: some View {
         Group {
@@ -143,13 +144,15 @@ struct SeerrDashboardView: View {
     }
 
     private func seerrOverviewSection(_ requestCount: SeerrRequestCount) -> some View {
-        Section("Seerr Overview") {
-            LabeledContent("Total", value: "\(requestCount.total ?? 0)")
-            LabeledContent("Pending", value: "\(requestCount.pending ?? 0)")
-            LabeledContent("Approved", value: "\(requestCount.approved ?? 0)")
-            LabeledContent("Available", value: "\(requestCount.available ?? 0)")
-            LabeledContent("Movies", value: "\(requestCount.movie ?? 0)")
-            LabeledContent("Series", value: "\(requestCount.tv ?? 0)")
+        Section {
+            DisclosureGroup("Seerr Overview", isExpanded: $isOverviewExpanded) {
+                LabeledContent("Total", value: "\(requestCount.total ?? 0)")
+                LabeledContent("Pending", value: "\(requestCount.pending ?? 0)")
+                LabeledContent("Approved", value: "\(requestCount.approved ?? 0)")
+                LabeledContent("Available", value: "\(requestCount.available ?? 0)")
+                LabeledContent("Movies", value: "\(requestCount.movie ?? 0)")
+                LabeledContent("Series", value: "\(requestCount.tv ?? 0)")
+            }
         }
     }
 
@@ -333,9 +336,10 @@ private final class SeerrRequestManagementViewModel {
             for item in toEnrich {
                 guard let tmdbId = item.request.media?.tmdbId,
                       let mediaType = item.request.media?.mediaType else { continue }
+                let itemId = item.id
                 group.addTask { [apiClient] in
                     let summary = try? await apiClient.getMediaSummary(tmdbId: tmdbId, mediaType: mediaType)
-                    return (item.id, summary)
+                    return (itemId, summary)
                 }
             }
             for await (id, summary) in group {
@@ -528,8 +532,10 @@ private struct SeerrRequestRow: View {
         case .pending: .orange
         case .approved: .green
         case .declined: .red
+        case .processing: .blue
+        case .available, .completed: .green
+        case .failed: .red
         }
     }
 }
-
 
