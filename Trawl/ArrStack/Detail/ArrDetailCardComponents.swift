@@ -57,10 +57,10 @@ struct ArrDetailGenreChips: View {
     var body: some View {
         ViewThatFits(in: .horizontal) {
             HStack(spacing: 8) {
-                ForEach(genres.prefix(8), id: \.self) { genre in pill(genre) }
+                ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { index, genre in pill(genre) }
             }
             VStack(spacing: 8) {
-                ForEach(genres.prefix(8), id: \.self) { genre in pill(genre) }
+                ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { index, genre in pill(genre) }
             }
         }
         .frame(maxWidth: .infinity)

@@ -134,17 +134,23 @@ actor JellyfinAPIClient {
         includeItemTypes: [String],
         fields: [String] = ["ProviderIds", "Path", "DateCreated", "MediaSources"],
         pageSize: Int = 500,
-        maxItems: Int = 5_000
+        maxItems: Int? = nil
     ) async throws -> [JellyfinLibraryItem] {
         var startIndex = 0
         var allItems: [JellyfinLibraryItem] = []
 
-        while allItems.count < maxItems {
+        while maxItems == nil || allItems.count < maxItems! {
+            let requestLimit = if let maxItems {
+                min(pageSize, maxItems - allItems.count)
+            } else {
+                pageSize
+            }
+
             let response = try await getLibraryItems(
                 includeItemTypes: includeItemTypes,
                 fields: fields,
                 startIndex: startIndex,
-                limit: min(pageSize, maxItems - allItems.count)
+                limit: requestLimit
             )
             allItems.append(contentsOf: response.items)
 

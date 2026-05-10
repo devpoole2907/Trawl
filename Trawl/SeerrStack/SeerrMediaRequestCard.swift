@@ -38,7 +38,7 @@ struct SeerrMediaRequestCard: View {
     @State private var didApplyInitialExpansion = false
 
     var body: some View {
-        if serviceManager.isConnected || serviceManager.connectionError != nil {
+        if serviceManager.isConnecting || serviceManager.isConnected || serviceManager.connectionError != nil {
             cardContent
                 .task(id: taskID) {
                     didApplyInitialExpansion = false
