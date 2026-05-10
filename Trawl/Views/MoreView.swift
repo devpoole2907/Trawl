@@ -34,6 +34,7 @@ enum MoreDestination: Hashable {
     case seerrAdmin
     case seerrIssues
     case seerrUserManagement
+    case seerrLogs
 }
 
 enum MoreDestinationAccent {
@@ -47,6 +48,8 @@ enum MoreDestinationAccent {
     case rootFolders
     case languageProfiles
     case providers
+    case userManagement
+    case seerr
 
     var color: Color {
         switch self {
@@ -60,6 +63,8 @@ enum MoreDestinationAccent {
         case .rootFolders: return .indigo
         case .languageProfiles: return .cyan
         case .providers: return .pink
+        case .userManagement: return .blue
+        case .seerr: return .indigo
         }
     }
 }
@@ -83,7 +88,7 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section {
+                Section("Automation") {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
                                 title: "Activity", subtitle: "Queue, downloads, and import history")
@@ -120,7 +125,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section {
+                Section("Subtitles") {
                     NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
                         moreRow(icon: "globe", color: MoreDestinationAccent.languageProfiles.color,
                                 title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
@@ -132,7 +137,7 @@ struct MoreView: View {
                     }
                 }
 
-                Section {
+                Section("Torrents") {
                     NavigationLink(value: MoreDestination.categoriesAndTags) {
                         moreRow(icon: "tag.fill", color: MoreDestinationAccent.categoriesAndTags.color,
                                 title: "Categories & Tags", subtitle: "Manage your torrent organization")
@@ -148,16 +153,33 @@ struct MoreView: View {
                                 title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
                     }
                 }
-                Section {
+                Section("Requests") {
                     NavigationLink(value: MoreDestination.seerrAdmin) {
                         moreRow(
-                            icon: "shield.fill",
+                            icon: "tray.full.fill",
                             color: .indigo,
-                            title: "Seerr Admin",
-                            subtitle: seerrProfile == nil ? "Not configured" : "Dashboard, issues, and user management"
+                            title: "Requests",
+                            subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
                         )
                     }
-                    
+
+                    NavigationLink(value: MoreDestination.seerrIssues) {
+                        moreRow(icon: "exclamationmark.bubble.fill", color: .orange,
+                                title: "Manage Issues", subtitle: "Review and respond to user issues")
+                    }
+
+                    NavigationLink(value: MoreDestination.seerrUserManagement) {
+                        moreRow(icon: "person.2.badge.gearshape", color: .blue,
+                                title: "Manage Users", subtitle: "Edit permissions and remove users")
+                    }
+
+                    NavigationLink(value: MoreDestination.seerrLogs) {
+                        moreRow(icon: "doc.text.magnifyingglass", color: .indigo,
+                                title: "Seerr Logs", subtitle: "Live Seerr server logs")
+                    }
+                }
+
+                Section("App") {
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
                                 title: "Settings", subtitle: "App and server configuration")
@@ -267,6 +289,7 @@ struct MoreView: View {
                 case .seerrUserManagement:
                     if let client = seerrServiceManager.activeClient {
                         SeerrUserManagementView(apiClient: client)
+                            .moreDestinationBackground(.userManagement)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
@@ -275,6 +298,14 @@ struct MoreView: View {
                 case .seerrIssues:
                     if let client = seerrServiceManager.activeClient {
                         SeerrIssueListView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        seerrAdminDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .seerrLogs:
+                    if let client = seerrServiceManager.activeClient {
+                        SeerrLogsView(apiClient: client)
                             .moreDestinationTitleStyle()
                     } else {
                         seerrAdminDestination
@@ -471,7 +502,7 @@ struct MoreView: View {
                     .font(.headline)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         } else if let seerrProfile {
             ContentUnavailableView {
                 Label("Seerr Unreachable", systemImage: "network.slash")
@@ -485,14 +516,14 @@ struct MoreView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         } else {
             ContentUnavailableView {
-                Label("Seerr Not Configured", systemImage: "shield")
+                Label("Seerr Not Configured", systemImage: "eye")
             } description: {
-                Text("Add a Seerr server in Settings to use the admin dashboard.")
+                Text("Add a Seerr server in Settings to manage requests.")
             }
-            .navigationTitle("Seerr Admin")
+            .navigationTitle("Requests")
         }
     }
 
@@ -615,11 +646,27 @@ private struct RecentNotificationsSheet: View {
         }
     }
 
-    private func icon(for style: InAppBannerStyle) -> String {
-        switch style {
-        case .success: "checkmark.circle.fill"
-        case .error: "exclamationmark.triangle.fill"
-        case .progress: "arrow.triangle.2.circlepath"
+    private func icon(for entry: NotificationLogEntry) -> String {
+        let blob = "\(entry.title) \(entry.message)".lowercased()
+        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
+
+        if tokens.contains("health") || tokens.contains("warning") || tokens.contains("alert") {
+            return "heart.text.square.fill"
+        }
+        if tokens.contains("issue") {
+            return "exclamationmark.bubble.fill"
+        }
+        if tokens.contains("user") {
+            return "person.crop.circle.badge.exclamationmark"
+        }
+        if tokens.contains("download") || tokens.contains("import") {
+            return "arrow.down.circle.fill"
+        }
+
+        switch entry.style {
+        case .success: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.triangle.fill"
+        case .progress: return "arrow.triangle.2.circlepath"
         }
     }
 
@@ -628,6 +675,53 @@ private struct RecentNotificationsSheet: View {
         case .success: .green
         case .error: .red
         case .progress: .blue
+        }
+    }
+
+    private func serviceContext(for entry: NotificationLogEntry) -> NotificationServiceContext {
+        let blob = "\(entry.title) \(entry.message)".lowercased()
+        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
+
+        if tokens.contains("sonarr") { return .sonarr }
+        if tokens.contains("radarr") { return .radarr }
+        if tokens.contains("prowlarr") { return .prowlarr }
+        if tokens.contains("bazarr") { return .bazarr }
+        if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return .seerr }
+        if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return .qbittorrent }
+        return .trawl
+    }
+
+    private enum NotificationServiceContext {
+        case qbittorrent
+        case sonarr
+        case radarr
+        case prowlarr
+        case bazarr
+        case seerr
+        case trawl
+
+        var title: String {
+            switch self {
+            case .qbittorrent: "qBittorrent"
+            case .sonarr: "Sonarr"
+            case .radarr: "Radarr"
+            case .prowlarr: "Prowlarr"
+            case .bazarr: "Bazarr"
+            case .seerr: "Seerr"
+            case .trawl: "Trawl"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .qbittorrent: "arrow.down.circle"
+            case .sonarr: ArrServiceType.sonarr.systemImage
+            case .radarr: ArrServiceType.radarr.systemImage
+            case .prowlarr: ArrServiceType.prowlarr.systemImage
+            case .bazarr: ArrServiceType.bazarr.systemImage
+            case .seerr: "eye.fill"
+            case .trawl: "app.badge"
+            }
         }
     }
 
@@ -645,7 +739,7 @@ private struct RecentNotificationsSheet: View {
                 NavigationLink {
                     NotificationDetailView(
                         entry: entry,
-                        icon: icon(for: entry.style),
+                        icon: icon(for: entry),
                         tint: color(for: entry.style)
                     )
                 } label: {
@@ -666,20 +760,27 @@ private struct RecentNotificationsSheet: View {
 
     @ViewBuilder
     private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
+        let service = serviceContext(for: entry)
+
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {
                 Circle()
                     .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
                     .frame(width: 7, height: 7)
-                Image(systemName: icon(for: entry.style))
-                    .foregroundStyle(color(for: entry.style))
-                Text(entry.title)
-                    .font(.headline)
-                    .lineLimit(1)
+                HStack(spacing: 4) {
+                    Image(systemName: icon(for: entry))
+                        .foregroundStyle(color(for: entry.style))
+                    Text(entry.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                }
                 Spacer()
-                Text(entry.source.rawValue)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 4) {
+                    Image(systemName: service.systemImage)
+                    Text(service.title)
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             if !entry.message.isEmpty {
                 Text(entry.message)

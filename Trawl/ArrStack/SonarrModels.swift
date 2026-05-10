@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - Series
 
-struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
+nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
     let id: Int
     let title: String
     let sortTitle: String?
@@ -383,7 +383,7 @@ struct SonarrEpisode: Codable, Identifiable, Sendable {
 
 // MARK: - Episode File
 
-struct SonarrEpisodeFile: Codable, Identifiable, Sendable {
+nonisolated struct SonarrEpisodeFile: Codable, Identifiable, Sendable {
     let id: Int
     let seriesId: Int?
     let seasonNumber: Int?
@@ -419,14 +419,14 @@ struct SonarrMediaInfo: Codable, Sendable {
 
 // MARK: - Monitor body for PUT /api/v3/episode/monitor
 
-struct SonarrEpisodeMonitorBody: Codable, Sendable {
+nonisolated struct SonarrEpisodeMonitorBody: Codable, Sendable {
     let episodeIds: [Int]
     let monitored: Bool
 }
 
 // MARK: - Add Series body
 
-struct SonarrAddSeriesBody: Codable, Sendable {
+nonisolated struct SonarrAddSeriesBody: Codable, Sendable {
     let tvdbId: Int
     let title: String
     let qualityProfileId: Int

@@ -283,6 +283,7 @@ private final class ManualImportScanViewModel {
     var importableFiles: [ManualImportItem] = []
     var blockedFiles: [ManualImportItem] = []
     var groupedImportableFiles: [ManualImportGroup] = []
+    var groupedIdentifiedPendingAddFiles: [ManualImportGroup] = []
     var groupedUnidentifiedFiles: [ManualImportGroup] = []
     var groupedBlockedFiles: [ManualImportGroup] = []
     var selectedFiles: Set<String> = []
@@ -343,6 +344,14 @@ private final class ManualImportScanViewModel {
         blockedFiles.filter { selectedBlockedFiles.contains($0.id) }
     }
 
+    var selectedReadyGroups: [ManualImportGroup] {
+        selectedGroups(from: groupedImportableFiles, selectedIDs: selectedFiles)
+    }
+
+    var selectedBlockedGroups: [ManualImportGroup] {
+        selectedGroups(from: groupedIdentifiedPendingAddFiles + groupedUnidentifiedFiles + groupedBlockedFiles, selectedIDs: selectedBlockedFiles)
+    }
+
     var unresolvedUnidentifiedCount: Int {
         blockedFiles.count(where: \.isAutoMatchCandidate)
     }
@@ -377,6 +386,19 @@ private final class ManualImportScanViewModel {
         }
     }
 
+    private func selectedGroups(from groups: [ManualImportGroup], selectedIDs: Set<String>) -> [ManualImportGroup] {
+        groups.compactMap { group in
+            let selectedItems = group.items.filter { selectedIDs.contains($0.id) }
+            guard !selectedItems.isEmpty else { return nil }
+            return ManualImportGroup(
+                kind: group.kind,
+                displayTitle: group.displayTitle,
+                posterURL: group.posterURL,
+                items: selectedItems
+            )
+        }
+    }
+
     func loadFiles() async {
         isScanning = true
         scanStatusMessage = "Preparing scan…"
@@ -393,6 +415,7 @@ private final class ManualImportScanViewModel {
             let jsonValues = try await getManualImport(folder: path)
             Self.logger.info("Manual import scan received \(jsonValues.count) raw items from \(self.service.displayName, privacy: .public)")
             scanStatusMessage = "Parsing \(jsonValues.count) items…"
+            Self.logManualImportShapeForUnidentifiedItems(jsonValues)
             let scannedFiles = await Task.detached(priority: .userInitiated) {
                 Self.parseManualImportItems(from: jsonValues)
             }.value
@@ -487,7 +510,6 @@ private final class ManualImportScanViewModel {
         let importedIDs = selectedFiles
         let savedItems = importableFiles.filter { importedIDs.contains($0.id) }
         let filesToImport = savedItems.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
-        let importNotificationKey = manualImportNotificationKey()
 
         do {
             let count = filesToImport.count
@@ -499,11 +521,6 @@ private final class ManualImportScanViewModel {
 
             let fileMeta = savedItems.map { "\($0.fileName) mediaID:\($0.mediaID?.description ?? "nil")" }
             Self.logger.info("Sending \(count) \(fileWord) to \(self.service.displayName, privacy: .public): \(fileMeta, privacy: .private)")
-            notificationCenter.showProgress(
-                title: "Importing…",
-                message: "Sending \(count) \(fileWord) to \(service.displayName):\n\(fileNamesSummary)",
-                key: importNotificationKey
-            )
 
             // Optimistically remove from list while command runs
             withAnimation(.snappy) {
@@ -518,8 +535,7 @@ private final class ManualImportScanViewModel {
 
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
-                notificationCenter.replaceProgressWithSuccess(
-                    key: importNotificationKey,
+                notificationCenter.showSuccess(
                     title: "Import Started",
                     message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running."
                 )
@@ -530,8 +546,7 @@ private final class ManualImportScanViewModel {
                 // Items were already optimistically removed. Don't reload — rescanning the folder
                 // will find the file again (hardlinks/copies leave the source in place) and undo
                 // the removal, making it look like the import failed when it didn't.
-                notificationCenter.replaceProgressWithSuccess(
-                    key: importNotificationKey,
+                notificationCenter.showSuccess(
                     title: "Import Complete",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
                     action: navAction.map { InAppBannerAction(label: "View \(tabName)", handler: $0) }
@@ -540,11 +555,7 @@ private final class ManualImportScanViewModel {
             } else {
                 let reason = manualImportFailureMessage(for: command)
                 Self.logger.error("Command failed — \(reason, privacy: .private)")
-                notificationCenter.replaceProgressWithError(
-                    key: importNotificationKey,
-                    title: "Import Failed",
-                    message: reason
-                )
+                notificationCenter.showError(title: "Import Failed", message: reason)
                 withAnimation(.snappy) {
                     importableFiles.append(contentsOf: savedItems)
                     recomputeGroups()
@@ -554,23 +565,17 @@ private final class ManualImportScanViewModel {
             }
         } catch is CancellationError {
             Self.logger.info("Task cancelled")
-            InAppNotificationCenter.shared.dismissBanner(matching: importNotificationKey)
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
             Self.logger.error("Manual import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
-            InAppNotificationCenter.shared.replaceProgressWithSuccess(
-                key: importNotificationKey,
+            InAppNotificationCenter.shared.showSuccess(
                 title: "Import Started",
                 message: "\(savedItems.count) \(savedItems.count == 1 ? "file" : "files") submitted to \(service.displayName). The import is still running; check Activity for progress."
             )
             return false
         } catch {
             Self.logger.error("Threw error — \(error, privacy: .private)")
-            InAppNotificationCenter.shared.replaceProgressWithError(
-                key: importNotificationKey,
-                title: "Import Failed",
-                message: error.localizedDescription
-            )
+            InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             withAnimation(.snappy) {
                 importableFiles.append(contentsOf: savedItems)
                 recomputeGroups()
@@ -604,10 +609,6 @@ private final class ManualImportScanViewModel {
         }
 
         return "\(service.displayName) did not return a detailed manual import error. Check Activity or History for the exact rejection reason."
-    }
-
-    private func manualImportNotificationKey() -> String {
-        "manual-import-\(service.displayName.lowercased())-\(UUID().uuidString)"
     }
 
     private func getManualImport(folder: String) async throws -> [JSONValue] {
@@ -860,6 +861,13 @@ private final class ManualImportScanViewModel {
                             ? "Matched \(pending[0].fileName) to \(match.title)."
                             : "Matched \(pending.count) \(group.displayTitle) files to \(match.title)."
                         applyIdentification(to: pending, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                    } else if let candidate = results.first {
+                        autoIdentifyProcessedCount += pending.count
+                        autoIdentifyLastMatchedTitle = candidate.title
+                        autoIdentifyLastOutcomeMessage = pending.count == 1
+                            ? "Identified \(pending[0].fileName) as \(candidate.title). Add it to \(service.displayName) before importing."
+                            : "Identified \(pending.count) \(group.displayTitle) files as \(candidate.title). Add it to \(service.displayName) before importing."
+                        applyPendingAddIdentification(to: pending, title: candidate.title, posterURL: posterURL(from: candidate.images))
                     } else {
                         skippedGroupIDs.insert(groupID)
                         autoIdentifyLastOutcomeMessage = "No library match found for \(group.displayTitle)."
@@ -877,6 +885,13 @@ private final class ManualImportScanViewModel {
                             ? "Matched \(pending[0].fileName) to \(match.title)."
                             : "Matched \(pending.count) \(group.displayTitle) files to \(match.title)."
                         applyIdentification(to: pending, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                    } else if let candidate = results.first {
+                        autoIdentifyProcessedCount += pending.count
+                        autoIdentifyLastMatchedTitle = candidate.title
+                        autoIdentifyLastOutcomeMessage = pending.count == 1
+                            ? "Identified \(pending[0].fileName) as \(candidate.title). Add it to \(service.displayName) before importing."
+                            : "Identified \(pending.count) \(group.displayTitle) files as \(candidate.title). Add it to \(service.displayName) before importing."
+                        applyPendingAddIdentification(to: pending, title: candidate.title, posterURL: posterURL(from: candidate.images))
                     } else {
                         skippedGroupIDs.insert(groupID)
                         autoIdentifyLastOutcomeMessage = "No library match found for \(group.displayTitle)."
@@ -948,6 +963,25 @@ private final class ManualImportScanViewModel {
             importableFiles.append(contentsOf: identified)
             recomputeGroups()
             selectedFiles.formUnion(identifiedIDs)
+        }
+        identifyingTarget = nil
+        if autoIdentifyEnabled, autoIdentifyTask == nil, unresolvedUnidentifiedCount > 0 {
+            startAutoIdentify()
+        }
+    }
+
+    func applyPendingAddIdentification(to items: [ManualImportItem], title: String, posterURL: URL?) {
+        guard !items.isEmpty else { return }
+        let ids = Set(items.map(\.id))
+        let identified = items.map { $0.withPendingAddIdentification(title: title, posterURL: posterURL) }
+
+        withAnimation(.snappy) {
+            blockedFiles.removeAll { ids.contains($0.id) }
+            selectedBlockedFiles.subtract(ids)
+            importableFiles.removeAll { ids.contains($0.id) }
+            selectedFiles.subtract(ids)
+            blockedFiles.append(contentsOf: identified)
+            recomputeGroups()
         }
         identifyingTarget = nil
         if autoIdentifyEnabled, autoIdentifyTask == nil, unresolvedUnidentifiedCount > 0 {
@@ -1208,10 +1242,35 @@ private final class ManualImportScanViewModel {
         jsonValues.compactMap { ManualImportItem(json: $0) }
     }
 
+    private static func logManualImportShapeForUnidentifiedItems(_ jsonValues: [JSONValue]) {
+        let samples = jsonValues.compactMap { value -> String? in
+            guard case .object(let dict) = value else { return nil }
+            let hasMediaObject: Bool
+            if case .object = dict["series"] {
+                hasMediaObject = true
+            } else if case .object = dict["movie"] {
+                hasMediaObject = true
+            } else {
+                hasMediaObject = false
+            }
+            guard !hasMediaObject else { return nil }
+            let keys = dict.keys.sorted().joined(separator: ",")
+            let flatSeriesID = ManualImportItem.intValue(from: dict["seriesId"]) ?? 0
+            let flatMovieID = ManualImportItem.intValue(from: dict["movieId"]) ?? 0
+            return "keys:[\(keys)] seriesId:\(flatSeriesID) movieId:\(flatMovieID)"
+        }
+        .prefix(5)
+
+        guard !samples.isEmpty else { return }
+        logger.debug("Manual import unidentified raw shape samples: \(Array(samples).joined(separator: " | "), privacy: .private)")
+    }
+
     func recomputeGroups() {
         groupedImportableFiles = Self.makeImportableGroups(from: importableFiles)
-        let unidentified = blockedFiles.filter(\.isAutoMatchCandidate)
+        let pendingAdd = blockedFiles.filter(\.isIdentifiedPendingAdd)
+        let unidentified = blockedFiles.filter { $0.isAutoMatchCandidate && !$0.isIdentifiedPendingAdd }
         let blocked = blockedFiles.filter { !$0.isAutoMatchCandidate }
+        groupedIdentifiedPendingAddFiles = Self.makeIdentifiedPendingAddGroups(from: pendingAdd)
         groupedUnidentifiedFiles = Self.makeUnidentifiedGroups(from: unidentified)
         groupedBlockedFiles = Self.makeBlockedGroups(from: blocked)
     }
@@ -1243,6 +1302,22 @@ private final class ManualImportScanViewModel {
                 kind: .unidentified(inferredKey: key),
                 displayTitle: title,
                 posterURL: nil,
+                items: sorted
+            )
+        }
+        .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
+    }
+
+    nonisolated private static func makeIdentifiedPendingAddGroups(from items: [ManualImportItem]) -> [ManualImportGroup] {
+        let grouped = Dictionary(grouping: items) { item -> String in
+            item.mediaTitle?.lowercased() ?? inferredGroupKey(for: item.fileName)
+        }
+        return grouped.map { (key, items) in
+            let sorted = sortItems(items)
+            return ManualImportGroup(
+                kind: .pendingAdd(inferredKey: key),
+                displayTitle: sorted[0].mediaTitle ?? displayTitleForUnidentified(items: sorted, key: key),
+                posterURL: sorted[0].posterURL,
                 items: sorted
             )
         }
@@ -1546,6 +1621,43 @@ struct ManualImportScanView: View {
                     }
                 }
 
+                if !viewModel.groupedIdentifiedPendingAddFiles.isEmpty {
+                    Section {
+                        ForEach(viewModel.groupedIdentifiedPendingAddFiles) { group in
+                            ManualImportGroupRow(
+                                group: group,
+                                style: .pendingAdd,
+                                selectionState: blockedGroupSelectionState(group),
+                                isSelectingMode: isSelectingMode,
+                                onToggle: {
+                                    if isSelectingMode {
+                                        withAnimation(.snappy) {
+                                            viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id))
+                                        }
+                                    } else {
+                                        viewModel.beginIdentifying(group: group)
+                                    }
+                                }
+                            )
+                            .contextMenu {
+                                Button("Add to \(viewModel.service.displayName)", systemImage: "plus.circle") {
+                                    viewModel.beginIdentifying(group: group)
+                                }
+                            }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button("Add", systemImage: "plus.circle") {
+                                    viewModel.beginIdentifying(group: group)
+                                }
+                                .tint(.green)
+                            }
+                        }
+                    } header: {
+                        Text("Identified")
+                    } footer: {
+                        Text("These files matched a \(viewModel.service.displayName) result. Add the title to \(viewModel.service.displayName) to make it ready to import.")
+                    }
+                }
+
                 if shouldShowAutoIdentifySection {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
@@ -1738,7 +1850,7 @@ struct ManualImportScanView: View {
             ManualImportIdentifySheet(
                 target: target,
                 viewModel: viewModel,
-                importAfterAdding: true,
+                importAfterAdding: false,
                 showsCancelButton: true,
                 wrapInNavigationStack: true
             )
@@ -1781,6 +1893,10 @@ struct ManualImportScanView: View {
             let titles = viewModel.groupedImportableFiles.count
             let files = viewModel.importableFiles.count
             parts.append("\(files) ready · \(titles) title\(titles == 1 ? "" : "s")")
+        }
+        if !viewModel.groupedIdentifiedPendingAddFiles.isEmpty {
+            let titles = viewModel.groupedIdentifiedPendingAddFiles.count
+            parts.append("\(titles) identified")
         }
         if !viewModel.groupedUnidentifiedFiles.isEmpty {
             parts.append("\(viewModel.groupedUnidentifiedFiles.count) unidentified")
@@ -1973,7 +2089,12 @@ struct ArrQueueImportIssueResolutionSheet: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close")
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     if viewModel.isImporting {
@@ -2099,6 +2220,13 @@ private struct ManualImportItem: Identifiable, Sendable {
         rejectionReasons.isEmpty && (mediaID ?? 0) > 0
     }
 
+    var isIdentifiedPendingAdd: Bool {
+        !isImportable
+            && rejectionReasons.isEmpty
+            && mediaID == nil
+            && mediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+    }
+
     /// Files that only fail because the show/movie is unknown should still be treated as
     /// candidates for automatic matching rather than hard-blocked items.
     var isAutoMatchCandidate: Bool {
@@ -2163,6 +2291,24 @@ private struct ManualImportItem: Identifiable, Sendable {
         )
     }
 
+    func withPendingAddIdentification(title: String, posterURL: URL?) -> ManualImportItem {
+        ManualImportItem(
+            id: self.id,
+            path: self.path,
+            fileName: self.fileName,
+            size: self.size,
+            rejectionReasons: [],
+            warningMessages: self.warningMessages,
+            originalJSON: self.originalJSON,
+            mediaTitle: title,
+            mediaID: nil,
+            posterURL: posterURL,
+            seasonNumber: self.seasonNumber,
+            episodes: self.episodes,
+            qualityName: self.qualityName
+        )
+    }
+
     private init(
         id: String, path: String, fileName: String, size: Int64,
         rejectionReasons: [String], warningMessages: [String], originalJSON: JSONValue,
@@ -2204,7 +2350,7 @@ private struct ManualImportItem: Identifiable, Sendable {
         self.warningMessages = ManualImportItem.extractMessages(from: dict["warnings"])
         self.originalJSON = json
 
-        // Extract identified media from series or movie object
+        // Extract identified media from series or movie object, falling back to flat IDs.
         let mediaDict: [String: JSONValue]?
         if case .object(let s) = dict["series"] { mediaDict = s }
         else if case .object(let m) = dict["movie"] { mediaDict = m }
@@ -2212,11 +2358,11 @@ private struct ManualImportItem: Identifiable, Sendable {
 
         if let mediaDict {
             if case .string(let t) = mediaDict["title"] { self.mediaTitle = t } else { self.mediaTitle = nil }
-            if case .number(let i) = mediaDict["id"] { self.mediaID = Int(i) } else { self.mediaID = nil }
+            if let id = Self.intValue(from: mediaDict["id"]) { self.mediaID = id } else { self.mediaID = nil }
             self.posterURL = ManualImportItem.extractPosterURL(from: mediaDict["images"])
         } else {
             self.mediaTitle = nil
-            self.mediaID = nil
+            self.mediaID = Self.intValue(from: dict["seriesId"]) ?? Self.intValue(from: dict["movieId"])
             self.posterURL = nil
         }
 
@@ -2242,6 +2388,19 @@ private struct ManualImportItem: Identifiable, Sendable {
             self.qualityName = qn
         } else {
             self.qualityName = nil
+        }
+    }
+
+    nonisolated static func intValue(from value: JSONValue?) -> Int? {
+        switch value {
+        case .number(let number):
+            let intValue = Int(number)
+            return intValue > 0 ? intValue : nil
+        case .string(let string):
+            guard let intValue = Int(string), intValue > 0 else { return nil }
+            return intValue
+        case .bool, .array, .object, .null, nil:
+            return nil
         }
     }
 
@@ -2340,6 +2499,7 @@ private struct ManualImportIdentifyTarget: Identifiable, Sendable {
 private struct ManualImportGroup: Identifiable, Sendable {
     enum Kind: Hashable, Sendable {
         case identified(mediaID: Int)
+        case pendingAdd(inferredKey: String)
         case unidentified(inferredKey: String)
     }
 
@@ -2351,6 +2511,7 @@ private struct ManualImportGroup: Identifiable, Sendable {
     var id: String {
         switch kind {
         case .identified(let id): return "id-\(id)"
+        case .pendingAdd(let key): return "add-\(key)"
         case .unidentified(let key): return "un-\(key)"
         }
     }
@@ -2361,12 +2522,18 @@ private struct ManualImportGroup: Identifiable, Sendable {
     }
 
     var inferredKey: String? {
+        if case .pendingAdd(let key) = kind { return key }
         if case .unidentified(let key) = kind { return key }
         return nil
     }
 
     var isIdentified: Bool {
         if case .identified = kind { return true }
+        return false
+    }
+
+    var isPendingAdd: Bool {
+        if case .pendingAdd = kind { return true }
         return false
     }
 
@@ -2565,12 +2732,14 @@ private struct ManualImportBlockedRow: View {
 
 private enum ManualImportGroupRowStyle {
     case ready
+    case pendingAdd
     case unidentified
     case blocked
 
     var placeholderIcon: String {
         switch self {
         case .ready: return "photo"
+        case .pendingAdd: return "plus.circle"
         case .unidentified: return "questionmark.circle"
         case .blocked: return "xmark.octagon"
         }
@@ -2579,6 +2748,7 @@ private enum ManualImportGroupRowStyle {
     var accentColor: Color {
         switch self {
         case .ready: return .secondary
+        case .pendingAdd: return .green
         case .unidentified: return .orange
         case .blocked: return .red
         }
@@ -2587,6 +2757,7 @@ private enum ManualImportGroupRowStyle {
     var badge: (text: String, color: Color)? {
         switch self {
         case .ready: return nil
+        case .pendingAdd: return ("Add First", .green)
         case .unidentified: return ("Unidentified", .orange)
         case .blocked: return ("Blocked", .red)
         }
@@ -2812,43 +2983,50 @@ private struct ManualImportBlockedSelectionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var identifyingTarget: ManualImportIdentifyTarget?
 
-    private var blockedItems: [ManualImportItem] {
-        viewModel.selectedBlockedItems
+    private var blockedGroups: [ManualImportGroup] {
+        viewModel.selectedBlockedGroups
     }
 
-    private func identifyTarget(for item: ManualImportItem) -> ManualImportIdentifyTarget {
-        ManualImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
+    private func identifyTarget(for group: ManualImportGroup) -> ManualImportIdentifyTarget {
+        let label = group.items.count == 1 ? group.items[0].fileName : "\(group.displayTitle) · \(group.items.count) files"
+        return ManualImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
     }
 
-    private var readyItems: [ManualImportItem] {
-        viewModel.importableFiles.filter { viewModel.selectedFiles.contains($0.id) }
+    private var readyGroups: [ManualImportGroup] {
+        viewModel.selectedReadyGroups
     }
 
     private var unresolvedSelectedBlockedCount: Int {
-        blockedItems.count
+        blockedGroups.reduce(0) { $0 + $1.items.count }
     }
 
     var body: some View {
         NavigationStack {
             List {
-                if !readyItems.isEmpty {
+                if !readyGroups.isEmpty {
                     Section {
-                        ForEach(readyItems) { item in
-                            ManualImportRow(item: item, isSelected: false, isSelectingMode: false) {}
+                        ForEach(readyGroups) { group in
+                            ManualImportGroupRow(
+                                group: group,
+                                style: .ready,
+                                selectionState: .none,
+                                isSelectingMode: false,
+                                onToggle: {}
+                            )
                         }
                     } header: {
                         Text("Ready to Import")
                     } footer: {
-                        Text("These files are identified and queued for the final import step.")
+                        Text("These grouped files are identified and queued for the final import step.")
                     }
                 }
 
-                if blockedItems.isEmpty {
+                if blockedGroups.isEmpty {
                     Section {
                         ContentUnavailableView(
-                            readyItems.isEmpty ? "No Unidentified Files Left" : "Ready to Import",
-                            systemImage: readyItems.isEmpty ? "checkmark.circle" : "checkmark.circle.fill",
-                            description: Text(readyItems.isEmpty
+                            readyGroups.isEmpty ? "No Unidentified Files Left" : "Ready to Import",
+                            systemImage: readyGroups.isEmpty ? "checkmark.circle" : "checkmark.circle.fill",
+                            description: Text(readyGroups.isEmpty
                                 ? "Everything in this selection has been cleared."
                                 : "All selected blocked files are identified. You can import the ready files now.")
                         )
@@ -2856,21 +3034,22 @@ private struct ManualImportBlockedSelectionSheet: View {
                     }
                 } else {
                     Section {
-                        ForEach(blockedItems) { item in
-                            ManualImportBlockedRow(
-                                item: item,
-                                isSelected: false,
+                        ForEach(blockedGroups) { group in
+                            ManualImportGroupRow(
+                                group: group,
+                                style: group.isPendingAdd ? .pendingAdd : (group.isIdentified ? .blocked : .unidentified),
+                                selectionState: .none,
                                 isSelectingMode: false,
-                                onToggle: { identifyingTarget = identifyTarget(for: item) }
+                                onToggle: { identifyingTarget = identifyTarget(for: group) }
                             )
                             .contextMenu {
                                 Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: item)
+                                    identifyingTarget = identifyTarget(for: group)
                                 }
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: item)
+                                    identifyingTarget = identifyTarget(for: group)
                                 }
                                 .tint(.blue)
                             }
@@ -2893,11 +3072,16 @@ private struct ManualImportBlockedSelectionSheet: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") { dismiss() }
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .accessibilityLabel("Close")
                 }
 
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(unresolvedSelectedBlockedCount > 0 ? "Resolve \(unresolvedSelectedBlockedCount)" : "Import \(readyItems.count)") {
+                    Button(unresolvedSelectedBlockedCount > 0 ? "Resolve \(unresolvedSelectedBlockedCount)" : "Import \(viewModel.selectedFiles.count)") {
                         dismiss()
                         Task {
                             await viewModel.performImport()

@@ -4,7 +4,7 @@ struct QBittorrentRSSView: View {
     @Environment(TorrentService.self) private var torrentService
     @Environment(AppServices.self) private var appServices
 
-    @State private var rssItems: [String: Any] = [:]
+    @State private var rssItems: [String: JSONValue] = [:]
     @State private var isLoading = false
     @State private var actionErrorAlert: ErrorAlertItem?
     
@@ -89,13 +89,13 @@ struct QBittorrentRSSView: View {
         rssItems.keys.sorted()
     }
 
-    private func sortedKeys(in dictionary: [String: Any]) -> [String] {
+    private func sortedKeys(in dictionary: [String: JSONValue]) -> [String] {
         dictionary.keys.sorted()
     }
     
-    private func rssItemRow(name: String, value: Any?) -> AnyView {
-        if let dict = value as? [String: Any] {
-            if let url = dict["url"] as? String {
+    private func rssItemRow(name: String, value: JSONValue?) -> AnyView {
+        if case let .object(dict) = value {
+            if case let .string(url) = dict["url"] {
                 return AnyView(
                     HStack(spacing: 12) {
                         Image(systemName: "dot.radiowaves.left.and.right")

@@ -1,6 +1,6 @@
 import Foundation
 
-struct SeerrUser: Codable, Identifiable, Sendable {
+struct SeerrUser: nonisolated Codable, Identifiable, Sendable {
     let id: Int
     let displayNameValue: String?
     let jellyfinUsername: String?
@@ -25,9 +25,13 @@ struct SeerrUser: Codable, Identifiable, Sendable {
         "User"
     }
 
-    var avatarURL: URL? {
+    func avatarURL(baseURL: String? = nil) -> URL? {
         guard let avatar, !avatar.isEmpty else { return nil }
-        return URL(string: avatar)
+        if let absoluteURL = URL(string: avatar), absoluteURL.scheme != nil {
+            return absoluteURL
+        }
+        guard let baseURL, let base = URL(string: baseURL) else { return nil }
+        return URL(string: avatar, relativeTo: base)?.absoluteURL
     }
 
     // Permission bit flags
@@ -78,12 +82,12 @@ struct SeerrUser: Codable, Identifiable, Sendable {
     }
 }
 
-struct SeerrUserQuota: Codable, Sendable {
+struct SeerrUserQuota: nonisolated Codable, Sendable {
     let movie: SeerrQuotaDetail?
     let tv: SeerrQuotaDetail?
 }
 
-struct SeerrQuotaDetail: Codable, Sendable {
+struct SeerrQuotaDetail: nonisolated Codable, Sendable {
     let days: Int?
     let limit: Int?
     let used: Int?
@@ -91,7 +95,7 @@ struct SeerrQuotaDetail: Codable, Sendable {
     let restricted: Bool?
 }
 
-struct SeerrPublicSettings: Codable, Sendable {
+struct SeerrPublicSettings: nonisolated Codable, Sendable {
     let initialized: Bool?
     let applicationTitle: String?
     let applicationUrl: String?

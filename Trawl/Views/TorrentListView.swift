@@ -32,7 +32,7 @@ struct TorrentListView: View {
     var body: some View {
         configuredContent
         #if os(iOS)
-        .toolbarTitleDisplayMode(.inline)
+        .toolbarTitleDisplayMode(.large)
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
@@ -117,28 +117,33 @@ struct TorrentListView: View {
     private func torrentList(vm: TorrentListViewModel) -> some View {
         @Bindable var vm = vm
 
-        if vm.filteredTorrents.isEmpty {
-            emptyState(for: vm)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
+        ZStack {
             List {
                 ForEach(vm.filteredTorrents) { torrent in
                     row(for: torrent, vm: vm)
                 }
             }
             .scrollPosition(id: $listScrollPosition)
-            .animation(.default, value: vm.filteredTorrents.map(\.id))
             .listStyle(.plain)
-            .onChange(of: vm.selectedFilter) {
-                withAnimation { editMode = .inactive }
+            .opacity(vm.filteredTorrents.isEmpty ? 0 : 1)
+            .allowsHitTesting(!vm.filteredTorrents.isEmpty)
+
+            if vm.filteredTorrents.isEmpty {
+                emptyState(for: vm)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .animation(.default, value: vm.filteredTorrents.map(\.id))
+        .searchable(text: torrentSearchText, prompt: "Search torrents")
+        .onChange(of: vm.selectedFilter) {
+            withAnimation { editMode = .inactive }
+            vm.clearSelection()
+        }
+        .onChange(of: editMode) { _, newMode in
+            if !newMode.isEditing {
                 vm.clearSelection()
             }
-            .onChange(of: editMode) { _, newMode in
-                if !newMode.isEditing {
-                    vm.clearSelection()
-                }
-                vm.isSelecting = newMode.isEditing
-            }
+            vm.isSelecting = newMode.isEditing
         }
     }
 
@@ -331,8 +336,10 @@ struct TorrentListView: View {
                         }
                         .disabled(vm.isUpdatingAlternativeSpeed)
 
-                        Button("Select") {
+                        Button {
                             withAnimation { editMode = .active }
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
                         }
                     } label: {
                         Label("More Actions", systemImage: "ellipsis.circle")
@@ -358,6 +365,14 @@ struct TorrentListView: View {
         servers.first(where: { $0.isActive })?.displayName
             ?? servers.first?.displayName
             ?? title
+    }
+
+    private var torrentSearchText: Binding<String> {
+        Binding {
+            viewModel?.searchText ?? ""
+        } set: { newValue in
+            viewModel?.searchText = newValue
+        }
     }
 
     @ViewBuilder
@@ -451,10 +466,16 @@ struct TorrentListView: View {
 
     @ViewBuilder
     private func emptyState(for vm: TorrentListViewModel) -> some View {
-        ContentUnavailableView {
-            Label(emptyStateTitle(for: vm.selectedFilter), systemImage: emptyStateSymbol(for: vm.selectedFilter))
-        } description: {
-            Text(emptyStateDescription(for: vm.selectedFilter))
+        let query = vm.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        if query.isEmpty {
+            ContentUnavailableView {
+                Label(emptyStateTitle(for: vm.selectedFilter), systemImage: emptyStateSymbol(for: vm.selectedFilter))
+            } description: {
+                Text(emptyStateDescription(for: vm.selectedFilter))
+            }
+        } else {
+            ContentUnavailableView.search(text: query)
         }
     }
 

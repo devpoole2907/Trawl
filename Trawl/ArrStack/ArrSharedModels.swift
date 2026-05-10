@@ -449,7 +449,7 @@ struct ArrReleaseSort: RawRepresentable, Codable {
 
 // MARK: - Releases
 
-struct ArrRelease: Codable, Identifiable, Sendable {
+nonisolated struct ArrRelease: Codable, Identifiable, Sendable {
     let guid: String?
     let indexerId: Int?
     let title: String?
@@ -551,7 +551,7 @@ nonisolated struct ArrReleaseGrabRequest: Codable, Sendable {
     let indexerId: Int
 }
 
-private extension KeyedDecodingContainer where K == ArrRelease.CodingKeys {
+private nonisolated extension KeyedDecodingContainer where K == ArrRelease.CodingKeys {
     func decodeFlexibleDoubleIfPresent(forKey key: Key) throws -> Double? {
         if let value = try? decodeIfPresent(Double.self, forKey: key) {
             return value
@@ -1005,7 +1005,7 @@ enum ArrError: LocalizedError, Sendable {
 
 /// Computes a new absolute path by replacing an existing root with a new one.
 /// Preserves leading separators (POSIX / or Windows UNC/Root) to ensure the path remains absolute.
-func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: String) -> String {
+nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: String) -> String {
     let normalizedExisting = existingPath.replacingOccurrences(of: "\\", with: "/")
     let normalizedExistingRoot = existingRoot.replacingOccurrences(of: "\\", with: "/")
     let normalizedNewRoot = newRoot.replacingOccurrences(of: "\\", with: "/")

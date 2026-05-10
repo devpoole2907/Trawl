@@ -1,5 +1,58 @@
 import Foundation
 
+private nonisolated struct BazarrLanguageProfileSettingsPayload: Encodable {
+    let profileId: Int
+    let name: String
+    let cutoff: Int?
+    let items: [BazarrLanguageProfileItem]
+    let mustContain: [String]
+    let mustNotContain: [String]
+    let originalFormat: Int?
+    let tag: Int?
+
+    init(profile: BazarrLanguageProfile) {
+        profileId = profile.profileId
+        name = profile.name
+        cutoff = profile.cutoff
+        items = profile.parsedItems
+        mustContain = profile.mustContain ?? []
+        mustNotContain = profile.mustNotContain ?? []
+        originalFormat = profile.originalFormat
+        tag = profile.tag
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case profileId, name, cutoff, items, mustContain, mustNotContain, originalFormat, tag
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(profileId, forKey: .profileId)
+        try container.encode(name, forKey: .name)
+        try container.encode(items, forKey: .items)
+        try container.encode(mustContain, forKey: .mustContain)
+        try container.encode(mustNotContain, forKey: .mustNotContain)
+
+        if let cutoff {
+            try container.encode(cutoff, forKey: .cutoff)
+        } else {
+            try container.encodeNil(forKey: .cutoff)
+        }
+
+        if let originalFormat {
+            try container.encode(originalFormat, forKey: .originalFormat)
+        } else {
+            try container.encodeNil(forKey: .originalFormat)
+        }
+
+        if let tag {
+            try container.encode(tag, forKey: .tag)
+        } else {
+            try container.encodeNil(forKey: .tag)
+        }
+    }
+}
+
 actor BazarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
     let apiPath = "/api"
@@ -94,7 +147,8 @@ actor BazarrAPIClient: SharedArrClient {
 
     func saveLanguageProfiles(_ profiles: [BazarrLanguageProfile]) async throws {
         let encoder = JSONEncoder()
-        let jsonData = try encoder.encode(profiles)
+        let payload = profiles.map(BazarrLanguageProfileSettingsPayload.init(profile:))
+        let jsonData = try encoder.encode(payload)
         guard let jsonString = String(data: jsonData, encoding: .utf8) else {
             throw ArrError.invalidResponse
         }

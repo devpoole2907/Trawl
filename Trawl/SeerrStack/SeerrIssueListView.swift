@@ -12,30 +12,39 @@ struct SeerrIssueListView: View {
     }
 
     var body: some View {
-        List {
-            Section {
-                Picker("Status", selection: $viewModel.selectedFilter) {
-                    ForEach(SeerrIssueFilter.allCases) { filter in
-                        Text(filter.rawValue).tag(filter)
-                    }
-                }
-                .pickerStyle(.segmented)
-            } footer: {
-                if !viewModel.issues.isEmpty {
-                    Text("\(viewModel.totalIssueCount) issues")
-                }
-            }
+        Group {
+            issueContentView
+        }
+        .background(backgroundGradient)
+        .navigationTitle("Issue Management")
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+#endif
+        .task { await viewModel.loadIfNeeded() }
+        .refreshable { await viewModel.loadIssues() }
+        .safeAreaInset(edge: .top) {
+            SeerrIssueFilterPicker(filter: $viewModel.selectedFilter)
+        }
+        .errorAlert(item: $errorAlert)
+        .onChange(of: viewModel.errorMessage) { _, message in
+            guard let message else { return }
+            errorAlert = ErrorAlertItem(title: "Issue Load Failed", message: message)
+            viewModel.clearError()
+        }
+    }
 
-            if viewModel.isLoading && viewModel.issues.isEmpty {
-                Section {
-                    ProgressView("Loading issues...")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-            } else if viewModel.issues.isEmpty {
-                Section {
-                    ContentUnavailableView("No Issues", systemImage: "checkmark.bubble", description: Text("No issues match the current status filter."))
-                }
-            } else {
+    @ViewBuilder
+    private var issueContentView: some View {
+        ArrLoadingErrorEmptyView(
+            isLoading: viewModel.isLoading,
+            error: viewModel.errorMessage,
+            isEmpty: viewModel.issues.isEmpty,
+            emptyTitle: "No Issues",
+            emptyIcon: "checkmark.bubble",
+            emptyDescription: "No issues match the current status filter.",
+            onRetry: { Task { await viewModel.loadIssues() } }
+        ) {
+            List {
                 Section {
                     ForEach(viewModel.issues) { issue in
                         NavigationLink {
@@ -53,47 +62,56 @@ struct SeerrIssueListView: View {
                             .task { await viewModel.loadMore() }
                     }
                 } header: {
-                    Text("Issues")
+                    Text(viewModel.selectedFilter.rawValue)
+                } footer: {
+                    Text(issueCountText)
                 }
             }
-        }
-        .navigationTitle("Issue Management")
 #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
+            .listStyle(.insetGrouped)
+#else
+            .listStyle(.inset)
 #endif
-        .modifier(SeerrIssueSubtitleModifier(subtitle: viewModel.issues.isEmpty ? nil : "\(viewModel.totalIssueCount) issues"))
-        .task { await viewModel.loadIfNeeded() }
-        .refreshable { await viewModel.loadIssues() }
-        .errorAlert(item: $errorAlert)
-        .onChange(of: viewModel.errorMessage) { _, message in
-            guard let message else { return }
-            errorAlert = ErrorAlertItem(title: "Issue Load Failed", message: message)
-            viewModel.clearError()
+            .scrollContentBackground(.hidden)
         }
+    }
+
+    private var issueCountText: String {
+        let count = viewModel.totalIssueCount
+        return "\(count) \(count == 1 ? "issue" : "issues")"
+    }
+
+    private var backgroundGradient: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color.orange.opacity(0.2), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [Color.orange.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 260
+            )
+        }
+        .ignoresSafeArea()
     }
 }
 
-private struct SeerrIssueSubtitleModifier: ViewModifier {
-    let subtitle: String?
+private struct SeerrIssueFilterPicker: View {
+    @Binding var filter: SeerrIssueFilter
 
-    func body(content: Content) -> some View {
-        if let subtitle {
-            #if os(iOS) || os(macOS)
-            // macOS/iOS may not support navigationSubtitle natively in the same way, we can use toolbar
-            content.toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack {
-                        Text("Issue Management").font(.headline)
-                        Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
+    var body: some View {
+        Picker("Status", selection: $filter) {
+            ForEach(SeerrIssueFilter.allCases) { filter in
+                Text(filter.rawValue).tag(filter)
             }
-            #else
-            content
-            #endif
-        } else {
-            content
         }
+        .pickerStyle(.segmented)
+        .glassEffect(.regular.interactive(), in: Capsule())
+        .padding(.horizontal, 48)
+        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 
@@ -102,37 +120,30 @@ private struct SeerrIssueRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: issue.media?.posterURL) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
-                Image(systemName: "photo")
-                    .foregroundStyle(.secondary)
+            ArrArtworkView(url: issue.media?.posterURL) {
+                Rectangle().fill(.quaternary)
+                    .overlay(Image(systemName: "exclamationmark.bubble").foregroundStyle(.secondary))
             }
-            .frame(width: 44, height: 64)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
-            .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
+            .frame(width: 50, height: 75)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(issue.media?.displayTitle ?? "Unknown Media")
                     .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
+                    .lineLimit(1)
 
                 HStack(spacing: 6) {
                     if let type = issue.issueKind {
                         Label(type.title, systemImage: type.symbolName)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
                     }
 
-                    if let status = issue.issueStatus {
-                        Text(status.title)
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(status == .resolved ? Color.green.opacity(0.15) : Color.orange.opacity(0.15), in: Capsule())
-                            .foregroundStyle(status == .resolved ? Color.green : Color.orange)
+                    if let dateText = issue.createdAtRelativeText {
+                        Text(dateText)
+                            .lineLimit(1)
                     }
                 }
+                .font(.caption2)
+                .foregroundStyle(.secondary)
 
                 HStack(spacing: 8) {
                     if let createdBy = issue.createdBy {
@@ -140,20 +151,26 @@ private struct SeerrIssueRow: View {
                             .lineLimit(1)
                     }
 
-                    if let dateText = issue.createdAtRelativeText {
-                        Text(dateText)
-                            .lineLimit(1)
-                    }
-
                     if issue.commentCount > 0 {
-                        Text("\(issue.commentCount) comments")
+                        Text("\(issue.commentCount) \(issue.commentCount == 1 ? "comment" : "comments")")
                             .lineLimit(1)
                     }
                 }
                 .font(.caption2)
                 .foregroundStyle(.secondary)
             }
+
+            Spacer()
+
+            if let status = issue.issueStatus {
+                Text(status.title)
+                    .font(.caption.weight(.semibold))
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 2)
+                    .background(status == .resolved ? Color.green.opacity(0.15) : Color.orange.opacity(0.15), in: Capsule())
+                    .foregroundStyle(status == .resolved ? Color.green : Color.orange)
+            }
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 2)
     }
 }

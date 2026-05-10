@@ -109,9 +109,9 @@ extension SharedArrClient {
     }
 
     func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
-        let additionalParams: [String: Any] = [
-            "files": files.map(\.rawValue),
-            "importMode": importMode
+        let additionalParams: [String: JSONValue] = [
+            "files": .array(files),
+            "importMode": .string(importMode)
         ]
         return try await postCommandAndWait(
             name: "ManualImport",
@@ -120,32 +120,32 @@ extension SharedArrClient {
         )
     }
 
-    func getNamingConfig<T: Decodable>() async throws -> T {
+    func getNamingConfig<T: Decodable>() async throws -> sending T {
         try await base.get("\(apiPath)/config/naming")
     }
 
-    func updateNamingConfig<T: Codable & ArrAPIOptionalIdentifiable>(_ config: T) async throws -> T {
+    func updateNamingConfig<T: Codable & ArrAPIOptionalIdentifiable>(_ config: sending T) async throws -> sending T {
         guard let id = config.id else { throw ArrError.invalidResponse }
         return try await base.putCodable("\(apiPath)/config/naming/\(id)", body: config)
     }
 
-    func getIndexers<T: Decodable>() async throws -> [T] {
+    func getIndexers<T: Decodable>() async throws -> sending [T] {
         try await base.get("\(apiPath)/indexer")
     }
 
-    func getIndexer<T: Decodable>(id: Int) async throws -> T {
+    func getIndexer<T: Decodable>(id: Int) async throws -> sending T {
         try await base.get("\(apiPath)/indexer/\(id)")
     }
 
-    func getIndexerSchema<T: Decodable>() async throws -> [T] {
+    func getIndexerSchema<T: Decodable>() async throws -> sending [T] {
         try await base.get("\(apiPath)/indexer/schema")
     }
 
-    func createIndexer<T: Codable>(_ indexer: T) async throws -> T {
+    func createIndexer<T: Codable>(_ indexer: sending T) async throws -> sending T {
         try await base.postCodable("\(apiPath)/indexer", body: indexer)
     }
 
-    func updateIndexer<T: Codable & ArrAPIIdentifiable>(_ indexer: T) async throws -> T {
+    func updateIndexer<T: Codable & ArrAPIIdentifiable>(_ indexer: sending T) async throws -> sending T {
         try await base.putCodable("\(apiPath)/indexer/\(indexer.id)", body: indexer)
     }
 
@@ -153,7 +153,7 @@ extension SharedArrClient {
         try await base.delete("\(apiPath)/indexer/\(id)")
     }
 
-    func testIndexer<T: Encodable>(_ indexer: T) async throws {
+    func testIndexer<T: Encodable>(_ indexer: sending T) async throws {
         try await base.postVoidCodable("\(apiPath)/indexer/test", body: indexer)
     }
 
@@ -161,13 +161,13 @@ extension SharedArrClient {
         try await base.getCommand(id: id, apiPath: apiPath)
     }
 
-    func postCommand(name: String, additionalParams: [String: Any]? = nil) async throws -> ArrCommand {
+    func postCommand(name: String, additionalParams: [String: JSONValue]? = nil) async throws -> ArrCommand {
         try await base.postCommand(name: name, additionalParams: additionalParams, apiPath: apiPath)
     }
 
     func postCommandAndWait(
         name: String,
-        additionalParams: [String: Any]? = nil,
+        additionalParams: [String: JSONValue]? = nil,
         timeout: Duration = .seconds(30)
     ) async throws -> ArrCommand {
         try await base.postCommandAndWait(name: name, additionalParams: additionalParams, timeout: timeout, apiPath: apiPath)
@@ -379,7 +379,7 @@ actor ArrAPIClient {
     /// Throws ArrError.commandTimeout if the command does not reach a terminal state within the timeout period.
     func postCommandAndWait(
         name: String,
-        additionalParams: [String: Any]? = nil,
+        additionalParams: [String: JSONValue]? = nil,
         timeout: Duration = .seconds(30),
         apiPath: String = "/api/v3"
     ) async throws -> ArrCommand {
@@ -409,38 +409,38 @@ actor ArrAPIClient {
 
     func postCommand(
         name: String,
-        additionalParams: [String: Any]? = nil,
+        additionalParams: [String: JSONValue]? = nil,
         apiPath: String = "/api/v3"
     ) async throws -> ArrCommand {
-        var body: [String: Any] = ["name": name]
+        var body: [String: JSONValue] = ["name": .string(name)]
         if let params = additionalParams {
             for (key, value) in params { body[key] = value }
         }
-        return try await post("\(apiPath)/command", jsonBody: body)
+        return try await postCodable("\(apiPath)/command", body: body)
     }
 
     // MARK: - HTTP Infrastructure
 
-    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> T {
+    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
         let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
         return try await perform(request)
     }
 
-    func post<T: Decodable>(_ path: String, jsonBody: Any) async throws -> T {
+    func post<T: Decodable>(_ path: String, jsonBody: Any) async throws -> sending T {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
         return try await perform(request)
     }
 
-    func postCodable<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
+    func postCodable<T: Decodable, B: Encodable>(_ path: String, body: sending B) async throws -> sending T {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         return try await perform(request)
     }
 
-    func putCodable<T: Decodable, B: Encodable>(_ path: String, body: B, queryItems: [URLQueryItem] = []) async throws -> T {
+    func putCodable<T: Decodable, B: Encodable>(_ path: String, body: sending B, queryItems: [URLQueryItem] = []) async throws -> sending T {
         var request = try buildRequest(path: path, method: "PUT", queryItems: queryItems)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -486,7 +486,7 @@ actor ArrAPIClient {
     }
 
     /// Fire-and-forget POST with a Codable body (for commands that return empty body)
-    func postVoidCodable<B: Encodable>(_ path: String, body: B) async throws {
+    func postVoidCodable<B: Encodable>(_ path: String, body: sending B) async throws {
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -529,7 +529,7 @@ actor ArrAPIClient {
         return request
     }
 
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
+    private func perform<T: Decodable>(_ request: URLRequest) async throws -> sending T {
         let data: Data
         let response: URLResponse
         let path = request.url?.path ?? "<unknown>"
@@ -553,7 +553,7 @@ actor ArrAPIClient {
         try validateResponse(response, data: data, path: path)
         
         do {
-            return try JSONDecoder().decode(T.self, from: data)
+            return try Self.decodeResponse(T.self, from: data)
         } catch {
             logReleaseDiagnostics(
                 message: "Decoding error",
@@ -564,6 +564,10 @@ actor ArrAPIClient {
             )
             throw ArrError.decodingError(error)
         }
+    }
+
+    private nonisolated static func decodeResponse<T: Decodable>(_ type: sending T.Type, from data: Data) throws -> sending T {
+        try JSONDecoder().decode(type, from: data)
     }
 
     private func validateResponse(_ response: URLResponse, data: Data, path: String) throws {

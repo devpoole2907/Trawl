@@ -195,7 +195,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToSeerrSettings) {
                     serviceRow(
-                        icon: "popcorn.fill", color: .pink,
+                        icon: "eye.fill", color: .indigo,
                         name: seerrProfile?.displayName ?? "Seerr",
                         url: seerrProfile?.hostURL,
                         isConnected: seerrServiceManager.isConnected,

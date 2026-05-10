@@ -435,6 +435,47 @@ struct EditableLanguageItem: Identifiable {
     var forced: Bool
 }
 
+private enum LanguageSubtitleVariant: CaseIterable, Identifiable, Equatable {
+    case standard
+    case hearingImpaired
+    case forced
+    case forcedHearingImpaired
+
+    var id: Self { self }
+
+    init(hi: Bool, forced: Bool) {
+        switch (hi, forced) {
+        case (false, false): self = .standard
+        case (true, false): self = .hearingImpaired
+        case (false, true): self = .forced
+        case (true, true): self = .forcedHearingImpaired
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .standard: "Standard"
+        case .hearingImpaired: "Hearing impaired"
+        case .forced: "Forced"
+        case .forcedHearingImpaired: "Forced + HI"
+        }
+    }
+
+    var hi: Bool {
+        switch self {
+        case .hearingImpaired, .forcedHearingImpaired: true
+        case .standard, .forced: false
+        }
+    }
+
+    var forced: Bool {
+        switch self {
+        case .forced, .forcedHearingImpaired: true
+        case .standard, .hearingImpaired: false
+        }
+    }
+}
+
 private struct LanguageProfileEditorView: View {
     enum Mode {
         case add
@@ -494,24 +535,32 @@ private struct LanguageProfileEditorView: View {
 
             Section {
                 ForEach($draft.items) { $item in
-                    VStack(spacing: 0) {
-                        HStack {
-                            Text(item.language)
-                                .font(.body)
-                            Spacer()
+                    HStack(spacing: 12) {
+                        Text(item.language)
+                            .font(.body)
+                        Spacer()
+                        Menu {
+                            ForEach(LanguageSubtitleVariant.allCases) { variant in
+                                Button {
+                                    item.hi = variant.hi
+                                    item.forced = variant.forced
+                                } label: {
+                                    if variant == LanguageSubtitleVariant(hi: item.hi, forced: item.forced) {
+                                        Label(variant.title, systemImage: "checkmark")
+                                    } else {
+                                        Text(variant.title)
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Text(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).title)
+                                Image(systemName: "chevron.up.chevron.down")
+                                    .font(.caption2.weight(.semibold))
+                            }
+                            .font(.subheadline)
                         }
-                        HStack(spacing: 16) {
-                            Toggle("HI", isOn: $item.hi)
-                                .font(.subheadline)
-                                .toggleStyle(.button)
-                                .tint(.blue)
-                            Toggle("Forced", isOn: $item.forced)
-                                .font(.subheadline)
-                                .toggleStyle(.button)
-                                .tint(.orange)
-                            Spacer()
-                        }
-                        .padding(.top, 4)
+                        .buttonStyle(.bordered)
                     }
                     .padding(.vertical, 4)
                 }

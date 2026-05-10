@@ -457,16 +457,13 @@ actor QBittorrentAPIClient {
     // MARK: - RSS Feeds
     
     /// Get all RSS feeds and folders. Returns a dictionary where keys are folder names (or empty string for root) and values are feed URLs or nested folders.
-    func getRSSItems(withData: Bool = false) async throws -> [String: Any] {
+    func getRSSItems(withData: Bool = false) async throws -> [String: JSONValue] {
         let request = try buildRequest(
             path: "/api/v2/rss/items",
             queryItems: [URLQueryItem(name: "withData", value: String(withData))]
         )
         let (data, _) = try await performRequest(request)
-        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw QBError.decodingError("Failed to decode RSS items")
-        }
-        return json
+        return try JSONDecoder().decode([String: JSONValue].self, from: data)
     }
     
     /// Add a new RSS feed or folder

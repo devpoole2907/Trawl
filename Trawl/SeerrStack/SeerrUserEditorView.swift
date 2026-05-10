@@ -39,7 +39,7 @@ struct SeerrUserEditorView: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         viewModel.reset()
-                        isEditing = false
+                        withAnimation { isEditing = false }
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
@@ -50,7 +50,7 @@ struct SeerrUserEditorView: View {
                             Task {
                                 if let updatedUser = await viewModel.save() {
                                     onSave(updatedUser)
-                                    isEditing = false
+                                    withAnimation { isEditing = false }
                                 }
                             }
                         }
@@ -60,7 +60,7 @@ struct SeerrUserEditorView: View {
             } else {
                 ToolbarItem(placement: .automatic) {
                     Button("Edit") {
-                        isEditing = true
+                        withAnimation { isEditing = true }
                     }
                 }
             }
@@ -118,6 +118,7 @@ struct SeerrUserEditorView: View {
                     )) {
                         Label(permission.title, systemImage: permission.symbolName)
                     }
+                    .disabled(viewModel.isAdminEnabled && permission != .admin)
                 }
             }
         }

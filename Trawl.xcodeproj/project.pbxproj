@@ -156,6 +156,30 @@
 				Assets.xcassets,
 				CLAUDE_CODE_GUIDE.md,
 				Info.plist,
+				SeerrStack/SeerrAPIClient.swift,
+				SeerrStack/SeerrAPIError.swift,
+				SeerrStack/SeerrDashboardView.swift,
+				SeerrStack/SeerrDVRModels.swift,
+				SeerrStack/SeerrIssue.swift,
+				SeerrStack/SeerrIssueDetailView.swift,
+				SeerrStack/SeerrIssueDetailViewModel.swift,
+				SeerrStack/SeerrIssueListView.swift,
+				SeerrStack/SeerrIssueListViewModel.swift,
+				SeerrStack/SeerrJellyfinImportSheet.swift,
+				SeerrStack/SeerrLinkedApplicationEditorSheet.swift,
+				SeerrStack/SeerrLinkedApplicationsView.swift,
+				SeerrStack/SeerrLogsView.swift,
+				SeerrStack/SeerrPermission.swift,
+				SeerrStack/SeerrServiceManager.swift,
+				SeerrStack/SeerrSetupSheet.swift,
+				SeerrStack/SeerrSetupViewModel.swift,
+				SeerrStack/SeerrSharedModels.swift,
+				SeerrStack/SeerrUser.swift,
+				SeerrStack/SeerrUserEditorView.swift,
+				SeerrStack/SeerrUserEditorViewModel.swift,
+				SeerrStack/SeerrUserListResponse.swift,
+				SeerrStack/SeerrUserManagementView.swift,
+				SeerrStack/SeerrUserManagementViewModel.swift,
 				Services/AppServices.swift,
 				Services/ArtworkCache.swift,
 				Services/NotificationService.swift,
@@ -190,6 +214,7 @@
 				Views/SettingsView.swift,
 				Views/TorrentDetailView.swift,
 				Views/TorrentListView.swift,
+				Views/TorrentPillView.swift,
 				Views/TorrentRowView.swift,
 				Views/TorrentStatsView.swift,
 				Views/TrackerListView.swift,
@@ -287,6 +312,30 @@
 				Assets.xcassets,
 				CLAUDE_CODE_GUIDE.md,
 				Info.plist,
+				SeerrStack/SeerrAPIClient.swift,
+				SeerrStack/SeerrAPIError.swift,
+				SeerrStack/SeerrDashboardView.swift,
+				SeerrStack/SeerrDVRModels.swift,
+				SeerrStack/SeerrIssue.swift,
+				SeerrStack/SeerrIssueDetailView.swift,
+				SeerrStack/SeerrIssueDetailViewModel.swift,
+				SeerrStack/SeerrIssueListView.swift,
+				SeerrStack/SeerrIssueListViewModel.swift,
+				SeerrStack/SeerrJellyfinImportSheet.swift,
+				SeerrStack/SeerrLinkedApplicationEditorSheet.swift,
+				SeerrStack/SeerrLinkedApplicationsView.swift,
+				SeerrStack/SeerrLogsView.swift,
+				SeerrStack/SeerrPermission.swift,
+				SeerrStack/SeerrServiceManager.swift,
+				SeerrStack/SeerrSetupSheet.swift,
+				SeerrStack/SeerrSetupViewModel.swift,
+				SeerrStack/SeerrSharedModels.swift,
+				SeerrStack/SeerrUser.swift,
+				SeerrStack/SeerrUserEditorView.swift,
+				SeerrStack/SeerrUserEditorViewModel.swift,
+				SeerrStack/SeerrUserListResponse.swift,
+				SeerrStack/SeerrUserManagementView.swift,
+				SeerrStack/SeerrUserManagementViewModel.swift,
 				Services/AppServices.swift,
 				Services/ArtworkCache.swift,
 				Services/NotificationService.swift,
@@ -826,7 +875,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-				SWIFT_VERSION = 6.0;
+				SWIFT_VERSION = 6.2;
 			};
 			name = Debug;
 		};
@@ -881,7 +930,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
+				SWIFT_VERSION = 6.2;
 			};
 			name = Release;
 		};
@@ -913,7 +962,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -946,7 +995,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -970,7 +1019,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Trawl.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Trawl";
 				XROS_DEPLOYMENT_TARGET = 26.4;
@@ -996,7 +1045,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Trawl.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Trawl";
 				XROS_DEPLOYMENT_TARGET = 26.4;
@@ -1021,7 +1070,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				TEST_TARGET_NAME = Trawl;
 				XROS_DEPLOYMENT_TARGET = 26.4;
@@ -1046,7 +1095,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_EMIT_LOC_STRINGS = NO;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2,7";
 				TEST_TARGET_NAME = Trawl;
 				XROS_DEPLOYMENT_TARGET = 26.4;
@@ -1078,7 +1127,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1108,7 +1157,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;
@@ -1138,7 +1187,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 			};
 			name = Debug;
 		};
@@ -1168,7 +1217,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 			};
 			name = Release;
 		};
@@ -1197,7 +1246,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
@@ -1227,7 +1276,7 @@
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.2;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Release;

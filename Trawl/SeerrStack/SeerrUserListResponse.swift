@@ -1,6 +1,3 @@
 import Foundation
 
-struct SeerrUserListResponse: Codable, Sendable {
-    let pageInfo: SeerrPageInfo
-    let results: [SeerrUser]
-}
+typealias SeerrUserListResponse = SeerrPagedResponse<SeerrUser>
