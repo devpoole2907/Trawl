@@ -9,11 +9,13 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @Query private var seerrProfiles: [SeerrServiceProfile]
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     @State private var showOnboarding = false
     @State private var appServices: AppServices?
     @State private var disconnectedServices = AppServices.disconnected()
@@ -86,6 +88,8 @@ struct ContentView: View {
                     .environment(arrServiceManager)
             case .seerr:
                 SeerrSetupSheet()
+            case .jellyfin:
+                JellyfinSetupSheet()
             }
         }
         .sheet(isPresented: $showArrSetup) {
@@ -149,6 +153,12 @@ struct ContentView: View {
         .task(id: seerrProfilesSyncKey) {
             await seerrServiceManager.initialize(from: seerrProfiles)
             if !seerrProfiles.isEmpty {
+                isInWelcomeFlow = false
+            }
+        }
+        .task(id: jellyfinProfilesSyncKey) {
+            await jellyfinServiceManager.initialize(from: jellyfinProfiles)
+            if !jellyfinProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
         }
@@ -345,6 +355,16 @@ struct ContentView: View {
                 ) {
                     setupTarget = .seerr
                 }
+
+                setupRow(
+                    icon: "server.rack",
+                    color: .indigo,
+                    title: "Jellyfin",
+                    description: "Manage users, libraries, and server activity",
+                    isConfigured: jellyfinProfile != nil
+                ) {
+                    setupTarget = .jellyfin
+                }
             }
 
             Spacer(minLength: 0)
@@ -496,6 +516,9 @@ struct ContentView: View {
                     .environment(\.navigateToSeerrUserManagement) {
                         morePath.append(.seerrUserManagement)
                     }
+                    .environment(\.navigateToJellyfinSettings) {
+                        morePath.append(.jellyfinSettings)
+                    }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -591,8 +614,12 @@ struct ContentView: View {
         seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
     }
 
+    private var jellyfinProfile: JellyfinServiceProfile? {
+        jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil
+        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil || jellyfinProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
@@ -605,6 +632,13 @@ struct ContentView: View {
     private var seerrProfilesSyncKey: String {
         seerrProfiles
             .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
+    private var jellyfinProfilesSyncKey: String {
+        jellyfinProfiles
+            .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled):\($0.authModeRaw)" }
             .sorted()
             .joined(separator: "|")
     }
@@ -823,6 +857,7 @@ private enum SetupTarget: Identifiable {
     case prowlarr
     case bazarr
     case seerr
+    case jellyfin
 
     var id: String {
         switch self {
@@ -832,6 +867,7 @@ private enum SetupTarget: Identifiable {
         case .prowlarr: "prowlarr"
         case .bazarr: "bazarr"
         case .seerr: "seerr"
+        case .jellyfin: "jellyfin"
         }
     }
 }

@@ -16,6 +16,7 @@ enum MoreDestination: Hashable {
     case prowlarrSettings
     case prowlarrIndexers
     case transferStats
+    case torrentManagement
     case blocklist
     case manualImport
     case calendar
@@ -26,15 +27,25 @@ enum MoreDestination: Hashable {
     case arrNamingConfig(service: ArrServiceType)
     case rootFolders
     case bazarrSettings
+    case subtitleManagement
     case bazarrLanguageProfiles
     case bazarrProviders
     case bazarrSeriesDetail(seriesId: Int)
     case bazarrMovieDetail(radarrId: Int)
+    case requestManagement
     case seerrSettings
     case seerrAdmin
     case seerrIssues
     case seerrUserManagement
     case seerrLogs
+    case jellyfinManagement
+    case jellyfinSettings
+    case jellyfinUsers
+    case jellyfinLibraries
+    case jellyfinSessions
+    case jellyfinActivityLog
+    case jellyfinScheduledTasks
+    case jellyfinPlugins
 }
 
 enum MoreDestinationAccent {
@@ -42,14 +53,18 @@ enum MoreDestinationAccent {
     case manualImport
     case categoriesAndTags
     case transferStats
+    case torrentManagement
     case mediaManagement
+    case subtitleManagement
     case sonarrNaming
     case radarrNaming
     case rootFolders
     case languageProfiles
     case providers
     case userManagement
+    case requestManagement
     case seerr
+    case jellyfin
 
     var color: Color {
         switch self {
@@ -57,14 +72,18 @@ enum MoreDestinationAccent {
         case .manualImport: return .blue
         case .categoriesAndTags: return .brown
         case .transferStats: return .mint
+        case .torrentManagement: return .mint
         case .mediaManagement: return .green
+        case .subtitleManagement: return .teal
         case .sonarrNaming: return .purple
         case .radarrNaming: return .orange
         case .rootFolders: return .indigo
         case .languageProfiles: return .cyan
         case .providers: return .pink
         case .userManagement: return .blue
+        case .requestManagement: return .indigo
         case .seerr: return .indigo
+        case .jellyfin: return .indigo
         }
     }
 }
@@ -72,10 +91,12 @@ enum MoreDestinationAccent {
 struct MoreView: View {
     @Query private var servers: [ServerProfile]
     @Query private var seerrProfiles: [SeerrServiceProfile]
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var showingNotificationsSheet = false
 
@@ -83,6 +104,10 @@ struct MoreView: View {
 
     private var seerrProfile: SeerrServiceProfile? {
         seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
+    private var jellyfinProfile: JellyfinServiceProfile? {
+        jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
     }
 
     var body: some View {
@@ -125,57 +150,38 @@ struct MoreView: View {
                     }
                 }
 
-                Section("Subtitles") {
-                    NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
-                        moreRow(icon: "globe", color: MoreDestinationAccent.languageProfiles.color,
-                                title: "Language Profiles", subtitle: "Manage Bazarr language profiles")
-                    }
-
-                    NavigationLink(value: MoreDestination.bazarrProviders) {
-                        moreRow(icon: "person.2.fill", color: MoreDestinationAccent.providers.color,
-                                title: "Providers", subtitle: "Manage Bazarr subtitle providers")
+                Section("Torrents") {
+                    NavigationLink(value: MoreDestination.torrentManagement) {
+                        moreRow(icon: "arrow.down.circle.fill", color: MoreDestinationAccent.torrentManagement.color,
+                                title: "Torrent Management", subtitle: "Categories, RSS feeds, and transfer stats")
                     }
                 }
 
-                Section("Torrents") {
-                    NavigationLink(value: MoreDestination.categoriesAndTags) {
-                        moreRow(icon: "tag.fill", color: MoreDestinationAccent.categoriesAndTags.color,
-                                title: "Categories & Tags", subtitle: "Manage your torrent organization")
-                    }
-                    
-                    NavigationLink(value: MoreDestination.rssFeeds) {
-                        moreRow(icon: "dot.radiowaves.left.and.right", color: .cyan,
-                                title: "RSS Feeds", subtitle: "Automatically download from feed rules")
-                    }
-
-                    NavigationLink(value: MoreDestination.transferStats) {
-                        moreRow(icon: "chart.line.uptrend.xyaxis", color: MoreDestinationAccent.transferStats.color,
-                                title: "Transfer Stats", subtitle: "Speed, session totals, and network info")
+                Section("Subtitles") {
+                    NavigationLink(value: MoreDestination.subtitleManagement) {
+                        moreRow(icon: "captions.bubble.fill", color: MoreDestinationAccent.subtitleManagement.color,
+                                title: "Subtitle Management", subtitle: "Language profiles and subtitle providers")
                     }
                 }
                 Section("Requests") {
-                    NavigationLink(value: MoreDestination.seerrAdmin) {
+                    NavigationLink(value: MoreDestination.requestManagement) {
                         moreRow(
                             icon: "tray.full.fill",
-                            color: .indigo,
-                            title: "Requests",
-                            subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
+                            color: MoreDestinationAccent.requestManagement.color,
+                            title: "Request Management",
+                            subtitle: seerrProfile == nil ? "Not configured" : "Requests, issues, users, and logs"
                         )
                     }
+                }
 
-                    NavigationLink(value: MoreDestination.seerrIssues) {
-                        moreRow(icon: "exclamationmark.bubble.fill", color: .orange,
-                                title: "Manage Issues", subtitle: "Review and respond to user issues")
-                    }
-
-                    NavigationLink(value: MoreDestination.seerrUserManagement) {
-                        moreRow(icon: "person.2.badge.gearshape", color: .blue,
-                                title: "Manage Users", subtitle: "Edit permissions and remove users")
-                    }
-
-                    NavigationLink(value: MoreDestination.seerrLogs) {
-                        moreRow(icon: "doc.text.magnifyingglass", color: .indigo,
-                                title: "Seerr Logs", subtitle: "Live Seerr server logs")
+                Section("Media Server") {
+                    NavigationLink(value: MoreDestination.jellyfinManagement) {
+                        moreRow(
+                            icon: "server.rack",
+                            color: MoreDestinationAccent.jellyfin.color,
+                            title: "Jellyfin Management",
+                            subtitle: jellyfinProfile == nil ? "Not configured" : "Users, libraries, sessions, and server tasks"
+                        )
                     }
                 }
 
@@ -228,6 +234,9 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .rssFeeds:
                     qbittorrentRSSDestination
+                        .moreDestinationTitleStyle()
+                case .torrentManagement:
+                    TorrentManagementView()
                         .moreDestinationTitleStyle()
                 case .diskSpace:
                     ArrDiskSpaceView()
@@ -314,6 +323,64 @@ struct MoreView: View {
                 case .seerrSettings:
                     SeerrSettingsView()
                         .moreDestinationTitleStyle()
+                case .requestManagement:
+                    RequestManagementView(seerrProfile: seerrProfile)
+                        .moreDestinationTitleStyle()
+                case .jellyfinManagement:
+                    JellyfinManagementView(jellyfinProfile: jellyfinProfile)
+                        .moreDestinationTitleStyle()
+                case .jellyfinUsers:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinUserManagementView(apiClient: client)
+                            .moreDestinationBackground(.userManagement)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinLibraries:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinLibrariesView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinSessions:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinSessionsView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinActivityLog:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinActivityLogView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinScheduledTasks:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinScheduledTasksView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinPlugins:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinPluginsView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinSettings:
+                    JellyfinSettingsView()
+                        .moreDestinationTitleStyle()
                 case .calendarSeries(let id):
                     SonarrSeriesDetailView(seriesId: id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
                         .injectSyncService(appServices)
@@ -342,6 +409,9 @@ struct MoreView: View {
                 case .bazarrSettings:
                     ArrServiceSettingsView(serviceType: .bazarr)
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .subtitleManagement:
+                    SubtitleManagementView()
                         .moreDestinationTitleStyle()
                 case .bazarrLanguageProfiles:
                     BazarrLanguageProfilesView()
@@ -527,8 +597,265 @@ struct MoreView: View {
         }
     }
 
+    @ViewBuilder
+    private var jellyfinUnavailableDestination: some View {
+        if jellyfinServiceManager.isConnecting {
+            VStack(spacing: 16) {
+                ProgressView()
+                    .controlSize(.large)
+                Text("Connecting to Jellyfin…")
+                    .font(.headline)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("Jellyfin")
+        } else if let jellyfinProfile {
+            ContentUnavailableView {
+                Label("Jellyfin Unreachable", systemImage: "network.slash")
+            } description: {
+                Text(jellyfinServiceManager.connectionError ?? "Unable to reach your configured Jellyfin server.")
+            } actions: {
+                Button("Retry Connection") {
+                    Task {
+                        await jellyfinServiceManager.connectService(jellyfinProfile)
+                    }
+                }
+                .buttonStyle(.bordered)
+            }
+            .navigationTitle("Jellyfin")
+        } else {
+            ContentUnavailableView {
+                Label("Jellyfin Not Configured", systemImage: "server.rack")
+            } description: {
+                Text("Add a Jellyfin server in Settings to manage your media server.")
+            }
+            .navigationTitle("Jellyfin")
+        }
+    }
+
     private func moreRow(icon: String, color: Color, title: String, subtitle: String) -> some View {
         NavigationMenuRow(icon: icon, color: color, title: title, subtitle: subtitle)
+    }
+}
+
+private struct SubtitleManagementView: View {
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
+                    NavigationMenuRow(
+                        icon: "globe",
+                        color: MoreDestinationAccent.languageProfiles.color,
+                        title: "Language Profiles",
+                        subtitle: "Preferred languages and cutoff rules"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.bazarrProviders) {
+                    NavigationMenuRow(
+                        icon: "person.2.fill",
+                        color: MoreDestinationAccent.providers.color,
+                        title: "Providers",
+                        subtitle: "Configure subtitle provider integrations"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Subtitle Management")
+        .moreDestinationBackground(.subtitleManagement)
+    }
+}
+
+private struct TorrentManagementView: View {
+    @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.categoriesAndTags) {
+                    NavigationMenuRow(
+                        icon: "tag.fill",
+                        color: MoreDestinationAccent.categoriesAndTags.color,
+                        title: "Categories & Tags",
+                        subtitle: "Manage torrent organization labels"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.rssFeeds) {
+                    NavigationMenuRow(
+                        icon: "dot.radiowaves.left.and.right",
+                        color: .cyan,
+                        title: "RSS Feeds",
+                        subtitle: "Feeds and automatic download rules"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.transferStats) {
+                    NavigationMenuRow(
+                        icon: "chart.line.uptrend.xyaxis",
+                        color: MoreDestinationAccent.transferStats.color,
+                        title: "Transfer Stats",
+                        subtitle: "Speed, session totals, and network info"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Torrent Management")
+        .moreDestinationBackground(.torrentManagement)
+        .toolbar {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                Button("qBittorrent Settings", systemImage: "gearshape") {
+                    navigateToQbittorrentSettings()
+                }
+            }
+        }
+    }
+}
+
+private struct RequestManagementView: View {
+    let seerrProfile: SeerrServiceProfile?
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.seerrAdmin) {
+                    NavigationMenuRow(
+                        icon: "tray.full.fill",
+                        color: MoreDestinationAccent.requestManagement.color,
+                        title: "Requests",
+                        subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.seerrIssues) {
+                    NavigationMenuRow(
+                        icon: "exclamationmark.bubble.fill",
+                        color: .orange,
+                        title: "Manage Issues",
+                        subtitle: "Review and respond to user issues"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.seerrUserManagement) {
+                    NavigationMenuRow(
+                        icon: "person.2.badge.gearshape",
+                        color: .blue,
+                        title: "Manage Users",
+                        subtitle: "Edit permissions and remove users"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.seerrLogs) {
+                    NavigationMenuRow(
+                        icon: "doc.text.magnifyingglass",
+                        color: .indigo,
+                        title: "Seerr Logs",
+                        subtitle: "Live Seerr server logs"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Request Management")
+        .moreDestinationBackground(.requestManagement)
+    }
+}
+
+private struct JellyfinManagementView: View {
+    let jellyfinProfile: JellyfinServiceProfile?
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinUsers) {
+                    NavigationMenuRow(
+                        icon: "person.2.fill",
+                        color: .blue,
+                        title: "Users",
+                        subtitle: jellyfinProfile == nil ? "Not configured" : "Manage Jellyfin user accounts"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinLibraries) {
+                    NavigationMenuRow(
+                        icon: "folder.fill",
+                        color: .orange,
+                        title: "Libraries",
+                        subtitle: "Browse and scan media libraries"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinSessions) {
+                    NavigationMenuRow(
+                        icon: "play.rectangle.fill",
+                        color: .green,
+                        title: "Sessions",
+                        subtitle: "Active playback sessions"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinActivityLog) {
+                    NavigationMenuRow(
+                        icon: "list.bullet.rectangle.fill",
+                        color: .indigo,
+                        title: "Activity Log",
+                        subtitle: "Jellyfin server activity history"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinScheduledTasks) {
+                    NavigationMenuRow(
+                        icon: "clock.arrow.2.circlepath",
+                        color: .teal,
+                        title: "Scheduled Tasks",
+                        subtitle: "View and trigger Jellyfin background tasks"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.jellyfinPlugins) {
+                    NavigationMenuRow(
+                        icon: "shippingbox.fill",
+                        color: .purple,
+                        title: "Plugins",
+                        subtitle: "Installed Jellyfin plugins"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Jellyfin Management")
+        .moreDestinationBackground(.jellyfin)
     }
 }
 

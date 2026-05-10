@@ -7,7 +7,8 @@ enum TrawlModelSchema {
             CachedTorrentState.self,
             RecentSavePath.self,
             ArrServiceProfile.self,
-            SeerrServiceProfile.self
+            SeerrServiceProfile.self,
+            JellyfinServiceProfile.self
         ])
     }
 }

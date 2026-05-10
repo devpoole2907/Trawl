@@ -16,6 +16,7 @@ struct TrawlApp: App {
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
     @State private var seerrServiceManager = SeerrServiceManager()
+    @State private var jellyfinServiceManager = JellyfinServiceManager()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     @State private var appLockController = AppLockController()
 
@@ -68,6 +69,7 @@ struct TrawlApp: App {
             ContentView()
                 .environment(arrServiceManager)
                 .environment(seerrServiceManager)
+                .environment(jellyfinServiceManager)
                 .environment(inAppNotificationCenter)
                 .environment(appLockController)
                 .task {
@@ -126,12 +128,16 @@ struct TrawlApp: App {
             var seerrProfileDescriptor = FetchDescriptor<SeerrServiceProfile>()
             seerrProfileDescriptor.fetchLimit = 1
 
+            var jellyfinProfileDescriptor = FetchDescriptor<JellyfinServiceProfile>()
+            jellyfinProfileDescriptor.fetchLimit = 1
+
             return
                 try !context.fetch(serverDescriptor).isEmpty ||
                 !context.fetch(cachedStateDescriptor).isEmpty ||
                 !context.fetch(recentPathDescriptor).isEmpty ||
                 !context.fetch(arrProfileDescriptor).isEmpty ||
-                !context.fetch(seerrProfileDescriptor).isEmpty
+                !context.fetch(seerrProfileDescriptor).isEmpty ||
+                !context.fetch(jellyfinProfileDescriptor).isEmpty
         } catch {
             logger.error("SwiftData migration probe failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -211,6 +217,24 @@ struct TrawlApp: App {
                 copy.id = seerrProfile.id
                 copy.isEnabled = seerrProfile.isEnabled
                 copy.dateAdded = seerrProfile.dateAdded
+                destinationContext.insert(copy)
+            }
+
+            let existingJellyfinIDs = Set(try destinationContext.fetch(FetchDescriptor<JellyfinServiceProfile>()).map(\.id))
+            for jellyfinProfile in try sourceContext.fetch(FetchDescriptor<JellyfinServiceProfile>()) {
+                guard !existingJellyfinIDs.contains(jellyfinProfile.id) else { continue }
+                let copy = JellyfinServiceProfile(
+                    displayName: jellyfinProfile.displayName,
+                    hostURL: jellyfinProfile.hostURL,
+                    authMode: jellyfinProfile.authMode,
+                    userID: jellyfinProfile.userID,
+                    allowsUntrustedTLS: jellyfinProfile.allowsUntrustedTLS
+                )
+                copy.id = jellyfinProfile.id
+                copy.isEnabled = jellyfinProfile.isEnabled
+                copy.dateAdded = jellyfinProfile.dateAdded
+                copy.serverName = jellyfinProfile.serverName
+                copy.serverVersion = jellyfinProfile.serverVersion
                 destinationContext.insert(copy)
             }
         } catch {

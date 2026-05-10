@@ -101,7 +101,7 @@ actor KeychainHelper {
     }
 
     private func accessibility(for key: String) -> CFString {
-        if key.hasPrefix("server_") || key.hasPrefix("seerr_") {
+        if key.hasPrefix("server_") || key.hasPrefix("seerr_") || key.hasPrefix("jellyfin_") {
             return kSecAttrAccessibleAfterFirstUnlock
         }
 

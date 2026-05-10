@@ -27,6 +27,9 @@ struct SettingsView: View {
     @Environment(\.navigateToSeerrSettings) private var navigateToSeerrSettings
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Query private var seerrProfiles: [SeerrServiceProfile]
+    @Environment(\.navigateToJellyfinSettings) private var navigateToJellyfinSettings
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -119,6 +122,10 @@ struct SettingsView: View {
         seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
     }
 
+    private var jellyfinProfile: JellyfinServiceProfile? {
+        jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
+    }
+
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map {
@@ -200,6 +207,18 @@ struct SettingsView: View {
                         url: seerrProfile?.hostURL,
                         isConnected: seerrServiceManager.isConnected,
                         isConfigured: seerrProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToJellyfinSettings) {
+                    serviceRow(
+                        icon: "server.rack", color: .indigo,
+                        name: jellyfinProfile?.displayName ?? "Jellyfin",
+                        url: jellyfinProfile?.hostURL,
+                        isConnected: jellyfinServiceManager.isConnected,
+                        isConfigured: jellyfinProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -843,6 +862,10 @@ private struct NavigateToSeerrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToJellyfinSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -882,5 +905,10 @@ extension EnvironmentValues {
     var navigateToSeerrSettings: () -> Void {
         get { self[NavigateToSeerrSettingsKey.self] }
         set { self[NavigateToSeerrSettingsKey.self] = newValue }
+    }
+
+    var navigateToJellyfinSettings: () -> Void {
+        get { self[NavigateToJellyfinSettingsKey.self] }
+        set { self[NavigateToJellyfinSettingsKey.self] = newValue }
     }
 }
