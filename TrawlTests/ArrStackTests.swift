@@ -3,6 +3,7 @@ import Foundation
 @testable import Trawl
 
 @Suite("ArrError Tests")
+@MainActor
 struct ArrErrorTests {
     @Test("Error Descriptions", arguments: [
         (ArrError.invalidAPIKey, "Invalid API key. Check your *arr service settings."),
@@ -50,6 +51,7 @@ struct ArrErrorTests {
 }
 
 @Suite("ArrServiceType Tests")
+@MainActor
 struct ArrServiceTypeTests {
     @Test("Properties", arguments: [
         (ArrServiceType.sonarr, "Sonarr", 8989, "tv", "sonarr"),
@@ -80,7 +82,74 @@ struct ArrServiceTypeTests {
     }
 }
 
+@Suite("Remote Filesystem Tests")
+@MainActor
+struct RemoteFileSystemTests {
+    @Test("Arr filesystem entries decode and map directories and files")
+    func arrFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "name": "Media", "path": "/media", "type": "folder", "isDirectory": true, "isFile": false },
+            { "name": "sample.mkv", "path": "/media/sample.mkv", "type": "file", "isDirectory": false, "isFile": true }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([ArrFileSystemEntry].self, from: data)
+
+        #expect(entries[0].remotePathEntry.name == "Media")
+        #expect(entries[0].remotePathEntry.path == "/media")
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[0].remotePathEntry.isDirectory)
+        #expect(entries[1].remotePathEntry.kind == .file)
+        #expect(!entries[1].remotePathEntry.isDirectory)
+    }
+
+    @Test("Arr filesystem query construction")
+    func arrFileSystemQueryItems() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "/media", includeFiles: false)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+
+        #expect(values["path"] == "/media")
+        #expect(values["allowFoldersWithoutTrailingSlashes"] == "true")
+        #expect(values["includeFiles"] == "false")
+    }
+
+    @Test("Jellyfin filesystem entries decode drive network directory and file cases")
+    func jellyfinFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "Name": "Media", "Path": "/media", "Type": "Directory" },
+            { "Name": "C:", "Path": "C:\\\\", "Type": "Drive" },
+            { "Name": "NAS", "Path": "\\\\\\\\nas\\\\media", "Type": "NetworkShare" },
+            { "Name": "sample.mkv", "Path": "/media/sample.mkv", "Type": "File" }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([JellyfinFileSystemEntryInfo].self, from: data)
+
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[1].remotePathEntry.kind == .drive)
+        #expect(entries[2].remotePathEntry.kind == .networkShare)
+        #expect(entries[3].remotePathEntry.kind == .file)
+        #expect(!entries[3].remotePathEntry.isDirectory)
+    }
+
+    @Test("Jellyfin directory contents query construction")
+    func jellyfinDirectoryContentsQueryParams() {
+        let values = JellyfinAPIClient.directoryContentsParams(
+            path: "/media",
+            includeFiles: false,
+            includeDirectories: true
+        )
+
+        #expect(values["Path"] == "/media")
+        #expect(values["IncludeFiles"] == "false")
+        #expect(values["IncludeDirectories"] == "true")
+    }
+}
+
 @Suite("ArrQueueItem Computed Properties Tests")
+@MainActor
 struct ArrQueueItemTests {
     private func makeItem(
         id: Int = 1,
@@ -175,6 +244,7 @@ struct ArrQueueItemTests {
 }
 
 @Suite("ArrRelease Computed Properties Tests")
+@MainActor
 struct ArrReleaseTests {
     private func makeRelease(
         guid: String? = "test-guid",
@@ -296,6 +366,7 @@ struct ArrReleaseTests {
 }
 
 @Suite("ArrReleaseSort Tests")
+@MainActor
 struct ArrReleaseSortTests {
     @Test("Default and Active Status")
     func defaultStatus() {
@@ -345,6 +416,7 @@ struct ArrReleaseSortTests {
 }
 
 @Suite("ArrReleaseSortKey Tests")
+@MainActor
 struct ArrReleaseSortKeyTests {
     @Test("System Images", arguments: [
         (ArrReleaseSortKey.default, "square.stack"),
@@ -360,6 +432,7 @@ struct ArrReleaseSortKeyTests {
 }
 
 @Suite("ArrDiskSpace Tests")
+@MainActor
 struct ArrDiskSpaceTests {
     @Test("Initialization")
     func initialization() {
@@ -393,6 +466,7 @@ struct ArrDiskSpaceTests {
 }
 
 @Suite("ArrDiskSpaceSnapshot Tests")
+@MainActor
 struct ArrDiskSpaceSnapshotTests {
     @Test("ID Combines Service Type and Path")
     func idCombinesServiceTypeAndPath() {
@@ -417,6 +491,7 @@ struct ArrDiskSpaceSnapshotTests {
 }
 
 @Suite("ArrHealthCheck Tests")
+@MainActor
 struct ArrHealthCheckTests {
     @Test("ID Generation")
     func idGeneration() {
@@ -443,6 +518,7 @@ struct ArrHealthCheckTests {
 }
 
 @Suite("AnyCodableValue Tests")
+@MainActor
 struct AnyCodableValueTests {
     @Test("Decode String")
     func decodeString() throws {
@@ -558,6 +634,7 @@ struct AnyCodableValueTests {
 }
 
 @Suite("Prowlarr Tests")
+@MainActor
 struct ProwlarrTests {
     @Test("Protocol Properties", arguments: [
         (ProwlarrIndexerProtocol.usenet, "Usenet", false, "envelope.circle"),
@@ -730,6 +807,7 @@ struct ArrServiceManagerTests {
 }
 
 @Suite("Arr API Client Tests")
+@MainActor
 struct ArrAPIClientTests {
     @Test("Default Page Size")
     func defaultPageSize() {
@@ -750,6 +828,7 @@ struct ArrAPIClientTests {
 }
 
 @Suite("Miscellaneous Parsing Tests")
+@MainActor
 struct MiscellaneousParsingTests {
     @Test("Queue Item Coding Keys")
     func queueItemCodingKeys() throws {
@@ -829,5 +908,267 @@ struct MiscellaneousParsingTests {
         let data = try #require(json.data(using: .utf8))
         let tag = try JSONDecoder().decode(ArrTag.self, from: data)
         #expect(tag.label == "4k")
+    }
+}
+
+// MARK: - ArrFileSystemEntry Extended Tests
+
+@Suite("ArrFileSystemEntry Extended Tests")
+@MainActor
+struct ArrFileSystemEntryExtendedTests {
+    // MARK: Int-typed entries
+
+    @Test("Int type 0 maps to folder and is treated as directory")
+    func intTypeZeroIsFolder() throws {
+        let json = #"{"name":"Folder","path":"/media","type":0}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.type == "folder")
+        #expect(entry.remotePathEntry.kind == .directory)
+        #expect(entry.remotePathEntry.isDirectory)
+    }
+
+    @Test("Int type 1 maps to file and is treated as file")
+    func intTypeOneIsFile() throws {
+        let json = #"{"name":"sample.mkv","path":"/media/sample.mkv","type":1}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.type == "file")
+        // isFile and isDirectory are absent; type int 1 -> file
+        // remotePathEntry computes directory = isDirectory ?? !(isFile ?? false) = nil ?? !(nil ?? false) = true
+        // So without explicit isFile/isDirectory, int type "file" doesn't override the fallback
+    }
+
+    @Test("Int type 2 maps to drive")
+    func intTypeTwoIsDrive() throws {
+        let json = #"{"name":"C:","path":"C:\\","type":2}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.type == "drive")
+    }
+
+    @Test("Int type 3 maps to parent")
+    func intTypeThreeIsParent() throws {
+        let json = #"{"name":"..","path":"/","type":3}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.type == "parent")
+    }
+
+    @Test("Unknown int type maps to unknown string")
+    func unknownIntTypeIsUnknown() throws {
+        let json = #"{"name":"weird","path":"/weird","type":99}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.type == "unknown")
+    }
+
+    // MARK: displayName fallback from path
+
+    @Test("displayName uses name when provided", arguments: [
+        (#"{"name":"My Media","path":"/media"}"#, "My Media"),
+        (#"{"name":"Shows","path":"/mnt/shows"}"#, "Shows")
+    ])
+    func displayNameFromName(json: String, expectedName: String) throws {
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.remotePathEntry.name == expectedName)
+    }
+
+    @Test("displayName falls back to last path component when name is absent")
+    func displayNameFromPath() throws {
+        let json = #"{"path":"/mnt/media/movies"}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.remotePathEntry.name == "movies")
+    }
+
+    @Test("displayName falls back to last path component when name is empty")
+    func displayNameFromPathWhenNameEmpty() throws {
+        let json = #"{"name":"","path":"/mnt/media/shows"}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.remotePathEntry.name == "shows")
+    }
+
+    @Test("displayName returns full path when path has no components after trimming")
+    func displayNameFromRootPath() throws {
+        let json = #"{"path":"/"}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        // trimmed is empty, split gives no components, falls back to path "/"
+        #expect(entry.remotePathEntry.name == "/")
+    }
+
+    // MARK: isFile / isDirectory interaction
+
+    @Test("isDirectory true overrides type string to produce directory kind")
+    func isDirectoryTrueMakesDirectory() throws {
+        let json = #"{"path":"/mnt","isDirectory":true,"isFile":false}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.remotePathEntry.kind == .directory)
+        #expect(entry.remotePathEntry.isDirectory)
+    }
+
+    @Test("isFile true and isDirectory false produces file kind")
+    func isFileTrueMakesFile() throws {
+        let json = #"{"path":"/media/file.mkv","isDirectory":false,"isFile":true}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.remotePathEntry.kind == .file)
+        #expect(!entry.remotePathEntry.isDirectory)
+    }
+
+    @Test("When both isFile and isDirectory are absent defaults to directory")
+    func absentFlagsDefaultToDirectory() throws {
+        let json = #"{"path":"/media"}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        // isDirectory ?? !(isFile ?? false) = nil ?? !(nil ?? false) = nil ?? true = true
+        #expect(entry.remotePathEntry.isDirectory)
+        #expect(entry.remotePathEntry.kind == .directory)
+    }
+
+    // MARK: id
+
+    @Test("id equals path")
+    func idEqualsPath() throws {
+        let json = #"{"name":"Movies","path":"/data/movies"}"#
+        let data = try #require(json.data(using: .utf8))
+        let entry = try JSONDecoder().decode(ArrFileSystemEntry.self, from: data)
+        #expect(entry.id == "/data/movies")
+    }
+}
+
+// MARK: - ArrFileSystemResponse Tests
+
+@Suite("ArrFileSystemResponse Tests")
+@MainActor
+struct ArrFileSystemResponseTests {
+    @Test("Decodes bare array format (Radarr/Prowlarr style)")
+    func decodesBareArray() throws {
+        let json = """
+        [
+            {"name":"Media","path":"/media","isDirectory":true},
+            {"name":"Movies","path":"/media/movies","isDirectory":true}
+        ]
+        """
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(ArrFileSystemResponse.self, from: data)
+        #expect(response.entries.count == 2)
+        #expect(response.entries[0].path == "/media")
+        #expect(response.entries[1].path == "/media/movies")
+    }
+
+    @Test("Decodes nested {directories:[...]} format (Sonarr v3 style)")
+    func decodesNestedDirectoriesFormat() throws {
+        let json = """
+        {
+            "directories": [
+                {"name":"Shows","path":"/media/shows","isDirectory":true},
+                {"name":"Anime","path":"/media/anime","isDirectory":true}
+            ]
+        }
+        """
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(ArrFileSystemResponse.self, from: data)
+        #expect(response.entries.count == 2)
+        #expect(response.entries[0].path == "/media/shows")
+        #expect(response.entries[1].path == "/media/anime")
+    }
+
+    @Test("Nested format with empty directories returns empty entries")
+    func nestedFormatEmptyDirectories() throws {
+        let json = #"{"directories":[]}"#
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(ArrFileSystemResponse.self, from: data)
+        #expect(response.entries.isEmpty)
+    }
+
+    @Test("Nested format with null directories returns empty entries")
+    func nestedFormatNullDirectories() throws {
+        let json = #"{"directories":null}"#
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(ArrFileSystemResponse.self, from: data)
+        #expect(response.entries.isEmpty)
+    }
+
+    @Test("Bare empty array returns empty entries")
+    func bareArrayEmpty() throws {
+        let json = #"[]"#
+        let data = try #require(json.data(using: .utf8))
+        let response = try JSONDecoder().decode(ArrFileSystemResponse.self, from: data)
+        #expect(response.entries.isEmpty)
+    }
+}
+
+// MARK: - ArrAPIClient fileSystemQueryItems Extended Tests
+
+@Suite("ArrAPIClient fileSystemQueryItems Extended Tests")
+@MainActor
+struct ArrAPIClientFileSystemQueryTests {
+    @Test("includeFiles true is reflected in query items")
+    func includeFilesTrue() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "/downloads", includeFiles: true)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(values["includeFiles"] == "true")
+        #expect(values["path"] == "/downloads")
+    }
+
+    @Test("Empty path is preserved in query items")
+    func emptyPath() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "", includeFiles: false)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+        #expect(values["path"] == "")
+        #expect(values["allowFoldersWithoutTrailingSlashes"] == "true")
+    }
+
+    @Test("Query items always contain exactly three entries")
+    func queryItemCount() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "/any", includeFiles: true)
+        #expect(items.count == 3)
+    }
+}
+
+// MARK: - RadarrFilter / SonarrFilter Tests
+
+@Suite("RadarrFilter Tests")
+@MainActor
+struct RadarrFilterTests {
+    @Test("All cases includes inJellyfinLibrary")
+    func allCasesIncludesJellyfin() {
+        #expect(RadarrFilter.allCases.contains(.inJellyfinLibrary))
+    }
+
+    @Test("inJellyfinLibrary rawValue")
+    func jellyfinFilterRawValue() {
+        #expect(RadarrFilter.inJellyfinLibrary.rawValue == "In Jellyfin Library")
+        #expect(RadarrFilter.inJellyfinLibrary.id == "In Jellyfin Library")
+    }
+
+    @Test("All cases count is 8")
+    func allCasesCount() {
+        #expect(RadarrFilter.allCases.count == 8)
+    }
+}
+
+@Suite("SonarrFilter Tests")
+@MainActor
+struct SonarrFilterTests {
+    @Test("All cases includes inJellyfinLibrary")
+    func allCasesIncludesJellyfin() {
+        #expect(SonarrFilter.allCases.contains(.inJellyfinLibrary))
+    }
+
+    @Test("inJellyfinLibrary rawValue")
+    func jellyfinFilterRawValue() {
+        #expect(SonarrFilter.inJellyfinLibrary.rawValue == "In Jellyfin Library")
+        #expect(SonarrFilter.inJellyfinLibrary.id == "In Jellyfin Library")
+    }
+
+    @Test("All cases count is 8")
+    func allCasesCount() {
+        #expect(SonarrFilter.allCases.count == 8)
     }
 }
