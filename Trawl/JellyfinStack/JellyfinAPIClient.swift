@@ -188,6 +188,94 @@ actor JellyfinAPIClient {
         ])
     }
 
+    // MARK: - Environment
+
+    func getDrives() async throws -> [JellyfinFileSystemEntryInfo] {
+        try await get("/Environment/Drives")
+    }
+
+    func getDirectoryContents(
+        path: String,
+        includeFiles: Bool = false,
+        includeDirectories: Bool = true
+    ) async throws -> [JellyfinFileSystemEntryInfo] {
+        try await get("/Environment/DirectoryContents", params: Self.directoryContentsParams(
+            path: path,
+            includeFiles: includeFiles,
+            includeDirectories: includeDirectories
+        ))
+    }
+
+    func getParentPath(path: String) async throws -> String {
+        try await get("/Environment/ParentPath", params: ["Path": path])
+    }
+
+    func validatePath(path: String) async throws -> Bool {
+        try await get("/Environment/ValidatePath", params: ["Path": path])
+    }
+
+    nonisolated static func directoryContentsParams(
+        path: String,
+        includeFiles: Bool,
+        includeDirectories: Bool
+    ) -> [String: String] {
+        [
+            "Path": path,
+            "IncludeFiles": String(includeFiles),
+            "IncludeDirectories": String(includeDirectories)
+        ]
+    }
+
+    // MARK: - Library Structure
+
+    func addVirtualFolder(
+        name: String,
+        collectionType: String,
+        paths: [String],
+        refreshLibrary: Bool = true
+    ) async throws {
+        let body = JellyfinVirtualFolderBody(
+            name: name,
+            collectionType: collectionType,
+            paths: paths,
+            refreshLibrary: refreshLibrary
+        )
+        try await postVoid("/Library/VirtualFolders", body: body)
+    }
+
+    func removeVirtualFolder(name: String, refreshLibrary: Bool = true) async throws {
+        try await deleteVoid("/Library/VirtualFolders", queryParams: [
+            "name": name,
+            "refreshLibrary": String(refreshLibrary)
+        ])
+    }
+
+    func addMediaPath(libraryName: String, path: String, refreshLibrary: Bool = true) async throws {
+        let body = JellyfinMediaPathBody(
+            name: libraryName,
+            pathInfo: JellyfinMediaPathInfo(path: path)
+        )
+        try await postVoid("/Library/VirtualFolders/Paths", body: body, queryParams: [
+            "refreshLibrary": String(refreshLibrary)
+        ])
+    }
+
+    func removeMediaPath(libraryName: String, path: String, refreshLibrary: Bool = true) async throws {
+        try await deleteVoid("/Library/VirtualFolders/Paths", queryParams: [
+            "name": libraryName,
+            "path": path,
+            "refreshLibrary": String(refreshLibrary)
+        ])
+    }
+
+    func renameVirtualFolder(name: String, newName: String, refreshLibrary: Bool = true) async throws {
+        try await postEmpty("/Library/VirtualFolders/Name", queryParams: [
+            "name": name,
+            "newName": newName,
+            "refreshLibrary": String(refreshLibrary)
+        ])
+    }
+
     // MARK: - Sessions
 
     func getSessions() async throws -> [JellyfinSession] {

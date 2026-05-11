@@ -67,6 +67,84 @@ struct ArrRootFolder: Codable, Identifiable, Sendable {
     let totalSpace: Int64?
 }
 
+nonisolated struct ArrFileSystemEntry: Decodable, Identifiable, Sendable {
+    let name: String?
+    let path: String
+    let type: String?
+    let isFile: Bool?
+    let isDirectory: Bool?
+
+    var id: String { path }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        isFile = try container.decodeIfPresent(Bool.self, forKey: .isFile)
+        isDirectory = try container.decodeIfPresent(Bool.self, forKey: .isDirectory)
+        if let stringType = try? container.decodeIfPresent(String.self, forKey: .type) {
+            type = stringType
+        } else if let intType = try? container.decodeIfPresent(Int.self, forKey: .type) {
+            type = Self.mapIntType(intType)
+        } else {
+            type = nil
+        }
+    }
+
+    var remotePathEntry: RemotePathEntry {
+        let directory = isDirectory ?? !(isFile ?? false)
+        let kind: RemotePathEntryKind = if directory {
+            .directory
+        } else {
+            .file
+        }
+        return RemotePathEntry(
+            name: displayName,
+            path: path,
+            kind: kind,
+            isDirectory: directory
+        )
+    }
+
+    private static func mapIntType(_ value: Int) -> String? {
+        switch value {
+        case 0: "folder"
+        case 1: "file"
+        case 2: "drive"
+        case 3: "parent"
+        default: "unknown"
+        }
+    }
+
+    private var displayName: String {
+        if let name, !name.isEmpty { return name }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+        return trimmed.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, path, type, isFile, isDirectory
+    }
+}
+
+nonisolated struct ArrFileSystemResponse: Decodable {
+    let entries: [ArrFileSystemEntry]
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let array = try? container.decode([ArrFileSystemEntry].self) {
+            entries = array
+            return
+        }
+        let nested = try container.decode(ArrFileSystemV3Response.self)
+        entries = nested.directories ?? []
+    }
+}
+
+nonisolated struct ArrFileSystemV3Response: Decodable {
+    let directories: [ArrFileSystemEntry]?
+}
+
 // MARK: - Tag
 
 struct ArrTag: Codable, Identifiable, Sendable {

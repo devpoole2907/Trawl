@@ -11,6 +11,7 @@ struct SeerrLogsView: View {
     @State private var errorMessage: String?
     @State private var selectedEntry: SeerrServerLogEntry?
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var isSearchExpanded = false
 
     var body: some View {
         List {
@@ -55,11 +56,20 @@ struct SeerrLogsView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
         .navigationTitle("Seerr Logs")
-        .searchable(text: $searchText, prompt: "Search logs")
-        .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                SeerrLogLevelMenu(level: $level)
-            }
+        .safeAreaInset(edge: .top) {
+            TrawlSegmentBar(
+                "Level",
+                selection: Binding(
+                    get: { level },
+                    set: { newLevel in withAnimation { level = newLevel } }
+                ),
+                items: SeerrLogLevelFilter.allCases.map(\.segmentBarItem),
+                searchText: $searchText,
+                searchHint: "Search logs",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await loadLogs() }
         .task(id: "\(level.apiValue)|\(committedSearchText)") {
@@ -92,50 +102,19 @@ struct SeerrLogsView: View {
         errorMessage = nil
 
         do {
-            entries = try await apiClient.getLogs(
+            let result = try await apiClient.getLogs(
                 take: 100,
                 filter: level.apiValue,
                 search: committedSearchText
             )
+            withAnimation(.default) {
+                entries = result
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
 
         isLoading = false
-    }
-}
-
-private struct SeerrLogLevelMenu: View {
-    @Binding var level: SeerrLogLevelFilter
-
-    var body: some View {
-        Menu {
-            Picker("Log Level", selection: Binding(
-                get: { level },
-                set: { newLevel in
-                    withAnimation { level = newLevel }
-                }
-            )) {
-                ForEach(SeerrLogLevelFilter.allCases) { option in
-                    Label(option.rawValue, systemImage: option.iconName).tag(option)
-                }
-            }
-        } label: {
-            Image(systemName: level == .debug
-                  ? "line.3.horizontal.decrease.circle"
-                  : "line.3.horizontal.decrease.circle.fill")
-        }
-    }
-}
-
-private extension SeerrLogLevelFilter {
-    var iconName: String {
-        switch self {
-        case .debug: return "ant"
-        case .info: return "info.circle"
-        case .warn: return "exclamationmark.triangle"
-        case .error: return "xmark.octagon"
-        }
     }
 }
 

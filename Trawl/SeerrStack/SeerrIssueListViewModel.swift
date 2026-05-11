@@ -7,6 +7,10 @@ enum SeerrIssueFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
+    }
+
     var apiValue: String {
         switch self {
         case .open: "open"

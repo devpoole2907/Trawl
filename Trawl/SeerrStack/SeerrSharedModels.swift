@@ -138,6 +138,10 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
+    }
+
     var apiValue: String {
         switch self {
         case .pending: "pending"
@@ -281,5 +285,10 @@ enum SeerrLogLevelFilter: String, CaseIterable, Identifiable {
     case error = "Error"
 
     var id: String { rawValue }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
+    }
+
     var apiValue: String { rawValue.lowercased() }
 }

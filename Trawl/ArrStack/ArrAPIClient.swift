@@ -18,6 +18,10 @@ extension SharedArrClient {
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.get("\(apiPath)/rootfolder") }
     func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.postCodable("\(apiPath)/rootfolder", body: ["path": path]) }
     func deleteRootFolder(id: Int) async throws { try await base.delete("\(apiPath)/rootfolder/\(id)") }
+    func getFileSystem(path: String = "", includeFiles: Bool = false) async throws -> [ArrFileSystemEntry] {
+        let response: ArrFileSystemResponse = try await base.get("\(apiPath)/filesystem", queryItems: Self.fileSystemQueryItems(path: path, includeFiles: includeFiles))
+        return response.entries
+    }
     func getTags() async throws -> [ArrTag] { try await base.get("\(apiPath)/tag") }
     func getNotifications() async throws -> [ArrNotification] { try await base.get("\(apiPath)/notification") }
     func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.postCodable("\(apiPath)/notification", body: notification) }
@@ -192,6 +196,14 @@ extension SharedArrClient {
             URLQueryItem(name: "sortDirection", value: sortDirection)
         ] + extraItems
     }
+
+    nonisolated static func fileSystemQueryItems(path: String, includeFiles: Bool) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "allowFoldersWithoutTrailingSlashes", value: "true"),
+            URLQueryItem(name: "includeFiles", value: String(includeFiles))
+        ]
+    }
 }
 
 protocol ArrAPIIdentifiable {
@@ -267,6 +279,19 @@ actor ArrAPIClient {
 
     func deleteRootFolder(id: Int) async throws {
         try await delete("/api/v3/rootfolder/\(id)")
+    }
+
+    func getFileSystem(path: String = "", includeFiles: Bool = false) async throws -> [ArrFileSystemEntry] {
+        let response: ArrFileSystemResponse = try await get("/api/v3/filesystem", queryItems: Self.fileSystemQueryItems(path: path, includeFiles: includeFiles))
+        return response.entries
+    }
+
+    nonisolated static func fileSystemQueryItems(path: String, includeFiles: Bool) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "allowFoldersWithoutTrailingSlashes", value: "true"),
+            URLQueryItem(name: "includeFiles", value: String(includeFiles))
+        ]
     }
 
     func getTags() async throws -> [ArrTag] {

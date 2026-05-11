@@ -23,7 +23,11 @@ struct SeerrIssueListView: View {
         .task { await viewModel.loadIfNeeded() }
         .refreshable { await viewModel.loadIssues() }
         .safeAreaInset(edge: .top) {
-            SeerrIssueFilterPicker(filter: $viewModel.selectedFilter)
+            TrawlSegmentBar("Status", selection: Binding(
+                get: { viewModel.selectedFilter },
+                set: { newFilter in withAnimation { viewModel.selectedFilter = newFilter } }
+            ), items: SeerrIssueFilter.allCases.map(\.segmentBarItem), alignment: .center)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
@@ -96,22 +100,6 @@ struct SeerrIssueListView: View {
             )
         }
         .ignoresSafeArea()
-    }
-}
-
-private struct SeerrIssueFilterPicker: View {
-    @Binding var filter: SeerrIssueFilter
-
-    var body: some View {
-        Picker("Status", selection: $filter) {
-            ForEach(SeerrIssueFilter.allCases) { filter in
-                Text(filter.rawValue).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 

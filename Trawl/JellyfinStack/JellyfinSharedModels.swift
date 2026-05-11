@@ -211,6 +211,93 @@ nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {
     }
 }
 
+nonisolated struct JellyfinFileSystemEntryInfo: Decodable, Identifiable, Sendable {
+    let name: String?
+    let path: String
+    let type: String?
+
+    var id: String { path }
+
+    var isDirectory: Bool {
+        switch type?.lowercased() {
+        case "file":
+            false
+        default:
+            true
+        }
+    }
+
+    var remotePathEntry: RemotePathEntry {
+        RemotePathEntry(
+            name: displayName,
+            path: path,
+            kind: remoteKind,
+            isDirectory: isDirectory
+        )
+    }
+
+    private var remoteKind: RemotePathEntryKind {
+        switch type?.lowercased() {
+        case "file":
+            .file
+        case "directory":
+            .directory
+        case "networkshare":
+            .networkShare
+        case "parent":
+            .parent
+        case "drive":
+            .drive
+        default:
+            isDirectory ? .directory : .unknown
+        }
+    }
+
+    private var displayName: String {
+        if let name, !name.isEmpty { return name }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+        return trimmed.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case path = "Path"
+        case type = "Type"
+    }
+}
+
+nonisolated struct JellyfinVirtualFolderBody: Encodable, Sendable {
+    let name: String
+    let collectionType: String
+    let paths: [String]
+    let refreshLibrary: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case collectionType = "CollectionType"
+        case paths = "Paths"
+        case refreshLibrary = "RefreshLibrary"
+    }
+}
+
+nonisolated struct JellyfinMediaPathBody: Encodable, Sendable {
+    let name: String
+    let pathInfo: JellyfinMediaPathInfo
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case pathInfo = "PathInfo"
+    }
+}
+
+nonisolated struct JellyfinMediaPathInfo: Encodable, Sendable {
+    let path: String
+
+    enum CodingKeys: String, CodingKey {
+        case path = "Path"
+    }
+}
+
 nonisolated struct JellyfinItemsResponse: Decodable, Sendable {
     let items: [JellyfinLibraryItem]
     let totalRecordCount: Int?

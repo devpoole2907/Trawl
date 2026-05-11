@@ -6,6 +6,8 @@ struct SeerrDashboardView: View {
     @State private var viewModel: SeerrRequestManagementViewModel?
     @State private var deleteTarget: SeerrRequestDisplayItem?
     @State private var isOverviewExpanded = true
+    @State private var requestSearchText = ""
+    @State private var isSearchExpanded = false
 
     var body: some View {
         Group {
@@ -27,6 +29,14 @@ struct SeerrDashboardView: View {
 
     @ViewBuilder
     private func requestList(viewModel: SeerrRequestManagementViewModel) -> some View {
+        let query = requestSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredRequests = query.isEmpty
+            ? viewModel.requests
+            : viewModel.requests.filter { item in
+                item.title.localizedCaseInsensitiveContains(query)
+                    || item.request.requestedBy?.displayName.localizedCaseInsensitiveContains(query) == true
+            }
+
         List {
             if let requestCount = viewModel.requestCount {
                 seerrOverviewSection(requestCount)
@@ -46,7 +56,7 @@ struct SeerrDashboardView: View {
                 emptyState
             } else {
                 Section {
-                    ForEach(viewModel.requests) { item in
+                    ForEach(filteredRequests) { item in
                         SeerrRequestRow(item: item)
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
@@ -115,12 +125,19 @@ struct SeerrDashboardView: View {
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .safeAreaInset(edge: .top) {
-            SeerrRequestFilterPicker(
-                filter: Binding(
+            TrawlSegmentBar(
+                "Filter",
+                selection: Binding(
                     get: { viewModel.selectedFilter },
-                    set: { viewModel.selectedFilter = $0 }
-                )
+                    set: { newFilter in withAnimation { viewModel.selectedFilter = newFilter } }
+                ),
+                items: SeerrRequestFilter.allCases.map(\.segmentBarItem),
+                searchText: $requestSearchText,
+                searchHint: "Search requests",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading
             )
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await viewModel.loadRequests() }
         .alert(
@@ -401,22 +418,6 @@ private final class SeerrRequestManagementViewModel {
         if let index = requests.firstIndex(where: { $0.id == item.id }) {
             requests[index] = item
         }
-    }
-}
-
-private struct SeerrRequestFilterPicker: View {
-    @Binding var filter: SeerrRequestFilter
-
-    var body: some View {
-        Picker("Request Status", selection: $filter) {
-            ForEach(SeerrRequestFilter.allCases) { filter in
-                Text(filter.rawValue).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
-        .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
 

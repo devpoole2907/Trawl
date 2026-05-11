@@ -3,6 +3,7 @@ import Foundation
 @testable import Trawl
 
 @Suite("ArrError Tests")
+@MainActor
 struct ArrErrorTests {
     @Test("Error Descriptions", arguments: [
         (ArrError.invalidAPIKey, "Invalid API key. Check your *arr service settings."),
@@ -50,6 +51,7 @@ struct ArrErrorTests {
 }
 
 @Suite("ArrServiceType Tests")
+@MainActor
 struct ArrServiceTypeTests {
     @Test("Properties", arguments: [
         (ArrServiceType.sonarr, "Sonarr", 8989, "tv", "sonarr"),
@@ -80,7 +82,74 @@ struct ArrServiceTypeTests {
     }
 }
 
+@Suite("Remote Filesystem Tests")
+@MainActor
+struct RemoteFileSystemTests {
+    @Test("Arr filesystem entries decode and map directories and files")
+    func arrFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "name": "Media", "path": "/media", "type": "folder", "isDirectory": true, "isFile": false },
+            { "name": "sample.mkv", "path": "/media/sample.mkv", "type": "file", "isDirectory": false, "isFile": true }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([ArrFileSystemEntry].self, from: data)
+
+        #expect(entries[0].remotePathEntry.name == "Media")
+        #expect(entries[0].remotePathEntry.path == "/media")
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[0].remotePathEntry.isDirectory)
+        #expect(entries[1].remotePathEntry.kind == .file)
+        #expect(!entries[1].remotePathEntry.isDirectory)
+    }
+
+    @Test("Arr filesystem query construction")
+    func arrFileSystemQueryItems() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "/media", includeFiles: false)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+
+        #expect(values["path"] == "/media")
+        #expect(values["allowFoldersWithoutTrailingSlashes"] == "true")
+        #expect(values["includeFiles"] == "false")
+    }
+
+    @Test("Jellyfin filesystem entries decode drive network directory and file cases")
+    func jellyfinFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "Name": "Media", "Path": "/media", "Type": "Directory" },
+            { "Name": "C:", "Path": "C:\\\\", "Type": "Drive" },
+            { "Name": "NAS", "Path": "\\\\\\\\nas\\\\media", "Type": "NetworkShare" },
+            { "Name": "sample.mkv", "Path": "/media/sample.mkv", "Type": "File" }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([JellyfinFileSystemEntryInfo].self, from: data)
+
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[1].remotePathEntry.kind == .drive)
+        #expect(entries[2].remotePathEntry.kind == .networkShare)
+        #expect(entries[3].remotePathEntry.kind == .file)
+        #expect(!entries[3].remotePathEntry.isDirectory)
+    }
+
+    @Test("Jellyfin directory contents query construction")
+    func jellyfinDirectoryContentsQueryParams() {
+        let values = JellyfinAPIClient.directoryContentsParams(
+            path: "/media",
+            includeFiles: false,
+            includeDirectories: true
+        )
+
+        #expect(values["Path"] == "/media")
+        #expect(values["IncludeFiles"] == "false")
+        #expect(values["IncludeDirectories"] == "true")
+    }
+}
+
 @Suite("ArrQueueItem Computed Properties Tests")
+@MainActor
 struct ArrQueueItemTests {
     private func makeItem(
         id: Int = 1,
@@ -175,6 +244,7 @@ struct ArrQueueItemTests {
 }
 
 @Suite("ArrRelease Computed Properties Tests")
+@MainActor
 struct ArrReleaseTests {
     private func makeRelease(
         guid: String? = "test-guid",
@@ -296,6 +366,7 @@ struct ArrReleaseTests {
 }
 
 @Suite("ArrReleaseSort Tests")
+@MainActor
 struct ArrReleaseSortTests {
     @Test("Default and Active Status")
     func defaultStatus() {
@@ -345,6 +416,7 @@ struct ArrReleaseSortTests {
 }
 
 @Suite("ArrReleaseSortKey Tests")
+@MainActor
 struct ArrReleaseSortKeyTests {
     @Test("System Images", arguments: [
         (ArrReleaseSortKey.default, "square.stack"),
@@ -360,6 +432,7 @@ struct ArrReleaseSortKeyTests {
 }
 
 @Suite("ArrDiskSpace Tests")
+@MainActor
 struct ArrDiskSpaceTests {
     @Test("Initialization")
     func initialization() {
@@ -393,6 +466,7 @@ struct ArrDiskSpaceTests {
 }
 
 @Suite("ArrDiskSpaceSnapshot Tests")
+@MainActor
 struct ArrDiskSpaceSnapshotTests {
     @Test("ID Combines Service Type and Path")
     func idCombinesServiceTypeAndPath() {
@@ -417,6 +491,7 @@ struct ArrDiskSpaceSnapshotTests {
 }
 
 @Suite("ArrHealthCheck Tests")
+@MainActor
 struct ArrHealthCheckTests {
     @Test("ID Generation")
     func idGeneration() {
@@ -443,6 +518,7 @@ struct ArrHealthCheckTests {
 }
 
 @Suite("AnyCodableValue Tests")
+@MainActor
 struct AnyCodableValueTests {
     @Test("Decode String")
     func decodeString() throws {
@@ -558,6 +634,7 @@ struct AnyCodableValueTests {
 }
 
 @Suite("Prowlarr Tests")
+@MainActor
 struct ProwlarrTests {
     @Test("Protocol Properties", arguments: [
         (ProwlarrIndexerProtocol.usenet, "Usenet", false, "envelope.circle"),
@@ -730,6 +807,7 @@ struct ArrServiceManagerTests {
 }
 
 @Suite("Arr API Client Tests")
+@MainActor
 struct ArrAPIClientTests {
     @Test("Default Page Size")
     func defaultPageSize() {
@@ -750,6 +828,7 @@ struct ArrAPIClientTests {
 }
 
 @Suite("Miscellaneous Parsing Tests")
+@MainActor
 struct MiscellaneousParsingTests {
     @Test("Queue Item Coding Keys")
     func queueItemCodingKeys() throws {

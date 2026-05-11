@@ -219,6 +219,7 @@ private struct AddRootFolderSheet: View {
     @State private var path = ""
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var isSaving = false
+    @State private var showingBrowser = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -246,15 +247,25 @@ private struct AddRootFolderSheet: View {
                 }
 
                 Section {
-                    TextField("/mnt/media/shows", text: $path)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
+                    HStack {
+                        TextField("/mnt/media/shows", text: $path)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
+
+                        Button {
+                            showingBrowser = true
+                        } label: {
+                            Label("Browse", systemImage: "folder")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(browserSource == nil)
+                    }
                 } header: {
                     Text("Path")
                 } footer: {
-                    Text("Enter the full path to the folder on your \(selectedService.displayName) server.")
+                    Text("Enter or browse to the full path on your \(selectedService.displayName) server or container.")
                 }
             }
             .navigationTitle("Add Root Folder")
@@ -290,6 +301,44 @@ private struct AddRootFolderSheet: View {
                     selectedService = first
                 }
             }
+            .sheet(isPresented: $showingBrowser) {
+                if let source = browserSource {
+                    NavigationStack {
+                        RemotePathBrowserView(
+                            title: "\(selectedService.displayName) Folders",
+                            source: source,
+                            initialPath: path
+                        ) { selectedPath in
+                            path = selectedPath
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private var browserSource: RemotePathBrowserSource? {
+        switch selectedService {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return nil }
+            return Self.source(serviceName: "Sonarr", client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return nil }
+            return Self.source(serviceName: "Radarr", client: client)
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {
+        RemotePathBrowserSource(
+            serviceName: serviceName,
+            loadRoots: {
+                try await client.getFileSystem(path: "", includeFiles: false).map(\.remotePathEntry)
+            },
+            loadChildren: { path in
+                try await client.getFileSystem(path: path, includeFiles: false).map(\.remotePathEntry)
+            }
+        )
     }
 }

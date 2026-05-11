@@ -107,16 +107,13 @@ struct QBittorrentCategoriesAndTagsView: View {
             await syncService.refreshNow()
         }
         .safeAreaInset(edge: .top) {
-            Picker("View", selection: Binding(
+            TrawlSegmentBar("View", selection: Binding(
                 get: { selectedTab },
                 set: { newValue in withAnimation { selectedTab = newValue } }
-            )) {
-                Text("Categories").tag(0)
-                Text("Tags").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
+            ), items: [
+                TrawlSegmentBarItem("Categories", value: 0),
+                TrawlSegmentBarItem("Tags", value: 1)
+            ], alignment: .center)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }
