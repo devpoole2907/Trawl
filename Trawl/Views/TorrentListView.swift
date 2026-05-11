@@ -342,7 +342,7 @@ struct TorrentListView: View {
                             Label("Select", systemImage: "checkmark.circle")
                         }
                     } label: {
-                        Label("More Actions", systemImage: "ellipsis.circle")
+                        Label("More Actions", systemImage: "ellipsis")
                     }
                     .accessibilityLabel("Torrent Actions")
                     .accessibilityHint("Shows more torrent list actions")

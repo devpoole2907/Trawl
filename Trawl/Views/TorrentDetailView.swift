@@ -312,7 +312,7 @@ struct TorrentDetailView: View {
                 Label("Delete Torrent", systemImage: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
         }
     }
 

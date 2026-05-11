@@ -86,6 +86,7 @@ struct JellyfinMediaAvailabilityCard: View {
             HStack(spacing: 10) {
                 Image(systemName: matchedItems.isEmpty ? "play.slash.fill" : "play.tv.fill")
                     .foregroundStyle(matchedItems.isEmpty ? .orange : .green)
+                    .frame(width: 24, alignment: .leading)
                 Text("Jellyfin")
                     .font(.headline)
                 Spacer()
@@ -118,10 +119,6 @@ struct JellyfinMediaAvailabilityCard: View {
             ForEach(matchedItems) { item in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 10) {
-                        Image(systemName: item.type == "Series" ? "tv" : "film")
-                            .foregroundStyle(.green)
-                            .frame(width: 22)
-
                         VStack(alignment: .leading, spacing: 3) {
                             Text(item.name ?? media.title)
                                 .font(.subheadline.weight(.semibold))
@@ -167,12 +164,6 @@ struct JellyfinMediaAvailabilityCard: View {
                             .lineLimit(2)
                             .truncationMode(.middle)
                     }
-
-                    Text(item.providerIDSummary)
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                        .lineLimit(2)
-                }
                 .padding(12)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
             }

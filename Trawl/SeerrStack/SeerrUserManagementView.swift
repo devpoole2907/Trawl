@@ -133,7 +133,7 @@ struct SeerrUserManagementView: View {
                         }
                         .disabled(viewModel.isLoading)
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
                     .accessibilityLabel("User Management Actions")
                 }

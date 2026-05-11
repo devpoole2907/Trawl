@@ -12,6 +12,7 @@ struct BazarrSubtitleStatusCard: View {
     @State private var errorMessage: String?
     @State private var movie: BazarrMovie?
     @State private var series: BazarrSeries?
+    @State private var episodes: [BazarrEpisode] = []
     @State private var isSearching = false
     @State private var isUpdatingProfile = false
     @State private var showInteractiveSearch = false
@@ -28,21 +29,22 @@ struct BazarrSubtitleStatusCard: View {
                     isExpanded = false
                     movie = nil
                     series = nil
+                    episodes = []
                     await load()
                 }
                 .sheet(isPresented: $showInteractiveSearch) {
                     if let movie {
-                BazarrInteractiveSearchSheet(
-                    radarrId: movie.radarrId,
-                    missingLanguages: movie.missingSubtitles,
-                    viewModel: BazarrViewModel(serviceManager: serviceManager),
-                    onDownloaded: {
-                        await serviceManager.refreshActiveBazarrSubtitleCache()
-                        await load(force: true)
+                        BazarrInteractiveSearchSheet(
+                            radarrId: movie.radarrId,
+                            missingLanguages: movie.missingSubtitles,
+                            viewModel: BazarrViewModel(serviceManager: serviceManager),
+                            onDownloaded: {
+                                await serviceManager.refreshActiveBazarrSubtitleCache()
+                                await load(force: true)
+                            }
+                        )
                     }
-                )
-            }
-        }
+                }
                 .sheet(isPresented: $showProfilePicker) {
                     profilePickerSheet
                 }
@@ -95,6 +97,7 @@ struct BazarrSubtitleStatusCard: View {
             HStack(spacing: 10) {
                 Image(systemName: "captions.bubble.fill")
                     .foregroundStyle(accent)
+                    .frame(width: 24, alignment: .leading)
                 Text(title)
                     .font(.headline)
                 Spacer()
@@ -190,6 +193,22 @@ struct BazarrSubtitleStatusCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !presentSubtitleKeys.isEmpty {
+                    languageChipsView(
+                        keys: presentSubtitleKeys,
+                        label: "Present",
+                        foreground: .teal
+                    )
+                }
+
+                if !missingLanguageKeys.isEmpty {
+                    languageChipsView(
+                        keys: missingLanguageKeys,
+                        label: "Missing",
+                        foreground: .red
+                    )
+                }
 
                 if missingCount > 0 {
                     HStack(spacing: 12) {
@@ -312,6 +331,44 @@ struct BazarrSubtitleStatusCard: View {
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
+    private func languageChipsView(
+        keys: [SubtitleKey],
+        label: String,
+        foreground: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(foreground)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+                        HStack(spacing: 3) {
+                            Text(key.code2)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(foreground)
+                            if key.hi {
+                                Text("HI")
+                                    .font(.system(size: 7).weight(.bold))
+                                    .foregroundStyle(.blue)
+                            }
+                            if key.forced {
+                                Text("Forced")
+                                    .font(.system(size: 7).weight(.bold))
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(foreground.opacity(0.12)))
+                        .overlay(Capsule().strokeBorder(foreground.opacity(0.25)))
+                    }
+                }
+            }
+        }
+    }
+
     private var hasLoadedMedia: Bool {
         movie != nil || series != nil
     }
@@ -356,6 +413,42 @@ struct BazarrSubtitleStatusCard: View {
             return "\(series.episodeMissingCount) missing subtitle\(series.episodeMissingCount == 1 ? "" : "s") across \(series.episodeFileCount) episode file\(series.episodeFileCount == 1 ? "" : "s")."
         }
         return ""
+    }
+
+    private typealias SubtitleKey = (code2: String, hi: Bool, forced: Bool)
+
+    private var presentSubtitleKeys: [SubtitleKey] {
+        if let movie {
+            return movie.subtitles.map { ($0.code2, $0.hi, $0.forced) }
+        }
+        var seen = Set<String>()
+        var result: [SubtitleKey] = []
+        for ep in episodes {
+            for sub in ep.subtitles {
+                let key = "\(sub.code2):\(sub.hi):\(sub.forced)"
+                if seen.insert(key).inserted {
+                    result.append((sub.code2, sub.hi, sub.forced))
+                }
+            }
+        }
+        return result
+    }
+
+    private var missingLanguageKeys: [SubtitleKey] {
+        if let movie {
+            return movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) }
+        }
+        var seen = Set<String>()
+        var result: [SubtitleKey] = []
+        for ep in episodes {
+            for lang in ep.missingSubtitles {
+                let key = "\(lang.code2):\(lang.hi):\(lang.forced)"
+                if seen.insert(key).inserted {
+                    result.append((lang.code2, lang.hi, lang.forced))
+                }
+            }
+        }
+        return result
     }
 
     private var profilePickerSheet: some View {
@@ -404,6 +497,9 @@ struct BazarrSubtitleStatusCard: View {
             case .series(let seriesId, _):
                 let page = try await client.getSeries(ids: [seriesId])
                 series = page.data.first
+                if let s = series {
+                    episodes = (try? await client.getEpisodes(seriesIds: [s.sonarrSeriesId])) ?? []
+                }
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -426,6 +522,7 @@ struct BazarrSubtitleStatusCard: View {
             }
             movie = nil
             series = nil
+            episodes = []
             await serviceManager.refreshActiveBazarrSubtitleCache()
             await load(force: true)
         } catch {
@@ -454,6 +551,7 @@ struct BazarrSubtitleStatusCard: View {
 
             movie = nil
             series = nil
+            episodes = []
             await serviceManager.refreshActiveBazarrSubtitleCache()
             await load(force: true)
             InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")

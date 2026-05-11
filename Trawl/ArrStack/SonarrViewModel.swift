@@ -48,12 +48,18 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
     var selectedFilter: SonarrFilter = .all { didSet { rebuildFilteredSeries() } }
     var sortOrder: SonarrSortOrder = .title { didSet { rebuildFilteredSeries() } }
 
-    init(serviceManager: ArrServiceManager) {
+    // Jellyfin library presence cache
+    private let jellyfinManager: JellyfinServiceManager?
+    private var jellyfinLibraryItems: [JellyfinLibraryItem] = []
+
+    init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
+        self.jellyfinManager = jellyfinManager
         super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
     }
 
     /// Convenience init that pre-seeds the series list (used by Search to avoid a fresh empty load).
-    init(serviceManager: ArrServiceManager, preloadedSeries: [SonarrSeries]) {
+    init(serviceManager: ArrServiceManager, preloadedSeries: [SonarrSeries], jellyfinManager: JellyfinServiceManager? = nil) {
+        self.jellyfinManager = jellyfinManager
         super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
         self.series = preloadedSeries
         setLibraryItems(preloadedSeries)
@@ -94,6 +100,8 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
                     return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
                 case .subtitlesPresent:
                     return serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: series.id) == .allPresent
+                case .inJellyfinLibrary:
+                    return isSeriesInJellyfinLibrary(series)
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -699,6 +707,62 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
     var canLoadMoreHistory: Bool {
         history.count < historyTotalRecords
     }
+
+    // MARK: - Jellyfin Library Match
+
+    func refreshJellyfinLibraryCache() async {
+        guard let client = jellyfinManager?.activeClient else {
+            jellyfinLibraryItems = []
+            rebuildFilteredSeries()
+            return
+        }
+        do {
+            jellyfinLibraryItems = try await client.getAllLibraryItems(includeItemTypes: ["Series"])
+            rebuildFilteredSeries()
+        } catch {
+            jellyfinLibraryItems = []
+            rebuildFilteredSeries()
+        }
+    }
+
+    private func isSeriesInJellyfinLibrary(_ series: SonarrSeries) -> Bool {
+        guard !jellyfinLibraryItems.isEmpty else { return false }
+        let title = series.title
+        let year = series.year
+        let tvdbId = series.tvdbId
+        let imdbId = series.imdbId
+
+        for item in jellyfinLibraryItems {
+            if let tvdbId, matchesNumericProvider(item, keys: ["Tvdb", "TVDB"], id: tvdbId) { return true }
+            if let imdbId, matchesStringProvider(item, keys: ["Imdb", "IMDb", "IMDB"], id: imdbId) { return true }
+            if titleYearFallbackMatches(item, title: title, year: year) { return true }
+        }
+        return false
+    }
+
+    private func matchesNumericProvider(_ item: JellyfinLibraryItem, keys: [String], id: Int) -> Bool {
+        guard let value = item.providerID(for: keys) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines) == String(id)
+    }
+
+    private func matchesStringProvider(_ item: JellyfinLibraryItem, keys: [String], id: String) -> Bool {
+        guard !id.isEmpty, let value = item.providerID(for: keys) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(id) == .orderedSame
+    }
+
+    private func titleYearFallbackMatches(_ item: JellyfinLibraryItem, title: String, year: Int?) -> Bool {
+        guard normalizedTitle(item.name) == normalizedTitle(title) else { return false }
+        guard let year else { return true }
+        return item.productionYear == nil || item.productionYear == year
+    }
+
+    private func normalizedTitle(_ value: String?) -> String {
+        (value ?? "")
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined()
+    }
 }
 
 // MARK: - Filter
@@ -711,6 +775,7 @@ enum SonarrFilter: String, CaseIterable, Identifiable {
     case ended = "Ended"
     case missing = "Missing"
     case subtitlesPresent = "Subtitles Present"
+    case inJellyfinLibrary = "In Jellyfin Library"
 
     var id: String { rawValue }
 }

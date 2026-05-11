@@ -461,6 +461,15 @@ private enum LanguageSubtitleVariant: CaseIterable, Identifiable, Equatable {
         }
     }
 
+    var shortTitle: String {
+        switch self {
+        case .standard: "Std"
+        case .hearingImpaired: "HI"
+        case .forced: "Forced"
+        case .forcedHearingImpaired: "F+HI"
+        }
+    }
+
     var hi: Bool {
         switch self {
         case .hearingImpaired, .forcedHearingImpaired: true
@@ -535,10 +544,12 @@ private struct LanguageProfileEditorView: View {
 
             Section {
                 ForEach($draft.items) { $item in
-                    HStack(spacing: 12) {
+                    HStack(spacing: 8) {
                         Text(item.language)
                             .font(.body)
-                        Spacer()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 6)
                         Menu {
                             ForEach(LanguageSubtitleVariant.allCases) { variant in
                                 Button {
@@ -553,14 +564,17 @@ private struct LanguageProfileEditorView: View {
                                 }
                             }
                         } label: {
-                            HStack(spacing: 4) {
-                                Text(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).title)
+                            HStack(spacing: 3) {
+                                Text(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).shortTitle)
+                                    .font(.caption.weight(.semibold))
                                 Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(.system(size: 8).weight(.bold))
                             }
-                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
                         }
-                        .buttonStyle(.bordered)
                     }
                     .padding(.vertical, 4)
                 }
@@ -699,10 +713,15 @@ private struct LanguagePickerSheet: View {
                         } label: {
                             HStack {
                                 Text(language.name)
-                                Spacer()
+                                    .lineLimit(1)
+                                    .truncationMode(.tail)
+                                Spacer(minLength: 8)
                                 Text(language.code2.uppercased())
-                                    .font(.caption)
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
                             }
                         }
                         .foregroundStyle(.primary)

@@ -36,15 +36,21 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
     var selectedFilter: RadarrFilter = .all { didSet { rebuildFilteredMovies() } }
     var sortOrder: RadarrSortOrder = .title { didSet { rebuildFilteredMovies() } }
 
+    // Jellyfin library presence cache
+    private let jellyfinManager: JellyfinServiceManager?
+    private var jellyfinLibraryItems: [JellyfinLibraryItem] = []
+
     // Race-condition guard for loadMovieFiles
     private var latestRequestedMovieId: Int?
 
-    init(serviceManager: ArrServiceManager) {
+    init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
+        self.jellyfinManager = jellyfinManager
         super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
     }
 
     /// Convenience init that pre-seeds the movie list (used by Search to avoid a fresh empty load).
-    init(serviceManager: ArrServiceManager, preloadedMovies: [RadarrMovie]) {
+    init(serviceManager: ArrServiceManager, preloadedMovies: [RadarrMovie], jellyfinManager: JellyfinServiceManager? = nil) {
+        self.jellyfinManager = jellyfinManager
         super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
         self.movies = preloadedMovies
         setLibraryItems(preloadedMovies)
@@ -84,6 +90,8 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
                     movie.hasFile != true && movie.monitored == true && movie.isAvailable == true
                 case .subtitlesPresent:
                     serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) == .allPresent
+                case .inJellyfinLibrary:
+                    isMovieInJellyfinLibrary(movie)
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -629,6 +637,62 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
     var canLoadMoreHistory: Bool {
         history.count < historyTotalRecords
     }
+
+    // MARK: - Jellyfin Library Match
+
+    func refreshJellyfinLibraryCache() async {
+        guard let client = jellyfinManager?.activeClient else {
+            jellyfinLibraryItems = []
+            rebuildFilteredMovies()
+            return
+        }
+        do {
+            jellyfinLibraryItems = try await client.getAllLibraryItems(includeItemTypes: ["Movie"])
+            rebuildFilteredMovies()
+        } catch {
+            jellyfinLibraryItems = []
+            rebuildFilteredMovies()
+        }
+    }
+
+    private func isMovieInJellyfinLibrary(_ movie: RadarrMovie) -> Bool {
+        guard !jellyfinLibraryItems.isEmpty else { return false }
+        let title = movie.title
+        let year = movie.year
+        let tmdbId = movie.tmdbId
+        let imdbId = movie.imdbId
+
+        for item in jellyfinLibraryItems {
+            if let tmdbId, matchesNumericProvider(item, keys: ["Tmdb", "TMDb"], id: tmdbId) { return true }
+            if let imdbId, matchesStringProvider(item, keys: ["Imdb", "IMDb", "IMDB"], id: imdbId) { return true }
+            if titleYearFallbackMatches(item, title: title, year: year) { return true }
+        }
+        return false
+    }
+
+    private func matchesNumericProvider(_ item: JellyfinLibraryItem, keys: [String], id: Int) -> Bool {
+        guard let value = item.providerID(for: keys) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines) == String(id)
+    }
+
+    private func matchesStringProvider(_ item: JellyfinLibraryItem, keys: [String], id: String) -> Bool {
+        guard !id.isEmpty, let value = item.providerID(for: keys) else { return false }
+        return value.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(id) == .orderedSame
+    }
+
+    private func titleYearFallbackMatches(_ item: JellyfinLibraryItem, title: String, year: Int?) -> Bool {
+        guard normalizedTitle(item.name) == normalizedTitle(title) else { return false }
+        guard let year else { return true }
+        return item.productionYear == nil || item.productionYear == year
+    }
+
+    private func normalizedTitle(_ value: String?) -> String {
+        (value ?? "")
+            .lowercased()
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { !$0.isEmpty }
+            .joined()
+    }
 }
 
 // MARK: - Filter
@@ -641,6 +705,7 @@ enum RadarrFilter: String, CaseIterable, Identifiable {
     case downloaded = "Downloaded"
     case wanted = "Wanted"
     case subtitlesPresent = "Subtitles Present"
+    case inJellyfinLibrary = "In Jellyfin Library"
 
     var id: String { rawValue }
 }

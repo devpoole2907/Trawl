@@ -766,7 +766,7 @@ struct RadarrMovieDetailView: View {
                         Label("Delete File", systemImage: "trash")
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                         .font(.title3)
                         .foregroundStyle(.secondary)
                         .padding(4)
@@ -949,7 +949,7 @@ struct RadarrMovieDetailView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     } label: {
-                        Label("More", systemImage: "ellipsis.circle")
+                        Label("More", systemImage: "ellipsis")
                     }
                 }
             }

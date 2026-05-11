@@ -480,7 +480,7 @@ struct ContentView: View {
                     .environment(services.torrentService)
             }
 
-            Tab("More", systemImage: "ellipsis.circle", value: RootTab.more) {
+            Tab("More", systemImage: "ellipsis", value: RootTab.more) {
                 MoreView(
                     appServices: appServices,
                     path: $morePath

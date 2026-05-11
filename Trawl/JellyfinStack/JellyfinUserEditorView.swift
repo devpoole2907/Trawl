@@ -6,11 +6,15 @@ struct JellyfinUserEditorView: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @State private var viewModel: JellyfinUserEditorViewModel
     @State private var isEditing = false
     @State private var errorAlert: ErrorAlertItem?
     @State private var showResetPassword = false
     @State private var showDeleteConfirmation = false
+    @State private var isSyncing = false
+    @State private var syncMessage: String?
+    @State private var syncIsError = false
 
     init(
         user: JellyfinUser,
@@ -59,6 +63,30 @@ struct JellyfinUserEditorView: View {
                     showDeleteConfirmation = true
                 } label: {
                     Label("Delete User", systemImage: "trash")
+                }
+            }
+
+            if seerrServiceManager.isConnected || seerrServiceManager.isConnecting {
+                Section("Seerr") {
+                    Button {
+                        Task { await syncToSeerr() }
+                    } label: {
+                        HStack {
+                            Label("Sync to Seerr", systemImage: "arrow.triangle.merge")
+                            Spacer()
+                            if isSyncing {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                        }
+                    }
+                    .disabled(isSyncing || !seerrServiceManager.isConnected)
+
+                    if let syncMessage {
+                        Text(syncMessage)
+                            .font(.caption)
+                            .foregroundStyle(syncIsError ? .red : .secondary)
+                    }
                 }
             }
         }
@@ -178,6 +206,21 @@ struct JellyfinUserEditorView: View {
             Label(label, systemImage: systemImage)
         }
         .disabled(viewModel.policy.isAdministrator == true && label != "Administrator" && label != "Disabled" && label != "Hidden")
+    }
+
+    private func syncToSeerr() async {
+        guard let client = seerrServiceManager.activeClient else { return }
+        isSyncing = true
+        syncMessage = nil
+        do {
+            _ = try await client.importUsersFromJellyfin(jellyfinUserIds: [viewModel.user.id])
+            syncMessage = "Synced to Seerr."
+            syncIsError = false
+        } catch {
+            syncMessage = error.localizedDescription
+            syncIsError = true
+        }
+        isSyncing = false
     }
 
     private func formattedDate(_ raw: String) -> String {

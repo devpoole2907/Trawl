@@ -139,14 +139,16 @@ struct MoreView: View {
                                 title: "Blocklist", subtitle: "Releases blocked from being grabbed")
                     }
 
-                    NavigationLink(value: MoreDestination.mediaManagement) {
-                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
-                                title: "Media Management", subtitle: "Naming, root folders, import, and storage")
-                    }
-
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                                 title: "Indexers", subtitle: "Manage indexers across your services")
+                    }
+                }
+
+                Section("Media Management") {
+                    NavigationLink(value: MoreDestination.mediaManagement) {
+                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
+                                title: "Media Management", subtitle: "Naming, root folders, import, and storage")
                     }
                 }
 
@@ -1102,10 +1104,7 @@ private struct RecentNotificationsSheet: View {
                         .lineLimit(1)
                 }
                 Spacer()
-                HStack(spacing: 4) {
-                    Image(systemName: service.systemImage)
-                    Text(service.title)
-                }
+                Text(service.title)
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }

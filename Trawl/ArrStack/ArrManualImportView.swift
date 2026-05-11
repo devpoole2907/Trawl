@@ -352,6 +352,12 @@ private final class ManualImportScanViewModel {
         selectedGroups(from: groupedIdentifiedPendingAddFiles + groupedUnidentifiedFiles + groupedBlockedFiles, selectedIDs: selectedBlockedFiles)
     }
 
+    var hasBlockedNonPendingAddSelections: Bool {
+        selectedBlockedFiles.contains { id in
+            blockedFiles.first(where: { $0.id == id }).map { !$0.isIdentifiedPendingAdd } ?? false
+        }
+    }
+
     var unresolvedUnidentifiedCount: Int {
         blockedFiles.count(where: \.isAutoMatchCandidate)
     }
@@ -499,7 +505,54 @@ private final class ManualImportScanViewModel {
     }
 
     @discardableResult
+    private func autoResolvePendingAddItems() async {
+        let pendingAddIDs = selectedBlockedFiles.filter { id in
+            blockedFiles.first(where: { $0.id == id })?.isIdentifiedPendingAdd ?? false
+        }
+        guard !pendingAddIDs.isEmpty else { return }
+
+        let pendingAddItems = blockedFiles.filter { pendingAddIDs.contains($0.id) }
+        let uniqueTitles = Set(pendingAddItems.compactMap(\.mediaTitle).filter { !$0.isEmpty })
+
+        for title in uniqueTitles {
+            let items = pendingAddItems.filter { $0.mediaTitle == title }
+            guard !items.isEmpty else { continue }
+
+            let ids = Set(items.map(\.id))
+
+            switch service {
+            case .sonarr:
+                guard let client = serviceManager.sonarrClient else { continue }
+                guard let results = try? await client.lookupSeries(term: title), !results.isEmpty else { continue }
+                if let match = results.compactMap({ result in librarySeries.first(where: { $0.tvdbId == result.tvdbId }) }).first {
+                    applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                } else if let candidate = results.first {
+                    await addToLibraryAndIdentify(blockedItems: items, series: candidate, importAfterAdding: false)
+                }
+            case .radarr:
+                guard let client = serviceManager.radarrClient else { continue }
+                guard let results = try? await client.lookupMovie(term: title), !results.isEmpty else { continue }
+                if let match = results.compactMap({ result in libraryMovies.first(where: { $0.tmdbId == result.tmdbId }) }).first {
+                    applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                } else if let candidate = results.first {
+                    await addToLibraryAndIdentify(blockedItems: items, movie: candidate, importAfterAdding: false)
+                }
+            case .prowlarr, .bazarr:
+                break
+            }
+
+            selectedBlockedFiles.subtract(ids)
+            if importableFiles.contains(where: { ids.contains($0.id) }) {
+                selectedFiles.formUnion(ids)
+            }
+        }
+    }
+
     func performImport() async -> Bool {
+        // Auto-resolve any pending-add items (identified but not yet in library)
+        // so they are added to the library and imported in one step.
+        await autoResolvePendingAddItems()
+
         let availableIDs = Set(importableFiles.map(\.id))
         selectedFiles = selectedFiles.intersection(availableIDs)
 
@@ -964,7 +1017,9 @@ private final class ManualImportScanViewModel {
             recomputeGroups()
             selectedFiles.formUnion(identifiedIDs)
         }
-        identifyingTarget = nil
+        if identifyingTarget.map({ !ids.isDisjoint(with: Set($0.items.map(\.id))) }) ?? false {
+            identifyingTarget = nil
+        }
         if autoIdentifyEnabled, autoIdentifyTask == nil, unresolvedUnidentifiedCount > 0 {
             startAutoIdentify()
         }
@@ -983,7 +1038,9 @@ private final class ManualImportScanViewModel {
             blockedFiles.append(contentsOf: identified)
             recomputeGroups()
         }
-        identifyingTarget = nil
+        if identifyingTarget.map({ !ids.isDisjoint(with: Set($0.items.map(\.id))) }) ?? false {
+            identifyingTarget = nil
+        }
         if autoIdentifyEnabled, autoIdentifyTask == nil, unresolvedUnidentifiedCount > 0 {
             startAutoIdentify()
         }
@@ -1810,7 +1867,7 @@ struct ManualImportScanView: View {
                     .font(.subheadline)
 
                     Button {
-                        if !viewModel.selectedBlockedFiles.isEmpty {
+                        if viewModel.hasBlockedNonPendingAddSelections {
                             showBlockedSelectionReview = true
                         } else {
                             if showsCloseButton {
@@ -2757,7 +2814,7 @@ private enum ManualImportGroupRowStyle {
     var badge: (text: String, color: Color)? {
         switch self {
         case .ready: return nil
-        case .pendingAdd: return ("Add First", .green)
+        case .pendingAdd: return ("Not Added", .green)
         case .unidentified: return ("Unidentified", .orange)
         case .blocked: return ("Blocked", .red)
         }

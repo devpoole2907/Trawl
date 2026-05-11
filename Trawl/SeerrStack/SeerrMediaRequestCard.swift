@@ -82,10 +82,14 @@ struct SeerrMediaRequestCard: View {
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 isExpanded.toggle()
             }
+            if isExpanded {
+                Task { await loadRequests(force: true) }
+            }
         } label: {
             HStack(spacing: 10) {
                 Image(systemName: "tray.full.fill")
                     .foregroundStyle(.indigo)
+                    .frame(width: 24, alignment: .leading)
                 Text("Requests")
                     .font(.headline)
                 Spacer()

@@ -4,6 +4,7 @@ import SwiftData
 struct RadarrMovieListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(JellyfinServiceManager.self) private var jellyfinManager
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: RadarrViewModel?
     @State private var viewModelInstanceID: UUID?
@@ -179,7 +180,7 @@ struct RadarrMovieListView: View {
             // This preserves scroll position and avoids a flash back through the loading state.
             let activeID = serviceManager.activeRadarrInstanceID
             if viewModel == nil || viewModelInstanceID != activeID {
-                viewModel = RadarrViewModel(serviceManager: serviceManager)
+                viewModel = RadarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
                 viewModelInstanceID = activeID
             }
             guard let vm = viewModel else { return }
@@ -221,6 +222,13 @@ struct RadarrMovieListView: View {
             }
             await serviceManager.refreshActiveBazarrSubtitleCache()
             viewModel?.refreshFilters()
+        }
+        .task(id: jellyfinManager.activeProfileID) {
+            guard jellyfinManager.isConnected else {
+                viewModel?.refreshJellyfinLibraryCache()
+                return
+            }
+            await viewModel?.refreshJellyfinLibraryCache()
         }
 
         if shouldShowInstanceTitleMenu {
@@ -447,7 +455,7 @@ struct RadarrMovieListView: View {
                     if isRunningCommand {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
                 }
 
@@ -511,6 +519,7 @@ struct RadarrMovieListView: View {
         case .downloaded:  "checkmark.circle"
         case .wanted:      "magnifyingglass.circle"
         case .subtitlesPresent: "captions.bubble"
+        case .inJellyfinLibrary: "play.tv"
         }
     }
 

@@ -4,6 +4,7 @@ import SwiftData
 struct SonarrSeriesListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(JellyfinServiceManager.self) private var jellyfinManager
     @Query private var profiles: [ArrServiceProfile]
     @State private var viewModel: SonarrViewModel?
     @State private var viewModelInstanceID: UUID?
@@ -181,7 +182,8 @@ struct SonarrSeriesListView: View {
             } else {
                 // Connection restored — recreate VM if we don't have one
                 if viewModel == nil {
-                    viewModel = SonarrViewModel(serviceManager: serviceManager)
+                viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+                viewModelInstanceID = activeID
                     viewModelInstanceID = serviceManager.activeSonarrInstanceID
                     // Sync local search state to new VM
                     if !localSeriesSearch.isEmpty {
@@ -206,8 +208,7 @@ struct SonarrSeriesListView: View {
             // This preserves scroll position and avoids a flash back through the loading state.
             let activeID = serviceManager.activeSonarrInstanceID
             if viewModel == nil || viewModelInstanceID != activeID {
-                viewModel = SonarrViewModel(serviceManager: serviceManager)
-                viewModelInstanceID = activeID
+                viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
                 // Sync local search state to new VM
                 if !localSeriesSearch.isEmpty {
                     viewModel?.searchText = localSeriesSearch
@@ -252,6 +253,13 @@ struct SonarrSeriesListView: View {
             }
             await serviceManager.refreshActiveBazarrSubtitleCache()
             viewModel?.refreshFilters()
+        }
+        .task(id: jellyfinManager.activeProfileID) {
+            guard jellyfinManager.isConnected else {
+                viewModel?.refreshJellyfinLibraryCache()
+                return
+            }
+            await viewModel?.refreshJellyfinLibraryCache()
         }
 
         if shouldShowInstanceTitleMenu {
@@ -463,7 +471,7 @@ struct SonarrSeriesListView: View {
                     if isRunningCommand {
                         ProgressView().controlSize(.small)
                     } else {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
                 }
 
@@ -519,6 +527,7 @@ struct SonarrSeriesListView: View {
         case .ended:       "stop.circle"
         case .missing:     "exclamationmark.circle"
         case .subtitlesPresent: "captions.bubble"
+        case .inJellyfinLibrary: "play.tv"
         }
     }
 

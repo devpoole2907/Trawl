@@ -204,10 +204,14 @@ private struct JellyfinAddUserSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @State private var name = ""
     @State private var password = ""
     @State private var isCreating = false
     @State private var errorMessage: String?
+    @State private var createdUser: JellyfinUser?
+    @State private var showSyncAlert = false
+    @State private var isSyncing = false
 
     private var trimmedName: String {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -258,6 +262,18 @@ private struct JellyfinAddUserSheet: View {
         }
         .presentationDetents([.medium])
         .presentationDragIndicator(.visible)
+        .alert("Sync to Seerr?", isPresented: $showSyncAlert) {
+            Button("Sync") {
+                Task { await performSyncToSeerr() }
+            }
+            Button("Skip", role: .cancel) {
+                dismiss()
+            }
+        } message: {
+            if let user = createdUser {
+                Text("Would you like to add \(user.name) to Seerr?")
+            }
+        }
     }
 
     private func addUser() async {
@@ -276,11 +292,32 @@ private struct JellyfinAddUserSheet: View {
                 message: "\(created.name) was added to Jellyfin.",
                 source: .inApp
             )
-            dismiss()
+            if seerrServiceManager.isConnected {
+                createdUser = created
+                showSyncAlert = true
+            } else {
+                dismiss()
+            }
         } catch {
             errorMessage = error.localizedDescription
             isCreating = false
         }
+    }
+
+    private func performSyncToSeerr() async {
+        guard let user = createdUser, let client = seerrServiceManager.activeClient else { return }
+        isSyncing = true
+        do {
+            _ = try await client.importUsersFromJellyfin(jellyfinUserIds: [user.id])
+        } catch {
+            inAppNotificationCenter.showError(
+                title: "Seerr Sync Failed",
+                message: error.localizedDescription,
+                source: .inApp
+            )
+        }
+        isSyncing = false
+        dismiss()
     }
 }
 
