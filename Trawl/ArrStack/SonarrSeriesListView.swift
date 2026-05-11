@@ -20,6 +20,7 @@ struct SonarrSeriesListView: View {
     @State private var editMode: SelectionMode = .inactive
     @State private var selectedSeriesIDs: Set<Int> = []
     @State private var showBulkDeleteAlert = false
+    @State private var isFilterSearchExpanded = false
 
     #if os(iOS)
     private var swiftUIEditMode: Binding<EditMode> {
@@ -76,7 +77,7 @@ struct SonarrSeriesListView: View {
         .navigationTitle(navigationTitleText)
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
-        .toolbarTitleDisplayMode(.large)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
@@ -136,6 +137,23 @@ struct SonarrSeriesListView: View {
                 viewModel.refreshFilters()
             }
         }
+        .safeAreaInset(edge: .top) {
+            if let vm = viewModel, !editMode.isEditing {
+                TrawlSegmentBar(
+                    "Filter",
+                    selection: Binding(
+                        get: { vm.selectedFilter },
+                        set: { newFilter in withAnimation { vm.selectedFilter = newFilter } }
+                    ),
+                    items: SonarrFilter.allCases.map(\.segmentBarItem),
+                    searchText: $localSeriesSearch,
+                    searchHint: "Search series",
+                    isSearchExpanded: $isFilterSearchExpanded,
+                    searchPlacement: .leading
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: .sonarr)
@@ -182,8 +200,7 @@ struct SonarrSeriesListView: View {
             } else {
                 // Connection restored — recreate VM if we don't have one
                 if viewModel == nil {
-                viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
-                viewModelInstanceID = activeID
+                    viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
                     viewModelInstanceID = serviceManager.activeSonarrInstanceID
                     // Sync local search state to new VM
                     if !localSeriesSearch.isEmpty {
@@ -209,6 +226,7 @@ struct SonarrSeriesListView: View {
             let activeID = serviceManager.activeSonarrInstanceID
             if viewModel == nil || viewModelInstanceID != activeID {
                 viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+                viewModelInstanceID = activeID
                 // Sync local search state to new VM
                 if !localSeriesSearch.isEmpty {
                     viewModel?.searchText = localSeriesSearch
@@ -256,7 +274,7 @@ struct SonarrSeriesListView: View {
         }
         .task(id: jellyfinManager.activeProfileID) {
             guard jellyfinManager.isConnected else {
-                viewModel?.refreshJellyfinLibraryCache()
+                await viewModel?.refreshJellyfinLibraryCache()
                 return
             }
             await viewModel?.refreshJellyfinLibraryCache()
@@ -300,7 +318,6 @@ struct SonarrSeriesListView: View {
         )
         .scrollPosition(id: $listScrollPosition)
         .animation(.default, value: vm.filteredSeries)
-        .searchable(text: $localSeriesSearch, prompt: "Search series")
     }
 
     @ViewBuilder
@@ -402,23 +419,17 @@ struct SonarrSeriesListView: View {
             }
         } else {
             ToolbarItemGroup(placement: sonarrLeadingToolbarPlacement) {
-                if let vm = viewModel {
-                    Menu {
-                        ForEach(SonarrFilter.allCases) { filter in
-                            Button {
-                                withAnimation { vm.selectedFilter = filter }
-                            } label: {
-                                if vm.selectedFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(filter.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
-                    }
+            }
 
+            ToolbarItemGroup(placement: sonarrTrailingToolbarPlacement) {
+                Button("Calendar", systemImage: "calendar") {
+                    showCalendar = true
+                }
+                #if os(iOS)
+                .matchedTransitionSource(id: "calendar", in: namespace)
+                #endif
+
+                if let vm = viewModel {
                     Menu {
                         ForEach(SonarrSortOrder.allCases) { order in
                             Button {
@@ -437,15 +448,6 @@ struct SonarrSeriesListView: View {
                         Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
                 }
-            }
-
-            ToolbarItemGroup(placement: sonarrTrailingToolbarPlacement) {
-                Button("Calendar", systemImage: "calendar") {
-                    showCalendar = true
-                }
-                #if os(iOS)
-                .matchedTransitionSource(id: "calendar", in: namespace)
-                #endif
 
                 Menu {
                     Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
@@ -518,19 +520,6 @@ struct SonarrSeriesListView: View {
         isRunningCommand = false
     }
 
-    private func filterIcon(for filter: SonarrFilter) -> String {
-        switch filter {
-        case .all:         "line.3.horizontal.decrease.circle"
-        case .monitored:   "bookmark.circle"
-        case .unmonitored: "bookmark.slash"
-        case .continuing:  "play.circle"
-        case .ended:       "stop.circle"
-        case .missing:     "exclamationmark.circle"
-        case .subtitlesPresent: "captions.bubble"
-        case .inJellyfinLibrary: "play.tv"
-        }
-    }
-
     private var sonarrProfile: ArrServiceProfile? {
         serviceManager.resolvedProfile(for: .sonarr, in: profiles)
     }
@@ -565,6 +554,12 @@ struct SonarrSeriesListView: View {
             in: sonarrProfiles,
             serviceType: .sonarr
         )
+    }
+}
+
+private extension SonarrFilter {
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
     }
 }
 

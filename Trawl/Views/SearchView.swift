@@ -61,13 +61,12 @@ struct SearchView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
 
                 if isSearchPresented && searchText.isEmpty {
-                    Picker("Scope", selection: $scope) { 
-                        Text("Discover").tag(SearchScope.arr)
-                        Text("Library").tag(SearchScope.library)
-                    }
-                    .pickerStyle(.segmented)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                    .padding(.horizontal, 48)
+                    TrawlSegmentBar(
+                        "Scope",
+                        selection: $scope,
+                        items: SearchScope.segmentBarItems,
+                        alignment: .center
+                    )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -1473,6 +1472,13 @@ private struct ArrMovieResultRow: View {
 enum SearchScope: Hashable {
     case library
     case arr
+
+    static var segmentBarItems: [TrawlSegmentBarItem<SearchScope>] {
+        [
+            TrawlSegmentBarItem("Discover", value: .arr),
+            TrawlSegmentBarItem("Library", value: .library)
+        ]
+    }
 }
 
 private enum ResultKind: Hashable {

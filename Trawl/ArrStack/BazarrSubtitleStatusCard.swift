@@ -350,12 +350,14 @@ struct BazarrSubtitleStatusCard: View {
                                 .foregroundStyle(foreground)
                             if key.hi {
                                 Text("HI")
-                                    .font(.system(size: 7).weight(.bold))
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
                                     .foregroundStyle(.blue)
                             }
                             if key.forced {
                                 Text("Forced")
-                                    .font(.system(size: 7).weight(.bold))
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
                                     .foregroundStyle(.orange)
                             }
                         }
@@ -419,33 +421,29 @@ struct BazarrSubtitleStatusCard: View {
 
     private var presentSubtitleKeys: [SubtitleKey] {
         if let movie {
-            return movie.subtitles.map { ($0.code2, $0.hi, $0.forced) }
+            return uniqueSubtitleKeys(movie.subtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
-        var seen = Set<String>()
-        var result: [SubtitleKey] = []
-        for ep in episodes {
-            for sub in ep.subtitles {
-                let key = "\(sub.code2):\(sub.hi):\(sub.forced)"
-                if seen.insert(key).inserted {
-                    result.append((sub.code2, sub.hi, sub.forced))
-                }
-            }
-        }
-        return result
+        return uniqueSubtitleKeys(episodes.flatMap { episode in
+            episode.subtitles.map { ($0.code2, $0.hi, $0.forced) }
+        })
     }
 
     private var missingLanguageKeys: [SubtitleKey] {
         if let movie {
-            return movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) }
+            return uniqueSubtitleKeys(movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
+        return uniqueSubtitleKeys(episodes.flatMap { episode in
+            episode.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) }
+        })
+    }
+
+    private func uniqueSubtitleKeys(_ keys: [SubtitleKey]) -> [SubtitleKey] {
         var seen = Set<String>()
         var result: [SubtitleKey] = []
-        for ep in episodes {
-            for lang in ep.missingSubtitles {
-                let key = "\(lang.code2):\(lang.hi):\(lang.forced)"
-                if seen.insert(key).inserted {
-                    result.append((lang.code2, lang.hi, lang.forced))
-                }
+        for key in keys {
+            let id = "\(key.code2):\(key.hi):\(key.forced)"
+            if seen.insert(id).inserted {
+                result.append(key)
             }
         }
         return result

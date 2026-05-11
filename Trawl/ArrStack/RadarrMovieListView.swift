@@ -19,6 +19,7 @@ struct RadarrMovieListView: View {
     @State private var editMode: SelectionMode = .inactive
     @State private var selectedMovieIDs: Set<Int> = []
     @State private var showBulkDeleteAlert = false
+    @State private var isFilterSearchExpanded = false
 
     #if os(iOS)
     private var swiftUIEditMode: Binding<EditMode> {
@@ -75,7 +76,7 @@ struct RadarrMovieListView: View {
         .navigationTitle(navigationTitleText)
         .navigationSubtitle(navigationSubtitleText)
         #if os(iOS)
-        .toolbarTitleDisplayMode(.large)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
@@ -129,6 +130,23 @@ struct RadarrMovieListView: View {
                     await serviceManager.refreshActiveBazarrSubtitleCache()
                 }
                 viewModel.refreshFilters()
+            }
+        }
+        .safeAreaInset(edge: .top) {
+            if let vm = viewModel, !editMode.isEditing {
+                TrawlSegmentBar(
+                    "Filter",
+                    selection: Binding(
+                        get: { vm.selectedFilter },
+                        set: { newFilter in withAnimation { vm.selectedFilter = newFilter } }
+                    ),
+                    items: RadarrFilter.allCases.map(\.segmentBarItem),
+                    searchText: movieSearchText,
+                    searchHint: "Search movies",
+                    isSearchExpanded: $isFilterSearchExpanded,
+                    searchPlacement: .leading
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .sheet(isPresented: $showSettings) {
@@ -225,7 +243,7 @@ struct RadarrMovieListView: View {
         }
         .task(id: jellyfinManager.activeProfileID) {
             guard jellyfinManager.isConnected else {
-                viewModel?.refreshJellyfinLibraryCache()
+                await viewModel?.refreshJellyfinLibraryCache()
                 return
             }
             await viewModel?.refreshJellyfinLibraryCache()
@@ -269,7 +287,6 @@ struct RadarrMovieListView: View {
         )
         .scrollPosition(id: $listScrollPosition)
         .animation(.default, value: vm.filteredMovies)
-        .searchable(text: movieSearchText, prompt: "Search movies")
     }
 
     @ViewBuilder
@@ -386,23 +403,17 @@ struct RadarrMovieListView: View {
             }
         } else {
             ToolbarItemGroup(placement: platformTopBarLeadingPlacement) {
-                if let vm = viewModel {
-                    Menu {
-                        ForEach(RadarrFilter.allCases) { filter in
-                            Button {
-                                withAnimation { vm.selectedFilter = filter }
-                            } label: {
-                                if vm.selectedFilter == filter {
-                                    Label(filter.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(filter.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
-                    }
+            }
 
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Button("Calendar", systemImage: "calendar") {
+                    showCalendar = true
+                }
+                #if os(iOS)
+                .matchedTransitionSource(id: "calendar", in: namespace)
+                #endif
+
+                if let vm = viewModel {
                     Menu {
                         ForEach(RadarrSortOrder.allCases) { order in
                             Button {
@@ -421,15 +432,6 @@ struct RadarrMovieListView: View {
                         Label("Sort", systemImage: "arrow.up.arrow.down")
                     }
                 }
-            }
-
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button("Calendar", systemImage: "calendar") {
-                    showCalendar = true
-                }
-                #if os(iOS)
-                .matchedTransitionSource(id: "calendar", in: namespace)
-                #endif
 
                 Menu {
                     Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
@@ -510,19 +512,6 @@ struct RadarrMovieListView: View {
         isRunningCommand = false
     }
 
-    private func filterIcon(for filter: RadarrFilter) -> String {
-        switch filter {
-        case .all:         "line.3.horizontal.decrease.circle"
-        case .monitored:   "bookmark.circle"
-        case .unmonitored: "bookmark.slash"
-        case .missing:     "exclamationmark.circle"
-        case .downloaded:  "checkmark.circle"
-        case .wanted:      "magnifyingglass.circle"
-        case .subtitlesPresent: "captions.bubble"
-        case .inJellyfinLibrary: "play.tv"
-        }
-    }
-
     private var radarrProfile: ArrServiceProfile? {
         serviceManager.resolvedProfile(for: .radarr, in: profiles)
     }
@@ -557,6 +546,12 @@ struct RadarrMovieListView: View {
             in: radarrProfiles,
             serviceType: .radarr
         )
+    }
+}
+
+private extension RadarrFilter {
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
     }
 }
 

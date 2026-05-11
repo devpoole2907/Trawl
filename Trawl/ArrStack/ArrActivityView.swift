@@ -316,6 +316,15 @@ private enum ArrActivityMode: String, CaseIterable, Identifiable {
         case .history: "History"
         }
     }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        switch self {
+        case .queue:
+            TrawlSegmentBarItem(title, value: self)
+        case .history:
+            TrawlSegmentBarItem(title, value: self)
+        }
+    }
 }
 
 enum ArrServiceFilter: CaseIterable, Hashable {
@@ -383,17 +392,10 @@ private struct ActivityModePicker: View {
     @Binding var mode: ArrActivityMode
 
     var body: some View {
-        Picker("Section", selection: Binding(
+        TrawlSegmentBar("Section", selection: Binding(
             get: { mode },
             set: { newMode in withAnimation { mode = newMode } }
-        )) {
-            ForEach(ArrActivityMode.allCases) { mode in
-                Text(mode.title).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
+        ), items: ArrActivityMode.allCases.map(\.segmentBarItem), alignment: .center)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }

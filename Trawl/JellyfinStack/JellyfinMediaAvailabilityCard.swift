@@ -158,12 +158,13 @@ struct JellyfinMediaAvailabilityCard: View {
                     }
 
                     if let path = item.path ?? item.mediaSources?.compactMap(\.path).first, !path.isEmpty {
-                        Label(path, systemImage: "folder")
+                        Text(path)
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(2)
                             .truncationMode(.middle)
                     }
+                }
                 .padding(12)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
             }
@@ -178,7 +179,7 @@ struct JellyfinMediaAvailabilityCard: View {
                 Text("\(media.title) is not in Jellyfin.")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("Matched against Jellyfin provider IDs and title/year fallback.")
+                Text("No matching Jellyfin library item was found.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

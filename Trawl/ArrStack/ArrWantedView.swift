@@ -224,14 +224,10 @@ struct ArrWantedView: View {
             Text(searchAllConfirmMessage)
         }
         .safeAreaInset(edge: .top) {
-            Picker("Scope", selection: $scope) {
-                ForEach(ArrWantedScope.allCases, id: \.self) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
+            TrawlSegmentBar("Scope", selection: Binding(
+                get: { scope },
+                set: { newScope in withAnimation { scope = newScope } }
+            ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .task(id: reloadKey) {
@@ -455,6 +451,10 @@ enum ArrWantedScope: CaseIterable, Hashable {
         case .movies: "Movies"
         case .subtitles: "Subtitles"
         }
+    }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(title, value: self)
     }
 
     var includesSeries: Bool {

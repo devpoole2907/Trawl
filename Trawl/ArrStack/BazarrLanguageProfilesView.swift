@@ -575,6 +575,7 @@ private struct LanguageProfileEditorView: View {
                             .padding(.vertical, 4)
                             .background(Capsule().fill(Color.secondary.opacity(0.12)))
                         }
+                        .accessibilityValue(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).title)
                     }
                     .padding(.vertical, 4)
                 }
@@ -711,17 +712,19 @@ private struct LanguagePickerSheet: View {
                         Button {
                             onSelect(language.name)
                         } label: {
-                            HStack {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Text(language.name)
-                                    .lineLimit(1)
+                                    .lineLimit(2)
                                     .truncationMode(.tail)
-                                Spacer(minLength: 8)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .layoutPriority(1)
                                 Text(language.code2.uppercased())
                                     .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
                                     .padding(.horizontal, 5)
                                     .padding(.vertical, 2)
                                     .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                    .fixedSize()
                             }
                         }
                         .foregroundStyle(.primary)

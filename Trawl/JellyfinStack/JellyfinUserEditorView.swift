@@ -16,6 +16,27 @@ struct JellyfinUserEditorView: View {
     @State private var syncMessage: String?
     @State private var syncIsError = false
 
+    private enum PolicyField {
+        case isAdministrator
+        case isDisabled
+        case isHidden
+        case enableContentDeletion
+        case enableMediaPlayback
+        case enableLiveTvAccess
+        case enableLiveTvManagement
+        case enableRemoteAccess
+        case enableSharedDeviceControl
+
+        var allowsEditWhenAdmin: Bool {
+            switch self {
+            case .isAdministrator, .isDisabled, .isHidden:
+                true
+            default:
+                false
+            }
+        }
+    }
+
     init(
         user: JellyfinUser,
         apiClient: JellyfinAPIClient,
@@ -66,7 +87,7 @@ struct JellyfinUserEditorView: View {
                 }
             }
 
-            if seerrServiceManager.isConnected || seerrServiceManager.isConnecting {
+            if seerrServiceManager.isConnected || seerrServiceManager.isConnecting || seerrServiceManager.connectionError != nil {
                 Section("Seerr") {
                     Button {
                         Task { await syncToSeerr() }
@@ -175,18 +196,18 @@ struct JellyfinUserEditorView: View {
         }
 
         Section("Access") {
-            policyToggle("Administrator", binding: viewModel.policyBinding(\.isAdministrator), systemImage: "person.badge.key")
-            policyToggle("Disabled", binding: viewModel.policyBinding(\.isDisabled), systemImage: "person.slash")
-            policyToggle("Hidden", binding: viewModel.policyBinding(\.isHidden), systemImage: "eye.slash")
+            policyToggle("Administrator", field: .isAdministrator, binding: viewModel.policyBinding(\.isAdministrator), systemImage: "person.badge.key")
+            policyToggle("Disabled", field: .isDisabled, binding: viewModel.policyBinding(\.isDisabled), systemImage: "person.slash")
+            policyToggle("Hidden", field: .isHidden, binding: viewModel.policyBinding(\.isHidden), systemImage: "eye.slash")
         }
 
         Section("Permissions") {
-            policyToggle("Content Deletion", binding: viewModel.policyBinding(\.enableContentDeletion), systemImage: "trash")
-            policyToggle("Media Playback", binding: viewModel.policyBinding(\.enableMediaPlayback), systemImage: "play.circle")
-            policyToggle("Live TV Access", binding: viewModel.policyBinding(\.enableLiveTvAccess), systemImage: "tv")
-            policyToggle("Live TV Management", binding: viewModel.policyBinding(\.enableLiveTvManagement), systemImage: "tv.badge.wifi")
-            policyToggle("Remote Access", binding: viewModel.policyBinding(\.enableRemoteAccess), systemImage: "wifi")
-            policyToggle("Shared Device Control", binding: viewModel.policyBinding(\.enableSharedDeviceControl), systemImage: "rectangle.on.rectangle")
+            policyToggle("Content Deletion", field: .enableContentDeletion, binding: viewModel.policyBinding(\.enableContentDeletion), systemImage: "trash")
+            policyToggle("Media Playback", field: .enableMediaPlayback, binding: viewModel.policyBinding(\.enableMediaPlayback), systemImage: "play.circle")
+            policyToggle("Live TV Access", field: .enableLiveTvAccess, binding: viewModel.policyBinding(\.enableLiveTvAccess), systemImage: "tv")
+            policyToggle("Live TV Management", field: .enableLiveTvManagement, binding: viewModel.policyBinding(\.enableLiveTvManagement), systemImage: "tv.badge.wifi")
+            policyToggle("Remote Access", field: .enableRemoteAccess, binding: viewModel.policyBinding(\.enableRemoteAccess), systemImage: "wifi")
+            policyToggle("Shared Device Control", field: .enableSharedDeviceControl, binding: viewModel.policyBinding(\.enableSharedDeviceControl), systemImage: "rectangle.on.rectangle")
         }
     }
 
@@ -201,11 +222,11 @@ struct JellyfinUserEditorView: View {
         }
     }
 
-    private func policyToggle(_ label: String, binding: Binding<Bool>, systemImage: String) -> some View {
+    private func policyToggle(_ label: String, field: PolicyField, binding: Binding<Bool>, systemImage: String) -> some View {
         Toggle(isOn: binding) {
             Label(label, systemImage: systemImage)
         }
-        .disabled(viewModel.policy.isAdministrator == true && label != "Administrator" && label != "Disabled" && label != "Hidden")
+        .disabled(viewModel.policy.isAdministrator == true && !field.allowsEditWhenAdmin)
     }
 
     private func syncToSeerr() async {
@@ -213,9 +234,15 @@ struct JellyfinUserEditorView: View {
         isSyncing = true
         syncMessage = nil
         do {
-            _ = try await client.importUsersFromJellyfin(jellyfinUserIds: [viewModel.user.id])
-            syncMessage = "Synced to Seerr."
+            let importedUsers = try await client.importUsersFromJellyfin(jellyfinUserIds: [viewModel.user.id])
+            let importedName = importedUsers.first?.displayName ?? viewModel.user.name
+            syncMessage = "Synced \(importedName) to Seerr."
             syncIsError = false
+            inAppNotificationCenter.showSuccess(
+                title: "Seerr Sync Complete",
+                message: syncMessage ?? "Synced to Seerr.",
+                source: .inApp
+            )
         } catch {
             syncMessage = error.localizedDescription
             syncIsError = true
@@ -298,7 +325,7 @@ private struct JellyfinResetPasswordSheet: View {
                 id: userId,
                 currentPassword: currentPassword,
                 newPassword: newPassword,
-                resetPassword: true
+                resetPassword: false
             )
             dismiss()
         } catch {
