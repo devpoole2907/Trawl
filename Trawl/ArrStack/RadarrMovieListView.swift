@@ -241,11 +241,7 @@ struct RadarrMovieListView: View {
             await serviceManager.refreshActiveBazarrSubtitleCache()
             viewModel?.refreshFilters()
         }
-        .task(id: jellyfinManager.activeProfileID) {
-            guard jellyfinManager.isConnected else {
-                await viewModel?.refreshJellyfinLibraryCache()
-                return
-            }
+        .task(id: "\(jellyfinManager.activeProfileID?.uuidString ?? ""):\(jellyfinManager.isConnected)") {
             await viewModel?.refreshJellyfinLibraryCache()
         }
 

@@ -295,7 +295,7 @@ final class JellyfinSessionsViewModel {
             try await apiClient.stopPlayback(sessionId: sessionId)
             await loadSessions(showLoading: false)
         } catch {
-            errorMessage = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Couldn't Stop Playback", message: error.localizedDescription)
         }
     }
 }

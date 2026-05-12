@@ -112,7 +112,7 @@ struct BazarrLanguageProfilesView: View {
                                 onSave: { draft in await save(draft: draft, existing: profile) }
                             )
                         } label: {
-                            LanguageProfileRowView(profile: profile)
+                            LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -202,8 +202,13 @@ struct BazarrLanguageProfilesView: View {
         do {
             async let profilesLoad = client.getLanguageProfiles()
             async let languagesLoad = client.getLanguages()
-            profiles = try await profilesLoad
-            availableLanguages = (try? await languagesLoad) ?? []
+            let fetchedProfiles = try await profilesLoad
+            let fetchedLanguages = (try? await languagesLoad) ?? []
+            profiles = fetchedProfiles
+            availableLanguages = fetchedLanguages
+            if let id = serviceManager.activeBazarrEntry?.id {
+                serviceManager.updateBazarrLanguageProfiles(for: id, profiles: fetchedProfiles, languages: fetchedLanguages)
+            }
         } catch {
             if profiles.isEmpty {
                 errorMessage = error.localizedDescription
@@ -215,22 +220,36 @@ struct BazarrLanguageProfilesView: View {
     func save(draft: LanguageProfileDraft, existing: BazarrLanguageProfile?) async {
         guard let client else { return }
         do {
-            let itemsString: String?
-            if draft.items.isEmpty {
-                itemsString = "[]"
-            } else {
-                let items = draft.items.map {
-                    BazarrLanguageProfileItem(language: $0.language, hi: $0.hi, forced: $0.forced)
-                }
-                let data = try JSONEncoder().encode(items)
-                itemsString = String(data: data, encoding: .utf8)
+            // Send new items with bazarrId 0; the server assigns IDs on save.
+            let items: [BazarrLanguageProfileItem] = draft.items.map { item in
+                BazarrLanguageProfileItem(
+                    bazarrId: item.bazarrId,
+                    language: item.language,
+                    hi: item.hi,
+                    forced: item.forced,
+                    audioExclude: item.audioExclude,
+                    audioOnlyInclude: item.audioOnlyInclude
+                )
             }
+            let itemsData = try JSONEncoder().encode(items)
+            let itemsString = String(data: itemsData, encoding: .utf8) ?? "[]"
 
             let profileId = existing?.profileId ?? ((profiles.map(\.profileId).max() ?? 0) + 1)
+
+            // Resolve cutoff by language identity so it survives reordering/renumbering.
+            let cutoff: Int? = {
+                guard let existing,
+                      let existingCutoffId = existing.cutoff,
+                      let cutoffItem = existing.parsedItems.first(where: { $0.bazarrId == existingCutoffId })
+                else { return nil }
+                return items.first(where: {
+                    $0.language == cutoffItem.language && $0.hi == cutoffItem.hi && $0.forced == cutoffItem.forced
+                })?.bazarrId
+            }()
             let updated = BazarrLanguageProfile(
                 profileId: profileId,
                 name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                cutoff: existing?.cutoff,
+                cutoff: cutoff,
                 itemsJSON: itemsString,
                 mustContain: draft.mustContain.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
                 mustNotContain: draft.mustNotContain.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
@@ -276,12 +295,13 @@ struct BazarrLanguageProfilesView: View {
 
 private struct LanguageProfileRowView: View {
     let profile: BazarrLanguageProfile
+    let availableLanguages: [BazarrLanguage]
 
     private var subtitle: String {
         let items = profile.parsedItems
         guard !items.isEmpty else { return "No languages" }
         return items.map { item in
-            var label = item.language
+            var label = BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages)
             var flags: [String] = []
             if item.hi { flags.append("HI") }
             if item.forced { flags.append("Forced") }
@@ -339,7 +359,7 @@ private struct LanguageProfileDetailView: View {
                 Section("Languages") {
                     ForEach(items) { item in
                         HStack {
-                            Text(item.language)
+                            Text(BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages))
                             Spacer()
                             HStack(spacing: 6) {
                                 if item.hi {
@@ -420,19 +440,52 @@ struct LanguageProfileDraft {
         mustNotContain = []
     }
 
-    init(from profile: BazarrLanguageProfile) {
+    init(from profile: BazarrLanguageProfile, availableLanguages: [BazarrLanguage] = []) {
         name = profile.name
-        items = profile.parsedItems.map { EditableLanguageItem(language: $0.language, hi: $0.hi, forced: $0.forced) }
+        items = profile.parsedItems.map {
+            EditableLanguageItem(
+                bazarrId: $0.bazarrId,
+                language: BazarrLanguageProfileSupport.canonicalCode(for: $0.language, availableLanguages: availableLanguages),
+                hi: $0.hi,
+                forced: $0.forced,
+                audioExclude: $0.audioExclude,
+                audioOnlyInclude: $0.audioOnlyInclude
+            )
+        }
         mustContain = profile.mustContain ?? []
         mustNotContain = profile.mustNotContain ?? []
     }
 }
 
+enum BazarrLanguageProfileSupport {
+    static func canonicalCode(for language: String, availableLanguages: [BazarrLanguage]) -> String {
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return language }
+        if availableLanguages.contains(where: { $0.code2.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return trimmed
+        }
+        if let match = availableLanguages.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return match.code2
+        }
+        return trimmed
+    }
+
+    static func displayName(for language: String, availableLanguages: [BazarrLanguage]) -> String {
+        if let match = availableLanguages.first(where: { $0.code2.caseInsensitiveCompare(language) == .orderedSame }) {
+            return match.name
+        }
+        return language
+    }
+}
+
 struct EditableLanguageItem: Identifiable {
     let id = UUID()
+    var bazarrId: Int = 0
     var language: String
     var hi: Bool
     var forced: Bool
+    var audioExclude: Bool = false
+    var audioOnlyInclude: Bool = false
 }
 
 private enum LanguageSubtitleVariant: CaseIterable, Identifiable, Equatable {
@@ -525,7 +578,7 @@ private struct LanguageProfileEditorView: View {
         case .add:
             _draft = State(initialValue: LanguageProfileDraft())
         case .edit(let profile):
-            _draft = State(initialValue: LanguageProfileDraft(from: profile))
+            _draft = State(initialValue: LanguageProfileDraft(from: profile, availableLanguages: availableLanguages))
         }
     }
 
@@ -545,7 +598,7 @@ private struct LanguageProfileEditorView: View {
             Section {
                 ForEach($draft.items) { $item in
                     HStack(spacing: 8) {
-                        Text(item.language)
+                        Text(BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages))
                             .font(.body)
                             .lineLimit(1)
                             .truncationMode(.tail)
@@ -664,8 +717,8 @@ private struct LanguageProfileEditorView: View {
             LanguagePickerSheet(
                 languages: availableLanguages,
                 alreadyAdded: alreadyAddedCodes
-            ) { selected in
-                draft.items.append(EditableLanguageItem(language: selected, hi: false, forced: false))
+            ) { code in
+                draft.items.append(EditableLanguageItem(language: code, hi: false, forced: false))
                 languagePickerPresented = false
             }
         }
@@ -710,7 +763,7 @@ private struct LanguagePickerSheet: View {
                 } else {
                     List(filtered) { language in
                         Button {
-                            onSelect(language.name)
+                            onSelect(language.code2)
                         } label: {
                             HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Text(language.name)

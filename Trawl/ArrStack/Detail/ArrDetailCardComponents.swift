@@ -7,12 +7,9 @@ struct ArrDetailBadgeSection: View {
 
     var body: some View {
         if !badges.isEmpty {
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 8) {
-                    ForEach(badges) { badge in pill(badge) }
-                }
-                VStack(spacing: 8) {
-                    ForEach(badges) { badge in pill(badge) }
+            ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+                ForEach(badges) { badge in
+                    pill(badge)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -23,6 +20,7 @@ struct ArrDetailBadgeSection: View {
         Label(badge.label, systemImage: badge.icon)
             .font(.caption.weight(.semibold))
             .foregroundStyle(badge.color)
+            .lineLimit(1)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .glassEffect(.regular, in: Capsule())
@@ -55,12 +53,9 @@ struct ArrDetailGenreChips: View {
     let genres: [String]
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 8) {
-                ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { index, genre in pill(genre) }
-            }
-            VStack(spacing: 8) {
-                ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { index, genre in pill(genre) }
+        ArrDetailPillFlowLayout(horizontalSpacing: 8, verticalSpacing: 8) {
+            ForEach(Array(genres.prefix(8).enumerated()), id: \.offset) { _, genre in
+                pill(genre)
             }
         }
         .frame(maxWidth: .infinity)
@@ -69,9 +64,115 @@ struct ArrDetailGenreChips: View {
     private func pill(_ genre: String) -> some View {
         Text(genre)
             .font(.caption.weight(.medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: 220, alignment: .leading)
             .padding(.horizontal, 12)
             .padding(.vertical, 6)
             .glassEffect(.regular, in: Capsule())
+    }
+}
+
+private struct ArrDetailPillFlowLayout: Layout {
+    var horizontalSpacing: CGFloat = 8
+    var verticalSpacing: CGFloat = 8
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let rows = rows(for: proposal, subviews: subviews)
+        let measuredWidth = rows.map(\.width).max() ?? 0
+        let width: CGFloat
+        if let proposedWidth = proposal.width, proposedWidth.isFinite {
+            width = proposedWidth
+        } else {
+            width = measuredWidth
+        }
+
+        let height = rows.map(\.height).reduce(0, +) + verticalSpacing * CGFloat(max(rows.count - 1, 0))
+        return CGSize(width: width, height: height)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let placementProposal = ProposedViewSize(width: bounds.width, height: nil)
+        let rows = rows(for: placementProposal, subviews: subviews)
+        var y = bounds.minY
+
+        for row in rows {
+            var x = bounds.minX + max((bounds.width - row.width) / 2, 0)
+
+            for item in row.items {
+                subviews[item.index].place(
+                    at: CGPoint(
+                        x: x,
+                        y: y + max((row.height - item.size.height) / 2, 0)
+                    ),
+                    anchor: .topLeading,
+                    proposal: ProposedViewSize(width: item.size.width, height: item.size.height)
+                )
+                x += item.size.width + horizontalSpacing
+            }
+
+            y += row.height + verticalSpacing
+        }
+    }
+
+    private func rows(for proposal: ProposedViewSize, subviews: Subviews) -> [Row] {
+        guard !subviews.isEmpty else { return [] }
+
+        let sizes = subviews.indices.map { subviews[$0].sizeThatFits(.unspecified) }
+        let singleRowWidth = sizes.map(\.width).reduce(0, +) + horizontalSpacing * CGFloat(max(sizes.count - 1, 0))
+        let availableWidth: CGFloat
+        if let proposedWidth = proposal.width, proposedWidth.isFinite {
+            availableWidth = max(proposedWidth, 0)
+        } else {
+            availableWidth = singleRowWidth
+        }
+
+        var rows: [Row] = []
+        var currentRow = Row()
+
+        for offset in sizes.indices {
+            let size = sizes[offset]
+            let nextWidth = currentRow.items.isEmpty
+                ? size.width
+                : currentRow.width + horizontalSpacing + size.width
+
+            if !currentRow.items.isEmpty && nextWidth > availableWidth {
+                rows.append(currentRow)
+                currentRow = Row()
+            }
+
+            currentRow.add(index: offset, size: size, spacing: horizontalSpacing)
+        }
+
+        if !currentRow.items.isEmpty {
+            rows.append(currentRow)
+        }
+
+        return rows
+    }
+
+    private struct Row {
+        var items: [(index: Int, size: CGSize)] = []
+        var width: CGFloat = 0
+        var height: CGFloat = 0
+
+        mutating func add(index: Int, size: CGSize, spacing: CGFloat) {
+            if !items.isEmpty {
+                width += spacing
+            }
+            items.append((index: index, size: size))
+            width += size.width
+            height = max(height, size.height)
+        }
     }
 }
 

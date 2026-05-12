@@ -67,6 +67,7 @@ final class JellyfinUserEditorViewModel {
     }
 
     func deleteUser() async -> Bool {
+        guard !isSaving else { return false }
         isSaving = true
         errorMessage = nil
         defer { isSaving = false }

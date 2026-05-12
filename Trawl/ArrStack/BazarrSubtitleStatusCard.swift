@@ -533,28 +533,119 @@ struct BazarrSubtitleStatusCard: View {
         isUpdatingProfile = true
         defer { isUpdatingProfile = false }
 
+        var apiError: Error?
         do {
             switch media {
             case .movie(let radarrId, _):
                 try await client.updateMovieProfile(
                     radarrIds: [radarrId],
-                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                    profileIds: [selectedProfileId.map(String.init)]
                 )
             case .series(let seriesId, _):
                 try await client.updateSeriesProfile(
                     seriesIds: [seriesId],
-                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                    profileIds: [selectedProfileId.map(String.init)]
                 )
             }
-
-            movie = nil
-            series = nil
-            episodes = []
-            await serviceManager.refreshActiveBazarrSubtitleCache()
-            await load(force: true)
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
         } catch {
-            InAppNotificationCenter.shared.showError(title: "Failed", message: error.localizedDescription)
+            apiError = error
         }
+
+        movie = nil
+        series = nil
+        episodes = []
+        await serviceManager.refreshActiveBazarrSubtitleCache()
+        await load(force: true)
+        if let apiError {
+            let isMovie500: Bool = {
+                if case .movie = media, case ArrError.serverError(500, _) = apiError { return true }
+                return false
+            }()
+            if isMovie500 {
+                InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
+            } else {
+                InAppNotificationCenter.shared.showError(title: "Failed", message: apiError.localizedDescription)
+            }
+        } else {
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
+        }
+    }
+}
+
+// MARK: - Shared subtitle list row
+
+struct BazarrSubtitleListRow: View {
+    let subtitle: BazarrSubtitle
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(subtitle.name).font(.body)
+                if let path = subtitle.path {
+                    Text(path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            HStack(spacing: 4) {
+                if subtitle.hi {
+                    Text("HI")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.15)))
+                }
+                if subtitle.forced {
+                    Text("Forced")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Shared subtitle file chips (used in Radarr/Sonarr file rows)
+
+struct BazarrSubtitleFilesView: View {
+    let subtitles: [BazarrSubtitle]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Image(systemName: "captions.bubble.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.teal)
+                ForEach(Array(subtitles.enumerated()), id: \.offset) { _, sub in
+                    HStack(spacing: 3) {
+                        Text(sub.code2)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.teal)
+                        if sub.hi {
+                            Text("HI")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.blue)
+                        }
+                        if sub.forced {
+                            Text("Forced")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.orange)
+                        }
+                        if let size = sub.fileSize {
+                            Text(ByteFormatter.format(bytes: Int64(size)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.teal.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

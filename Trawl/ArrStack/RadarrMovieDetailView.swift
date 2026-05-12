@@ -744,19 +744,24 @@ struct RadarrMovieDetailView: View {
     }
 
     private func fileRow(_ file: RadarrMovieFile, subtitles: [BazarrSubtitle]?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.relativePath ?? "Unknown File")
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(ByteFormatter.format(bytes: file.size ?? 0))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                if let qualityName = file.quality?.quality?.name {
+                    Text(qualityName)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.purple)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.purple.opacity(0.18))
+                        .clipShape(Capsule())
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(file.relativePath ?? "Unknown File")
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
 
                 Menu {
                     Button(role: .destructive) {
@@ -773,30 +778,46 @@ struct RadarrMovieDetailView: View {
                 }
             }
 
-            let info: [String] = [
-                file.mediaInfo?.resolution,
-                file.mediaInfo?.videoCodec,
-                file.mediaInfo?.videoDynamicRangeType,
-                file.mediaInfo?.audioCodec,
-                file.edition
-            ].compactMap { $0 }.filter { !$0.isEmpty }
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    if let size = file.size, size > 0 {
+                        Label(ByteFormatter.format(bytes: size), systemImage: "externaldrive")
+                    }
+                    if let videoCodec = file.mediaInfo?.videoCodec, !videoCodec.isEmpty {
+                        Label(videoCodec, systemImage: "video")
+                    }
+                    if let resolution = file.mediaInfo?.resolution, !resolution.isEmpty {
+                        Label(resolution, systemImage: "aspectratio")
+                    }
+                    if let dynamicRange = file.mediaInfo?.videoDynamicRangeType, !dynamicRange.isEmpty {
+                        Label(dynamicRange, systemImage: "sun.max")
+                    }
+                    if let edition = file.edition, !edition.isEmpty {
+                        Label(edition, systemImage: "film")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            if !info.isEmpty {
-                Text(info.joined(separator: " • "))
-                    .font(.caption2)
+            if let audio = audioDescription(file.mediaInfo), !audio.isEmpty {
+                Label(audio, systemImage: "waveform")
+                    .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             if let subtitles, !subtitles.isEmpty {
-                subtitleFilesView(subtitles)
+                BazarrSubtitleFilesView(subtitles: subtitles)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 11)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 movieFileToDelete = file.id
@@ -807,42 +828,22 @@ struct RadarrMovieDetailView: View {
         }
     }
 
-    private func subtitleFilesView(_ subtitles: [BazarrSubtitle]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Image(systemName: "captions.bubble.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.teal)
-                ForEach(subtitles, id: \.self) { sub in
-                    HStack(spacing: 3) {
-                        Text(sub.code2)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.teal)
-                        if sub.hi {
-                            Text("HI")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.blue)
-                        }
-                        if sub.forced {
-                            Text("Forced")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.orange)
-                        }
-                        if let size = sub.fileSize {
-                            Text(ByteFormatter.format(bytes: Int64(size)))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.teal.opacity(0.12)))
-                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
-                }
-            }
+    private func audioDescription(_ mediaInfo: RadarrMediaInfo?) -> String? {
+        let codec = mediaInfo?.audioCodec
+        let languages = mediaInfo?.audioLanguages
+
+        switch (codec, languages) {
+        case let (.some(codec), .some(languages)) where !codec.isEmpty && !languages.isEmpty:
+            return "\(codec) • \(languages)"
+        case let (.some(codec), _) where !codec.isEmpty:
+            return codec
+        case let (_, .some(languages)) where !languages.isEmpty:
+            return languages
+        default:
+            return nil
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
+
 
     // MARK: - Shared rows card
 

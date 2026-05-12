@@ -541,6 +541,13 @@ final class ArrServiceManager {
         await refreshBazarrSubtitleCache(for: entry.id, client: client)
     }
 
+    func updateBazarrLanguageProfiles(for id: UUID, profiles: [BazarrLanguageProfile], languages: [BazarrLanguage]) {
+        updateEntry(in: &bazarrInstances, id: id) { entry in
+            entry.languageProfiles = profiles
+            entry.languages = languages
+        }
+    }
+
     func getBazarrEpisodes(forSonarrSeriesId sonarrSeriesId: Int) async throws -> [BazarrEpisode] {
         guard let client = activeBazarrEntry?.client else { return [] }
         let episodes = try await client.getEpisodes(seriesIds: [sonarrSeriesId])

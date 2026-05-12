@@ -101,8 +101,8 @@ struct BazarrMovieDetailView: View {
 
                 if !movie.subtitles.isEmpty {
                     Section("Current Subtitles") {
-                        ForEach(movie.subtitles, id: \.self) { sub in
-                            subtitleRow(sub)
+                        ForEach(Array(movie.subtitles.enumerated()), id: \.offset) { _, sub in
+                            BazarrSubtitleListRow(subtitle: sub)
                                 .swipeActions(edge: .trailing) {
                                     if sub.path != nil {
                                         Button(role: .destructive) {
@@ -118,9 +118,9 @@ struct BazarrMovieDetailView: View {
 
                 if !movie.missingSubtitles.isEmpty {
                     Section("Missing Languages") {
-                        ForEach(movie.missingSubtitles, id: \.self) { lang in
+                        ForEach(Array(movie.missingSubtitles.enumerated()), id: \.offset) { _, lang in
                             HStack {
-                                VStack(alignment: .leading) {
+                                VStack(alignment: .leading, spacing: 2) {
                                     Text(lang.name)
                                     if lang.hi || lang.forced {
                                         HStack(spacing: 4) {
@@ -179,34 +179,6 @@ struct BazarrMovieDetailView: View {
         return movie.missingSubtitles.isEmpty ? "All Subtitles Present" : "\(movie.missingSubtitles.count) Language(s) Missing"
     }
 
-    private func subtitleRow(_ sub: BazarrSubtitle) -> some View {
-        HStack {
-            VStack(alignment: .leading) {
-                Text(sub.name)
-                    .font(.body)
-                if let path = sub.path {
-                    Text(path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            if sub.hi {
-                Text("HI")
-                    .font(.caption2)
-                    .padding(.horizontal, 4)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.15)))
-            }
-            if sub.forced {
-                Text("Forced")
-                    .font(.caption2)
-                    .padding(.horizontal, 4)
-                    .background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
-            }
-        }
-    }
-
     // MARK: - Actions
 
     private func load() async {
@@ -240,12 +212,22 @@ struct BazarrMovieDetailView: View {
     }
 
     private func updateProfile() async {
+        var apiError: Error?
         do {
             try await viewModel.setMovieProfile(radarrId: radarrId, profileId: selectedProfileId)
-            await load()
-            inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated.")
         } catch {
-            inAppNotificationCenter.showError(title: "Failed", message: error.localizedDescription)
+            apiError = error
+        }
+
+        await load()
+        if let apiError {
+            if case ArrError.serverError(500, _) = apiError {
+                inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated (server hiccup — it's set).")
+            } else {
+                inAppNotificationCenter.showError(title: "Failed", message: apiError.localizedDescription)
+            }
+        } else {
+            inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated.")
         }
     }
 

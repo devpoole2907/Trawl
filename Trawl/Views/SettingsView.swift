@@ -214,7 +214,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToJellyfinSettings) {
                     serviceRow(
-                        icon: "server.rack", color: .indigo,
+                        icon: "server.rack", color: .mint,
                         name: jellyfinProfile?.displayName ?? "Jellyfin",
                         url: jellyfinProfile?.hostURL,
                         isConnected: jellyfinServiceManager.isConnected,

@@ -187,8 +187,9 @@ final class JellyfinActivityLogViewModel {
     private let pageSize = 50
     private var totalRecords = 0
     private var hasLoaded = false
+    private var loadMoreFailed = false
 
-    var hasMore: Bool { entries.count < totalRecords }
+    var hasMore: Bool { !loadMoreFailed && entries.count < totalRecords }
 
     init(apiClient: JellyfinAPIClient) {
         self.apiClient = apiClient
@@ -197,6 +198,7 @@ final class JellyfinActivityLogViewModel {
     func load() async {
         isLoading = true
         errorMessage = nil
+        loadMoreFailed = false
         do {
             let response = try await apiClient.getActivityLog(startIndex: 0, limit: pageSize)
             entries = response.items
@@ -216,7 +218,7 @@ final class JellyfinActivityLogViewModel {
             entries.append(contentsOf: response.items)
             totalRecords = response.totalRecordCount
         } catch {
-            // Silently ignore load-more failures
+            loadMoreFailed = true
         }
         isLoadingMore = false
     }

@@ -169,7 +169,7 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
 
     @ViewBuilder
     private var expandableSearchBar: some View {
-        let fitSearchBarWidth: CGFloat = viewSize.width - 102
+        let fitSearchBarWidth: CGFloat = max(viewSize.width - 102, 60)
 
         ZStack(alignment: .trailing) {
             HStack(spacing: 0) {

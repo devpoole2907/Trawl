@@ -222,19 +222,45 @@ struct AddImportLocationSheet: View {
     let onAdd: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(ArrServiceManager.self) private var serviceManager
     @State private var path = ""
+    @State private var showingBrowser = false
+
+    private var trimmedPath: String {
+        path.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var canAdd: Bool {
+        !trimmedPath.isEmpty && isAbsoluteImportPath(trimmedPath)
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Absolute path on server", text: $path)
-                        .autocorrectionDisabled()
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
+                    HStack {
+                        TextField("Absolute path on server", text: $path)
+                            .autocorrectionDisabled()
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+
+                        if browserSource != nil {
+                            Button {
+                                showingBrowser = true
+                            } label: {
+                                Label("Browse", systemImage: "folder")
+                            }
+                            .buttonStyle(.borderless)
+                        }
+                    }
                 } footer: {
-                    Text("Example: /downloads/completed")
+                    if !trimmedPath.isEmpty && !isAbsoluteImportPath(trimmedPath) {
+                        Text("Path must be absolute, e.g. /downloads/completed")
+                            .foregroundStyle(.red)
+                    } else {
+                        Text("Example: /downloads/completed. Paths are on the \(service.displayName) server or container.")
+                    }
                 }
 
                 Section {
@@ -253,20 +279,53 @@ struct AddImportLocationSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") {
-                        let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-                        guard !trimmed.isEmpty else { return }
-
-                        guard isAbsoluteImportPath(trimmed) else { return }
-
-                        onAdd(trimmed)
+                        onAdd(trimmedPath)
                         dismiss()
                     }
-                    .disabled(path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(!canAdd)
+                }
+            }
+        }
+        .sheet(isPresented: $showingBrowser) {
+            if let source = browserSource {
+                NavigationStack {
+                    RemotePathBrowserView(
+                        title: "\(service.displayName) Folders",
+                        source: source,
+                        initialPath: path
+                    ) { selectedPath in
+                        path = selectedPath
+                    }
                 }
             }
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+    }
+
+    private var browserSource: RemotePathBrowserSource? {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return nil }
+            return Self.source(serviceName: "Sonarr", client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return nil }
+            return Self.source(serviceName: "Radarr", client: client)
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {
+        RemotePathBrowserSource(
+            serviceName: serviceName,
+            loadRoots: {
+                try await client.getFileSystem(path: "", includeFiles: false).map(\.remotePathEntry)
+            },
+            loadChildren: { path in
+                try await client.getFileSystem(path: path, includeFiles: false).map(\.remotePathEntry)
+            }
+        )
     }
 }
 
@@ -518,28 +577,31 @@ private final class ManualImportScanViewModel {
 
             let ids = Set(items.map(\.id))
 
+            var resolved = false
             switch service {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { continue }
                 guard let tvdbId = items.first?.catalogID else { continue }
                 if let match = librarySeries.first(where: { $0.tvdbId == tvdbId }) {
                     applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                    resolved = true
                 } else if let candidate = try? await client.lookupSeriesByTvdb(tvdbId: tvdbId) {
-                    await addToLibraryAndIdentify(blockedItems: items, series: candidate, importAfterAdding: false)
+                    resolved = await addToLibraryAndIdentify(blockedItems: items, series: candidate, importAfterAdding: false)
                 }
             case .radarr:
                 guard let client = serviceManager.radarrClient else { continue }
                 guard let tmdbId = items.first?.catalogID else { continue }
                 if let match = libraryMovies.first(where: { $0.tmdbId == tmdbId }) {
                     applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
+                    resolved = true
                 } else if let candidate = try? await client.lookupMovieByTmdb(tmdbId: tmdbId) {
-                    await addToLibraryAndIdentify(blockedItems: items, movie: candidate, importAfterAdding: false)
+                    resolved = await addToLibraryAndIdentify(blockedItems: items, movie: candidate, importAfterAdding: false)
                 }
             case .prowlarr, .bazarr:
-                break
+                continue
             }
 
-            selectedBlockedFiles.subtract(ids)
+            guard resolved else { continue }
             if importableFiles.contains(where: { ids.contains($0.id) }) {
                 selectedFiles.formUnion(ids)
             }
@@ -3108,7 +3170,7 @@ private struct ManualImportBlockedSelectionSheet: View {
                         Text("Ready to Import")
                     } footer: {
                         if !pendingAddGroups.isEmpty {
-                            Text("Items marked \"Not Added\" will be added to \(viewModel.service.displayName) when you tap Import.")
+                            Text("These items will be added to \(viewModel.service.displayName) and imported together when you tap Import.")
                         }
                     }
                 }

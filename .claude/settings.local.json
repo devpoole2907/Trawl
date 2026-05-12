@@ -60,7 +60,12 @@
       "Bash(xcodebuild -project Trawl.xcodeproj -list)",
       "Bash(xcodebuild -project Trawl.xcodeproj -scheme Trawl -destination 'generic/platform=iOS Simulator' -configuration Debug build)",
       "Bash(awk '/Exceptions for \"Trawl\" folder in \"TrawlShare\"/,/target = / { print NR\": \"$0 }' Trawl.xcodeproj/project.pbxproj)",
-      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'generic/platform=macOS' -configuration Debug build)"
+      "Bash(xcodebuild -project Trawl.xcodeproj -scheme TrawlMac -destination 'generic/platform=macOS' -configuration Debug build)",
+      "Bash(gh api *)",
+      "Bash(python3 *)",
+      "Bash(gh pr *)",
+      "Read(//Users/jamespoole/Documents/Trawl Project/Trawl/**)",
+      "mcp__XcodeBuildMCP__list_sims"
     ]
   }
 }

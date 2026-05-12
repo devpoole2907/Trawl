@@ -1133,7 +1133,7 @@ private struct EpisodeFileRow: View {
             }
 
             if let subtitles, !subtitles.isEmpty {
-                subtitleFilesView
+                BazarrSubtitleFilesView(subtitles: subtitles)
             }
         }
         .padding(.horizontal, 14)
@@ -1145,43 +1145,6 @@ private struct EpisodeFileRow: View {
                 Label("Delete File", systemImage: "trash")
             }
         }
-    }
-
-    private var subtitleFilesView: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Image(systemName: "captions.bubble.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.teal)
-                ForEach(subtitles!, id: \.self) { sub in
-                    HStack(spacing: 3) {
-                        Text(sub.code2)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.teal)
-                        if sub.hi {
-                            Text("HI")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.blue)
-                        }
-                        if sub.forced {
-                            Text("Forced")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.orange)
-                        }
-                        if let size = sub.fileSize {
-                            Text(ByteFormatter.format(bytes: Int64(size)))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.teal.opacity(0.12)))
-                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var audioDescription: String? {
@@ -2284,18 +2247,22 @@ struct SonarrEpisodeSearchView: View {
 
     @ViewBuilder
     private func episodeFileRow(_ file: SonarrEpisodeFile) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 8) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(file.quality?.quality?.name ?? "Unknown Quality")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.white)
-                    Text(ByteFormatter.format(bytes: file.size ?? 0))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    if let path = file.path {
+                        Text(path)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                
+
                 Menu {
                     Button(role: .destructive) {
                         episodeFileToDelete = file
@@ -2311,16 +2278,40 @@ struct SonarrEpisodeSearchView: View {
                 }
             }
 
-            if let path = file.path {
-                Text(path)
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    if let size = file.size, size > 0 {
+                        Label(ByteFormatter.format(bytes: size), systemImage: "externaldrive")
+                    }
+                    if let videoCodec = file.mediaInfo?.videoCodec, !videoCodec.isEmpty {
+                        Label(videoCodec, systemImage: "video")
+                    }
+                    if let resolution = file.mediaInfo?.resolution, !resolution.isEmpty {
+                        Label(resolution, systemImage: "aspectratio")
+                    }
+                    if let videoBitDepth = file.mediaInfo?.videoBitDepth {
+                        Label("\(videoBitDepth)-bit", systemImage: "eyedropper")
+                    }
+                    if let videoFps = file.mediaInfo?.videoFps {
+                        Label("\(String(format: "%.1f", videoFps)) fps", systemImage: "timer")
+                    }
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let audio = audioDescription(for: file), !audio.isEmpty {
+                Label(audio, systemImage: "waveform")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .truncationMode(.middle)
+                    .truncationMode(.tail)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
         .padding(.vertical, 10)
+        .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -2330,6 +2321,22 @@ struct SonarrEpisodeSearchView: View {
             } label: {
                 Label("Delete", systemImage: "trash")
             }
+        }
+    }
+
+    private func audioDescription(for file: SonarrEpisodeFile) -> String? {
+        let codec = file.mediaInfo?.audioCodec
+        let languages = file.mediaInfo?.audioLanguages
+
+        switch (codec, languages) {
+        case let (.some(codec), .some(languages)) where !codec.isEmpty && !languages.isEmpty:
+            return "\(codec) • \(languages)"
+        case let (.some(codec), _) where !codec.isEmpty:
+            return codec
+        case let (_, .some(languages)) where !languages.isEmpty:
+            return languages
+        default:
+            return nil
         }
     }
 }

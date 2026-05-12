@@ -406,11 +406,77 @@ private nonisolated extension KeyedDecodingContainer where Key == BazarrLanguage
 }
 
 nonisolated struct BazarrLanguageProfileItem: Codable, Identifiable, Sendable {
-    let language: String
-    let hi: Bool
-    let forced: Bool
+    var bazarrId: Int
+    var language: String
+    var hi: Bool
+    var forced: Bool
+    var audioExclude: Bool
+    var audioOnlyInclude: Bool
 
-    var id: String { language + (hi ? ":hi" : "") + (forced ? ":forced" : "") }
+    var id: String {
+        let suffix = "\(language):\(hi ? "1" : "0"):\(forced ? "1" : "0")"
+        return bazarrId > 0 ? "\(bazarrId):\(suffix)" : suffix
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case bazarrId = "id"
+        case language
+        case hi
+        case forced
+        case audioExclude = "audio_exclude"
+        case audioOnlyInclude = "audio_only_include"
+    }
+
+    init(
+        bazarrId: Int = 0,
+        language: String,
+        hi: Bool = false,
+        forced: Bool = false,
+        audioExclude: Bool = false,
+        audioOnlyInclude: Bool = false
+    ) {
+        self.bazarrId = bazarrId
+        self.language = language
+        self.hi = hi
+        self.forced = forced
+        self.audioExclude = audioExclude
+        self.audioOnlyInclude = audioOnlyInclude
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bazarrId = (try? container.decodeIfPresent(Int.self, forKey: .bazarrId)) ?? 0
+        language = (try? container.decodeIfPresent(String.self, forKey: .language)) ?? ""
+        hi = Self.decodePythonBool(container, key: .hi)
+        forced = Self.decodePythonBool(container, key: .forced)
+        audioExclude = Self.decodePythonBool(container, key: .audioExclude)
+        audioOnlyInclude = Self.decodePythonBool(container, key: .audioOnlyInclude)
+    }
+
+    // Bazarr's /api/system/settings expects Python-style "True"/"False" string booleans
+    // (see Bazarr dict_converter). Do not change to native JSON booleans.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bazarrId, forKey: .bazarrId)
+        try container.encode(language, forKey: .language)
+        try container.encode(hi ? "True" : "False", forKey: .hi)
+        try container.encode(forced ? "True" : "False", forKey: .forced)
+        try container.encode(audioExclude ? "True" : "False", forKey: .audioExclude)
+        try container.encode(audioOnlyInclude ? "True" : "False", forKey: .audioOnlyInclude)
+    }
+
+    private static func decodePythonBool(_ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Bool {
+        if let bool = try? container.decodeIfPresent(Bool.self, forKey: key) {
+            return bool
+        }
+        if let string = try? container.decodeIfPresent(String.self, forKey: key) {
+            switch string.lowercased() {
+            case "true", "1", "yes": return true
+            default: return false
+            }
+        }
+        return false
+    }
 }
 
 // MARK: - Providers

@@ -202,12 +202,12 @@ actor BazarrAPIClient: SharedArrClient {
             throw ArrError.profileSelectionCountMismatch(itemCount: seriesIds.count, profileCount: profileIds.count)
         }
 
-        var queryItems: [URLQueryItem] = []
+        var formItems: [URLQueryItem] = []
         for (index, id) in seriesIds.enumerated() {
-            queryItems.append(URLQueryItem(name: "seriesid", value: String(id)))
-            queryItems.append(URLQueryItem(name: "profileid", value: profileIds[index] ?? "none"))
+            formItems.append(URLQueryItem(name: "seriesid", value: String(id)))
+            formItems.append(URLQueryItem(name: "profileid", value: profileIds[index] ?? "null"))
         }
-        try await base.postVoid("/api/series", queryItems: queryItems)
+        try await base.postFormItems("/api/series", formItems: formItems)
     }
 
     func runSeriesAction(seriesId: Int, action: BazarrSeriesAction) async throws {
@@ -235,12 +235,12 @@ actor BazarrAPIClient: SharedArrClient {
             throw ArrError.profileSelectionCountMismatch(itemCount: radarrIds.count, profileCount: profileIds.count)
         }
 
-        var queryItems: [URLQueryItem] = []
+        var formItems: [URLQueryItem] = []
         for (index, id) in radarrIds.enumerated() {
-            queryItems.append(URLQueryItem(name: "radarrid", value: String(id)))
-            queryItems.append(URLQueryItem(name: "profileid", value: profileIds[index] ?? "none"))
+            formItems.append(URLQueryItem(name: "radarrid", value: String(id)))
+            formItems.append(URLQueryItem(name: "profileid", value: profileIds[index] ?? "null"))
         }
-        try await base.postVoid("/api/movies", queryItems: queryItems)
+        try await base.postFormItems("/api/movies", formItems: formItems)
     }
 
     func runMovieAction(radarrId: Int, action: BazarrSeriesAction) async throws {

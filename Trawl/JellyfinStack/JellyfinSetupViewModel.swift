@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 import SwiftData
 import Observation
 
@@ -144,7 +145,7 @@ final class JellyfinSetupViewModel {
 
     private func persist(_ result: JellyfinSetupResult, modelContext: ModelContext) async throws {
         let profiles = try modelContext.fetch(FetchDescriptor<JellyfinServiceProfile>())
-        let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first
+        let profile = profiles.first(where: { $0.id == seededProfileID }) ?? profiles.first(where: { $0.isEnabled }) ?? profiles.first
         let isNewProfile = profile == nil
         let savedProfile = profile ?? JellyfinServiceProfile(
             displayName: resolvedDisplayName(from: result),
@@ -206,7 +207,11 @@ final class JellyfinSetupViewModel {
             if isNewProfile {
                 modelContext.rollback()
             } else {
-                try? modelContext.save()
+                do {
+                    try modelContext.save()
+                } catch {
+                    Self.logger.error("Model context save failed during rollback: \(error)")
+                }
             }
             throw error
         }
@@ -231,11 +236,17 @@ final class JellyfinSetupViewModel {
         }
     }
 
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "JellyfinSetupViewModel")
+
     private func restoreToken(_ originalToken: String?, key: String) async {
-        if let originalToken {
-            try? await KeychainHelper.shared.save(key: key, value: originalToken)
-        } else {
-            try? await KeychainHelper.shared.delete(key: key)
+        do {
+            if let originalToken {
+                try await KeychainHelper.shared.save(key: key, value: originalToken)
+            } else {
+                try await KeychainHelper.shared.delete(key: key)
+            }
+        } catch {
+            Self.logger.error("Keychain rollback failed for key \(key): \(error)")
         }
     }
 
