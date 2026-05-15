@@ -428,6 +428,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         releases.count - sortedFilteredReleases.count
     }
 
+    private var qualityFilterItems: [TrawlSegmentBarItem<String>] {
+        [TrawlSegmentBarItem("All", value: "")]
+            + availableQualities.map { TrawlSegmentBarItem($0, value: $0) }
+    }
+
     private var releaseCountSubtitle: String {
         guard !releases.isEmpty else { return "" }
         let shown = displayedReleases.count
@@ -521,6 +526,12 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 }
             }
             .searchable(text: $searchText, prompt: "Search releases…")
+            .safeAreaInset(edge: .top) {
+                if !releases.isEmpty {
+                    qualityFilterBar
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
             .navigationTitle(title)
             .navigationSubtitle(releaseCountSubtitle)
             #if os(iOS)
@@ -567,6 +578,21 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
+    private var qualityFilterBar: some View {
+        TrawlSegmentBar(
+            "Quality",
+            selection: Binding(
+                get: { releaseSort.quality },
+                set: { quality in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        releaseSort.quality = quality
+                    }
+                }
+            ),
+            items: qualityFilterItems
+        )
+    }
+
     private var filterMenu: some View {
         Menu {
             if supportsSeasonPackFiltering {
@@ -584,17 +610,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     Text("All Indexers").tag("")
                     ForEach(availableIndexers, id: \.self) { indexer in
                         Text(indexer).tag(indexer)
-                    }
-                }
-                .pickerStyle(.inline)
-                .menuIndicator(.hidden)
-            }
-
-            if !availableQualities.isEmpty {
-                Picker("Quality", selection: $releaseSort.quality) {
-                    Text("All Qualities").tag("")
-                    ForEach(availableQualities, id: \.self) { quality in
-                        Text(quality).tag(quality)
                     }
                 }
                 .pickerStyle(.inline)

@@ -41,6 +41,7 @@ struct JellyfinMediaAvailabilityCard: View {
     @State private var errorMessage: String?
     @State private var refreshedItemIDs: Set<String> = []
     @State private var isExpanded = false
+    @State private var hasLoadedAvailability = false
 
     var body: some View {
         if serviceManager.isConnected || serviceManager.connectionError != nil || serviceManager.isConnecting {
@@ -49,7 +50,8 @@ struct JellyfinMediaAvailabilityCard: View {
                     isExpanded = false
                     matchedItems = []
                     errorMessage = nil
-                    await loadAvailability()
+                    refreshedItemIDs = []
+                    hasLoadedAvailability = false
                 }
         }
     }
@@ -79,13 +81,17 @@ struct JellyfinMediaAvailabilityCard: View {
 
     private var header: some View {
         Button {
+            let shouldLoad = !isExpanded
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 isExpanded.toggle()
             }
+            if shouldLoad {
+                Task { await loadAvailability() }
+            }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: matchedItems.isEmpty ? "play.slash.fill" : "play.tv.fill")
-                    .foregroundStyle(matchedItems.isEmpty ? .orange : .green)
+                Image(systemName: availabilityIconName)
+                    .foregroundStyle(availabilityTint)
                     .frame(width: 24, alignment: .leading)
                 Text("Jellyfin")
                     .font(.headline)
@@ -95,12 +101,12 @@ struct JellyfinMediaAvailabilityCard: View {
                         .controlSize(.small)
                         .tint(.white)
                 } else {
-                    Text(matchedItems.isEmpty ? "Not Present" : "Present")
+                    Text(availabilityStatusText)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background((matchedItems.isEmpty ? Color.orange : Color.green).opacity(0.16), in: Capsule())
-                        .foregroundStyle(matchedItems.isEmpty ? .orange : .green)
+                        .background(availabilityTint.opacity(0.16), in: Capsule())
+                        .foregroundStyle(availabilityTint)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -112,6 +118,24 @@ struct JellyfinMediaAvailabilityCard: View {
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
+    }
+
+    private var availabilityStatusText: String {
+        if errorMessage != nil { return "Error" }
+        guard hasLoadedAvailability else { return "Check" }
+        return matchedItems.isEmpty ? "Not Present" : "Present"
+    }
+
+    private var availabilityIconName: String {
+        if errorMessage != nil { return "exclamationmark.triangle.fill" }
+        guard hasLoadedAvailability else { return "play.tv" }
+        return matchedItems.isEmpty ? "play.slash.fill" : "play.tv.fill"
+    }
+
+    private var availabilityTint: Color {
+        if errorMessage != nil { return .orange }
+        guard hasLoadedAvailability else { return .secondary }
+        return matchedItems.isEmpty ? .orange : .green
     }
 
     private var matchedRows: some View {
@@ -216,9 +240,10 @@ struct JellyfinMediaAvailabilityCard: View {
 
     private func loadAvailability(force: Bool = false) async {
         guard !isLoading else { return }
-        guard force || matchedItems.isEmpty else { return }
+        guard force || !hasLoadedAvailability else { return }
         guard let client = serviceManager.activeClient else {
             errorMessage = serviceManager.connectionError
+            hasLoadedAvailability = true
             return
         }
 
@@ -231,8 +256,10 @@ struct JellyfinMediaAvailabilityCard: View {
             matchedItems = items.filter(matches).sorted { lhs, rhs in
                 (lhs.name ?? "") < (rhs.name ?? "")
             }
+            hasLoadedAvailability = true
         } catch {
             errorMessage = error.localizedDescription
+            hasLoadedAvailability = true
         }
     }
 
