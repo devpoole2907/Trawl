@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import SwiftUI
 
 // MARK: - Movie
 
@@ -417,6 +418,9 @@ enum RadarrCommand: String, Sendable {
     case backup = "Backup"
     case applicationUpdate = "ApplicationUpdate"
 }
+
+// BadgeRenderable conformance for RadarrMovie lives in ArrDetailSharedTypes.swift
+// (Trawl-only target) so the widget / share extensions can still compile this file.
 
 // MARK: - Movie Lookup (search results for adding)
 // Uses the same RadarrMovie struct — lookup results have tmdbId but no local id yet.

@@ -24,6 +24,10 @@ final class InAppNotificationCenter {
     #if os(iOS)
     private let notificationGenerator = UINotificationFeedbackGenerator()
     private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
+
+    private var hapticsEnabled: Bool {
+        UserDefaults.standard.object(forKey: "hapticsEnabled") as? Bool ?? true
+    }
     #endif
 
     func showDownloadCompleted(name: String) {
@@ -61,7 +65,7 @@ final class InAppNotificationCenter {
         appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: source)
 
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.success)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -92,14 +96,14 @@ final class InAppNotificationCenter {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
-                notificationGenerator.notificationOccurred(.success)
+                if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
             #endif
             presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .success, action: action), requeueCurrent: false)
             return
         }
         // Use updated trimmed values
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.success)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -121,7 +125,7 @@ final class InAppNotificationCenter {
         appendLog(title: trimmedTitle, message: trimmedMessage, style: .error, source: source)
 
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.error)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -147,14 +151,14 @@ final class InAppNotificationCenter {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
-                notificationGenerator.notificationOccurred(.error)
+                if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
             #endif
             presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .error, action: nil), requeueCurrent: false)
             return
         }
         // Use updated trimmed values
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.error)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -192,7 +196,7 @@ final class InAppNotificationCenter {
 
     func triggerImpact() {
         #if os(iOS)
-        impactGenerator.impactOccurred()
+        if hapticsEnabled { impactGenerator.impactOccurred() }
         #endif
     }
 

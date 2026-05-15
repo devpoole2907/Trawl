@@ -171,7 +171,7 @@ private struct SeerrLogDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Log Details") {
             Form {
                 Section("Timestamp") {
                     Text(timestampText)
@@ -209,18 +209,6 @@ private struct SeerrLogDetailSheet: View {
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .navigationTitle("Log Details")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .fontWeight(.semibold)
                     }
                 }
             }

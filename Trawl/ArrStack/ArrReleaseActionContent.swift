@@ -194,22 +194,36 @@ struct ArrReleaseActionContent: View {
                 await onGrab()
             }
         } label: {
-            ZStack {
-                Label("Download Release", systemImage: "arrow.down.circle.fill")
-                    .font(.headline)
-                    .opacity(isGrabbing ? 0 : 1)
-                ProgressView()
-                    .tint(.white)
-                    .opacity(isGrabbing ? 1 : 0)
+            HStack(spacing: 12) {
+                if isGrabbing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Download Release")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text(release.indexer ?? release.qualityName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 24)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(accentColor)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .disabled(!canDownload)
-        .animation(.easeInOut(duration: 0.2), value: isGrabbing)
     }
 
     private func badge(text: String, systemImage: String, tint: Color) -> some View {

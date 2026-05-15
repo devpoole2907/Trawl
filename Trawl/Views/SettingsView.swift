@@ -15,6 +15,9 @@ struct SettingsView: View {
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
+    @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
+    @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
+    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @State private var tmdbAPIKey: String = ""
     @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
     @State private var didLoadTmdbAPIKey = false
@@ -64,7 +67,7 @@ struct SettingsView: View {
             .onChange(of: tmdbAPIKey) { _, newValue in
                 guard didLoadTmdbAPIKey else { return }
                 tmdbAPIKeySaveTask?.cancel()
-                tmdbAPIKeySaveTask = Task {
+                tmdbAPIKeySaveTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -315,6 +318,22 @@ struct SettingsView: View {
                 Text("Lock Trawl behind \(appLockController.biometryName) when the app opens or returns from the background.")
             }
             #endif
+
+            Section("Appearance") {
+                Picker("Startup Tab", selection: $startupTab) {
+                    ForEach(RootTab.allCases, id: \.self) { tab in
+                        Text(tab.displayName).tag(tab.displayName)
+                    }
+                }
+
+                Picker("Theme", selection: $themeOverride) {
+                    ForEach(ThemeOverride.allCases, id: \.self) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+
+                Toggle("Haptic Feedback", isOn: $hapticsEnabled)
+            }
 
             Section("Storage") {
                 LabeledContent("Arr Artwork Cache") {

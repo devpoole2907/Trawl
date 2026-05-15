@@ -23,6 +23,8 @@ new_files = [
     "ArrStack/Library/ArrConnectingView.swift",
     "ArrStack/Library/ArrEmptyStateView.swift",
     "ArrStack/Library/ArrLibraryListView.swift",
+    "ArrStack/Library/ArrMediaListView.swift",
+    "ArrStack/ArrMediaListView.swift",
     "ArrStack/Library/InstanceDisplayNameResolver.swift",
     "ArrStack/Library/TitleSectioning.swift",
     "JellyfinStack/JellyfinAPIClient.swift",

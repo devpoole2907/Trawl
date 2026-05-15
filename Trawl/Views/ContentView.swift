@@ -7,6 +7,7 @@ import AppKit
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
@@ -22,6 +23,9 @@ struct ContentView: View {
     @State private var connectionError: String?
     @State private var isConnecting = false
     @State private var isInWelcomeFlow = true
+    @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
+    @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
+    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @State private var selectedTab: RootTab = .torrents
     @State private var morePath: [MoreDestination] = []
     @State private var magnetDeepLink: MagnetDeepLink?
@@ -37,6 +41,8 @@ struct ContentView: View {
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
     #endif
+    @State private var hasSetStartupTab = false
+
     var body: some View {
         Group {
             if shouldShowWelcomeScreen {
@@ -45,6 +51,7 @@ struct ContentView: View {
                 tabContent
             }
         }
+        .preferredColorScheme(themeOverride.colorScheme)
         .overlay(alignment: .top) {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
@@ -60,7 +67,7 @@ struct ContentView: View {
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: inAppNotificationCenter.currentBanner)
         .sensoryFeedback(trigger: inAppNotificationCenter.currentBanner) { _, newValue in
-            guard let newBanner = newValue else { return nil }
+            guard hapticsEnabled, let newBanner = newValue else { return nil }
             switch newBanner.style {
             case .error: return .error
             case .success: return .success
@@ -104,6 +111,12 @@ struct ContentView: View {
             }
         }
         .animation(.easeOut(duration: 0.18), value: appLockController.isLocked)
+        .onAppear {
+            if !hasSetStartupTab, let tab = RootTab.allCases.first(where: { $0.displayName == startupTab }) {
+                selectedTab = tab
+                hasSetStartupTab = true
+            }
+        }
         #if os(macOS)
         .alert("Handle Magnet Links?", isPresented: $showMagnetHandlerPrompt) {
             Button("Set as Default") { setAsDefaultMagnetHandler() }
@@ -187,6 +200,12 @@ struct ContentView: View {
         }
         .onChange(of: scenePhase) { oldPhase, newPhase in
             appLockController.handleScenePhase(newPhase, old: oldPhase)
+            if newPhase == .background {
+                servicesTask?.cancel()
+                appServices?.syncService.stopPolling()
+            } else if newPhase == .active && oldPhase == .background && !shouldShowWelcomeScreen {
+                initializeServices()
+            }
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
             if !isShowing, let pending = pendingDeepLink {
@@ -278,7 +297,7 @@ struct ContentView: View {
             .glassEffect(.regular.interactive(), in: Capsule())
         }
         .padding(32)
-        .frame(maxWidth: 440)
+        .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
@@ -388,7 +407,7 @@ struct ContentView: View {
             }
         }
         .padding(32)
-        .frame(maxWidth: 440)
+        .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Choose Services")
         #if os(iOS)
@@ -838,12 +857,44 @@ private struct PendingDeepLink {
     let morePath: [MoreDestination]
 }
 
-private enum RootTab: Hashable {
+enum RootTab: Hashable, CaseIterable {
     case torrents
     case series
     case movies
     case search
     case more
+
+    var displayName: String {
+        switch self {
+        case .torrents: "Torrents"
+        case .series: "Series"
+        case .movies: "Movies"
+        case .search: "Search"
+        case .more: "More"
+        }
+    }
+}
+
+enum ThemeOverride: String, CaseIterable {
+    case system
+    case light
+    case dark
+
+    var displayName: String {
+        switch self {
+        case .system: "System"
+        case .light: "Light"
+        case .dark: "Dark"
+        }
+    }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
 }
 
 private enum WelcomeStep: Hashable {

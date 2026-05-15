@@ -314,6 +314,7 @@ struct TorrentDetailView: View {
         } label: {
             Image(systemName: "ellipsis")
         }
+        .accessibilityLabel("Torrent Actions")
     }
 
     @ViewBuilder
@@ -433,7 +434,7 @@ private struct TorrentTagsSheet: View {
     @Bindable var viewModel: TorrentDetailViewModel
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Tags", cancelTitle: "Done") {
             List {
                 if viewModel.availableTags.isEmpty {
                     ContentUnavailableView(
@@ -458,17 +459,6 @@ private struct TorrentTagsSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
-                    }
-                }
-            }
-            .navigationTitle("Tags")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
                     }
                 }
             }

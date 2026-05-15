@@ -11,6 +11,7 @@ struct TorrentStatsView: View {
                 Section {
                     SpeedGraphView(history: syncService.speedHistory)
                         .frame(height: 140)
+                        .padding(4)
                         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
                 } header: {
                     HStack {

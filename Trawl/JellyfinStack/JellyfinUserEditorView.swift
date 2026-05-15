@@ -273,7 +273,14 @@ private struct JellyfinResetPasswordSheet: View {
     @State private var errorMessage: String?
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Reset Password",
+            confirmTitle: "Reset",
+            isConfirmDisabled: newPassword.isEmpty || currentPassword.isEmpty,
+            isConfirmLoading: isResetting,
+            onConfirm: { Task { await resetPassword() } },
+            detents: [.medium]
+        ) {
             Form {
                 Section("Current Password") {
                     SecureField("Required", text: $currentPassword)
@@ -293,28 +300,8 @@ private struct JellyfinResetPasswordSheet: View {
                     }
                 }
             }
-            .navigationTitle("Reset Password")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isResetting {
-                        ProgressView()
-                    } else {
-                        Button("Reset") {
-                            Task { await resetPassword() }
-                        }
-                        .disabled(newPassword.isEmpty || currentPassword.isEmpty)
-                    }
-                }
-            }
+            .presentationDragIndicator(.visible)
         }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
     }
 
     private func resetPassword() async {

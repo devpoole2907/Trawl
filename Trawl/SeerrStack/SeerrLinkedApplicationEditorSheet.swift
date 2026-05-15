@@ -63,7 +63,13 @@ struct SeerrLinkedApplicationEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: navigationTitle,
+            confirmTitle: isEditing ? "Update" : "Save",
+            isConfirmDisabled: !form.isValid,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } }
+        ) {
             Form {
                 generalSection
                 connectionSection
@@ -71,25 +77,6 @@ struct SeerrLinkedApplicationEditorSheet: View {
                 tagsSection
                 advancedSection
                 behaviorSection
-            }
-            .navigationTitle(navigationTitle)
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Update" : "Save") {
-                            Task { await save() }
-                        }
-                        .disabled(!form.isValid)
-                    }
-                }
             }
             .errorAlert(item: $errorAlert)
             .task {

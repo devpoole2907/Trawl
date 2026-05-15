@@ -229,7 +229,13 @@ private struct BazarrLinkedApplicationEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Link \(appType.displayName)",
+            confirmTitle: "Save",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } }
+        ) {
             Form {
                 Section("General") {
                     Toggle("Enabled", isOn: $isEnabled)
@@ -336,26 +342,6 @@ private struct BazarrLinkedApplicationEditorSheet: View {
                     Section {
                         Label(localErrorMessage, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.red)
-                    }
-                }
-            }
-            .navigationTitle("Link \(appType.displayName)")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            Task { await save() }
-                        }
-                        .disabled(!canSave)
                     }
                 }
             }

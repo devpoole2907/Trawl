@@ -50,7 +50,7 @@ struct ArrHistoryView: View {
                 emptyTitle: "No History",
                 emptyIcon: "tray",
                 emptyDescription: "No download or import events are available yet.",
-                onRetry: nil
+                onRetry: { Task { await reloadHistory() } }
             ) {
                 List {
                     ForEach(groupedItems) { section in

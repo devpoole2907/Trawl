@@ -343,10 +343,8 @@ struct SeerrMediaRequestCard: View {
         case .pending: .orange
         case .approved: .green
         case .declined: .red
-        case .processing: .blue
-        case .available: .teal
         case .failed: .red
-        case .completed: .purple
+        case .completed: .green
         }
     }
 }

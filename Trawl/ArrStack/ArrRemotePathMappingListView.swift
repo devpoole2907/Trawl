@@ -294,7 +294,14 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: isEditing ? "Edit Mapping" : "Add Mapping",
+            confirmTitle: isEditing ? "Update" : "Save",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } },
+            detents: [.medium, .large]
+        ) {
             Form {
                 Section {
                     Picker("Host", selection: $selectedHostID) {
@@ -359,25 +366,6 @@ struct ArrRemotePathMappingEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit Mapping" : "Add Mapping")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Update" : "Save") {
-                            Task { await save() }
-                        }
-                        .disabled(!canSave)
-                    }
-                }
-            }
             .task {
                 guard !hasLoadedInitialState else { return }
                 hasLoadedInitialState = true
@@ -400,7 +388,6 @@ struct ArrRemotePathMappingEditorSheet: View {
                 applySelectedHostID()
             }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private func normalizedHost(from hostURL: String) -> String {

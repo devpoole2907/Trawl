@@ -12,15 +12,6 @@ struct RadarrEditMovieSheet: View {
     @State private var selectedTags: Set<Int>
     @State private var moveFiles: Bool
     @State private var isSaving = false
-    @State private var qualityProfileForDetails: ArrQualityProfile?
-
-    private var rootFolderOptions: [String] {
-        let availablePaths = viewModel.rootFolders.map(\.path)
-        guard !rootFolderPath.isEmpty, !availablePaths.contains(rootFolderPath) else {
-            return availablePaths
-        }
-        return [rootFolderPath] + availablePaths
-    }
 
     init(viewModel: RadarrViewModel, movie: RadarrMovie) {
         self.viewModel = viewModel
@@ -33,109 +24,35 @@ struct RadarrEditMovieSheet: View {
         _moveFiles = State(initialValue: false)
     }
 
-    private var rootFolderChanged: Bool {
-        rootFolderPath != (movie.rootFolderPath ?? "")
-    }
-
-    private var hasExistingFiles: Bool {
-        movie.hasFile ?? false
-    }
-
     var body: some View {
-        ArrSheetShell(
+        ArrEditItemSheet(
             title: "Edit Movie",
-            confirmTitle: "Save",
-            isConfirmDisabled: isSaving || qualityProfileId == 0 || rootFolderPath.isEmpty,
-            isConfirmLoading: isSaving,
-            onConfirm: {
-                Task { await saveChanges() }
-            }
+            serviceType: .radarr,
+            itemKindLabel: "movie",
+            serviceName: "Radarr",
+            monitored: $monitored,
+            qualityProfileId: $qualityProfileId,
+            rootFolderPath: $rootFolderPath,
+            selectedTags: $selectedTags,
+            moveFiles: $moveFiles,
+            isSaving: isSaving,
+            hasExistingFiles: movie.hasFile ?? false,
+            rootFolderChanged: rootFolderPath != (movie.rootFolderPath ?? ""),
+            qualityProfiles: viewModel.qualityProfiles,
+            rootFolders: viewModel.rootFolders,
+            tags: viewModel.tags,
+            onSave: { Task { await saveChanges() } }
         ) {
-            Form {
-                Section {
-                    ArrMonitoredToggle(isMonitored: $monitored)
-
-                    ArrQualityProfilePicker(
-                        selection: Binding(
-                            get: { qualityProfileId },
-                            set: { if let val = $0 { qualityProfileId = val } }
-                        ),
-                        profiles: viewModel.qualityProfiles
-                    ) { profile in
-                        qualityProfileForDetails = profile
-                    }
-
-                    Picker("Minimum Availability", selection: $minimumAvailability) {
-                        Text("Announced").tag("announced")
-                        Text("In Cinemas").tag("inCinemas")
-                        Text("Released").tag("released")
-                        Text("Predb").tag("preDB")
-                    }
-
-                    ArrRootFolderPicker(
-                        selection: Binding(
-                            get: { rootFolderPath },
-                            set: { if let val = $0 { rootFolderPath = val } }
-                        ),
-                        folders: viewModel.rootFolders
-                    )
-                    
-                    if rootFolderChanged && hasExistingFiles {
-                        Toggle("Move Existing Files", isOn: $moveFiles)
-                    }
-                } header: {
-                    Text("Library")
-                } footer: {
-                    if rootFolderChanged {
-                        if hasExistingFiles {
-                            Text(moveFiles
-                                 ? "This updates the movie folder and asks Radarr to move existing files into the new root."
-                                 : "This updates the movie folder, but existing files stay where they are until you move them manually.")
-                        } else {
-                            Text("This updates the movie folder so future imports target the new root.")
-                        }
-                    }
-                }
-
-                Section("Tags") {
-                    if viewModel.tags.isEmpty {
-                        Text("No tags available")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(viewModel.tags) { tag in
-                            Toggle(isOn: tagBinding(for: tag.id)) {
-                                Text(tag.label)
-                            }
-                        }
-                    }
-                }
+            Picker("Minimum Availability", selection: $minimumAvailability) {
+                Text("Announced").tag("announced")
+                Text("In Cinemas").tag("inCinemas")
+                Text("Released").tag("released")
+                Text("Predb").tag("preDB")
             }
         }
         .task {
             await refreshConfiguration()
         }
-        .sheet(item: $qualityProfileForDetails) { profile in
-            NavigationStack {
-                ArrQualityProfileDetailView(serviceType: .radarr, profile: profile)
-            }
-        }
-    }
-
-    private func tagBinding(for tagId: Int) -> Binding<Bool> {
-        Binding(
-            get: { selectedTags.contains(tagId) },
-            set: { isSelected in
-                if isSelected {
-                    selectedTags.insert(tagId)
-                } else {
-                    selectedTags.remove(tagId)
-                }
-            }
-        )
-    }
-
-    private var selectedQualityProfile: ArrQualityProfile? {
-        viewModel.qualityProfiles.first { $0.id == qualityProfileId }
     }
 
     private func refreshConfiguration() async {
@@ -150,6 +67,8 @@ struct RadarrEditMovieSheet: View {
 
     private func saveChanges() async {
         isSaving = true
+        let folderChanged = rootFolderPath != (movie.rootFolderPath ?? "")
+        let hasFile = movie.hasFile ?? false
         let success = await viewModel.updateMovie(
             movie,
             monitored: monitored,
@@ -157,12 +76,9 @@ struct RadarrEditMovieSheet: View {
             minimumAvailability: minimumAvailability,
             rootFolderPath: rootFolderPath,
             tags: Array(selectedTags).sorted(),
-            moveFiles: rootFolderChanged && hasExistingFiles && moveFiles
+            moveFiles: folderChanged && hasFile && moveFiles
         )
         isSaving = false
-
-        if success {
-            dismiss()
-        }
+        if success { dismiss() }
     }
 }

@@ -3,10 +3,14 @@ import SwiftData
 
 struct SeerrSetupSheet: View {
     var onComplete: (() -> Void)?
-    
+
     var body: some View {
-        NavigationStack {
-            SeerrConnectionFormView(onComplete: onComplete, showsCancelButton: true)
+        AppSheetShell(
+            title: "Add Seerr",
+            detents: [.medium, .large],
+            dragIndicator: .visible
+        ) {
+            SeerrConnectionFormView(onComplete: onComplete)
         }
     }
 }
@@ -17,7 +21,6 @@ private struct SeerrConnectionFormView: View {
     @State private var viewModel = SeerrSetupViewModel()
 
     var onComplete: (() -> Void)?
-    var showsCancelButton = false
 
     var body: some View {
         Form {
@@ -76,20 +79,9 @@ private struct SeerrConnectionFormView: View {
             }
         }
         .tint(.indigo)
-        .navigationTitle("Add Seerr")
         #if os(iOS)
-        .navigationBarTitleDisplayMode(showsCancelButton ? .inline : .large)
         .listStyle(.insetGrouped)
         #endif
-        .toolbar {
-            if showsCancelButton {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -243,19 +235,20 @@ struct SeerrSettingsView: View {
             await loadPublicSettings()
         }
         .sheet(isPresented: $showingConnectionSheet) {
-            NavigationStack {
+            AppSheetShell(
+                title: "Add Seerr",
+                detents: [.medium, .large],
+                dragIndicator: .visible
+            ) {
                 SeerrConnectionFormView(
                     onComplete: {
                         Task {
                             await seerrServiceManager.initialize(from: profiles)
                             await loadPublicSettings()
                         }
-                    },
-                    showsCancelButton: true
+                    }
                 )
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
             "Remove Seerr Server?",
@@ -294,9 +287,17 @@ struct SeerrSettingsView: View {
 
     private func removeProfile() async {
         guard let profile else { return }
-        try? await KeychainHelper.shared.delete(key: profile.sessionCookieKey)
+        do {
+            try await KeychainHelper.shared.delete(key: profile.sessionCookieKey)
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Failed to Remove Profile", message: error.localizedDescription)
+        }
         modelContext.delete(profile)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Failed to Save Changes", message: error.localizedDescription)
+        }
         seerrServiceManager.disconnect()
         publicSettings = nil
         settingsError = nil

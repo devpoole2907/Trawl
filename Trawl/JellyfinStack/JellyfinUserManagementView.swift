@@ -218,7 +218,15 @@ private struct JellyfinAddUserSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add User",
+            confirmTitle: "Add",
+            isConfirmDisabled: trimmedName.isEmpty,
+            isConfirmLoading: isCreating,
+            onConfirm: { Task { await addUser() } },
+            detents: [.medium],
+            dragIndicator: .visible
+        ) {
             Form {
                 Section("User") {
                     TextField("Username", text: $name)
@@ -239,29 +247,7 @@ private struct JellyfinAddUserSheet: View {
                     }
                 }
             }
-            .navigationTitle("Add User")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    if isCreating {
-                        ProgressView()
-                    } else {
-                        Button("Add") {
-                            Task { await addUser() }
-                        }
-                        .disabled(trimmedName.isEmpty)
-                    }
-                }
-            }
         }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
         .alert("Sync to Seerr?", isPresented: $showSyncAlert) {
             Button("Sync") {
                 Task { await performSyncToSeerr() }

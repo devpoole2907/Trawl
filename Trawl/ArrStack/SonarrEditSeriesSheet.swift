@@ -13,15 +13,6 @@ struct SonarrEditSeriesSheet: View {
     @State private var selectedTags: Set<Int>
     @State private var moveFiles: Bool
     @State private var isSaving = false
-    @State private var qualityProfileForDetails: ArrQualityProfile?
-
-    private var rootFolderOptions: [String] {
-        let availablePaths = viewModel.rootFolders.map(\.path)
-        guard !rootFolderPath.isEmpty, !availablePaths.contains(rootFolderPath) else {
-            return availablePaths
-        }
-        return [rootFolderPath] + availablePaths
-    }
 
     init(viewModel: SonarrViewModel, series: SonarrSeries) {
         self.viewModel = viewModel
@@ -35,109 +26,35 @@ struct SonarrEditSeriesSheet: View {
         _moveFiles = State(initialValue: (series.statistics?.episodeFileCount ?? 0) > 0)
     }
 
-    private var rootFolderChanged: Bool {
-        rootFolderPath != (series.rootFolderPath ?? "")
-    }
-
-    private var hasExistingFiles: Bool {
-        (series.statistics?.episodeFileCount ?? 0) > 0
-    }
-
     var body: some View {
-        ArrSheetShell(
+        ArrEditItemSheet(
             title: "Edit Series",
-            confirmTitle: "Save",
-            isConfirmDisabled: isSaving || qualityProfileId == 0 || rootFolderPath.isEmpty,
-            isConfirmLoading: isSaving,
-            onConfirm: {
-                Task { await saveChanges() }
-            }
+            serviceType: .sonarr,
+            itemKindLabel: "series",
+            serviceName: "Sonarr",
+            monitored: $monitored,
+            qualityProfileId: $qualityProfileId,
+            rootFolderPath: $rootFolderPath,
+            selectedTags: $selectedTags,
+            moveFiles: $moveFiles,
+            isSaving: isSaving,
+            hasExistingFiles: (series.statistics?.episodeFileCount ?? 0) > 0,
+            rootFolderChanged: rootFolderPath != (series.rootFolderPath ?? ""),
+            qualityProfiles: viewModel.qualityProfiles,
+            rootFolders: viewModel.rootFolders,
+            tags: viewModel.tags,
+            onSave: { Task { await saveChanges() } }
         ) {
-            Form {
-                Section {
-                    ArrMonitoredToggle(isMonitored: $monitored)
-                    Toggle("Season Folder", isOn: $seasonFolder)
-
-                    ArrQualityProfilePicker(
-                        selection: Binding(
-                            get: { qualityProfileId },
-                            set: { if let val = $0 { qualityProfileId = val } }
-                        ),
-                        profiles: viewModel.qualityProfiles
-                    ) { profile in
-                        qualityProfileForDetails = profile
-                    }
-
-                    Picker("Series Type", selection: $seriesType) {
-                        Text("Standard").tag("standard")
-                        Text("Daily").tag("daily")
-                        Text("Anime").tag("anime")
-                    }
-
-                    ArrRootFolderPicker(
-                        selection: Binding(
-                            get: { rootFolderPath },
-                            set: { if let val = $0 { rootFolderPath = val } }
-                        ),
-                        folders: viewModel.rootFolders
-                    )
-
-                    if rootFolderChanged && hasExistingFiles {
-                        Toggle("Move Existing Files", isOn: $moveFiles)
-                    }
-                } header: {
-                    Text("Library")
-                } footer: {
-                    if rootFolderChanged {
-                        if hasExistingFiles {
-                            Text(moveFiles
-                                 ? "This updates the series folder and asks Sonarr to move existing files into the new root."
-                                 : "This updates the series folder, but existing files stay where they are until you move them manually.")
-                        } else {
-                            Text("This updates the series folder so future imports target the new root.")
-                        }
-                    }
-                }
-
-                Section("Tags") {
-                    if viewModel.tags.isEmpty {
-                        Text("No tags available")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(viewModel.tags) { tag in
-                            Toggle(isOn: tagBinding(for: tag.id)) {
-                                Text(tag.label)
-                            }
-                        }
-                    }
-                }
+            Toggle("Season Folder", isOn: $seasonFolder)
+            Picker("Series Type", selection: $seriesType) {
+                Text("Standard").tag("standard")
+                Text("Daily").tag("daily")
+                Text("Anime").tag("anime")
             }
         }
         .task {
             await refreshConfiguration()
         }
-        .sheet(item: $qualityProfileForDetails) { profile in
-            NavigationStack {
-                ArrQualityProfileDetailView(serviceType: .sonarr, profile: profile)
-            }
-        }
-    }
-
-    private func tagBinding(for tagId: Int) -> Binding<Bool> {
-        Binding(
-            get: { selectedTags.contains(tagId) },
-            set: { isSelected in
-                if isSelected {
-                    selectedTags.insert(tagId)
-                } else {
-                    selectedTags.remove(tagId)
-                }
-            }
-        )
-    }
-
-    private var selectedQualityProfile: ArrQualityProfile? {
-        viewModel.qualityProfiles.first { $0.id == qualityProfileId }
     }
 
     private func refreshConfiguration() async {
@@ -152,6 +69,8 @@ struct SonarrEditSeriesSheet: View {
 
     private func saveChanges() async {
         isSaving = true
+        let hasFiles = (series.statistics?.episodeFileCount ?? 0) > 0
+        let folderChanged = rootFolderPath != (series.rootFolderPath ?? "")
         let success = await viewModel.updateSeries(
             series,
             monitored: monitored,
@@ -160,12 +79,9 @@ struct SonarrEditSeriesSheet: View {
             seasonFolder: seasonFolder,
             rootFolderPath: rootFolderPath,
             tags: Array(selectedTags).sorted(),
-            moveFiles: rootFolderChanged && hasExistingFiles && moveFiles
+            moveFiles: folderChanged && hasFiles && moveFiles
         )
         isSaving = false
-
-        if success {
-            dismiss()
-        }
+        if success { dismiss() }
     }
 }

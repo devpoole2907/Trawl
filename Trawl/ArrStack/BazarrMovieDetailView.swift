@@ -21,7 +21,7 @@ struct BazarrMovieDetailView: View {
             item: movie,
             title: movie?.title ?? "Movie",
             backgroundURL: movie?.poster.flatMap(URL.init(string:))
-        ) {
+        ) { _ in
             ArrLoadingErrorEmptyView(
                 isLoading: isLoading,
                 error: error,
@@ -48,6 +48,7 @@ struct BazarrMovieDetailView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                     }
+                    .accessibilityLabel("Subtitle Actions")
                 }
             }
         }
@@ -146,8 +147,13 @@ struct BazarrMovieDetailView: View {
         .listStyle(.insetGrouped)
         #endif
         .sheet(isPresented: $showProfilePicker) {
-            NavigationStack {
-                let profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
+            let profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
+            AppSheetShell(
+                title: "Language Profile",
+                confirmTitle: "Save",
+                onConfirm: { showProfilePicker = false; Task { await updateProfile() } },
+                detents: [.medium]
+            ) {
                 List {
                     Picker("Profile", selection: $selectedProfileId) {
                         Text("None").tag(nil as Int?)
@@ -157,20 +163,7 @@ struct BazarrMovieDetailView: View {
                     }
                     .pickerStyle(.inline)
                 }
-                .navigationTitle("Language Profile")
-                .toolbar {
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            showProfilePicker = false
-                            Task { await updateProfile() }
-                        }
-                    }
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Cancel") { showProfilePicker = false }
-                    }
-                }
             }
-            .presentationDetents([.medium])
         }
     }
 

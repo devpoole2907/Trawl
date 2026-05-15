@@ -98,7 +98,7 @@ actor QBittorrentAPIClient {
         if paused { body.appendMultipartField(boundary: boundary, name: "stopped", value: "true") }
         if sequentialDownload { body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true") }
         if firstLastPiecePriority { body.appendMultipartField(boundary: boundary, name: "firstLastPiecePrio", value: "true") }
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)--\r\n".utf8))
         request.httpBody = body
 
         let (_, response) = try await performRequest(request)
@@ -142,7 +142,7 @@ actor QBittorrentAPIClient {
             body.appendMultipartField(boundary: boundary, name: "firstLastPiecePrio", value: "true")
         }
 
-        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        body.append(Data("--\(boundary)--\r\n".utf8))
         request.httpBody = body
 
         let (_, response) = try await performRequest(request)

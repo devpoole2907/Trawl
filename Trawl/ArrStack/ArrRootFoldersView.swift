@@ -233,7 +233,22 @@ private struct AddRootFolderSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Root Folder",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: {
+                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                isSaving = true
+                Task {
+                    let success = await onAdd(trimmed, selectedService)
+                    isSaving = false
+                    if success { dismiss() }
+                }
+            }
+        ) {
             Form {
                 if availableServices.count > 1 {
                     Section {
@@ -266,34 +281,6 @@ private struct AddRootFolderSheet: View {
                     Text("Path")
                 } footer: {
                     Text("Enter or browse to the full path on your \(selectedService.displayName) server or container.")
-                }
-            }
-            .navigationTitle("Add Root Folder")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Add") {
-                            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            isSaving = true
-                            Task {
-                                let success = await onAdd(trimmed, selectedService)
-                                isSaving = false
-                                if success {
-                                    dismiss()
-                                }
-                            }
-                        }
-                        .disabled(!canSave)
-                    }
                 }
             }
             .onAppear {

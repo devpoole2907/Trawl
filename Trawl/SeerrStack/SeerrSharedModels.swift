@@ -113,18 +113,14 @@ nonisolated enum SeerrRequestStatus: Int, Codable, Sendable {
     case pending = 1
     case approved = 2
     case declined = 3
-    case processing = 4
-    case available = 5
-    case failed = 6
-    case completed = 7
+    case failed = 4
+    case completed = 5
 
     var title: String {
         switch self {
         case .pending: "Pending"
         case .approved: "Approved"
         case .declined: "Declined"
-        case .processing: "Processing"
-        case .available: "Available"
         case .failed: "Failed"
         case .completed: "Completed"
         }

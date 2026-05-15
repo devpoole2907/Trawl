@@ -26,6 +26,7 @@ enum MoreDestination: Hashable {
     case mediaManagement
     case arrNamingConfig(service: ArrServiceType)
     case rootFolders
+    case qualityProfiles(service: ArrServiceType)
     case bazarrSettings
     case subtitleManagement
     case bazarrLanguageProfiles
@@ -99,6 +100,7 @@ struct MoreView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var showingNotificationsSheet = false
+    @State private var subtitleBadgeCount = 0
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
 
@@ -148,7 +150,7 @@ struct MoreView: View {
                 Section("Media Management") {
                     NavigationLink(value: MoreDestination.mediaManagement) {
                         moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
-                                title: "Media Management", subtitle: "Naming, root folders, import, and storage")
+                                title: "Media Management", subtitle: "Naming, quality profiles, root folders, and import")
                     }
                 }
 
@@ -162,7 +164,7 @@ struct MoreView: View {
                 Section("Subtitles") {
                     NavigationLink(value: MoreDestination.subtitleManagement) {
                         moreRow(icon: "captions.bubble.fill", color: MoreDestinationAccent.subtitleManagement.color,
-                                title: "Subtitle Management", subtitle: "Language profiles and subtitle providers")
+                                title: "Subtitle Management", subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : "Language profiles and subtitle providers")
                     }
                 }
                 Section("Requests") {
@@ -212,14 +214,14 @@ struct MoreView: View {
                             .symbolRenderingMode(.hierarchical)
                             .overlay(alignment: .topTrailing) {
                                 if inAppNotificationCenter.unreadCount > 0 {
-                                    Circle()
-                                        .fill(.red)
-                                        .frame(width: 8, height: 8)
+                                    Image(systemName: "circle.fill")
+                                        .font(.system(size: 8))
+                                        .foregroundStyle(.red)
                                         .offset(x: 2, y: -2)
                                 }
                             }
                     }
-                    .accessibilityLabel("Recent Notifications")
+                    .accessibilityLabel(inAppNotificationCenter.unreadCount > 0 ? "Recent Notifications, Unread" : "Recent Notifications")
                 }
             }
             .sheet(isPresented: $showingNotificationsSheet) {
@@ -384,12 +386,10 @@ struct MoreView: View {
                     JellyfinSettingsView()
                         .moreDestinationTitleStyle()
                 case .calendarSeries(let id):
-                    SonarrSeriesDetailView(seriesId: id, viewModel: SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []))
-                        .injectSyncService(appServices)
+                    CalendarSeriesDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendarMovie(let id):
-                    RadarrMovieDetailView(movieId: id, viewModel: RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []))
-                        .injectSyncService(appServices)
+                    CalendarMovieDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .manualImportScan(let path, let service):
                     ManualImportScanView(path: path, service: service, serviceManager: arrServiceManager)
@@ -405,6 +405,11 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .rootFolders:
                     ArrRootFoldersView()
+                        .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
+                        .moreDestinationTitleStyle()
+                case .qualityProfiles(let service):
+                    ArrQualityProfilesListView(serviceType: service)
                         .environment(arrServiceManager)
                         .environment(inAppNotificationCenter)
                         .moreDestinationTitleStyle()
@@ -424,11 +429,17 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .bazarrSeriesDetail(let seriesId):
-                    BazarrSeriesDetailView(seriesId: seriesId, viewModel: BazarrViewModel(serviceManager: arrServiceManager))
+                    BazarrSeriesDestination(seriesId: seriesId, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .bazarrMovieDetail(let radarrId):
-                    BazarrMovieDetailView(radarrId: radarrId, viewModel: BazarrViewModel(serviceManager: arrServiceManager))
+                    BazarrMovieDestination(radarrId: radarrId, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
+                }
+            }
+            .task {
+                guard let client = arrServiceManager.activeBazarrEntry?.client else { return }
+                if let badges = try? await client.getBadges() {
+                    subtitleBadgeCount = badges.episodes + badges.movies
                 }
             }
         }
@@ -486,6 +497,10 @@ struct MoreView: View {
                 Label("Indexers Not Set Up", systemImage: "magnifyingglass.circle")
             } description: {
                 Text("Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
         }
     }
@@ -516,6 +531,10 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "arrow.down.circle")
             } description: {
                 Text("Add a qBittorrent server in Settings to manage your downloads.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
         }
     }
@@ -537,6 +556,10 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
             } description: {
                 Text("Add a qBittorrent server in Settings before managing categories and tags.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
         }
     }
@@ -558,6 +581,10 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "dot.radiowaves.left.and.right")
             } description: {
                 Text("Add a qBittorrent server before managing RSS feeds.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
         }
     }
@@ -594,6 +621,10 @@ struct MoreView: View {
                 Label("Seerr Not Configured", systemImage: "eye")
             } description: {
                 Text("Add a Seerr server in Settings to manage requests.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
             .navigationTitle("Requests")
         }
@@ -629,6 +660,10 @@ struct MoreView: View {
                 Label("Jellyfin Not Configured", systemImage: "server.rack")
             } description: {
                 Text("Add a Jellyfin server in Settings to manage your media server.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
             }
             .navigationTitle("Jellyfin")
         }
@@ -910,6 +945,7 @@ extension View {
 
 private struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
@@ -917,43 +953,31 @@ private struct RecentNotificationsSheet: View {
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Notifications",
+            subtitle: notificationCount > 0 ? "\(notificationCount) notification\(notificationCount == 1 ? "" : "s")" : nil,
+            confirmTitle: notificationCount > 0 ? "Clear" : nil,
+            onConfirm: notificationCount > 0 ? { showClearConfirmation = true } : nil,
+            detents: [.medium, .large]
+        ) {
             Group {
                 if inAppNotificationCenter.recentNotifications.isEmpty {
-                    ContentUnavailableView("No Notifications Yet", systemImage: "bell.slash", description: Text("Recent in-app and system notifications will appear here."))
+                    ContentUnavailableView {
+                        Label("No Notifications Yet", systemImage: "bell.slash")
+                    } description: {
+                        Text("Recent in-app and system notifications will appear here.")
+                    } actions: {
+                        Button("Open Notification Settings") {
+                            #if os(iOS)
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                openURL(url)
+                            }
+                            #endif
+                        }
+                    }
                 } else {
                     List(inAppNotificationCenter.recentNotifications) { entry in
                         notificationRow(for: entry)
-                    }
-                }
-            }
-            .navigationTitle("Notifications")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                    }
-                    .accessibilityLabel("Dismiss")
-                }
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text("Notifications")
-                            .font(.headline)
-                        if notificationCount > 0 {
-                            Text("\(notificationCount) notification\(notificationCount == 1 ? "" : "s")")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                }
-                if notificationCount > 0 {
-                    ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                        Button("Clear") { showClearConfirmation = true }
                     }
                 }
             }
@@ -965,9 +989,6 @@ private struct RecentNotificationsSheet: View {
             } message: {
                 Text("All recent notifications will be removed.")
             }
-            #if os(iOS)
-            .presentationDetents([.medium, .large])
-            #endif
         }
         .onAppear {
             unreadSinceDate = inAppNotificationCenter.lastReadDate
@@ -1173,5 +1194,73 @@ private struct NotificationDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+}
+
+private struct CalendarSeriesDestination: View {
+    let id: Int
+    let appServices: AppServices?
+    @State private var viewModel: SonarrViewModel
+
+    init(id: Int, appServices: AppServices?, arrServiceManager: ArrServiceManager) {
+        self.id = id
+        self.appServices = appServices
+        self._viewModel = State(wrappedValue: SonarrViewModel(
+            serviceManager: arrServiceManager,
+            preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []
+        ))
+    }
+
+    var body: some View {
+        SonarrSeriesDetailView(seriesId: id, viewModel: viewModel)
+            .injectSyncService(appServices)
+    }
+}
+
+private struct CalendarMovieDestination: View {
+    let id: Int
+    let appServices: AppServices?
+    @State private var viewModel: RadarrViewModel
+
+    init(id: Int, appServices: AppServices?, arrServiceManager: ArrServiceManager) {
+        self.id = id
+        self.appServices = appServices
+        self._viewModel = State(wrappedValue: RadarrViewModel(
+            serviceManager: arrServiceManager,
+            preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []
+        ))
+    }
+
+    var body: some View {
+        RadarrMovieDetailView(movieId: id, viewModel: viewModel)
+            .injectSyncService(appServices)
+    }
+}
+
+private struct BazarrSeriesDestination: View {
+    let seriesId: Int
+    @State private var viewModel: BazarrViewModel
+
+    init(seriesId: Int, arrServiceManager: ArrServiceManager) {
+        self.seriesId = seriesId
+        self._viewModel = State(wrappedValue: BazarrViewModel(serviceManager: arrServiceManager))
+    }
+
+    var body: some View {
+        BazarrSeriesDetailView(seriesId: seriesId, viewModel: viewModel)
+    }
+}
+
+private struct BazarrMovieDestination: View {
+    let radarrId: Int
+    @State private var viewModel: BazarrViewModel
+
+    init(radarrId: Int, arrServiceManager: ArrServiceManager) {
+        self.radarrId = radarrId
+        self._viewModel = State(wrappedValue: BazarrViewModel(serviceManager: arrServiceManager))
+    }
+
+    var body: some View {
+        BazarrMovieDetailView(radarrId: radarrId, viewModel: viewModel)
     }
 }

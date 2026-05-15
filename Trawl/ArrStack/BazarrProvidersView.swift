@@ -80,17 +80,15 @@ struct BazarrProvidersView: View {
             }
         }
         .sheet(isPresented: $addSheetPresented) {
-            NavigationStack {
-                BazarrProviderPickerView(
-                    enabledKeys: enabledProviderKeys,
-                    settings: settings
-                ) { provider, values in
-                    let succeeded = await save(provider: provider, values: values, enabling: true)
-                    if succeeded {
-                        addSheetPresented = false
-                    }
-                    return succeeded
+            BazarrProviderPickerView(
+                enabledKeys: enabledProviderKeys,
+                settings: settings
+            ) { provider, values in
+                let succeeded = await save(provider: provider, values: values, enabling: true)
+                if succeeded {
+                    addSheetPresented = false
                 }
+                return succeeded
             }
         }
         .alert(
@@ -497,50 +495,43 @@ private struct BazarrProviderPickerView: View {
     }
 
     var body: some View {
-        List {
-            if availableProviders.isEmpty {
-                ContentUnavailableView(
-                    searchText.isEmpty ? "All Providers Enabled" : "No Results",
-                    systemImage: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass",
-                    description: Text(searchText.isEmpty ? "Every supported provider is already enabled." : "No providers match your search.")
-                )
-                .listRowBackground(Color.clear)
-            } else {
-                ForEach(availableProviders) { provider in
-                    NavigationLink {
-                        BazarrProviderEditorView(
-                            provider: provider,
-                            settings: settings,
-                            mode: .add
-                        ) { values in
-                            await onSave(provider, values)
+        AppSheetShell(title: "Add Provider") {
+            List {
+                if availableProviders.isEmpty {
+                    ContentUnavailableView(
+                        searchText.isEmpty ? "All Providers Enabled" : "No Results",
+                        systemImage: searchText.isEmpty ? "checkmark.circle" : "magnifyingglass",
+                        description: Text(searchText.isEmpty ? "Every supported provider is already enabled." : "No providers match your search.")
+                    )
+                    .listRowBackground(Color.clear)
+                } else {
+                    ForEach(availableProviders) { provider in
+                        NavigationLink {
+                            BazarrProviderEditorView(
+                                provider: provider,
+                                settings: settings,
+                                mode: .add
+                            ) { values in
+                                await onSave(provider, values)
+                            }
+                        } label: {
+                            BazarrProviderRowView(
+                                title: provider.displayName,
+                                subtitle: provider.description ?? "Bazarr",
+                                barColor: MoreDestinationAccent.providers.color,
+                                isEnabled: true,
+                                warningState: .available
+                            )
                         }
-                    } label: {
-                        BazarrProviderRowView(
-                            title: provider.displayName,
-                            subtitle: provider.description ?? "Bazarr",
-                            barColor: MoreDestinationAccent.providers.color,
-                            isEnabled: true,
-                            warningState: .available
-                        )
                     }
                 }
             }
-        }
-        .navigationTitle("Add Provider")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .searchable(text: $searchText, prompt: "Search providers")
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    dismiss()
-                }
-            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+            .searchable(text: $searchText, prompt: "Search providers")
         }
     }
 }

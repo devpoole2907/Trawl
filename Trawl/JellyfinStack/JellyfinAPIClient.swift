@@ -8,25 +8,40 @@ import Foundation
 /// (from the Jellyfin dashboard). Both are stored under the same Keychain slot — they
 /// are interchangeable on the wire.
 actor JellyfinAPIClient {
-    nonisolated let baseURL: String
-    private let session: URLSession
-    private var accessToken: String?
-    private let trustPolicy: ServerTrustPolicy
+    nonisolated var baseURL: String { transport.baseURL }
+    private let transport: HTTPTransport
 
     init(baseURL: String, accessToken: String? = nil, allowsUntrustedTLS: Bool = false) {
-        var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if url.hasSuffix("/") { url = String(url.dropLast()) }
-        self.baseURL = url
-        self.accessToken = accessToken
-        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
+        let mapper = HTTPErrorMapper(
+            badURL: { JellyfinAPIError.badURL },
+            transport: { error in
+                if let urlError = error as? URLError { return JellyfinAPIError.transport(urlError) }
+                return JellyfinAPIError.transport(URLError(.unknown))
+            },
+            unauthorized: { JellyfinAPIError.unauthorized },
+            http: { code, body in JellyfinAPIError.http(status: code, body: body) },
+            decode: { error in JellyfinAPIError.decode(reason: String(describing: error)) },
+            invalidResponse: { JellyfinAPIError.invalidResponse },
+            unauthorizedStatusCodes: [401, 403]
+        )
 
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+
+        self.transport = HTTPTransport(
+            baseURL: baseURL,
+            auth: .mutable(name: "Authorization", format: { token in
+                JellyfinAuthHeader.value(token: token)
+            }),
+            initialMutableAuthValue: accessToken,
+            allowsUntrustedTLS: allowsUntrustedTLS,
+            sessionConfiguration: config,
+            errorMapper: mapper
+        )
     }
 
-    func setAccessToken(_ token: String?) { accessToken = token }
-    func getAccessToken() -> String? { accessToken }
+    func setAccessToken(_ token: String?) async { await transport.setMutableAuthValue(token) }
+    func getAccessToken() async -> String? { await transport.currentMutableAuthValue() }
 
     // MARK: - Auth & System
 
@@ -36,7 +51,7 @@ actor JellyfinAPIClient {
     func authenticateByName(username: String, password: String) async throws -> JellyfinAuthResponse {
         let body = JellyfinAuthByNameBody(username: username, pw: password)
         let result: JellyfinAuthResponse = try await post("/Users/AuthenticateByName", body: body)
-        accessToken = result.accessToken
+        await transport.setMutableAuthValue(result.accessToken)
         return result
     }
 
@@ -328,108 +343,33 @@ actor JellyfinAPIClient {
     // MARK: - HTTP Infrastructure
 
     private func get<T: Decodable>(_ path: String, params: [String: String] = [:]) async throws -> T {
-        let request = try buildRequest(path: path, method: "GET", queryParams: params)
-        return try await perform(request)
+        try await transport.get(path, queryItems: Self.queryItems(from: params))
     }
 
     private func getVoid(_ path: String, params: [String: String] = [:]) async throws {
-        let request = try buildRequest(path: path, method: "GET", queryParams: params)
-        try await performVoid(request)
+        try await transport.getVoid(path, queryItems: Self.queryItems(from: params))
     }
 
-    private func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await perform(request)
+    private func post<T: Decodable, B: Encodable>(_ path: String, body: sending B) async throws -> T {
+        try await transport.postCodable(path, body: body)
     }
 
-    private func postVoid<B: Encodable>(_ path: String, body: B, queryParams: [String: String] = [:]) async throws {
-        var request = try buildRequest(path: path, method: "POST", queryParams: queryParams)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        try await performVoid(request)
+    private func postVoid<B: Encodable>(_ path: String, body: sending B, queryParams: [String: String] = [:]) async throws {
+        try await transport.postVoidCodable(path, body: body, queryItems: Self.queryItems(from: queryParams))
     }
 
     /// Body-less POST. Jellyfin uses these for command-style endpoints
     /// (`/System/Restart`, `/Library/Refresh`, `/ScheduledTasks/Running/{id}`).
     private func postEmpty(_ path: String, queryParams: [String: String] = [:]) async throws {
-        let request = try buildRequest(path: path, method: "POST", queryParams: queryParams)
-        try await performVoid(request)
+        try await transport.postVoid(path, queryItems: Self.queryItems(from: queryParams))
     }
 
     private func deleteVoid(_ path: String, queryParams: [String: String] = [:]) async throws {
-        let request = try buildRequest(path: path, method: "DELETE", queryParams: queryParams)
-        try await performVoid(request)
+        try await transport.delete(path, queryItems: Self.queryItems(from: queryParams))
     }
 
-    private func buildRequest(
-        path: String,
-        method: String,
-        queryParams: [String: String] = [:]
-    ) throws -> URLRequest {
-        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
-            throw JellyfinAPIError.badURL
-        }
-        if !queryParams.isEmpty {
-            components.queryItems = queryParams.map { URLQueryItem(name: $0.key, value: $0.value) }
-        }
-        guard let url = components.url else {
-            throw JellyfinAPIError.badURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue(JellyfinAuthHeader.value(token: accessToken), forHTTPHeaderField: "Authorization")
-        return request
-    }
-
-    private func sessionData(for request: URLRequest) async throws -> (Data, URLResponse) {
-        do {
-            return try await session.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let urlError as URLError {
-            if urlError.code == .cancelled { throw CancellationError() }
-            throw JellyfinAPIError.transport(urlError)
-        } catch {
-            throw JellyfinAPIError.transport(URLError(.unknown))
-        }
-    }
-
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await sessionData(for: request)
-        guard let http = response as? HTTPURLResponse else { throw JellyfinAPIError.invalidResponse }
-
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw JellyfinAPIError.unauthorized
-        }
-
-        guard (200..<400).contains(http.statusCode) else {
-            throw JellyfinAPIError.http(status: http.statusCode, body: bodyString(from: data))
-        }
-
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw JellyfinAPIError.decode(reason: String(describing: error))
-        }
-    }
-
-    private func performVoid(_ request: URLRequest) async throws {
-        let (data, response) = try await sessionData(for: request)
-        guard let http = response as? HTTPURLResponse else { throw JellyfinAPIError.invalidResponse }
-
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw JellyfinAPIError.unauthorized
-        }
-
-        guard (200..<400).contains(http.statusCode) else {
-            throw JellyfinAPIError.http(status: http.statusCode, body: bodyString(from: data))
-        }
-    }
-
-    private func bodyString(from data: Data) -> String? {
-        guard !data.isEmpty else { return nil }
-        return String(data: data, encoding: .utf8)
+    private nonisolated static func queryItems(from params: [String: String]) -> [URLQueryItem] {
+        guard !params.isEmpty else { return [] }
+        return params.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
 }

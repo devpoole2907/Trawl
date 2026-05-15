@@ -314,7 +314,14 @@ private struct JellyfinSendMessageSheet: View {
     @State private var isSending = false
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Send Message",
+            confirmTitle: "Send",
+            isConfirmDisabled: messageText.isEmpty,
+            isConfirmLoading: isSending,
+            onConfirm: { Task { await send() } },
+            detents: [.medium]
+        ) {
             Form {
                 Section {
                     TextField("Header", text: $header)
@@ -324,28 +331,8 @@ private struct JellyfinSendMessageSheet: View {
                     Text("Send message to \(sessionName)")
                 }
             }
-            .navigationTitle("Send Message")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSending {
-                        ProgressView()
-                    } else {
-                        Button("Send") {
-                            Task { await send() }
-                        }
-                        .disabled(messageText.isEmpty)
-                    }
-                }
-            }
+            .presentationDragIndicator(.visible)
         }
-        .presentationDetents([.medium])
-        .presentationDragIndicator(.visible)
     }
 
     private func send() async {

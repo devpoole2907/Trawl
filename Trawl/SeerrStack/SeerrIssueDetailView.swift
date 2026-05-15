@@ -20,9 +20,7 @@ struct SeerrIssueDetailView: View {
         List {
             Section("Issue") {
                 HStack(alignment: .top, spacing: 12) {
-                    AsyncImage(url: viewModel.issue.media?.posterURL) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
+                    ArrArtworkView(url: viewModel.issue.media?.posterURL) {
                         Image(systemName: "photo")
                             .foregroundStyle(.secondary)
                     }

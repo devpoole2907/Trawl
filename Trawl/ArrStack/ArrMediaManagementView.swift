@@ -31,6 +31,32 @@ struct ArrMediaManagementView: View {
                 }
             }
 
+            if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
+                Section {
+                    if serviceManager.hasSonarrInstance {
+                        NavigationLink(value: MoreDestination.qualityProfiles(service: .sonarr)) {
+                            NavigationMenuRow(
+                                icon: "slider.horizontal.3",
+                                color: .purple,
+                                title: "Sonarr Quality Profiles",
+                                subtitle: "Allowed qualities and upgrade rules for series"
+                            )
+                        }
+                    }
+
+                    if serviceManager.hasRadarrInstance {
+                        NavigationLink(value: MoreDestination.qualityProfiles(service: .radarr)) {
+                            NavigationMenuRow(
+                                icon: "slider.horizontal.3",
+                                color: .orange,
+                                title: "Radarr Quality Profiles",
+                                subtitle: "Allowed qualities and upgrade rules for movies"
+                            )
+                        }
+                    }
+                }
+            }
+
             Section {
                 NavigationLink(value: MoreDestination.rootFolders) {
                     NavigationMenuRow(

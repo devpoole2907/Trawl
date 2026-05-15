@@ -308,6 +308,27 @@ struct TorrentListView: View {
 
             ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
                 if let vm = viewModel {
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
+                    }
+                    .labelStyle(.iconOnly)
+
+                    Menu {
+                        ForEach(TorrentSortOrder.allCases) { order in
+                            Button {
+                                withAnimation { vm.sortOrder = order }
+                            } label: {
+                                if vm.sortOrder == order {
+                                    Label(order.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Text(order.rawValue)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                    }
+
                     Menu {
                         Toggle(isOn: Binding(
                             get: { vm.isAlternativeSpeedEnabled },
@@ -330,27 +351,6 @@ struct TorrentListView: View {
                     }
                     .accessibilityLabel("Torrent Actions")
                     .accessibilityHint("Shows more torrent list actions")
-
-                    Menu {
-                        ForEach(TorrentSortOrder.allCases) { order in
-                            Button {
-                                withAnimation { vm.sortOrder = order }
-                            } label: {
-                                if vm.sortOrder == order {
-                                    Label(order.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(order.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
-                    }
-
-                    Button("Add Torrent", systemImage: "plus") {
-                        showAddSheet = true
-                    }
-                    .labelStyle(.iconOnly)
                 } else {
                     Button("Add Torrent", systemImage: "plus") {
                         showAddSheet = true

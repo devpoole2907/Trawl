@@ -450,7 +450,16 @@ struct BazarrSubtitleStatusCard: View {
     }
 
     private var profilePickerSheet: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Language Profile",
+            confirmTitle: "Save",
+            isConfirmDisabled: isUpdatingProfile,
+            onConfirm: {
+                showProfilePicker = false
+                Task { await updateProfile() }
+            },
+            detents: [.medium]
+        ) {
             List {
                 Picker("Profile", selection: $selectedProfileId) {
                     Text("None").tag(nil as Int?)
@@ -460,21 +469,7 @@ struct BazarrSubtitleStatusCard: View {
                 }
                 .pickerStyle(.inline)
             }
-            .navigationTitle("Language Profile")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        showProfilePicker = false
-                        Task { await updateProfile() }
-                    }
-                    .disabled(isUpdatingProfile)
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showProfilePicker = false }
-                }
-            }
         }
-        .presentationDetents([.medium])
     }
 
     private func load(force: Bool = false) async {

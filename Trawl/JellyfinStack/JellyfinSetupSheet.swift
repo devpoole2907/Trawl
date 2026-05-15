@@ -5,11 +5,14 @@ struct JellyfinSetupSheet: View {
     var onComplete: (() -> Void)?
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Jellyfin",
+            detents: [.medium, .large],
+            dragIndicator: .visible
+        ) {
             JellyfinConnectionFormView(
                 profile: nil,
-                onComplete: onComplete,
-                showsCancelButton: true
+                onComplete: onComplete
             )
         }
     }
@@ -22,11 +25,6 @@ private struct JellyfinConnectionFormView: View {
 
     var profile: JellyfinServiceProfile?
     var onComplete: (() -> Void)?
-    var showsCancelButton = false
-
-    private var navigationTitle: String {
-        profile == nil ? "Add Jellyfin" : "Edit Jellyfin"
-    }
 
     private var submitTitle: String {
         profile == nil ? "Connect" : "Save Connection"
@@ -114,9 +112,7 @@ private struct JellyfinConnectionFormView: View {
             }
         }
         .tint(.indigo)
-        .navigationTitle(navigationTitle)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(showsCancelButton ? .inline : .large)
         .listStyle(.insetGrouped)
         #endif
         #if os(macOS)
@@ -124,15 +120,6 @@ private struct JellyfinConnectionFormView: View {
         #endif
         .task(id: profile?.id) {
             viewModel.seed(from: profile)
-        }
-        .toolbar {
-            if showsCancelButton {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
         }
     }
 
@@ -336,19 +323,20 @@ struct JellyfinSettingsView: View {
             }
         }
         .sheet(isPresented: $showingConnectionSheet) {
-            NavigationStack {
+            AppSheetShell(
+                title: profile == nil ? "Add Jellyfin" : "Edit Jellyfin",
+                detents: [.medium, .large],
+                dragIndicator: .visible
+            ) {
                 JellyfinConnectionFormView(
                     profile: profile,
                     onComplete: {
                         Task {
                             await jellyfinServiceManager.initialize(from: profiles)
                         }
-                    },
-                    showsCancelButton: true
+                    }
                 )
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
             "Remove Jellyfin Server?",

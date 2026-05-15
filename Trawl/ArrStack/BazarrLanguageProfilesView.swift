@@ -55,14 +55,12 @@ struct BazarrLanguageProfilesView: View {
             }
         }
         .sheet(isPresented: $addSheetPresented) {
-            NavigationStack {
-                LanguageProfileEditorView(
-                    mode: .add,
-                    availableLanguages: availableLanguages
-                ) { draft in
-                    await save(draft: draft, existing: nil)
-                    addSheetPresented = false
-                }
+            LanguageProfileEditorView(
+                mode: .add,
+                availableLanguages: availableLanguages
+            ) { draft in
+                await save(draft: draft, existing: nil)
+                addSheetPresented = false
             }
         }
         .alert(
@@ -412,14 +410,12 @@ private struct LanguageProfileDetailView: View {
             }
         }
         .sheet(isPresented: $editSheetPresented) {
-            NavigationStack {
-                LanguageProfileEditorView(
-                    mode: .edit(profile),
-                    availableLanguages: availableLanguages
-                ) { draft in
-                    await onSave(draft)
-                    editSheetPresented = false
-                }
+            LanguageProfileEditorView(
+                mode: .edit(profile),
+                availableLanguages: availableLanguages
+            ) { draft in
+                await onSave(draft)
+                editSheetPresented = false
             }
         }
     }
@@ -587,6 +583,19 @@ private struct LanguageProfileEditorView: View {
     }
 
     var body: some View {
+        AppSheetShell(
+            title: mode.title,
+            confirmTitle: mode.saveLabel,
+            isConfirmDisabled: draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } }
+        ) {
+            editorContent
+        }
+    }
+
+    @ViewBuilder
+    private var editorContent: some View {
         Form {
             Section("Profile") {
                 LabeledContent("Name") {
@@ -691,28 +700,9 @@ private struct LanguageProfileEditorView: View {
                 Text("Subtitle release info must not include any of these phrases.")
             }
         }
-        .navigationTitle(mode.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Button(mode.saveLabel) {
-                        Task { await save() }
-                    }
-                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-                }
-            }
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
         .sheet(isPresented: $languagePickerPresented) {
             LanguagePickerSheet(
                 languages: availableLanguages,
@@ -753,7 +743,7 @@ private struct LanguagePickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Add Language") {
             Group {
                 if filtered.isEmpty {
                     ContentUnavailableView(
@@ -782,19 +772,12 @@ private struct LanguagePickerSheet: View {
                         }
                         .foregroundStyle(.primary)
                     }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #endif
                 }
             }
-            .navigationTitle("Add Language")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .listStyle(.insetGrouped)
-            #endif
             .searchable(text: $searchText, prompt: "Search languages")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
         }
     }
 }

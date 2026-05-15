@@ -134,7 +134,48 @@ final class ArrServiceManager {
         radarrInstances.first(where: { $0.id == profileID })?.client
     }
 
+    func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
+        bazarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func isConnected(_ serviceType: ArrServiceType) -> Bool {
+        switch serviceType {
+        case .sonarr: return sonarrConnected
+        case .radarr: return radarrConnected
+        case .prowlarr: return prowlarrConnected
+        case .bazarr: return activeBazarrEntry?.isConnected ?? false
+        }
+    }
+
+    func isConnecting(_ serviceType: ArrServiceType) -> Bool {
+        switch serviceType {
+        case .sonarr: return sonarrIsConnecting
+        case .radarr: return radarrIsConnecting
+        case .prowlarr: return prowlarrIsConnecting
+        case .bazarr: return activeBazarrEntry?.isConnecting ?? false
+        }
+    }
+
+    func connectionError(_ serviceType: ArrServiceType) -> String? {
+        switch serviceType {
+        case .sonarr: return sonarrConnectionError
+        case .radarr: return radarrConnectionError
+        case .prowlarr: return prowlarrConnectionError
+        case .bazarr: return bazarrConnectionError
+        }
+    }
+
+    func activeInstanceID(_ serviceType: ArrServiceType) -> UUID? {
+        switch serviceType {
+        case .sonarr: return activeSonarrInstanceID
+        case .radarr: return activeRadarrInstanceID
+        case .prowlarr: return activeProwlarrProfileID
+        case .bazarr: return activeBazarrProfileID
+        }
+    }
+
     func isConnected(_ serviceType: ArrServiceType, profileID: UUID) -> Bool {
+
         switch serviceType {
         case .sonarr:
             sonarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
@@ -152,10 +193,6 @@ final class ArrServiceManager {
             return entry
         }
         return bazarrInstances.first { $0.isConnected } ?? bazarrInstances.first
-    }
-
-    func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
-        bazarrInstances.first(where: { $0.id == profileID })?.client
     }
 
     func resolvedProfile(
@@ -690,8 +727,11 @@ final class ArrServiceManager {
                 runtimeName: "Python"
             )
         default:
+            // Sonarr & Radarr both speak /api/v3 — use the base actor's HTTP primitive
+            // directly so this path doesn't need a service-specific wrapper.
             let client = ArrAPIClient(baseURL: hostURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
-            return try await client.getSystemStatus()
+            let status: ArrSystemStatus = try await client.get("/api/v3/system/status")
+            return status
         }
     }
 

@@ -298,7 +298,7 @@ struct ArrWantedView: View {
             if scope.includesSeries, let sonarrViewModel, sonarrCanSearch {
                 group.addTask {
                     do {
-                        try await sonarrViewModel.searchAllMissing()
+                        try await sonarrViewModel.searchAllMissing(noun: "series")
                         return nil
                     } catch {
                         return "Sonarr: \(error.localizedDescription)"
@@ -308,7 +308,7 @@ struct ArrWantedView: View {
             if scope.includesMovies, let radarrViewModel, radarrCanSearch {
                 group.addTask {
                     do {
-                        try await radarrViewModel.searchAllMissing()
+                        try await radarrViewModel.searchAllMissing(noun: "movies")
                         return nil
                     } catch {
                         return "Radarr: \(error.localizedDescription)"

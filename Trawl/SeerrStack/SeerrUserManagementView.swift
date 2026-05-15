@@ -172,9 +172,7 @@ private struct SeerrUserRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            AsyncImage(url: user.avatarURL(baseURL: baseURL)) { image in
-                image.resizable().aspectRatio(contentMode: .fill)
-            } placeholder: {
+            ArrArtworkView(url: user.avatarURL(baseURL: baseURL)) {
                 Circle()
                     .fill(.quaternary)
                     .overlay {

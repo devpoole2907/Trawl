@@ -533,8 +533,7 @@ private struct SeerrRequestRow: View {
         case .pending: .orange
         case .approved: .green
         case .declined: .red
-        case .processing: .blue
-        case .available, .completed: .green
+        case .completed: .green
         case .failed: .red
         }
     }

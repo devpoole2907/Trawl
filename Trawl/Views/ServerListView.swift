@@ -14,11 +14,15 @@ struct ServerListView: View {
     var body: some View {
         List {
             if servers.isEmpty {
-                ContentUnavailableView(
-                    "No Servers",
-                    systemImage: "server.rack",
-                    description: Text("Add a qBittorrent server to switch between multiple instances.")
-                )
+                ContentUnavailableView {
+                    Label("No Servers", systemImage: "server.rack")
+                } description: {
+                    Text("Add a qBittorrent server to switch between multiple instances.")
+                } actions: {
+                    Button("Add Server") {
+                        showAddSheet = true
+                    }
+                }
                 .listRowBackground(Color.clear)
             } else {
                 Section("Servers") {

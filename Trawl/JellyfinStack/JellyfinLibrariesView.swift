@@ -372,6 +372,7 @@ private struct JellyfinLibraryDetailView: View {
                         Image(systemName: "ellipsis")
                     }
                 }
+                .accessibilityLabel("Library Actions")
             }
         }
         .sheet(isPresented: $showingAddPath) {
@@ -512,7 +513,13 @@ private struct JellyfinAddLibrarySheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Library",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { save() }
+        ) {
             Form {
                 Section {
                     LabeledContent("Name") {
@@ -569,26 +576,6 @@ private struct JellyfinAddLibrarySheet: View {
                     Text("Paths are on the Jellyfin server or container.")
                 }
             }
-            .navigationTitle("Add Library")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Add") {
-                            save()
-                        }
-                        .disabled(!canSave)
-                        .fontWeight(.semibold)
-                    }
-                }
-            }
             .sheet(isPresented: $showingBrowser) {
                 NavigationStack {
                     RemotePathBrowserView(title: "Jellyfin Folders", source: source, initialPath: manualPath) { path in
@@ -639,7 +626,13 @@ private struct JellyfinAddPathSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Path to \(folder.name)",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { save() }
+        ) {
             Form {
                 Section {
                     LabeledContent("Path") {
@@ -658,26 +651,6 @@ private struct JellyfinAddPathSheet: View {
                     }
                 } footer: {
                     Text("Path is on the Jellyfin server or container.")
-                }
-            }
-            .navigationTitle("Add Path to \(folder.name)")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Add") {
-                            save()
-                        }
-                        .disabled(!canSave)
-                        .fontWeight(.semibold)
-                    }
                 }
             }
             .sheet(isPresented: $showingBrowser) {
@@ -725,32 +698,19 @@ private struct JellyfinRenameLibrarySheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Rename \(folder.name)",
+            confirmTitle: "Save",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { save() },
+            detents: [.medium]
+        ) {
             Form {
                 Section {
                     LabeledContent("Name") {
                         TextField("Library Name", text: $name)
                             .multilineTextAlignment(.trailing)
-                    }
-                }
-            }
-            .navigationTitle("Rename \(folder.name)")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Save") {
-                            save()
-                        }
-                        .disabled(!canSave)
-                        .fontWeight(.semibold)
                     }
                 }
             }

@@ -23,7 +23,7 @@ struct BazarrSeriesDetailView: View {
             item: series,
             title: series?.title ?? "Series",
             backgroundURL: series?.poster.flatMap(URL.init(string:))
-        ) {
+        ) { _ in
             ArrLoadingErrorEmptyView(
                 isLoading: isLoading,
                 error: error,
@@ -50,6 +50,7 @@ struct BazarrSeriesDetailView: View {
                     } label: {
                         Image(systemName: "ellipsis")
                     }
+                    .accessibilityLabel("Subtitle Actions")
                 }
             }
         }
@@ -165,7 +166,12 @@ struct BazarrSeriesDetailView: View {
     }
 
     private var profilePickerSheet: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Language Profile",
+            confirmTitle: "Save",
+            onConfirm: { showProfilePicker = false; Task { await updateProfile() } },
+            detents: [.medium]
+        ) {
             List {
                 Picker("Profile", selection: $selectedProfileId) {
                     Text("None").tag(nil as Int?)
@@ -175,20 +181,7 @@ struct BazarrSeriesDetailView: View {
                 }
                 .pickerStyle(.inline)
             }
-            .navigationTitle("Language Profile")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        showProfilePicker = false
-                        Task { await updateProfile() }
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showProfilePicker = false }
-                }
-            }
         }
-        .presentationDetents([.medium])
     }
 
     // MARK: - Actions

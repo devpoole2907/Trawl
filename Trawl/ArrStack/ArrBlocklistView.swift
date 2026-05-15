@@ -83,7 +83,7 @@ struct ArrBlocklistView: View {
                     emptyTitle: "Blocklist Empty",
                     emptyIcon: "checkmark.shield",
                     emptyDescription: "No blocked releases for the selected scope.",
-                    onRetry: nil
+                    onRetry: { Task { await serviceManager.loadBlocklist() } }
                 ) {
                     blocklistContent
                 }

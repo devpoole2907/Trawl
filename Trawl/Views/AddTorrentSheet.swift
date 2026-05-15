@@ -19,7 +19,21 @@ struct AddTorrentSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Torrent",
+            confirmTitle: "Add",
+            isConfirmDisabled: !(viewModel?.canSubmit ?? false),
+            onConfirm: {
+                guard let vm = viewModel else { return }
+                Task {
+                    if await vm.submit(modelContext: modelContext) {
+                        dismiss()
+                    }
+                }
+            },
+            detents: [.medium, .large],
+            dragIndicator: .visible
+        ) {
             Group {
                 if let vm = viewModel {
                     addTorrentForm(vm: vm)
@@ -27,28 +41,6 @@ struct AddTorrentSheet: View {
                     ProgressView()
                 }
             }
-            .navigationTitle("Add Torrent")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Add") {
-                        guard let vm = viewModel else { return }
-                        Task {
-                            if await vm.submit(modelContext: modelContext) {
-                                dismiss()
-                            }
-                        }
-                    }
-                    .disabled(!(viewModel?.canSubmit ?? false))
-                }
-            }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
             #if os(macOS)
             .frame(minWidth: 620, idealWidth: 700, minHeight: 540)
             #endif
