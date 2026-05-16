@@ -142,7 +142,11 @@ struct TorrentListView: View {
                 }
             }
             .scrollPosition(id: $listScrollPosition)
-            .listStyle(.plain)
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
             .opacity(vm.filteredTorrents.isEmpty ? 0 : 1)
             .allowsHitTesting(!vm.filteredTorrents.isEmpty)
 

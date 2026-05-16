@@ -55,10 +55,10 @@ struct QBittorrentCategoriesAndTagsView: View {
                 .disabled(isSubmitting)
             }
         }
-        .alert("Create Category", isPresented: $showCreateCategoryAlert) {
+        .alert("Add Category", isPresented: $showCreateCategoryAlert) {
             TextField("Name", text: $newCategoryName)
             TextField("Save Path (Optional)", text: $newCategorySavePath)
-            Button("Create") {
+            Button("Add") {
                 Task { await createCategory() }
             }
             .disabled(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
@@ -79,9 +79,9 @@ struct QBittorrentCategoriesAndTagsView: View {
         } message: {
             Text("This removes the category \"\(categoryPendingDeletion ?? "")\" from qBittorrent.")
         }
-        .alert("Create Tag", isPresented: $showCreateTagAlert) {
+        .alert("Add Tag", isPresented: $showCreateTagAlert) {
             TextField("Name", text: $newTagName)
-            Button("Create") {
+            Button("Add") {
                 Task { await createTag() }
             }
             .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)

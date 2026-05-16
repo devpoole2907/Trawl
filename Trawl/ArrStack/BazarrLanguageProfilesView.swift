@@ -144,7 +144,7 @@ struct BazarrLanguageProfilesView: View {
         Section("Profiles") {
             ForEach(0..<4, id: \.self) { _ in
                 HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.secondary.opacity(0.2))
                         .frame(width: 4, height: 42)
                     VStack(alignment: .leading, spacing: 6) {
@@ -310,7 +310,7 @@ private struct LanguageProfileRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 4)
                 .fill(MoreDestinationAccent.languageProfiles.color)
                 .frame(width: 4, height: 42)
 

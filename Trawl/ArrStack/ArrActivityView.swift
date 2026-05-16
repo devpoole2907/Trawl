@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ArrActivityView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
     @State private var mode: ArrActivityMode = .queue
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var sonarrQueue: [ArrQueueItem] = []
@@ -9,6 +11,7 @@ struct ArrActivityView: View {
     @State private var bazarrTasks: [BazarrTask] = []
     @State private var isLoading = false
     @State private var selectedItem: ActivityItem?
+    @State private var itemPendingRemoval: ActivityItem?
     @State private var manualImportPath: String?
     @State private var manualImportService: ArrServiceType = .sonarr
 
@@ -82,6 +85,19 @@ struct ArrActivityView: View {
                 }
             }
         }
+        .alert("Remove Queue Item?", isPresented: removeConfirmationPresented) {
+            Button("Remove", role: .destructive) {
+                if let itemPendingRemoval {
+                    Task { await removeItem(itemPendingRemoval) }
+                }
+                itemPendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {
+                itemPendingRemoval = nil
+            }
+        } message: {
+            Text("This removes the item from the Arr activity queue.")
+        }
     }
 
     private var hasConfiguredService: Bool {
@@ -124,29 +140,64 @@ struct ArrActivityView: View {
                     ForEach(activityRows) { row in
                         switch row {
                         case .queue(let activityItem):
-                            Button {
-                                selectedItem = activityItem
-                            } label: {
-                                QueueItemRow(item: activityItem.item, source: activityItem.source)
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    Task { await removeItem(activityItem) }
+                            let linkedTorrent = linkedTorrent(for: activityItem.item)
+
+                            if let linkedTorrent {
+                                NavigationLink {
+                                    TorrentDetailView(torrentHash: linkedTorrent.hash)
+                                        .environment(syncService)
+                                        .environment(torrentService)
                                 } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    QueueItemRow(
+                                        item: activityItem.item,
+                                        source: activityItem.source,
+                                        linkedTorrent: linkedTorrent
+                                    )
                                 }
-                            }
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                if let path = activityItem.item.outputPath,
-                                   activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
-                                    Button {
-                                        manualImportService = activityItem.source
-                                        manualImportPath = path
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        itemPendingRemoval = activityItem
                                     } label: {
-                                        Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        Label("Remove", systemImage: "trash")
                                     }
-                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    if let path = activityItem.item.outputPath,
+                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                        Button {
+                                            manualImportService = activityItem.source
+                                            manualImportPath = path
+                                        } label: {
+                                            Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        }
+                                        .tint(.blue)
+                                    }
+                                }
+                            } else {
+                                Button {
+                                    selectedItem = activityItem
+                                } label: {
+                                    QueueItemRow(item: activityItem.item, source: activityItem.source)
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        itemPendingRemoval = activityItem
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    if let path = activityItem.item.outputPath,
+                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                        Button {
+                                            manualImportService = activityItem.source
+                                            manualImportPath = path
+                                        } label: {
+                                            Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        }
+                                        .tint(.blue)
+                                    }
                                 }
                             }
                         case .bazarrTask(let task):
@@ -190,6 +241,13 @@ struct ArrActivityView: View {
         Binding(
             get: { manualImportPath != nil },
             set: { if !$0 { manualImportPath = nil } }
+        )
+    }
+
+    private var removeConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { itemPendingRemoval != nil },
+            set: { if !$0 { itemPendingRemoval = nil } }
         )
     }
 
@@ -270,6 +328,17 @@ struct ArrActivityView: View {
         case .prowlarr, .bazarr:
             break
         }
+    }
+
+    private func linkedTorrent(for item: ArrQueueItem) -> Torrent? {
+        guard let downloadId = item.downloadId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !downloadId.isEmpty else {
+            return nil
+        }
+
+        return syncService.torrents[downloadId]
+            ?? syncService.torrents[downloadId.lowercased()]
+            ?? syncService.torrents[downloadId.uppercased()]
     }
 }
 
@@ -371,13 +440,13 @@ private struct ActivityFilterMenu: View {
             Picker("Filter", selection: $serviceFilter) {
                 Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
                 if serviceManager.hasSonarrInstance {
-                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                    Label("Sonarr", systemImage: ServiceIdentity.sonarr.systemImage).tag(ArrServiceFilter.sonarr)
                 }
                 if serviceManager.hasRadarrInstance {
-                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                    Label("Radarr", systemImage: ServiceIdentity.radarr.systemImage).tag(ArrServiceFilter.radarr)
                 }
                 if serviceManager.hasBazarrInstance && !isHistoryMode {
-                    Label("Bazarr", systemImage: "captions.bubble").tag(ArrServiceFilter.bazarr)
+                    Label("Bazarr", systemImage: ServiceIdentity.bazarr.systemImage).tag(ArrServiceFilter.bazarr)
                 }
             }
         } label: {
@@ -409,13 +478,13 @@ private struct HealthFilterMenu: View {
             Picker("Filter", selection: $serviceFilter) {
                 Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
                 if serviceManager.sonarrConnected {
-                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                    Label("Sonarr", systemImage: ServiceIdentity.sonarr.systemImage).tag(ArrServiceFilter.sonarr)
                 }
                 if serviceManager.radarrConnected {
-                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                    Label("Radarr", systemImage: ServiceIdentity.radarr.systemImage).tag(ArrServiceFilter.radarr)
                 }
                 if serviceManager.prowlarrConnected {
-                    Label("Prowlarr", systemImage: "magnifyingglass.circle").tag(ArrServiceFilter.prowlarr)
+                    Label("Prowlarr", systemImage: ServiceIdentity.prowlarr.systemImage).tag(ArrServiceFilter.prowlarr)
                 }
             }
         } label: {
@@ -457,6 +526,7 @@ private extension ArrQueueItem {
 private struct QueueItemRow: View {
     let item: ArrQueueItem
     let source: ArrServiceType
+    var linkedTorrent: Torrent?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -476,9 +546,14 @@ private struct QueueItemRow: View {
                             .capitalized)
                             .foregroundStyle(statusColor)
                     }
-                    if let eta = item.shortETA {
+                    if let linkedTorrent {
                         Text("·")
-                        Label(eta, systemImage: "clock")
+                        Label(ByteFormatter.formatSpeed(bytesPerSecond: linkedTorrent.dlspeed), systemImage: "arrow.down")
+                            .foregroundStyle(.blue)
+                    }
+                    if let torrentETA {
+                        Text("·")
+                        Label(torrentETA, systemImage: "clock")
                     }
                     if let msg = item.statusMessages?.compactMap(\.messages).flatMap({ $0 }).first,
                        !msg.isEmpty {
@@ -499,6 +574,13 @@ private struct QueueItemRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    private var torrentETA: String? {
+        if let linkedTorrent, !linkedTorrent.state.isCompleted, linkedTorrent.eta > 0, linkedTorrent.eta < 8_640_000 {
+            return ByteFormatter.formatETA(seconds: linkedTorrent.eta)
+        }
+        return item.shortETA
     }
 
     private var statusColor: Color {

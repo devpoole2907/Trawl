@@ -569,9 +569,9 @@ struct SonarrSeasonSearchView: View {
             seasonSearchActionRow(
                 title: "Queue Series Subtitle Search",
                 subtitle: "Queue Bazarr's series-wide missing subtitle search.",
-                systemImage: "captions.bubble",
+                systemImage: ServiceIdentity.bazarr.systemImage,
                 isLoading: isDispatchingBazarrSearch,
-                accentColor: .teal
+                accentColor: ServiceIdentity.bazarr.brandColor
             )
         }
         .buttonStyle(.plain)
@@ -1162,9 +1162,9 @@ struct SonarrEpisodeSearchView: View {
             episodeSearchActionRow(
                 title: "Queue Series Subtitle Search",
                 subtitle: "Queue Bazarr's series-wide missing subtitle search.",
-                systemImage: "captions.bubble",
+                systemImage: ServiceIdentity.bazarr.systemImage,
                 isLoading: isDispatchingBazarrSearch,
-                accentColor: .teal
+                accentColor: ServiceIdentity.bazarr.brandColor
             )
         }
         .buttonStyle(.plain)

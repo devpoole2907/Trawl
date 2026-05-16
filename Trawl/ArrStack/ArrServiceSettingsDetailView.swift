@@ -12,8 +12,6 @@ struct ArrServiceSettingsView: View {
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
-    @State private var diskSpaces: [ArrDiskSpaceSnapshot] = []
-    @State private var diskSpaceError: String?
     @State private var availableUpdates: [ArrUpdateInfo] = []
     @State private var isLoadingUpdates = false
     @State private var showUpdateConfirmation = false
@@ -23,7 +21,6 @@ struct ArrServiceSettingsView: View {
     @State private var notificationSetupMessage: String?
     @State private var notificationSetupStatus: ArrNotificationSetupStatus?
     @State private var isViewActive = false
-    @State private var prowlarrViewModel: ProwlarrViewModel?
 
     #if os(iOS)
     @State private var deviceToken: String?
@@ -55,10 +52,6 @@ struct ArrServiceSettingsView: View {
         case .prowlarr: .yellow
         case .bazarr: .teal
         }
-    }
-
-    private var supportsDiskSpace: Bool {
-        serviceType != .prowlarr && serviceType != .bazarr
     }
 
     private var supportsCommands: Bool {
@@ -259,63 +252,6 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if serviceType == .prowlarr, isConnected {
-                    Section {
-                        NavigationLink {
-                            ProwlarrApplicationsListView()
-                                .environment(serviceManager)
-                        } label: {
-                            Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
-                        }
-
-                        Button {
-                            Task { await syncAllProwlarrIndexers() }
-                        } label: {
-                            Label("Sync All Indexers", systemImage: "arrow.triangle.2.circlepath")
-                        }
-                        .disabled(prowlarrViewModel?.isSyncingApplications == true)
-                    } header: {
-                        Text("Automation")
-                    } footer: {
-                        Text("Link Sonarr or Radarr so Prowlarr can sync indexers directly into those services.")
-                    }
-                }
-
-                if serviceType == .bazarr, isConnected {
-                    Section {
-                        NavigationLink {
-                            BazarrLinkedApplicationsListView()
-                                .environment(serviceManager)
-                        } label: {
-                            Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
-                        }
-                    } header: {
-                        Text("Automation")
-                    } footer: {
-                        Text("Connect Bazarr to Sonarr and Radarr so it can sync media and search subtitles automatically.")
-                    }
-                }
-
-                if supportsCommands, isConnected {
-                    Section {
-                        NavigationLink {
-                            ArrDownloadClientListView(serviceType: serviceType)
-                        } label: {
-                            Label("Download Clients", systemImage: "arrow.down.circle")
-                        }
-
-                        NavigationLink {
-                            ArrRemotePathMappingListView(serviceType: serviceType)
-                        } label: {
-                            Label("Remote Path Mappings", systemImage: "arrow.triangle.swap")
-                        }
-                    } header: {
-                        Text("Download")
-                    } footer: {
-                        Text("Manage download clients and remote path mappings configured in \(serviceType.displayName).")
-                    }
-                }
-
                 if let update = availableUpdates.first(where: { $0.installed == false }) {
                     Section("Update Available") {
                         VStack(alignment: .leading, spacing: 4) {
@@ -349,41 +285,6 @@ struct ArrServiceSettingsView: View {
                             .padding(.top, 8)
                             .disabled(isRunningCommand)
                         }
-                    }
-                }
-
-                if supportsDiskSpace && !diskSpaces.isEmpty {
-                    Section("Disk Space") {
-                        ForEach(diskSpaces) { disk in
-                            VStack(alignment: .leading, spacing: 6) {
-                                HStack {
-                                    Text(disk.path)
-                                        .font(.subheadline)
-                                        .lineLimit(2)
-                                    Spacer()
-                                    if let freeSpace = disk.freeSpace {
-                                        Text(ByteFormatter.format(bytes: freeSpace) + " free")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                if let totalSpace = disk.totalSpace, totalSpace > 0, let freeSpace = disk.freeSpace {
-                                    ProgressView(value: Double(totalSpace - freeSpace), total: Double(totalSpace))
-                                        .tint(freeSpace > totalSpace / 5 ? .blue : .orange)
-                                    serviceInfoRow(
-                                        label: "Used",
-                                        value: "\(ByteFormatter.format(bytes: totalSpace - freeSpace)) of \(ByteFormatter.format(bytes: totalSpace))"
-                                    )
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                } else if supportsDiskSpace, let diskSpaceError {
-                    Section("Disk Space") {
-                        Label(diskSpaceError, systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(.orange)
                     }
                 }
 
@@ -467,16 +368,12 @@ struct ArrServiceSettingsView: View {
         }
         .onAppear {
             isViewActive = true
-            if serviceType == .prowlarr, prowlarrViewModel == nil {
-                prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
-            }
         }
         .onDisappear {
             isViewActive = false
         }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             await loadSystemStatus()
-            await loadDiskSpace()
             await loadUpdates()
             #if os(iOS)
             deviceToken = await NotificationService.shared.deviceToken
@@ -491,46 +388,6 @@ struct ArrServiceSettingsView: View {
             }
         }
         #endif
-    }
-
-    private func loadDiskSpace() async {
-        let client: ArrDiskSpaceProviding? = switch serviceType {
-        case .sonarr: serviceManager.sonarrClient
-        case .radarr: serviceManager.radarrClient
-        case .prowlarr: nil
-        case .bazarr: nil
-        }
-        guard let client else {
-            diskSpaces = []
-            diskSpaceError = nil
-            return
-        }
-        do {
-            let raw = try await client.getDiskSpace()
-            diskSpaces = raw.map {
-                ArrDiskSpaceSnapshot(
-                    serviceType: serviceType,
-                    path: $0.path ?? "Unknown",
-                    label: $0.label,
-                    freeSpace: $0.freeSpace,
-                    totalSpace: $0.totalSpace
-                )
-            }
-            diskSpaceError = nil
-        } catch {
-            diskSpaces = []
-            diskSpaceError = error.localizedDescription
-        }
-    }
-
-    private func syncAllProwlarrIndexers() async {
-        guard let prowlarrViewModel else { return }
-
-        do {
-            try await prowlarrViewModel.syncApplications()
-        } catch {
-            inAppNotificationCenter.showError(title: "Sync Failed", message: error.localizedDescription)
-        }
     }
 
     private var activeProfileID: UUID? {
@@ -880,13 +737,6 @@ private protocol ArrServiceStatusProviding: Sendable {
 extension SonarrAPIClient: ArrServiceStatusProviding {}
 extension RadarrAPIClient: ArrServiceStatusProviding {}
 extension ProwlarrAPIClient: ArrServiceStatusProviding {}
-
-private protocol ArrDiskSpaceProviding: Sendable {
-    func getDiskSpace() async throws -> [ArrDiskSpace]
-}
-
-extension SonarrAPIClient: ArrDiskSpaceProviding {}
-extension RadarrAPIClient: ArrDiskSpaceProviding {}
 
 private protocol ArrUpdatesProviding: Sendable {
     func getUpdates() async throws -> [ArrUpdateInfo]

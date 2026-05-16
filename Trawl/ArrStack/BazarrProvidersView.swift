@@ -190,7 +190,7 @@ struct BazarrProvidersView: View {
         Section("Enabled Providers") {
             ForEach(0..<5, id: \.self) { _ in
                 HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.secondary.opacity(0.2))
                         .frame(width: 4, height: 42)
                     VStack(alignment: .leading, spacing: 6) {
@@ -719,7 +719,7 @@ private struct BazarrProviderRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 4)
                 .fill(statusColor)
                 .frame(width: 4, height: 42)
 

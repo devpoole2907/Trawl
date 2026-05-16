@@ -73,7 +73,7 @@ struct BazarrLinkedApplicationsListView: View {
                 }
             }
         }
-        .navigationTitle("Linked Apps")
+        .navigationTitle("Bazarr Linked Apps")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.insetGrouped)
@@ -144,8 +144,8 @@ private struct BazarrLinkedApplicationRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: appType.systemImage)
-                .foregroundStyle(appType.color)
+            Image(systemName: appType.serviceIdentity.systemImage)
+                .foregroundStyle(appType.serviceIdentity.brandColor)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -518,7 +518,7 @@ private struct BazarrLinkedApplicationEditorSheet: View {
     }
 }
 
-private enum BazarrLinkedApplicationType: String, CaseIterable, Identifiable {
+enum BazarrLinkedApplicationType: String, CaseIterable, Identifiable {
     case sonarr
     case radarr
 
@@ -539,16 +539,17 @@ private enum BazarrLinkedApplicationType: String, CaseIterable, Identifiable {
     }
 
     var systemImage: String {
-        switch self {
-        case .sonarr: "tv"
-        case .radarr: "film"
-        }
+        serviceIdentity.systemImage
     }
 
     var color: Color {
+        serviceIdentity.brandColor
+    }
+
+    var serviceIdentity: ServiceIdentity {
         switch self {
-        case .sonarr: .purple
-        case .radarr: .orange
+        case .sonarr: .sonarr
+        case .radarr: .radarr
         }
     }
 
@@ -638,6 +639,58 @@ private struct ParsedServerURL {
         let defaultPortInt = isSSL ? 443 : (Int(defaultPort) ?? 80)
         port = String(components.port ?? defaultPortInt)
         baseURL = components.path.isEmpty ? "/" : components.path
+    }
+}
+
+extension Dictionary where Key == String, Value == JSONValue {
+    func bazarrLinkedAppIsEnabled(_ appType: BazarrLinkedApplicationType) -> Bool {
+        bazarrLinkedAppBool("general", appType.enabledSettingsKey)
+    }
+
+    func bazarrLinkedAppBaseURL(_ appType: BazarrLinkedApplicationType) -> String? {
+        guard let host = bazarrLinkedAppSetting(appType.settingsSection, "ip"), !host.isEmpty else { return nil }
+        let port = bazarrLinkedAppSetting(appType.settingsSection, "port") ?? appType.defaultPort
+        let baseURL = bazarrLinkedAppSetting(appType.settingsSection, "base_url") ?? "/"
+        let ssl = bazarrLinkedAppBool(appType.settingsSection, "ssl")
+        return "\(ssl ? "https" : "http")://\(host):\(port)\(baseURL == "/" ? "" : baseURL)"
+    }
+
+    private func bazarrLinkedAppSetting(_ section: String, _ key: String) -> String? {
+        guard case .object(let sectionValues)? = self[section],
+              let value = sectionValues[key] else {
+            return nil
+        }
+
+        switch value {
+        case .string(let string):
+            return string
+        case .number(let number):
+            return number.truncatingRemainder(dividingBy: 1) == 0 ? String(Int(number)) : String(number)
+        case .bool(let bool):
+            return bool ? "true" : "false"
+        case .array:
+            return nil
+        case .object, .null:
+            return nil
+        }
+    }
+
+    private func bazarrLinkedAppBool(_ section: String, _ key: String) -> Bool {
+        guard case .object(let sectionValues)? = self[section],
+              let value = sectionValues[key] else {
+            return false
+        }
+
+        switch value {
+        case .bool(let bool):
+            return bool
+        case .string(let string):
+            return string == "true" || string == "1"
+        case .number(let number):
+            return number != 0
+        case .array, .object, .null:
+            return false
+        }
     }
 }
 

@@ -87,8 +87,8 @@ struct SeerrMediaRequestCard: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "tray.full.fill")
-                    .foregroundStyle(.indigo)
+                Image(systemName: ServiceIdentity.seerr.systemImage)
+                    .foregroundStyle(ServiceIdentity.seerr.brandColor)
                     .frame(width: 24, alignment: .leading)
                 Text("Requests")
                     .font(.headline)
@@ -100,7 +100,7 @@ struct SeerrMediaRequestCard: View {
                 } else if !requests.isEmpty {
                     Text("\(requests.count)")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.indigo)
+                        .foregroundStyle(ServiceIdentity.seerr.brandColor)
                 }
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
@@ -148,8 +148,8 @@ struct SeerrMediaRequestCard: View {
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 8)
                                 .padding(.vertical, 4)
-                                .background(statusTint(status).opacity(0.16), in: Capsule())
-                                .foregroundStyle(statusTint(status))
+                                .background(status.statusColor.opacity(0.16), in: Capsule())
+                                .foregroundStyle(status.statusColor)
                         }
                     }
 
@@ -338,13 +338,4 @@ struct SeerrMediaRequestCard: View {
         }
     }
 
-    private func statusTint(_ status: SeerrRequestStatus) -> Color {
-        switch status {
-        case .pending: .orange
-        case .approved: .green
-        case .declined: .red
-        case .failed: .red
-        case .completed: .green
-        }
-    }
 }

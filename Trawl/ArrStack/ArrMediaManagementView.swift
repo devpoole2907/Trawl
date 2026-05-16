@@ -5,13 +5,24 @@ struct ArrMediaManagementView: View {
 
     var body: some View {
         List {
+            Section {
+                NavigationLink(value: MoreDestination.rootFolders) {
+                    NavigationMenuRow(
+                        icon: "folder.fill",
+                        color: .indigo,
+                        title: "Root Folders",
+                        subtitle: "Library paths across Sonarr and Radarr"
+                    )
+                }
+            }
+
             if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
                 Section {
                     if serviceManager.hasSonarrInstance {
                         NavigationLink(value: MoreDestination.arrNamingConfig(service: .sonarr)) {
                             NavigationMenuRow(
-                                icon: "tv.fill",
-                                color: .purple,
+                                icon: ServiceIdentity.sonarr.systemImage,
+                                color: ServiceIdentity.sonarr.brandColor,
                                 title: "Sonarr Naming",
                                 subtitle: "Episode and series folder formats"
                             )
@@ -21,8 +32,8 @@ struct ArrMediaManagementView: View {
                     if serviceManager.hasRadarrInstance {
                         NavigationLink(value: MoreDestination.arrNamingConfig(service: .radarr)) {
                             NavigationMenuRow(
-                                icon: "film.fill",
-                                color: .orange,
+                                icon: ServiceIdentity.radarr.systemImage,
+                                color: ServiceIdentity.radarr.brandColor,
                                 title: "Radarr Naming",
                                 subtitle: "Movie file and folder formats"
                             )
@@ -37,7 +48,7 @@ struct ArrMediaManagementView: View {
                         NavigationLink(value: MoreDestination.qualityProfiles(service: .sonarr)) {
                             NavigationMenuRow(
                                 icon: "slider.horizontal.3",
-                                color: .purple,
+                                color: ServiceIdentity.sonarr.brandColor,
                                 title: "Sonarr Quality Profiles",
                                 subtitle: "Allowed qualities and upgrade rules for series"
                             )
@@ -48,23 +59,12 @@ struct ArrMediaManagementView: View {
                         NavigationLink(value: MoreDestination.qualityProfiles(service: .radarr)) {
                             NavigationMenuRow(
                                 icon: "slider.horizontal.3",
-                                color: .orange,
+                                color: ServiceIdentity.radarr.brandColor,
                                 title: "Radarr Quality Profiles",
                                 subtitle: "Allowed qualities and upgrade rules for movies"
                             )
                         }
                     }
-                }
-            }
-
-            Section {
-                NavigationLink(value: MoreDestination.rootFolders) {
-                    NavigationMenuRow(
-                        icon: "folder.fill",
-                        color: .indigo,
-                        title: "Root Folders",
-                        subtitle: "Library paths across Sonarr and Radarr"
-                    )
                 }
             }
 
@@ -93,7 +93,7 @@ struct ArrMediaManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Media Management")
+        .navigationTitle("Media & Import")
         .moreDestinationBackground(.mediaManagement)
     }
 

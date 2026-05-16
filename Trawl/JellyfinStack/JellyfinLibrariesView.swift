@@ -70,7 +70,7 @@ struct JellyfinLibrariesView: View {
                             } label: {
                                 Label("Scan", systemImage: "arrow.triangle.2.circlepath")
                             }
-                            .tint(.blue)
+                            .tint(ServiceIdentity.jellyfin.brandColor)
                             .disabled(scanningLibraryID == folder.itemId)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {

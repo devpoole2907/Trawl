@@ -9,7 +9,7 @@ struct NavigationMenuRow: View {
     var body: some View {
         HStack(spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(color.opacity(0.15))
                     .frame(width: 44, height: 44)
                 Image(systemName: icon)
@@ -19,7 +19,7 @@ struct NavigationMenuRow: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.body)
+                    .font(.subheadline)
                     .fontWeight(.medium)
                     .foregroundStyle(.primary)
                 Text(subtitle)

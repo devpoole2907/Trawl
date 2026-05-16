@@ -35,7 +35,7 @@ struct RadarrMovieListView: View {
                 Color.clear
             }
         }
-        .task(id: serviceManager.activeRadarrInstanceID) {
+        .task(id: viewModelLoadKey) {
             let activeID = serviceManager.activeRadarrInstanceID
             guard serviceManager.radarrConnected else {
                 viewModel = nil
@@ -47,6 +47,10 @@ struct RadarrMovieListView: View {
                 viewModelInstanceID = activeID
             }
         }
+    }
+
+    private var viewModelLoadKey: String {
+        "\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none"):\(serviceManager.radarrConnected)"
     }
 }
 
@@ -64,7 +68,7 @@ struct RadarrMovieRow: View {
                     .overlay(Image(systemName: "film").foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(movie.title)
@@ -118,6 +122,6 @@ struct RadarrMovieRow: View {
                     .font(.caption)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }

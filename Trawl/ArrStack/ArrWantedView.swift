@@ -482,14 +482,14 @@ private struct WantedEpisodeRow: View {
         HStack(spacing: 12) {
             ArrArtworkView(url: episode.series?.posterURL) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                     Image(systemName: "tv")
                         .font(.system(size: 14))
                         .foregroundStyle(.purple)
                 }
             }
             .frame(width: 46, height: 69)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(episode.series?.title ?? "Unknown Series")
@@ -504,7 +504,7 @@ private struct WantedEpisodeRow: View {
                 }
 
                 HStack(spacing: 6) {
-                    wantedStatusChip(episode.episodeIdentifier, color: .purple)
+                    wantedStatusChip(episode.episodeIdentifier, color: ServiceIdentity.sonarr.brandColor)
                     wantedStatusChip(formatDate(episode.airDate), color: .secondary)
                 }
             }
@@ -552,14 +552,14 @@ private struct WantedMovieRow: View {
         HStack(spacing: 12) {
             ArrArtworkView(url: movie.posterURL) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                     Image(systemName: "film")
                         .font(.system(size: 14))
                         .foregroundStyle(.orange)
                 }
             }
             .frame(width: 46, height: 69)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(movie.title)
@@ -578,7 +578,7 @@ private struct WantedMovieRow: View {
                     if let year = movie.year {
                         wantedStatusChip(String(year), color: .secondary)
                     }
-                    wantedStatusChip(movie.displayStatus, color: .orange)
+                    wantedStatusChip(movie.displayStatus, color: ServiceIdentity.radarr.brandColor)
                 }
             }
 
@@ -618,14 +618,14 @@ private struct BazarrWantedSeriesRow: View {
                 HStack(spacing: 12) {
                     ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                             Image(systemName: "captions.bubble")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(series.title)
@@ -683,14 +683,14 @@ private struct BazarrWantedMovieRow: View {
                 HStack(spacing: 12) {
                     ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                             Image(systemName: "captions.bubble")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(movie.title)

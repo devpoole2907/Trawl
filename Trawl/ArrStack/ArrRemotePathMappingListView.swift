@@ -2,20 +2,21 @@ import SwiftUI
 import SwiftData
 
 struct ArrRemotePathMappingListView: View {
-    let serviceType: ArrServiceType
-
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
 
-    @State private var mappings: [ArrRemotePathMapping] = []
+    @State private var mappings: [RemotePathMappingEntry] = []
     @State private var isLoading = false
     @State private var loadError: String?
-    @State private var mappingBeingEdited: ArrRemotePathMapping?
-    @State private var mappingPendingDelete: ArrRemotePathMapping?
+    @State private var mappingBeingEdited: RemotePathMappingEntry?
+    @State private var mappingPendingDelete: RemotePathMappingEntry?
     @State private var showAddSheet = false
 
-    private var supportsRemotePathMappings: Bool {
-        serviceType == .sonarr || serviceType == .radarr
+    private var availableServices: [ArrServiceType] {
+        [
+            serviceManager.sonarrClient == nil ? nil : ArrServiceType.sonarr,
+            serviceManager.radarrClient == nil ? nil : ArrServiceType.radarr
+        ].compactMap(\.self)
     }
 
     var body: some View {
@@ -34,63 +35,48 @@ struct ArrRemotePathMappingListView: View {
                     Label(loadError, systemImage: "exclamationmark.triangle.fill")
                         .foregroundStyle(.orange)
                 }
-            } else if !supportsRemotePathMappings {
-                ContentUnavailableView(
-                    "Not Supported",
-                    systemImage: "nosign",
-                    description: Text("\(serviceType.displayName) does not support remote path mapping management in Trawl.")
-                )
-                .listRowBackground(Color.clear)
             } else if mappings.isEmpty {
                 ContentUnavailableView(
                     "No Remote Path Mappings",
                     systemImage: "arrow.triangle.swap",
-                    description: Text("Add a mapping when \(serviceType.displayName) and your download client are on different machines or use different paths.")
+                    description: Text("Add a mapping when Sonarr, Radarr, and your download client are on different machines or use different paths.")
                 )
                 .listRowBackground(Color.clear)
             } else {
                 Section {
-                    ForEach(mappings) { mapping in
+                    ForEach(mappings) { entry in
                         Button {
-                            if supportsRemotePathMappings {
-                                mappingBeingEdited = mapping
-                            }
+                            mappingBeingEdited = entry
                         } label: {
-                            mappingRow(mapping)
+                            mappingRow(entry)
                         }
                         .buttonStyle(.plain)
                         .contentShape(Rectangle())
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
-                                mappingPendingDelete = mapping
+                                mappingPendingDelete = entry
                             } label: {
                                 Label("Delete", systemImage: "trash")
                             }
 
                             Button {
-                                if supportsRemotePathMappings {
-                                    mappingBeingEdited = mapping
-                                }
+                                mappingBeingEdited = entry
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
                             .tint(.indigo)
-                            .disabled(!supportsRemotePathMappings)
                         }
                         .contextMenu {
                             Button("Edit", systemImage: "pencil") {
-                                if supportsRemotePathMappings {
-                                    mappingBeingEdited = mapping
-                                }
+                                mappingBeingEdited = entry
                             }
-                            .disabled(!supportsRemotePathMappings)
                             Button("Delete", systemImage: "trash", role: .destructive) {
-                                mappingPendingDelete = mapping
+                                mappingPendingDelete = entry
                             }
                         }
                     }
                 } footer: {
-                    Text("Mappings translate paths reported by your download client into paths \(serviceType.displayName) can access. Use * as the host to match any download client.")
+                    Text("Mappings translate paths reported by your download client into paths Sonarr or Radarr can access. Use * as the host to match any download client.")
                 }
             }
         }
@@ -99,7 +85,7 @@ struct ArrRemotePathMappingListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            if supportsRemotePathMappings {
+            if !availableServices.isEmpty {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
                     Button {
                         showAddSheet = true
@@ -109,10 +95,10 @@ struct ArrRemotePathMappingListView: View {
                 }
             }
         }
-        .sheet(isPresented: supportsRemotePathMappings ? $showAddSheet : .constant(false)) {
-            ArrRemotePathMappingEditorSheet(serviceType: serviceType) { saved in
-                mappings.append(saved)
-                mappings.sort { $0.host < $1.host }
+        .sheet(isPresented: !availableServices.isEmpty ? $showAddSheet : .constant(false)) {
+            ArrRemotePathMappingEditorSheet(availableServices: availableServices) { serviceType, saved in
+                mappings.append(RemotePathMappingEntry(serviceType: serviceType, mapping: saved))
+                sortMappings()
                 inAppNotificationCenter.showSuccess(
                     title: "Added",
                     message: "Remote path mapping added to \(serviceType.displayName)."
@@ -120,11 +106,15 @@ struct ArrRemotePathMappingListView: View {
             }
             .environment(serviceManager)
         }
-        .sheet(item: supportsRemotePathMappings ? $mappingBeingEdited : .constant(nil)) { mapping in
-            ArrRemotePathMappingEditorSheet(serviceType: serviceType, existingMapping: mapping) { saved in
-                if let idx = mappings.firstIndex(where: { $0.id == saved.id }) {
-                    mappings[idx] = saved
-                    mappings.sort { $0.host < $1.host }
+        .sheet(item: $mappingBeingEdited) { entry in
+            ArrRemotePathMappingEditorSheet(
+                availableServices: [entry.serviceType],
+                initialServiceType: entry.serviceType,
+                existingMapping: entry.mapping
+            ) { serviceType, saved in
+                if let idx = mappings.firstIndex(where: { $0.id == entry.id }) {
+                    mappings[idx] = RemotePathMappingEntry(serviceType: serviceType, mapping: saved)
+                    sortMappings()
                 }
                 inAppNotificationCenter.showSuccess(
                     title: "Updated",
@@ -150,18 +140,28 @@ struct ArrRemotePathMappingListView: View {
             }
             Button("Cancel", role: .cancel) { mappingPendingDelete = nil }
         } message: {
-            if let mapping = mappingPendingDelete {
-                Text("Remove the mapping from '\(mapping.remotePath)' to '\(mapping.localPath)'?")
+            if let entry = mappingPendingDelete {
+                Text("Remove the \(entry.serviceType.displayName) mapping from '\(entry.mapping.remotePath)' to '\(entry.mapping.localPath)'?")
             }
         }
     }
 
-    private func mappingRow(_ mapping: ArrRemotePathMapping) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
+    private func mappingRow(_ entry: RemotePathMappingEntry) -> some View {
+        let mapping = entry.mapping
+        return VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
-                Image(systemName: "server.rack")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                Image(systemName: entry.serviceType.serviceIdentity.systemImage)
+                    .font(.caption)
+                    .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+                    .frame(width: 18)
+                Text(entry.serviceType.displayName)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(entry.serviceType.serviceIdentity.brandColor)
+
+                Text("·")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+
                 Text(mapping.host == "*" ? "Any Host" : mapping.host)
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(mapping.host == "*" ? .secondary : .primary)
@@ -190,49 +190,70 @@ struct ArrRemotePathMappingListView: View {
         defer { isLoading = false }
 
         do {
-            switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                mappings = try await client.getRemotePathMappings()
-                    .sorted { $0.host < $1.host }
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                mappings = try await client.getRemotePathMappings()
-                    .sorted { $0.host < $1.host }
-            case .prowlarr:
-                mappings = []
-            case .bazarr:
-                mappings = []
-            }
+            let sonarrClient = serviceManager.sonarrClient
+            let radarrClient = serviceManager.radarrClient
+
+            async let sonarrMappings: [RemotePathMappingEntry] = {
+                guard let client = sonarrClient else { return [] }
+                return try await client.getRemotePathMappings().map {
+                    RemotePathMappingEntry(serviceType: .sonarr, mapping: $0)
+                }
+            }()
+
+            async let radarrMappings: [RemotePathMappingEntry] = {
+                guard let client = radarrClient else { return [] }
+                return try await client.getRemotePathMappings().map {
+                    RemotePathMappingEntry(serviceType: .radarr, mapping: $0)
+                }
+            }()
+
+            let loadedMappings = try await sonarrMappings + radarrMappings
+            mappings = loadedMappings
+            sortMappings()
         } catch {
             loadError = error.localizedDescription
         }
     }
 
-    private func deleteMapping(_ mapping: ArrRemotePathMapping) async {
-        guard supportsRemotePathMappings else { return }
+    private func sortMappings() {
+        mappings.sort {
+            if $0.serviceType != $1.serviceType {
+                return $0.serviceType.displayName < $1.serviceType.displayName
+            }
+            return $0.mapping.host.localizedCaseInsensitiveCompare($1.mapping.host) == .orderedAscending
+        }
+    }
+
+    private func deleteMapping(_ entry: RemotePathMappingEntry) async {
         do {
-            switch serviceType {
+            switch entry.serviceType {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                try await client.deleteRemotePathMapping(id: mapping.id)
+                try await client.deleteRemotePathMapping(id: entry.mapping.id)
             case .radarr:
                 guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                try await client.deleteRemotePathMapping(id: mapping.id)
+                try await client.deleteRemotePathMapping(id: entry.mapping.id)
             case .prowlarr:
                 return
             case .bazarr:
                 return
             }
-            mappings.removeAll { $0.id == mapping.id }
+            mappings.removeAll { $0.id == entry.id }
             inAppNotificationCenter.showSuccess(
                 title: "Deleted",
-                message: "Remote path mapping removed from \(serviceType.displayName)."
+                message: "Remote path mapping removed from \(entry.serviceType.displayName)."
             )
         } catch {
             inAppNotificationCenter.showError(title: "Delete Failed", message: error.localizedDescription)
         }
     }
+}
+
+private struct RemotePathMappingEntry: Identifiable {
+    let serviceType: ArrServiceType
+    let mapping: ArrRemotePathMapping
+
+    var id: String { "\(serviceType.rawValue)-\(mapping.id)" }
 }
 
 // MARK: - Editor Sheet
@@ -242,10 +263,12 @@ struct ArrRemotePathMappingEditorSheet: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var servers: [ServerProfile]
 
-    let serviceType: ArrServiceType
+    let availableServices: [ArrServiceType]
+    let initialServiceType: ArrServiceType?
     let existingMapping: ArrRemotePathMapping?
-    let onComplete: (ArrRemotePathMapping) -> Void
+    let onComplete: (ArrServiceType, ArrRemotePathMapping) -> Void
 
+    @State private var selectedService: ArrServiceType = .sonarr
     @State private var host = ""
     @State private var remotePath = ""
     @State private var localPath = ""
@@ -258,20 +281,18 @@ struct ArrRemotePathMappingEditorSheet: View {
     private static let customID = "custom"
 
     init(
-        serviceType: ArrServiceType,
+        availableServices: [ArrServiceType],
+        initialServiceType: ArrServiceType? = nil,
         existingMapping: ArrRemotePathMapping? = nil,
-        onComplete: @escaping (ArrRemotePathMapping) -> Void
+        onComplete: @escaping (ArrServiceType, ArrRemotePathMapping) -> Void
     ) {
-        self.serviceType = serviceType
+        self.availableServices = availableServices
+        self.initialServiceType = initialServiceType
         self.existingMapping = existingMapping
         self.onComplete = onComplete
     }
 
     private var isEditing: Bool { existingMapping != nil }
-
-    private var supportsRemotePathMappings: Bool {
-        serviceType == .sonarr || serviceType == .radarr
-    }
 
     private var qbitProfiles: [ServerProfile] {
         servers.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
@@ -286,7 +307,7 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     private var canSave: Bool {
-        supportsRemotePathMappings &&
+        (selectedService == .sonarr || selectedService == .radarr) &&
         !isSaving &&
         !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -303,6 +324,17 @@ struct ArrRemotePathMappingEditorSheet: View {
             detents: [.medium, .large]
         ) {
             Form {
+                if availableServices.count > 1 && !isEditing {
+                    Section {
+                        Picker("Service", selection: $selectedService) {
+                            ForEach(availableServices, id: \.self) { service in
+                                Text(service.displayName).tag(service)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+
                 Section {
                     Picker("Host", selection: $selectedHostID) {
                         ForEach(qbitProfiles) { profile in
@@ -356,7 +388,7 @@ struct ArrRemotePathMappingEditorSheet: View {
                 } header: {
                     Text("Paths")
                 } footer: {
-                    Text("Remote path is what the download client reports. Local path is where \(serviceType.displayName) can access the same files.")
+                    Text("Remote path is what the download client reports. Local path is where \(selectedService.displayName) can access the same files.")
                 }
 
                 if let errorMessage {
@@ -369,6 +401,7 @@ struct ArrRemotePathMappingEditorSheet: View {
             .task {
                 guard !hasLoadedInitialState else { return }
                 hasLoadedInitialState = true
+                selectedService = initialServiceType ?? availableServices.first ?? .sonarr
                 if let existing = existingMapping {
                     remotePath = existing.remotePath
                     localPath = existing.localPath
@@ -419,7 +452,6 @@ struct ArrRemotePathMappingEditorSheet: View {
 
     private func save() async {
         guard !isSaving else { return }
-        guard supportsRemotePathMappings else { return }
         isSaving = true
         defer { isSaving = false }
         errorMessage = nil
@@ -433,7 +465,7 @@ struct ArrRemotePathMappingEditorSheet: View {
 
         do {
             let saved: ArrRemotePathMapping
-            switch serviceType {
+            switch selectedService {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
                 saved = isEditing
@@ -449,7 +481,7 @@ struct ArrRemotePathMappingEditorSheet: View {
             case .bazarr:
                 throw ArrError.noServiceConfigured
             }
-            onComplete(saved)
+            onComplete(selectedService, saved)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription

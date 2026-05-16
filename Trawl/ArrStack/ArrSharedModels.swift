@@ -42,12 +42,31 @@ nonisolated struct ArrQualityProfile: Codable, Identifiable, Sendable {
     var upgradeAllowed: Bool?
     var cutoff: Int?
     var items: [ArrQualityProfileItem]?
+    var minFormatScore: Int?
+    var cutoffFormatScore: Int?
+    var minUpgradeFormatScore: Int?
+    var formatItems: [ArrQualityProfileFormatItem]?
+    var language: ArrQualityProfileLanguage?
 }
 
 nonisolated struct ArrQualityProfileItem: Codable, Sendable {
+    var id: Int?
+    var name: String?
     var quality: ArrQuality?
     var allowed: Bool?
     var items: [ArrQualityProfileItem]?
+}
+
+nonisolated struct ArrQualityProfileFormatItem: Codable, Sendable {
+    var id: Int?
+    var format: Int?
+    var name: String?
+    var score: Int?
+}
+
+nonisolated struct ArrQualityProfileLanguage: Codable, Sendable {
+    var id: Int?
+    var name: String?
 }
 
 nonisolated struct ArrQuality: Codable, Sendable {

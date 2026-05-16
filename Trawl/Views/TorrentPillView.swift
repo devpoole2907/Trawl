@@ -40,6 +40,9 @@ struct TorrentSummaryView<Accessory: View>: View {
 
                 if let category = torrent.category, !category.isEmpty {
                     CategoryBadge(title: category)
+                    if let serviceIdentity = torrent.arrServiceBadgeIdentity {
+                        ArrServiceBadge(identity: serviceIdentity)
+                    }
                 }
 
                 if isProcessing {
@@ -156,6 +159,64 @@ private struct TorrentMetricLabel: View {
         }
         .font(.caption)
         .foregroundStyle(tint)
+    }
+}
+
+private extension Torrent {
+    var arrServiceBadgeIdentity: ArrServiceBadgeIdentity? {
+        guard let category else { return nil }
+        let normalizedCategory = category.lowercased()
+
+        if normalizedCategory.contains("sonarr") {
+            return .sonarr
+        }
+
+        if normalizedCategory.contains("radarr") {
+            return .radarr
+        }
+
+        return nil
+    }
+}
+
+private enum ArrServiceBadgeIdentity {
+    case sonarr
+    case radarr
+
+    var displayName: String {
+        switch self {
+        case .sonarr: "Sonarr"
+        case .radarr: "Radarr"
+        }
+    }
+
+    var brandColor: Color {
+        switch self {
+        case .sonarr: .purple
+        case .radarr: .orange
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .sonarr: "tv.fill"
+        case .radarr: "film.fill"
+        }
+    }
+}
+
+private struct ArrServiceBadge: View {
+    let identity: ArrServiceBadgeIdentity
+
+    var body: some View {
+        Image(systemName: identity.systemImage)
+            .font(.caption)
+            .foregroundStyle(identity.brandColor)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 4)
+            .background(identity.brandColor.opacity(0.12))
+            .clipShape(Capsule())
+            .accessibilityLabel(identity.displayName)
     }
 }
 

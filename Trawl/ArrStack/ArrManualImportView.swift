@@ -165,7 +165,7 @@ struct ArrManualImportView: View {
     private func locationRow(icon: String, title: String, subtitle: String, tint: Color) -> some View {
         HStack(spacing: 14) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(tint.opacity(0.15))
                     .frame(width: 44, height: 44)
                 Image(systemName: icon)

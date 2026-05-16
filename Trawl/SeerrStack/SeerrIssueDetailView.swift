@@ -30,7 +30,7 @@ struct SeerrIssueDetailView: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text(viewModel.issue.media?.displayTitle ?? "Unknown Media")
-                            .font(.headline)
+                            .font(.title2.bold())
 
                         if let issueType = viewModel.issue.issueKind {
                             Label(issueType.title, systemImage: issueType.symbolName)
@@ -68,7 +68,7 @@ struct SeerrIssueDetailView: View {
 
             Section("Comments") {
                 if viewModel.isLoadingComments && viewModel.comments.isEmpty {
-                    ProgressView("Loading comments...")
+                    ProgressView("Loading comments…")
                         .frame(maxWidth: .infinity, alignment: .center)
                 } else if viewModel.comments.isEmpty {
                     Text("No comments yet.")

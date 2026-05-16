@@ -7,7 +7,6 @@ enum MoreDestination: Hashable {
     case rssFeeds
     case diskSpace
     case health
-    case history
     case wanted
     case settings
     case qbittorrentSettings
@@ -17,6 +16,14 @@ enum MoreDestination: Hashable {
     case prowlarrIndexers
     case transferStats
     case torrentManagement
+    case integrations
+    case linkedApplicationsManagement
+    case downloadClientsManagement
+    case prowlarrLinkedApplications
+    case bazarrLinkedApplications
+    case seerrLinkedApplications
+    case downloadClients(service: ArrServiceType)
+    case remotePathMappings
     case blocklist
     case manualImport
     case calendar
@@ -37,16 +44,15 @@ enum MoreDestination: Hashable {
     case seerrSettings
     case seerrAdmin
     case seerrIssues
-    case seerrUserManagement
     case seerrLogs
     case jellyfinManagement
     case jellyfinSettings
-    case jellyfinUsers
     case jellyfinLibraries
     case jellyfinSessions
     case jellyfinActivityLog
     case jellyfinScheduledTasks
     case jellyfinPlugins
+    case unifiedUsers
 }
 
 enum MoreDestinationAccent {
@@ -55,6 +61,7 @@ enum MoreDestinationAccent {
     case categoriesAndTags
     case transferStats
     case torrentManagement
+    case integrations
     case mediaManagement
     case subtitleManagement
     case sonarrNaming
@@ -74,6 +81,7 @@ enum MoreDestinationAccent {
         case .categoriesAndTags: return .brown
         case .transferStats: return .mint
         case .torrentManagement: return .mint
+        case .integrations: return .blue
         case .mediaManagement: return .green
         case .subtitleManagement: return .teal
         case .sonarrNaming: return .purple
@@ -82,9 +90,9 @@ enum MoreDestinationAccent {
         case .languageProfiles: return .cyan
         case .providers: return .pink
         case .userManagement: return .blue
-        case .requestManagement: return .indigo
-        case .seerr: return .indigo
-        case .jellyfin: return .indigo
+        case .requestManagement: return ServiceIdentity.seerr.brandColor
+        case .seerr: return ServiceIdentity.seerr.brandColor
+        case .jellyfin: return ServiceIdentity.jellyfin.brandColor
         }
     }
 }
@@ -115,15 +123,10 @@ struct MoreView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                Section("Automation") {
+                Section {
                     NavigationLink(value: MoreDestination.activity) {
                         moreRow(icon: "arrow.down.doc.fill", color: .indigo,
                                 title: "Activity", subtitle: "Queue, downloads, and import history")
-                    }
-
-                    NavigationLink(value: MoreDestination.health) {
-                        moreRow(icon: "heart.text.square.fill", color: .pink,
-                                title: "Health", subtitle: "Service health checks")
                     }
 
                     NavigationLink(value: MoreDestination.wanted) {
@@ -136,60 +139,80 @@ struct MoreView: View {
                                 title: "Calendar", subtitle: "Upcoming releases and air dates")
                     }
 
+                    NavigationLink(value: MoreDestination.health) {
+                        moreRow(icon: "heart.text.square.fill", color: .pink,
+                                title: "Health", subtitle: "Service health checks")
+                    }
+
                     NavigationLink(value: MoreDestination.blocklist) {
                         moreRow(icon: "nosign", color: .red,
                                 title: "Blocklist", subtitle: "Releases blocked from being grabbed")
                     }
+                }
 
+                Section {
+                    NavigationLink(value: MoreDestination.mediaManagement) {
+                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
+                                title: "Media & Import", subtitle: "Naming, quality profiles, root folders, and import")
+                    }
+
+                    NavigationLink(value: MoreDestination.subtitleManagement) {
+                        moreRow(icon: "captions.bubble.fill", color: MoreDestinationAccent.subtitleManagement.color,
+                                title: "Subtitles", subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : "Language profiles and subtitle providers")
+                    }
+                }
+
+                Section {
                     NavigationLink(value: MoreDestination.prowlarrIndexers) {
                         moreRow(icon: "magnifyingglass.circle.fill", color: .yellow,
                                 title: "Indexers", subtitle: "Manage indexers across your services")
                     }
-                }
 
-                Section("Media Management") {
-                    NavigationLink(value: MoreDestination.mediaManagement) {
-                        moreRow(icon: "folder.badge.gearshape", color: MoreDestinationAccent.mediaManagement.color,
-                                title: "Media Management", subtitle: "Naming, quality profiles, root folders, and import")
-                    }
-                }
-
-                Section("Torrents") {
                     NavigationLink(value: MoreDestination.torrentManagement) {
                         moreRow(icon: "arrow.down.circle.fill", color: MoreDestinationAccent.torrentManagement.color,
-                                title: "Torrent Management", subtitle: "Categories, RSS feeds, and transfer stats")
+                                title: "Torrents", subtitle: "Categories, RSS feeds, and transfer stats")
                     }
-                }
 
-                Section("Subtitles") {
-                    NavigationLink(value: MoreDestination.subtitleManagement) {
-                        moreRow(icon: "captions.bubble.fill", color: MoreDestinationAccent.subtitleManagement.color,
-                                title: "Subtitle Management", subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : "Language profiles and subtitle providers")
-                    }
-                }
-                Section("Requests") {
-                    NavigationLink(value: MoreDestination.requestManagement) {
+                    NavigationLink(value: MoreDestination.integrations) {
                         moreRow(
-                            icon: "tray.full.fill",
-                            color: MoreDestinationAccent.requestManagement.color,
-                            title: "Request Management",
-                            subtitle: seerrProfile == nil ? "Not configured" : "Requests, issues, users, and logs"
+                            icon: "app.connected.to.app.below.fill",
+                            color: MoreDestinationAccent.integrations.color,
+                            title: "Integrations",
+                            subtitle: "Linked apps, download clients, and remote path mappings"
                         )
                     }
                 }
 
-                Section("Media Server") {
+                Section {
+                    NavigationLink(value: MoreDestination.requestManagement) {
+                        moreRow(
+                            icon: ServiceIdentity.seerr.systemImage,
+                            color: MoreDestinationAccent.requestManagement.color,
+                            title: "Requests",
+                            subtitle: seerrProfile == nil ? "Not configured" : "Requests, issues, and logs"
+                        )
+                    }
+
+                    NavigationLink(value: MoreDestination.unifiedUsers) {
+                        moreRow(
+                            icon: "person.2.fill",
+                            color: MoreDestinationAccent.userManagement.color,
+                            title: "Users",
+                            subtitle: jellyfinProfile == nil ? "Requires Jellyfin" : "Jellyfin and Seerr accounts"
+                        )
+                    }
+
                     NavigationLink(value: MoreDestination.jellyfinManagement) {
                         moreRow(
                             icon: "server.rack",
                             color: MoreDestinationAccent.jellyfin.color,
-                            title: "Jellyfin Management",
-                            subtitle: jellyfinProfile == nil ? "Not configured" : "Users, libraries, sessions, and server tasks"
+                            title: "Jellyfin",
+                            subtitle: jellyfinProfile == nil ? "Not configured" : "Libraries, sessions, activity, and server tasks"
                         )
                     }
                 }
 
-                Section("App") {
+                Section {
                     NavigationLink(value: MoreDestination.settings) {
                         moreRow(icon: "gearshape.fill", color: .secondary,
                                 title: "Settings", subtitle: "App and server configuration")
@@ -242,15 +265,40 @@ struct MoreView: View {
                 case .torrentManagement:
                     TorrentManagementView()
                         .moreDestinationTitleStyle()
+                case .integrations:
+                    IntegrationsManagementView()
+                        .moreDestinationTitleStyle()
+                case .linkedApplicationsManagement:
+                    LinkedApplicationsManagementView()
+                        .moreDestinationTitleStyle()
+                case .downloadClientsManagement:
+                    DownloadClientsManagementView()
+                        .moreDestinationTitleStyle()
+                case .prowlarrLinkedApplications:
+                    prowlarrLinkedApplicationsDestination
+                        .moreDestinationTitleStyle()
+                case .bazarrLinkedApplications:
+                    bazarrLinkedApplicationsDestination
+                        .moreDestinationTitleStyle()
+                case .seerrLinkedApplications:
+                    seerrLinkedApplicationsDestination
+                        .moreDestinationTitleStyle()
+                case .downloadClients(let service):
+                    ArrDownloadClientListView(serviceType: service)
+                        .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
+                        .moreDestinationTitleStyle()
+                case .remotePathMappings:
+                    ArrRemotePathMappingListView()
+                        .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
+                        .moreDestinationTitleStyle()
                 case .diskSpace:
                     ArrDiskSpaceView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .health:
                     ArrHealthView()
-                        .moreDestinationTitleStyle()
-                case .history:
-                    ArrActivityView()
                         .moreDestinationTitleStyle()
                 case .wanted:
                     ArrWantedView()
@@ -299,15 +347,6 @@ struct MoreView: View {
                 case .seerrAdmin:
                     seerrAdminDestination
                         .moreDestinationTitleStyle()
-                case .seerrUserManagement:
-                    if let client = seerrServiceManager.activeClient {
-                        SeerrUserManagementView(apiClient: client)
-                            .moreDestinationBackground(.userManagement)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        seerrAdminDestination
-                            .moreDestinationTitleStyle()
-                    }
                 case .seerrIssues:
                     if let client = seerrServiceManager.activeClient {
                         SeerrIssueListView(apiClient: client)
@@ -333,15 +372,6 @@ struct MoreView: View {
                 case .jellyfinManagement:
                     JellyfinManagementView(jellyfinProfile: jellyfinProfile)
                         .moreDestinationTitleStyle()
-                case .jellyfinUsers:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinUserManagementView(apiClient: client)
-                            .moreDestinationBackground(.userManagement)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
                 case .jellyfinLibraries:
                     if let client = jellyfinServiceManager.activeClient {
                         JellyfinLibrariesView(apiClient: client)
@@ -384,6 +414,9 @@ struct MoreView: View {
                     }
                 case .jellyfinSettings:
                     JellyfinSettingsView()
+                        .moreDestinationTitleStyle()
+                case .unifiedUsers:
+                    unifiedUsersDestination
                         .moreDestinationTitleStyle()
                 case .calendarSeries(let id):
                     CalendarSeriesDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
@@ -446,6 +479,77 @@ struct MoreView: View {
     }
 
     @ViewBuilder
+    private var prowlarrLinkedApplicationsDestination: some View {
+        if arrServiceManager.prowlarrConnected {
+            ProwlarrApplicationsListView()
+                .environment(arrServiceManager)
+        } else if arrServiceManager.hasProwlarrInstance {
+            ContentUnavailableView {
+                Label("Prowlarr Unreachable", systemImage: "network.slash")
+            } description: {
+                Text(arrServiceManager.prowlarrConnectionError ?? "Unable to reach your configured Prowlarr server.")
+            } actions: {
+                Button("Retry Connection") {
+                    Task { await arrServiceManager.retry(.prowlarr) }
+                }
+                .buttonStyle(.bordered)
+            }
+            .navigationTitle("Prowlarr Linked Apps")
+        } else {
+            ContentUnavailableView {
+                Label("Prowlarr Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
+            } description: {
+                Text("Add a Prowlarr server in Settings to link indexer sync destinations.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
+            }
+            .navigationTitle("Prowlarr Linked Apps")
+        }
+    }
+
+    @ViewBuilder
+    private var bazarrLinkedApplicationsDestination: some View {
+        if arrServiceManager.hasAnyConnectedBazarrInstance {
+            BazarrLinkedApplicationsListView()
+                .environment(arrServiceManager)
+        } else if arrServiceManager.hasBazarrInstance {
+            ContentUnavailableView {
+                Label("Bazarr Unreachable", systemImage: "network.slash")
+            } description: {
+                Text(arrServiceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server.")
+            } actions: {
+                Button("Retry Connection") {
+                    Task { await arrServiceManager.retry(.bazarr) }
+                }
+                .buttonStyle(.bordered)
+            }
+            .navigationTitle("Bazarr Linked Apps")
+        } else {
+            ContentUnavailableView {
+                Label("Bazarr Not Set Up", systemImage: ServiceIdentity.bazarr.tabSystemImage)
+            } description: {
+                Text("Add a Bazarr server in Settings to link subtitle sync destinations.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
+            }
+            .navigationTitle("Bazarr Linked Apps")
+        }
+    }
+
+    @ViewBuilder
+    private var seerrLinkedApplicationsDestination: some View {
+        if let client = seerrServiceManager.activeClient {
+            SeerrLinkedApplicationsView(apiClient: client)
+        } else {
+            seerrAdminDestination
+        }
+    }
+
+    @ViewBuilder
     private var transferStatsDestination: some View {
         if let services = appServices {
             TorrentStatsView()
@@ -494,7 +598,7 @@ struct MoreView: View {
             }
         } else {
             ContentUnavailableView {
-                Label("Indexers Not Set Up", systemImage: "magnifyingglass.circle")
+                Label("Indexers Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
             } description: {
                 Text("Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.")
             } actions: {
@@ -528,7 +632,7 @@ struct MoreView: View {
             }
         } else {
             ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "arrow.down.circle")
+                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
             } description: {
                 Text("Add a qBittorrent server in Settings to manage your downloads.")
             } actions: {
@@ -618,7 +722,7 @@ struct MoreView: View {
             .navigationTitle("Requests")
         } else {
             ContentUnavailableView {
-                Label("Seerr Not Configured", systemImage: "eye")
+                Label("Seerr Not Configured", systemImage: ServiceIdentity.seerr.tabSystemImage)
             } description: {
                 Text("Add a Seerr server in Settings to manage requests.")
             } actions: {
@@ -627,6 +731,22 @@ struct MoreView: View {
                 }
             }
             .navigationTitle("Requests")
+        }
+    }
+
+    @ViewBuilder
+    private var unifiedUsersDestination: some View {
+        if let jellyfinClient = jellyfinServiceManager.activeClient {
+            UnifiedUserListView(
+                jellyfinClient: jellyfinClient,
+                seerrClient: seerrServiceManager.activeClient,
+                seerrBaseURL: seerrServiceManager.activeClient?.baseURL
+            )
+            .environment(jellyfinServiceManager)
+            .environment(seerrServiceManager)
+            .environment(inAppNotificationCenter)
+        } else {
+            jellyfinUnavailableDestination
         }
     }
 
@@ -674,6 +794,572 @@ struct MoreView: View {
     }
 }
 
+private struct IntegrationsManagementView: View {
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.linkedApplicationsManagement) {
+                    NavigationMenuRow(
+                        icon: "app.connected.to.app.below.fill",
+                        color: MoreDestinationAccent.integrations.color,
+                        title: "Linked Applications",
+                        subtitle: "Indexer sync, subtitle sync, and request routing"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.downloadClientsManagement) {
+                    NavigationMenuRow(
+                        icon: ServiceIdentity.qbittorrent.systemImage,
+                        color: ServiceIdentity.qbittorrent.brandColor,
+                        title: "Download Clients",
+                        subtitle: "Sonarr and Radarr download clients"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.remotePathMappings) {
+                    NavigationMenuRow(
+                        icon: "arrow.triangle.swap",
+                        color: .indigo,
+                        title: "Remote Path Mappings",
+                        subtitle: "Map download paths for imports"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Integrations")
+        .moreDestinationBackground(.integrations)
+    }
+}
+
+private struct LinkedApplicationsManagementView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Query private var seerrProfiles: [SeerrServiceProfile]
+    @Query private var arrProfiles: [ArrServiceProfile]
+    @State private var statusModel = LinkedApplicationsStatusViewModel()
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.prowlarrLinkedApplications) {
+                    IntegrationRelationshipRow(
+                        source: .prowlarr,
+                        targets: [.sonarr, .radarr],
+                        title: "Indexer Sync",
+                        subtitle: "Prowlarr linked applications",
+                        status: statusModel.indexerStatus
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.bazarrLinkedApplications) {
+                    IntegrationRelationshipRow(
+                        source: .bazarr,
+                        targets: [.sonarr, .radarr],
+                        title: "Subtitle Sync",
+                        subtitle: "Bazarr linked applications",
+                        status: statusModel.subtitleStatus
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.seerrLinkedApplications) {
+                    IntegrationRelationshipRow(
+                        source: .seerr,
+                        targets: [.sonarr, .radarr],
+                        title: "Request Routing",
+                        subtitle: "Seerr linked applications",
+                        status: statusModel.requestRoutingStatus
+                    )
+                }
+            } footer: {
+                Text("Configure how services publish indexers, subtitles, and approved requests to Sonarr and Radarr.")
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Linked Applications")
+        .moreDestinationBackground(.integrations)
+        .refreshable {
+            await statusModel.load(
+                arrServiceManager: arrServiceManager,
+                seerrServiceManager: seerrServiceManager,
+                arrProfiles: arrProfiles,
+                hasSeerrProfile: !seerrProfiles.isEmpty
+            )
+        }
+        .task {
+            await statusModel.load(
+                arrServiceManager: arrServiceManager,
+                seerrServiceManager: seerrServiceManager,
+                arrProfiles: arrProfiles,
+                hasSeerrProfile: !seerrProfiles.isEmpty
+            )
+        }
+        .onAppear {
+            Task {
+                await statusModel.load(
+                    arrServiceManager: arrServiceManager,
+                    seerrServiceManager: seerrServiceManager,
+                    arrProfiles: arrProfiles,
+                    hasSeerrProfile: !seerrProfiles.isEmpty
+                )
+            }
+        }
+    }
+}
+
+private struct DownloadClientsManagementView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @State private var statusModel = DownloadClientsStatusViewModel()
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.downloadClients(service: .sonarr)) {
+                    IntegrationRelationshipRow(
+                        source: .sonarr,
+                        targets: [.qbittorrent],
+                        title: "Sonarr Download Clients",
+                        subtitle: "Clients used for series grabs",
+                        status: statusModel.sonarrStatus
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.downloadClients(service: .radarr)) {
+                    IntegrationRelationshipRow(
+                        source: .radarr,
+                        targets: [.qbittorrent],
+                        title: "Radarr Download Clients",
+                        subtitle: "Clients used for movie grabs",
+                        status: statusModel.radarrStatus
+                    )
+                }
+            } footer: {
+                Text("Manage where Sonarr and Radarr send downloads.")
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Download Clients")
+        .moreDestinationBackground(.integrations)
+        .refreshable {
+            await statusModel.load(arrServiceManager: arrServiceManager)
+        }
+        .task {
+            await statusModel.load(arrServiceManager: arrServiceManager)
+        }
+        .onAppear {
+            Task {
+                await statusModel.load(arrServiceManager: arrServiceManager)
+            }
+        }
+    }
+}
+
+@MainActor
+@Observable
+private final class DownloadClientsStatusViewModel {
+    private(set) var sonarrStatus: IntegrationRelationshipStatus = .loading
+    private(set) var radarrStatus: IntegrationRelationshipStatus = .loading
+
+    private var isLoading = false
+
+    func load(arrServiceManager: ArrServiceManager) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        sonarrStatus = await loadStatus(for: .sonarr, arrServiceManager: arrServiceManager)
+        radarrStatus = await loadStatus(for: .radarr, arrServiceManager: arrServiceManager)
+    }
+
+    private func loadStatus(for serviceType: ArrServiceType, arrServiceManager: ArrServiceManager) async -> IntegrationRelationshipStatus {
+        switch serviceType {
+        case .sonarr:
+            guard arrServiceManager.hasSonarrInstance else { return .notConfigured }
+            guard arrServiceManager.sonarrConnected, let apiClient = arrServiceManager.sonarrClient else { return .error }
+            return await loadStatus(client: apiClient)
+        case .radarr:
+            guard arrServiceManager.hasRadarrInstance else { return .notConfigured }
+            guard arrServiceManager.radarrConnected, let apiClient = arrServiceManager.radarrClient else { return .error }
+            return await loadStatus(client: apiClient)
+        case .prowlarr, .bazarr:
+            return .notConfigured
+        }
+    }
+
+    private func loadStatus<Client: SharedArrClient>(client: Client) async -> IntegrationRelationshipStatus {
+        do {
+            let clients = try await client.getDownloadClients()
+            guard !clients.isEmpty else { return .notConfigured }
+
+            var states: [IntegrationTargetState] = []
+            for downloadClient in clients {
+                guard downloadClient.enable else {
+                    states.append(.disabled)
+                    continue
+                }
+
+                do {
+                    try await client.testDownloadClient(downloadClient)
+                    states.append(.connected)
+                } catch {
+                    states.append(.notConnected)
+                }
+            }
+
+            return Self.aggregate(states)
+        } catch {
+            return .error
+        }
+    }
+
+    private static func aggregate(_ states: [IntegrationTargetState]) -> IntegrationRelationshipStatus {
+        guard !states.isEmpty else { return .notConfigured }
+
+        let hasConnected = states.contains(.connected)
+        let hasDisabled = states.contains(.disabled)
+        let hasNotConnected = states.contains(.notConnected)
+
+        if hasConnected && !hasDisabled && !hasNotConnected {
+            return .connected
+        }
+        if hasDisabled && !hasConnected && !hasNotConnected {
+            return .disabled
+        }
+        if hasConnected && hasDisabled && !hasNotConnected {
+            return .partiallyEnabled
+        }
+        if hasConnected && hasNotConnected {
+            return .partiallyConnected
+        }
+        if hasDisabled && hasNotConnected {
+            return .partiallyDisabled
+        }
+        return .error
+    }
+}
+
+@MainActor
+@Observable
+private final class LinkedApplicationsStatusViewModel {
+    private(set) var indexerStatus: IntegrationRelationshipStatus = .loading
+    private(set) var subtitleStatus: IntegrationRelationshipStatus = .loading
+    private(set) var requestRoutingStatus: IntegrationRelationshipStatus = .loading
+
+    private var isLoading = false
+
+    func load(
+        arrServiceManager: ArrServiceManager,
+        seerrServiceManager: SeerrServiceManager,
+        arrProfiles: [ArrServiceProfile],
+        hasSeerrProfile: Bool
+    ) async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        indexerStatus = await loadIndexerStatus(arrServiceManager: arrServiceManager, arrProfiles: arrProfiles)
+        subtitleStatus = await loadSubtitleStatus(arrServiceManager: arrServiceManager)
+        requestRoutingStatus = await loadRequestRoutingStatus(seerrServiceManager: seerrServiceManager, hasSeerrProfile: hasSeerrProfile)
+    }
+
+    private func loadIndexerStatus(arrServiceManager: ArrServiceManager, arrProfiles: [ArrServiceProfile]) async -> IntegrationRelationshipStatus {
+        guard arrServiceManager.hasProwlarrInstance else { return .notConfigured }
+        guard arrServiceManager.prowlarrConnected, let client = arrServiceManager.prowlarrClient else { return .error }
+
+        do {
+            let applications = try await client.getApplications()
+                .filter { $0.linkedAppType == .sonarr || $0.linkedAppType == .radarr }
+
+            guard !applications.isEmpty else { return .notConfigured }
+
+            var states: [IntegrationTargetState] = []
+            for application in applications {
+                if application.syncLevel == .disabled {
+                    states.append(.disabled)
+                } else {
+                    states.append(Self.prowlarrTargetState(for: application, arrServiceManager: arrServiceManager, arrProfiles: arrProfiles))
+                }
+            }
+            return Self.aggregate(states)
+        } catch {
+            return .error
+        }
+    }
+
+    private static func prowlarrTargetState(
+        for application: ProwlarrApplication,
+        arrServiceManager: ArrServiceManager,
+        arrProfiles: [ArrServiceProfile]
+    ) -> IntegrationTargetState {
+        guard let appType = application.linkedAppType,
+              let baseURL = application.stringFieldValue(named: "baseUrl"),
+              let matchedProfile = matchingProfile(for: baseURL, appType: appType, arrProfiles: arrProfiles) else {
+            return .notConnected
+        }
+
+        switch appType {
+        case .sonarr:
+            return arrServiceManager.isConnected(.sonarr, profileID: matchedProfile.id) ? .connected : .notConnected
+        case .radarr:
+            return arrServiceManager.isConnected(.radarr, profileID: matchedProfile.id) ? .connected : .notConnected
+        }
+    }
+
+    private static func matchingProfile(
+        for linkedAppURL: String,
+        appType: ProwlarrLinkedAppType,
+        arrProfiles: [ArrServiceProfile]
+    ) -> ArrServiceProfile? {
+        let targetService: ArrServiceType = switch appType {
+        case .sonarr: .sonarr
+        case .radarr: .radarr
+        }
+        let normalizedLinkedURL = normalizedURL(linkedAppURL)
+
+        return arrProfiles
+            .filter { $0.resolvedServiceType == targetService && $0.isEnabled }
+            .first { normalizedURL($0.hostURL) == normalizedLinkedURL }
+    }
+
+    private static func normalizedURL(_ string: String) -> String {
+        guard var components = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if components.path == "/" {
+            components.path = ""
+        }
+        return components.string?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            ?? string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func loadSubtitleStatus(arrServiceManager: ArrServiceManager) async -> IntegrationRelationshipStatus {
+        guard arrServiceManager.hasBazarrInstance else { return .notConfigured }
+        guard arrServiceManager.hasAnyConnectedBazarrInstance, let client = arrServiceManager.activeBazarrEntry?.client else { return .error }
+
+        do {
+            let settings = try await client.getSettings()
+            let states = BazarrLinkedApplicationType.allCases.compactMap { appType -> IntegrationTargetState? in
+                let isConfigured = settings.bazarrLinkedAppBaseURL(appType) != nil || settings.bazarrLinkedAppIsEnabled(appType)
+                guard isConfigured else { return nil }
+
+                guard settings.bazarrLinkedAppIsEnabled(appType) else {
+                    return .disabled
+                }
+
+                switch appType {
+                case .sonarr:
+                    return arrServiceManager.sonarrConnected ? .connected : .notConnected
+                case .radarr:
+                    return arrServiceManager.radarrConnected ? .connected : .notConnected
+                }
+            }
+
+            return Self.aggregate(states)
+        } catch {
+            return .error
+        }
+    }
+
+    private func loadRequestRoutingStatus(
+        seerrServiceManager: SeerrServiceManager,
+        hasSeerrProfile: Bool
+    ) async -> IntegrationRelationshipStatus {
+        guard hasSeerrProfile else { return .notConfigured }
+        guard seerrServiceManager.isConnected, let client = seerrServiceManager.activeClient else { return .error }
+
+        do {
+            let sonarrSettings = try await client.getDVRSettings(.sonarr).map {
+                SeerrLinkedAppEntry(kind: .sonarr, settings: $0)
+            }
+            let radarrSettings = try await client.getDVRSettings(.radarr).map {
+                SeerrLinkedAppEntry(kind: .radarr, settings: $0)
+            }
+            let entries = sonarrSettings + radarrSettings
+
+            guard !entries.isEmpty else { return .notConfigured }
+
+            var states: [IntegrationTargetState] = []
+            for entry in entries {
+                if entry.settings.syncEnabled == false {
+                    states.append(.disabled)
+                } else {
+                    do {
+                        _ = try await client.testDVRConnection(
+                            entry.kind,
+                            body: SeerrDVRTestBody(
+                                hostname: entry.settings.hostname,
+                                port: entry.settings.port,
+                                apiKey: entry.settings.apiKey,
+                                useSsl: entry.settings.useSsl ?? false,
+                                baseUrl: entry.settings.baseUrl
+                            )
+                        )
+                        states.append(.connected)
+                    } catch {
+                        states.append(.notConnected)
+                    }
+                }
+            }
+
+            return Self.aggregate(states)
+        } catch {
+            return .error
+        }
+    }
+
+    private static func aggregate(_ states: [IntegrationTargetState]) -> IntegrationRelationshipStatus {
+        guard !states.isEmpty else { return .notConfigured }
+
+        let hasConnected = states.contains(.connected)
+        let hasDisabled = states.contains(.disabled)
+        let hasNotConnected = states.contains(.notConnected)
+
+        if hasConnected && !hasDisabled && !hasNotConnected {
+            return .connected
+        }
+        if hasDisabled && !hasConnected && !hasNotConnected {
+            return .disabled
+        }
+        if hasConnected && hasDisabled && !hasNotConnected {
+            return .partiallyEnabled
+        }
+        if hasConnected && hasNotConnected {
+            return .partiallyConnected
+        }
+        if hasDisabled && hasNotConnected {
+            return .partiallyDisabled
+        }
+        return .error
+    }
+}
+
+private enum IntegrationTargetState {
+    case connected
+    case disabled
+    case notConnected
+}
+
+private enum IntegrationRelationshipStatus {
+    case connected
+    case disabled
+    case partiallyEnabled
+    case partiallyConnected
+    case partiallyDisabled
+    case error
+    case loading
+    case warning(String)
+    case notConfigured
+
+    var label: String {
+        switch self {
+        case .connected: "Connected"
+        case .disabled: "Disabled"
+        case .partiallyEnabled: "Partially Enabled"
+        case .partiallyConnected: "Partially Connected"
+        case .partiallyDisabled: "Partially Disabled"
+        case .error: "Error"
+        case .loading: "Checking"
+        case .warning(let value): value
+        case .notConfigured: "Not configured"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .connected: .green
+        case .disabled: .secondary
+        case .partiallyEnabled: .orange
+        case .partiallyConnected: .orange
+        case .partiallyDisabled: .orange
+        case .error: .red
+        case .loading: .secondary
+        case .warning: .orange
+        case .notConfigured: .secondary
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .connected: "checkmark.circle.fill"
+        case .disabled: "pause.circle"
+        case .partiallyEnabled: "circle.lefthalf.filled"
+        case .partiallyConnected: "exclamationmark.circle.fill"
+        case .partiallyDisabled: "pause.circle.fill"
+        case .error: "xmark.octagon.fill"
+        case .loading: "clock"
+        case .warning: "exclamationmark.circle.fill"
+        case .notConfigured: "circle"
+        }
+    }
+}
+
+private struct IntegrationRelationshipRow: View {
+    let source: ServiceIdentity
+    let targets: [ServiceIdentity]
+    let title: String
+    let subtitle: String
+    let status: IntegrationRelationshipStatus
+
+    var body: some View {
+        HStack(spacing: 12) {
+            serviceFlow
+                .frame(width: 92, alignment: .leading)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                Text(subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                HStack(spacing: 4) {
+                    Image(systemName: status.systemImage)
+                    Text(status.label)
+                }
+                .font(.caption2)
+                .foregroundStyle(status.color)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var serviceFlow: some View {
+        HStack(spacing: 5) {
+            serviceIcon(source)
+
+            Image(systemName: "arrow.right")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            HStack(spacing: -6) {
+                ForEach(targets, id: \.self) { target in
+                    serviceIcon(target)
+                        .background(Circle().fill(.background))
+                }
+            }
+        }
+    }
+
+    private func serviceIcon(_ service: ServiceIdentity) -> some View {
+        Image(systemName: service.systemImage)
+            .font(.subheadline)
+            .foregroundStyle(service.brandColor)
+            .frame(width: 24, height: 24)
+            .accessibilityLabel(service.displayName)
+    }
+}
+
 private struct SubtitleManagementView: View {
     var body: some View {
         List {
@@ -686,9 +1372,7 @@ private struct SubtitleManagementView: View {
                         subtitle: "Preferred languages and cutoff rules"
                     )
                 }
-            }
 
-            Section {
                 NavigationLink(value: MoreDestination.bazarrProviders) {
                     NavigationMenuRow(
                         icon: "person.2.fill",
@@ -702,38 +1386,14 @@ private struct SubtitleManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Subtitle Management")
+        .navigationTitle("Subtitles")
         .moreDestinationBackground(.subtitleManagement)
     }
 }
 
 private struct TorrentManagementView: View {
-    @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
-
     var body: some View {
         List {
-            Section {
-                NavigationLink(value: MoreDestination.categoriesAndTags) {
-                    NavigationMenuRow(
-                        icon: "tag.fill",
-                        color: MoreDestinationAccent.categoriesAndTags.color,
-                        title: "Categories & Tags",
-                        subtitle: "Manage torrent organization labels"
-                    )
-                }
-            }
-
-            Section {
-                NavigationLink(value: MoreDestination.rssFeeds) {
-                    NavigationMenuRow(
-                        icon: "dot.radiowaves.left.and.right",
-                        color: .cyan,
-                        title: "RSS Feeds",
-                        subtitle: "Feeds and automatic download rules"
-                    )
-                }
-            }
-
             Section {
                 NavigationLink(value: MoreDestination.transferStats) {
                     NavigationMenuRow(
@@ -743,20 +1403,40 @@ private struct TorrentManagementView: View {
                         subtitle: "Speed, session totals, and network info"
                     )
                 }
+
+                NavigationLink(value: MoreDestination.categoriesAndTags) {
+                    NavigationMenuRow(
+                        icon: "tag.fill",
+                        color: MoreDestinationAccent.categoriesAndTags.color,
+                        title: "Categories & Tags",
+                        subtitle: "Manage torrent organization labels"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.rssFeeds) {
+                    NavigationMenuRow(
+                        icon: "dot.radiowaves.left.and.right",
+                        color: .cyan,
+                        title: "RSS Feeds",
+                        subtitle: "Feeds and automatic download rules"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.qbittorrentSettings) {
+                    NavigationMenuRow(
+                        icon: "gearshape.fill",
+                        color: ServiceIdentity.qbittorrent.brandColor,
+                        title: "qBittorrent Settings",
+                        subtitle: "Server, speed limits, and save location"
+                    )
+                }
             }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Torrent Management")
+        .navigationTitle("Torrents")
         .moreDestinationBackground(.torrentManagement)
-        .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                Button("qBittorrent Settings", systemImage: "gearshape") {
-                    navigateToQbittorrentSettings()
-                }
-            }
-        }
     }
 }
 
@@ -768,41 +1448,26 @@ private struct RequestManagementView: View {
             Section {
                 NavigationLink(value: MoreDestination.seerrAdmin) {
                     NavigationMenuRow(
-                        icon: "tray.full.fill",
+                        icon: ServiceIdentity.seerr.systemImage,
                         color: MoreDestinationAccent.requestManagement.color,
                         title: "Requests",
                         subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
                     )
                 }
-            }
 
-            Section {
                 NavigationLink(value: MoreDestination.seerrIssues) {
                     NavigationMenuRow(
                         icon: "exclamationmark.bubble.fill",
                         color: .orange,
-                        title: "Manage Issues",
+                        title: "Issues",
                         subtitle: "Review and respond to user issues"
                     )
                 }
-            }
 
-            Section {
-                NavigationLink(value: MoreDestination.seerrUserManagement) {
-                    NavigationMenuRow(
-                        icon: "person.2.badge.gearshape",
-                        color: .blue,
-                        title: "Manage Users",
-                        subtitle: "Edit permissions and remove users"
-                    )
-                }
-            }
-
-            Section {
                 NavigationLink(value: MoreDestination.seerrLogs) {
                     NavigationMenuRow(
                         icon: "doc.text.magnifyingglass",
-                        color: .indigo,
+                        color: ServiceIdentity.seerr.brandColor,
                         title: "Seerr Logs",
                         subtitle: "Live Seerr server logs"
                     )
@@ -812,7 +1477,7 @@ private struct RequestManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Request Management")
+        .navigationTitle("Requests")
         .moreDestinationBackground(.requestManagement)
     }
 }
@@ -823,28 +1488,6 @@ private struct JellyfinManagementView: View {
     var body: some View {
         List {
             Section {
-                NavigationLink(value: MoreDestination.jellyfinUsers) {
-                    NavigationMenuRow(
-                        icon: "person.2.fill",
-                        color: .blue,
-                        title: "Users",
-                        subtitle: jellyfinProfile == nil ? "Not configured" : "Manage Jellyfin user accounts"
-                    )
-                }
-            }
-
-            Section {
-                NavigationLink(value: MoreDestination.jellyfinLibraries) {
-                    NavigationMenuRow(
-                        icon: "folder.fill",
-                        color: .orange,
-                        title: "Libraries",
-                        subtitle: "Browse and scan media libraries"
-                    )
-                }
-            }
-
-            Section {
                 NavigationLink(value: MoreDestination.jellyfinSessions) {
                     NavigationMenuRow(
                         icon: "play.rectangle.fill",
@@ -853,20 +1496,16 @@ private struct JellyfinManagementView: View {
                         subtitle: "Active playback sessions"
                     )
                 }
-            }
 
-            Section {
-                NavigationLink(value: MoreDestination.jellyfinActivityLog) {
+                NavigationLink(value: MoreDestination.jellyfinLibraries) {
                     NavigationMenuRow(
-                        icon: "list.bullet.rectangle.fill",
-                        color: .indigo,
-                        title: "Activity Log",
-                        subtitle: "Jellyfin server activity history"
+                        icon: "folder.fill",
+                        color: .orange,
+                        title: "Libraries",
+                        subtitle: "Browse and scan media libraries"
                     )
                 }
-            }
 
-            Section {
                 NavigationLink(value: MoreDestination.jellyfinScheduledTasks) {
                     NavigationMenuRow(
                         icon: "clock.arrow.2.circlepath",
@@ -875,9 +1514,16 @@ private struct JellyfinManagementView: View {
                         subtitle: "View and trigger Jellyfin background tasks"
                     )
                 }
-            }
 
-            Section {
+                NavigationLink(value: MoreDestination.jellyfinActivityLog) {
+                    NavigationMenuRow(
+                        icon: "list.bullet.rectangle.fill",
+                        color: ServiceIdentity.jellyfin.brandColor,
+                        title: "Activity Log",
+                        subtitle: "Jellyfin server activity history"
+                    )
+                }
+
                 NavigationLink(value: MoreDestination.jellyfinPlugins) {
                     NavigationMenuRow(
                         icon: "shippingbox.fill",
@@ -891,7 +1537,7 @@ private struct JellyfinManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Jellyfin Management")
+        .navigationTitle("Jellyfin")
         .moreDestinationBackground(.jellyfin)
     }
 }
@@ -1064,12 +1710,12 @@ private struct RecentNotificationsSheet: View {
 
         var systemImage: String {
             switch self {
-            case .qbittorrent: "arrow.down.circle"
-            case .sonarr: ArrServiceType.sonarr.systemImage
-            case .radarr: ArrServiceType.radarr.systemImage
-            case .prowlarr: ArrServiceType.prowlarr.systemImage
-            case .bazarr: ArrServiceType.bazarr.systemImage
-            case .seerr: "eye.fill"
+            case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
+            case .sonarr: ServiceIdentity.sonarr.systemImage
+            case .radarr: ServiceIdentity.radarr.systemImage
+            case .prowlarr: ServiceIdentity.prowlarr.systemImage
+            case .bazarr: ServiceIdentity.bazarr.systemImage
+            case .seerr: ServiceIdentity.seerr.systemImage
             case .trawl: "app.badge"
             }
         }
@@ -1103,7 +1749,7 @@ private struct RecentNotificationsSheet: View {
             Button(role: .destructive) {
                 inAppNotificationCenter.removeNotification(id: entry.id)
             } label: {
-                Label("Remove", systemImage: "xmark")
+                Label("Remove", systemImage: "trash")
             }
         }
     }

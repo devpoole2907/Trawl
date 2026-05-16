@@ -135,7 +135,7 @@ struct ArrReleaseActionContent: View {
     private func statCellView(_ cell: StatCell) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(cell.tint.opacity(0.2))
                     .frame(width: 36, height: 36)
                 Image(systemName: cell.systemImage)
@@ -156,7 +156,7 @@ struct ArrReleaseActionContent: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func rejectionsCard(_ rejections: [String]) -> some View {

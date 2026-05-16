@@ -206,12 +206,12 @@ struct SeerrDashboardView: View {
     private var backgroundGradient: some View {
         ZStack {
             LinearGradient(
-                colors: [Color.indigo.opacity(0.11), Color.teal.opacity(0.06), Color.clear],
+                colors: [ServiceIdentity.seerr.brandColor.opacity(0.11), Color.teal.opacity(0.06), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
             RadialGradient(
-                colors: [Color.indigo.opacity(0.13), Color.clear],
+                colors: [ServiceIdentity.seerr.brandColor.opacity(0.13), Color.clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 260
@@ -223,7 +223,6 @@ struct SeerrDashboardView: View {
 
 extension EnvironmentValues {
     @Entry var navigateToSeerrIssues: () -> Void = {}
-    @Entry var navigateToSeerrUserManagement: () -> Void = {}
 }
 
 @MainActor
@@ -471,7 +470,7 @@ private struct SeerrRequestRow: View {
                     .overlay(Image(systemName: item.symbolName).foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
@@ -512,7 +511,7 @@ private struct SeerrRequestRow: View {
                 if item.request.is4k == true {
                     Text("4K")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.indigo)
+                        .foregroundStyle(ServiceIdentity.seerr.brandColor)
                 }
 
                 if let status = item.request.requestStatus {
@@ -520,22 +519,12 @@ private struct SeerrRequestRow: View {
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(statusTint(status).opacity(0.15), in: Capsule())
-                        .foregroundStyle(statusTint(status))
+                        .background(status.statusColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(status.statusColor)
                 }
             }
         }
         .padding(.vertical, 2)
     }
 
-    private func statusTint(_ status: SeerrRequestStatus) -> Color {
-        switch status {
-        case .pending: .orange
-        case .approved: .green
-        case .declined: .red
-        case .completed: .green
-        case .failed: .red
-        }
-    }
 }
-

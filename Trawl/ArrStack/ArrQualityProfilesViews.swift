@@ -373,7 +373,12 @@ private struct ArrQualityProfileEditorSession: Identifiable {
             name: "\(profile.name) Copy",
             upgradeAllowed: profile.upgradeAllowed ?? true,
             cutoff: profile.cutoff,
-            items: profile.items ?? []
+            items: profile.items ?? [],
+            minFormatScore: profile.minFormatScore,
+            cutoffFormatScore: profile.cutoffFormatScore,
+            minUpgradeFormatScore: profile.minUpgradeFormatScore,
+            formatItems: profile.formatItems,
+            language: profile.language
         ))
     }
 }
@@ -384,6 +389,11 @@ private struct ArrQualityProfileDraft: Sendable {
     var upgradeAllowed: Bool
     var cutoff: Int?
     var items: [ArrQualityProfileItem]
+    var minFormatScore: Int?
+    var cutoffFormatScore: Int?
+    var minUpgradeFormatScore: Int?
+    var formatItems: [ArrQualityProfileFormatItem]?
+    var language: ArrQualityProfileLanguage?
 
     init(profile: ArrQualityProfile) {
         apiID = profile.id
@@ -391,14 +401,35 @@ private struct ArrQualityProfileDraft: Sendable {
         upgradeAllowed = profile.upgradeAllowed ?? true
         cutoff = profile.cutoff
         items = profile.items ?? []
+        minFormatScore = profile.minFormatScore
+        cutoffFormatScore = profile.cutoffFormatScore
+        minUpgradeFormatScore = profile.minUpgradeFormatScore
+        formatItems = profile.formatItems
+        language = profile.language
     }
 
-    init(apiID: Int?, name: String, upgradeAllowed: Bool, cutoff: Int?, items: [ArrQualityProfileItem]) {
+    init(
+        apiID: Int?,
+        name: String,
+        upgradeAllowed: Bool,
+        cutoff: Int?,
+        items: [ArrQualityProfileItem],
+        minFormatScore: Int? = nil,
+        cutoffFormatScore: Int? = nil,
+        minUpgradeFormatScore: Int? = nil,
+        formatItems: [ArrQualityProfileFormatItem]? = nil,
+        language: ArrQualityProfileLanguage? = nil
+    ) {
         self.apiID = apiID
         self.name = name
         self.upgradeAllowed = upgradeAllowed
         self.cutoff = cutoff
         self.items = items
+        self.minFormatScore = minFormatScore
+        self.cutoffFormatScore = cutoffFormatScore
+        self.minUpgradeFormatScore = minUpgradeFormatScore
+        self.formatItems = formatItems
+        self.language = language
     }
 
     func makeProfile() -> ArrQualityProfile {
@@ -407,7 +438,12 @@ private struct ArrQualityProfileDraft: Sendable {
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
             upgradeAllowed: upgradeAllowed,
             cutoff: cutoff,
-            items: items
+            items: items,
+            minFormatScore: minFormatScore,
+            cutoffFormatScore: cutoffFormatScore,
+            minUpgradeFormatScore: minUpgradeFormatScore,
+            formatItems: formatItems,
+            language: language
         )
     }
 }
@@ -506,9 +542,7 @@ private struct ArrQualityProfileEditorView: View {
             }
         }
         .onChange(of: draft.upgradeAllowed) { _, isEnabled in
-            if !isEnabled {
-                draft.cutoff = nil
-            } else if draft.cutoff == nil {
+            if isEnabled, draft.cutoff == nil {
                 draft.cutoff = allowedQualityChoices.first?.qualityID
             }
         }

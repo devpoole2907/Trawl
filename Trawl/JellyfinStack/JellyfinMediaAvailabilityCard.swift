@@ -32,26 +32,45 @@ struct JellyfinMediaAvailabilityCard: View {
                 "series-\(title)-\(year?.description ?? "nil")-\(tvdbId?.description ?? "nil")-\(tmdbId?.description ?? "nil")-\(imdbId ?? "nil")"
             }
         }
+
+        var providerIdPairs: [(provider: String, id: String)] {
+            switch self {
+            case .movie(_, _, let tmdbId, let imdbId):
+                var pairs: [(String, String)] = []
+                if let id = tmdbId { pairs.append(("tmdb", String(id))) }
+                if let id = imdbId, !id.isEmpty { pairs.append(("imdb", id)) }
+                return pairs
+            case .series(_, _, let tvdbId, let tmdbId, let imdbId):
+                var pairs: [(String, String)] = []
+                if let id = tvdbId { pairs.append(("tvdb", String(id))) }
+                if let id = tmdbId { pairs.append(("tmdb", String(id))) }
+                if let id = imdbId, !id.isEmpty { pairs.append(("imdb", id)) }
+                return pairs
+            }
+        }
     }
 
     let media: Media
     @Environment(JellyfinServiceManager.self) private var serviceManager
-    @State private var matchedItems: [JellyfinLibraryItem] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
     @State private var refreshedItemIDs: Set<String> = []
     @State private var isExpanded = false
-    @State private var hasLoadedAvailability = false
+
+    private var key: JellyfinAvailabilityResolver.Key? {
+        serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
+    }
+
+    private var resolverState: JellyfinAvailabilityResolver.State {
+        key.map { serviceManager.availability.state(for: $0) } ?? .idle
+    }
 
     var body: some View {
         if serviceManager.isConnected || serviceManager.connectionError != nil || serviceManager.isConnecting {
             cardContent
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
-                    matchedItems = []
-                    errorMessage = nil
                     refreshedItemIDs = []
-                    hasLoadedAvailability = false
+                    guard let key, let client = serviceManager.activeClient else { return }
+                    serviceManager.availability.ensureLoaded(key, media: media, client: client)
                 }
         }
     }
@@ -63,14 +82,21 @@ struct JellyfinMediaAvailabilityCard: View {
             if isExpanded {
                 if serviceManager.isConnecting {
                     loadingRow("Connecting to Jellyfin...")
-                } else if let errorMessage {
-                    errorRow(errorMessage)
-                } else if isLoading && matchedItems.isEmpty {
-                    loadingRow("Checking Jellyfin...")
-                } else if matchedItems.isEmpty {
-                    unavailableRow
                 } else {
-                    matchedRows
+                    switch resolverState {
+                    case .idle:
+                        EmptyView()
+                    case .loading:
+                        loadingRow("Checking Jellyfin...")
+                    case .resolved(let items):
+                        if items.isEmpty {
+                            unavailableRow
+                        } else {
+                            matchedRows(items)
+                        }
+                    case .failed(let message):
+                        errorRow(message)
+                    }
                 }
             }
         }
@@ -81,12 +107,8 @@ struct JellyfinMediaAvailabilityCard: View {
 
     private var header: some View {
         Button {
-            let shouldLoad = !isExpanded
             withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
                 isExpanded.toggle()
-            }
-            if shouldLoad {
-                Task { await loadAvailability() }
             }
         } label: {
             HStack(spacing: 10) {
@@ -96,7 +118,7 @@ struct JellyfinMediaAvailabilityCard: View {
                 Text("Jellyfin")
                     .font(.headline)
                 Spacer()
-                if isLoading {
+                if case .loading = resolverState {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
@@ -121,26 +143,32 @@ struct JellyfinMediaAvailabilityCard: View {
     }
 
     private var availabilityStatusText: String {
-        if errorMessage != nil { return "Error" }
-        guard hasLoadedAvailability else { return "Check" }
-        return matchedItems.isEmpty ? "Not Present" : "Present"
+        switch resolverState {
+        case .idle, .loading: return "Check"
+        case .resolved(let items): return items.isEmpty ? "Not Present" : "Present"
+        case .failed: return "Error"
+        }
     }
 
     private var availabilityIconName: String {
-        if errorMessage != nil { return "exclamationmark.triangle.fill" }
-        guard hasLoadedAvailability else { return "play.tv" }
-        return matchedItems.isEmpty ? "play.slash.fill" : "play.tv.fill"
+        switch resolverState {
+        case .idle, .loading: return "play.tv"
+        case .resolved(let items): return items.isEmpty ? "play.slash.fill" : "play.tv.fill"
+        case .failed: return "exclamationmark.triangle.fill"
+        }
     }
 
     private var availabilityTint: Color {
-        if errorMessage != nil { return .orange }
-        guard hasLoadedAvailability else { return .secondary }
-        return matchedItems.isEmpty ? .orange : .green
+        switch resolverState {
+        case .idle, .loading: return .secondary
+        case .resolved(let items): return items.isEmpty ? .orange : .green
+        case .failed: return .orange
+        }
     }
 
-    private var matchedRows: some View {
+    private func matchedRows(_ items: [JellyfinLibraryItem]) -> some View {
         VStack(spacing: 10) {
-            ForEach(matchedItems) { item in
+            ForEach(items) { item in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack(alignment: .top, spacing: 10) {
                         VStack(alignment: .leading, spacing: 3) {
@@ -231,43 +259,22 @@ struct JellyfinMediaAvailabilityCard: View {
                 .foregroundStyle(.secondary)
             Spacer()
             Button("Retry") {
-                Task { await loadAvailability(force: true) }
+                guard let key, let client = serviceManager.activeClient else { return }
+                serviceManager.availability.invalidate(key)
+                serviceManager.availability.ensureLoaded(key, media: media, client: client)
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
         }
     }
 
-    private func loadAvailability(force: Bool = false) async {
-        guard !isLoading else { return }
-        guard force || !hasLoadedAvailability else { return }
-        guard let client = serviceManager.activeClient else {
-            errorMessage = serviceManager.connectionError
-            hasLoadedAvailability = true
-            return
-        }
-
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-
-        do {
-            let items = try await client.getAllLibraryItems(includeItemTypes: media.itemTypes)
-            matchedItems = items.filter(matches).sorted { lhs, rhs in
-                (lhs.name ?? "") < (rhs.name ?? "")
-            }
-            hasLoadedAvailability = true
-        } catch {
-            errorMessage = error.localizedDescription
-            hasLoadedAvailability = true
-        }
-    }
-
     private func refresh(_ item: JellyfinLibraryItem) async {
-        guard let client = serviceManager.activeClient else { return }
+        guard let client = serviceManager.activeClient, let key else { return }
         do {
             try await client.refreshItem(id: item.id)
             refreshedItemIDs.insert(item.id)
+            serviceManager.availability.invalidate(key)
+            serviceManager.availability.ensureLoaded(key, media: media, client: client)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Refresh Started",
                 message: "\(item.name ?? media.title) was sent for metadata refresh.",
@@ -280,43 +287,5 @@ struct JellyfinMediaAvailabilityCard: View {
                 source: .inApp
             )
         }
-    }
-
-    private func matches(_ item: JellyfinLibraryItem) -> Bool {
-        switch media {
-        case .movie(let title, let year, let tmdbId, let imdbId):
-            if matchesNumericProvider(item, keys: ["Tmdb", "TMDb"], id: tmdbId) { return true }
-            if matchesStringProvider(item, keys: ["Imdb", "IMDb", "IMDB"], id: imdbId) { return true }
-            return titleYearFallbackMatches(item, title: title, year: year)
-        case .series(let title, let year, let tvdbId, let tmdbId, let imdbId):
-            if matchesNumericProvider(item, keys: ["Tvdb", "TVDB"], id: tvdbId) { return true }
-            if matchesNumericProvider(item, keys: ["Tmdb", "TMDb"], id: tmdbId) { return true }
-            if matchesStringProvider(item, keys: ["Imdb", "IMDb", "IMDB"], id: imdbId) { return true }
-            return titleYearFallbackMatches(item, title: title, year: year)
-        }
-    }
-
-    private func matchesNumericProvider(_ item: JellyfinLibraryItem, keys: [String], id: Int?) -> Bool {
-        guard let id, let value = item.providerID(for: keys) else { return false }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines) == String(id)
-    }
-
-    private func matchesStringProvider(_ item: JellyfinLibraryItem, keys: [String], id: String?) -> Bool {
-        guard let id, !id.isEmpty, let value = item.providerID(for: keys) else { return false }
-        return value.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare(id) == .orderedSame
-    }
-
-    private func titleYearFallbackMatches(_ item: JellyfinLibraryItem, title: String, year: Int?) -> Bool {
-        guard normalizedTitle(item.name) == normalizedTitle(title) else { return false }
-        guard let year else { return true }
-        return item.productionYear == nil || item.productionYear == year
-    }
-
-    private func normalizedTitle(_ value: String?) -> String {
-        (value ?? "")
-            .lowercased()
-            .components(separatedBy: CharacterSet.alphanumerics.inverted)
-            .filter { !$0.isEmpty }
-            .joined()
     }
 }

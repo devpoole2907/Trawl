@@ -418,7 +418,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                 }
@@ -428,7 +428,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                     .tint(isMonitored ? .orange : .green)
@@ -450,7 +450,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                 }
@@ -460,7 +460,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                     .tint(isMonitored ? .orange : .green)
@@ -616,7 +616,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                         }
@@ -637,7 +637,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                             .tint(isMonitored ? .orange : .green)
@@ -675,7 +675,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                         }
@@ -696,7 +696,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                             .tint(isMonitored ? .orange : .green)
@@ -793,7 +793,7 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder

@@ -14,6 +14,7 @@ final class JellyfinServiceManager {
     private(set) var cachedSystemInfo: JellyfinSystemInfo?
     private(set) var requiresReauthentication: Bool = false
     private(set) var reauthenticationProfileID: UUID?
+    let availability = JellyfinAvailabilityResolver()
 
     func initialize(from profiles: [JellyfinServiceProfile]) async {
         guard let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first else {
@@ -29,6 +30,7 @@ final class JellyfinServiceManager {
         connectionError = nil
         requiresReauthentication = false
         reauthenticationProfileID = nil
+        availability.invalidateAll()
 
         defer { isConnecting = false }
 
@@ -72,6 +74,7 @@ final class JellyfinServiceManager {
     }
 
     func disconnect() {
+        availability.invalidateAll()
         activeClient = nil
         activeProfileID = nil
         isConnected = false

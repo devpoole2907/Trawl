@@ -33,7 +33,7 @@ struct ArrRootFoldersView: View {
                     if !sonarrFolders.isEmpty {
                         Section("Sonarr") {
                             ForEach(sonarrFolders) { folder in
-                                rootFolderRow(folder, color: .purple)
+                                rootFolderRow(folder, color: ServiceIdentity.sonarr.brandColor)
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
                                             pendingDelete = (folder, .sonarr)
@@ -47,7 +47,7 @@ struct ArrRootFoldersView: View {
                     if !radarrFolders.isEmpty {
                         Section("Radarr") {
                             ForEach(radarrFolders) { folder in
-                                rootFolderRow(folder, color: .orange)
+                                rootFolderRow(folder, color: ServiceIdentity.radarr.brandColor)
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
                                             pendingDelete = (folder, .radarr)

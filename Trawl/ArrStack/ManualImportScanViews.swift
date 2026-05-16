@@ -1111,7 +1111,7 @@ private struct ManualImportRow: View {
             HStack(spacing: 12) {
                 ArrArtworkView(url: item.posterURL) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                         Image(systemName: item.warningMessages.isEmpty ? "photo" : "exclamationmark.triangle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(
@@ -1122,7 +1122,7 @@ private struct ManualImportRow: View {
                     }
                 }
                 .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 8) {
@@ -1186,14 +1186,14 @@ private struct ManualImportBlockedRow: View {
             HStack(alignment: .top, spacing: 8) {
                 ArrArtworkView(url: item.posterURL) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                         Image(systemName: "exclamationmark.triangle.fill")
                             .font(.system(size: 14))
                             .foregroundStyle(.orange)
                     }
                 }
                 .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.mediaTitle ?? item.fileName)
@@ -1285,7 +1285,7 @@ private struct ManualImportGroupRow: View {
             HStack(spacing: 12) {
                 ArrArtworkView(url: group.posterURL) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                         Image(systemName: style.placeholderIcon)
                             .font(.system(size: 14))
                             .foregroundStyle(style == .ready
@@ -1294,7 +1294,7 @@ private struct ManualImportGroupRow: View {
                     }
                 }
                 .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 6))
+                .clipShape(RoundedRectangle(cornerRadius: 8))
 
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
@@ -2025,14 +2025,14 @@ private struct ManualImportIdentifySheet: View {
         HStack(spacing: 12) {
             ArrArtworkView(url: posterURL) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                     Image(systemName: "photo")
                         .font(.system(size: 14))
                         .foregroundStyle(.tertiary)
                 }
             }
             .frame(width: 40, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)

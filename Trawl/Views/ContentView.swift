@@ -34,7 +34,6 @@ struct ContentView: View {
     @State private var showArrSetup = false
     @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
-    @State private var hasAutoSelectedTorrents = false
     @State private var didEvaluateWelcomeState = false
     @State private var servicesTask: Task<Void, Never>?
     #if os(macOS)
@@ -267,22 +266,22 @@ struct ContentView: View {
             }
 
             VStack(alignment: .leading, spacing: 16) {
-                featureRow(icon: "arrow.down.circle.fill", color: .blue,
+                featureRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
                            title: "qBittorrent",
                            description: "Manage and monitor your downloads")
-                featureRow(icon: "tv.fill", color: .purple,
+                featureRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
                            title: "Sonarr",
                            description: "Track and automate your TV series")
-                featureRow(icon: "film.fill", color: .orange,
+                featureRow(icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
                            title: "Radarr",
                            description: "Discover and collect movies")
-                featureRow(icon: "magnifyingglass.circle.fill", color: .yellow,
+                featureRow(icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
                            title: "Prowlarr",
                            description: "Manage and search your indexers")
-                featureRow(icon: "captions.bubble.fill", color: .teal,
+                featureRow(icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
                            title: "Bazarr",
                            description: "Manage subtitles for series and movies")
-                featureRow(icon: "eye.fill", color: .purple,
+                featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
                            title: "Seerr",
                            description: "Manage requests and users")
             }
@@ -316,8 +315,8 @@ struct ContentView: View {
 
             VStack(spacing: 12) {
                 setupRow(
-                    icon: "arrow.down.circle.fill",
-                    color: .blue,
+                    icon: ServiceIdentity.qbittorrent.systemImage,
+                    color: ServiceIdentity.qbittorrent.brandColor,
                     title: "qBittorrent",
                     description: "Manage and monitor your downloads",
                     isConfigured: activeServer != nil
@@ -326,8 +325,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "tv.fill",
-                    color: .purple,
+                    icon: ServiceIdentity.sonarr.systemImage,
+                    color: ServiceIdentity.sonarr.brandColor,
                     title: "Sonarr",
                     description: "Track and automate your TV series",
                     isConfigured: sonarrProfile != nil
@@ -336,8 +335,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "film.fill",
-                    color: .orange,
+                    icon: ServiceIdentity.radarr.systemImage,
+                    color: ServiceIdentity.radarr.brandColor,
                     title: "Radarr",
                     description: "Discover and collect movies",
                     isConfigured: radarrProfile != nil
@@ -346,8 +345,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "magnifyingglass.circle.fill",
-                    color: .yellow,
+                    icon: ServiceIdentity.prowlarr.systemImage,
+                    color: ServiceIdentity.prowlarr.brandColor,
                     title: "Prowlarr",
                     description: "Manage and search your indexers",
                     isConfigured: prowlarrProfile != nil
@@ -356,8 +355,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "captions.bubble.fill",
-                    color: .teal,
+                    icon: ServiceIdentity.bazarr.systemImage,
+                    color: ServiceIdentity.bazarr.brandColor,
                     title: "Bazarr",
                     description: "Manage subtitles for series and movies",
                     isConfigured: bazarrProfile != nil
@@ -366,8 +365,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "eye.fill",
-                    color: .purple,
+                    icon: ServiceIdentity.seerr.systemImage,
+                    color: ServiceIdentity.seerr.brandColor,
                     title: "Seerr",
                     description: "Manage requests and users",
                     isConfigured: seerrProfile != nil
@@ -376,8 +375,8 @@ struct ContentView: View {
                 }
 
                 setupRow(
-                    icon: "server.rack",
-                    color: .indigo,
+                    icon: ServiceIdentity.jellyfin.systemImage,
+                    color: ServiceIdentity.jellyfin.brandColor,
                     title: "Jellyfin",
                     description: "Manage users, libraries, and server activity",
                     isConfigured: jellyfinProfile != nil
@@ -448,7 +447,7 @@ struct ContentView: View {
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 14))
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
         .buttonStyle(.plain)
     }
@@ -460,7 +459,7 @@ struct ContentView: View {
         let services = appServices ?? disconnectedServices
         let activeTorrentCount = services.syncService.activeTorrentCount
         TabView(selection: $selectedTab) {
-            Tab("Torrents", systemImage: "arrow.down.circle", value: RootTab.torrents) {
+            Tab("Torrents", systemImage: ServiceIdentity.qbittorrent.tabSystemImage, value: RootTab.torrents) {
                 NavigationStack {
                     if appServices != nil {
                         TorrentListView(title: activeServer?.displayName ?? "Trawl")
@@ -474,7 +473,7 @@ struct ContentView: View {
             }
             .badge(activeTorrentCount)
 
-            Tab("Series", systemImage: "tv", value: RootTab.series) {
+            Tab("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage, value: RootTab.series) {
                 NavigationStack {
                     SonarrSeriesListView()
                 }
@@ -483,7 +482,7 @@ struct ContentView: View {
                 .environment(services.torrentService)
             }
 
-            Tab("Movies", systemImage: "film", value: RootTab.movies) {
+            Tab("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage, value: RootTab.movies) {
                 NavigationStack {
                     RadarrMovieListView()
                 }
@@ -504,6 +503,8 @@ struct ContentView: View {
                     appServices: appServices,
                     path: $morePath
                 )
+                    .environment(services.syncService)
+                    .environment(services.torrentService)
                     .environment(arrServiceManager)
                     .environment(\.navigateToSeriesTab) {
                         selectedTab = .series
@@ -531,9 +532,6 @@ struct ContentView: View {
                     }
                     .environment(\.navigateToSeerrIssues) {
                         morePath.append(.seerrIssues)
-                    }
-                    .environment(\.navigateToSeerrUserManagement) {
-                        morePath.append(.seerrUserManagement)
                     }
                     .environment(\.navigateToJellyfinSettings) {
                         morePath.append(.jellyfinSettings)
@@ -586,7 +584,7 @@ struct ContentView: View {
         } else {
             // qBittorrent not configured — arr-only user or setup pending
             ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "arrow.down.circle")
+                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
             } description: {
                 Text("Add a qBittorrent server in Settings to manage your downloads.")
             } actions: {
@@ -724,10 +722,6 @@ struct ContentView: View {
                     return
                 }
                 appServices = services
-                if !hasAutoSelectedTorrents {
-                    selectedTab = .torrents
-                    hasAutoSelectedTorrents = true
-                }
                 isConnecting = false
 
                 #if os(macOS)
@@ -801,7 +795,7 @@ private struct InAppNotificationBanner: View {
         .buttonStyle(.plain)
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
-        .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 24))
+        .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 560)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())

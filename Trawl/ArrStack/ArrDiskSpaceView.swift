@@ -33,11 +33,11 @@ struct ArrDiskSpaceView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if !sonarrSnapshots.isEmpty {
-                            serviceSection(title: "Sonarr", color: .purple, snapshots: sonarrSnapshots)
+                            serviceSection(title: "Sonarr", color: ServiceIdentity.sonarr.brandColor, snapshots: sonarrSnapshots)
                         }
 
                         if !radarrSnapshots.isEmpty {
-                            serviceSection(title: "Radarr", color: .orange, snapshots: radarrSnapshots)
+                            serviceSection(title: "Radarr", color: ServiceIdentity.radarr.brandColor, snapshots: radarrSnapshots)
                         }
                     }
                     .padding(16)
@@ -183,7 +183,7 @@ private struct DiskSpaceCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func progressTint(totalSpace: Int64, freeSpace: Int64) -> Color {

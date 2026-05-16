@@ -83,7 +83,7 @@ struct JellyfinUserEditorView: View {
                 Button(role: .destructive) {
                     showDeleteConfirmation = true
                 } label: {
-                    Label("Delete User", systemImage: "trash")
+                    Label("Remove User", systemImage: "trash")
                 }
             }
 
@@ -149,9 +149,9 @@ struct JellyfinUserEditorView: View {
         .sheet(isPresented: $showResetPassword) {
             JellyfinResetPasswordSheet(userId: viewModel.user.id, apiClient: viewModel.apiClient)
         }
-        .alert("Delete User?", isPresented: $showDeleteConfirmation) {
+        .alert("Remove User?", isPresented: $showDeleteConfirmation) {
             Button("Cancel", role: .cancel) {}
-            Button("Delete", role: .destructive) {
+            Button("Remove", role: .destructive) {
                 Task {
                     if await viewModel.deleteUser() {
                         onDelete?()

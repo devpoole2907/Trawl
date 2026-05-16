@@ -792,7 +792,7 @@ struct ProwlarrIndexerListView: View {
     private var loadingRows: some View {
         ForEach(0..<5, id: \.self) { _ in
             HStack(spacing: 12) {
-                RoundedRectangle(cornerRadius: 6)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.secondary.opacity(0.2))
                     .frame(width: 8, height: 36)
 

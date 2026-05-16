@@ -113,7 +113,7 @@ private struct SeerrIssueRow: View {
                     .overlay(Image(systemName: "exclamationmark.bubble").foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(issue.media?.displayTitle ?? "Unknown Media")

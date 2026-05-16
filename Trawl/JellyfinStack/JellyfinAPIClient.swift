@@ -180,6 +180,49 @@ actor JellyfinAPIClient {
         return allItems
     }
 
+    func findItems(
+        includeItemTypes: [String],
+        anyProviderIdEquals: [(provider: String, id: String)],
+        fields: [String] = ["ProviderIds", "Path", "DateCreated", "MediaSources"],
+        limit: Int = 10
+    ) async throws -> [JellyfinLibraryItem] {
+        var params: [String: String] = [
+            "Recursive": "true",
+            "Limit": String(limit)
+        ]
+        if !includeItemTypes.isEmpty {
+            params["IncludeItemTypes"] = includeItemTypes.joined(separator: ",")
+        }
+        if !fields.isEmpty {
+            params["Fields"] = fields.joined(separator: ",")
+        }
+        if !anyProviderIdEquals.isEmpty {
+            params["AnyProviderIdEquals"] = anyProviderIdEquals
+                .map { "\($0.provider).\($0.id)" }
+                .joined(separator: ",")
+        }
+        let response: JellyfinItemsResponse = try await get("/Items", params: params)
+        return response.items
+    }
+
+    func searchItems(
+        term: String,
+        includeItemTypes: [String],
+        limit: Int = 20
+    ) async throws -> [JellyfinLibraryItem] {
+        var params: [String: String] = [
+            "SearchTerm": term,
+            "Recursive": "true",
+            "Limit": String(limit),
+            "Fields": "ProviderIds,Path,DateCreated,MediaSources"
+        ]
+        if !includeItemTypes.isEmpty {
+            params["IncludeItemTypes"] = includeItemTypes.joined(separator: ",")
+        }
+        let response: JellyfinItemsResponse = try await get("/Items", params: params)
+        return response.items
+    }
+
     func refreshAllLibraries() async throws {
         try await postEmpty("/Library/Refresh")
     }

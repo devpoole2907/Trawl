@@ -16,7 +16,7 @@ struct SeerrLinkedApplicationsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Linked Apps")
+        .navigationTitle("Seerr Linked Apps")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -100,7 +100,7 @@ struct SeerrLinkedApplicationsView: View {
                             } label: {
                                 Label("Edit", systemImage: "pencil")
                             }
-                            .tint(.indigo)
+                            .tint(ServiceIdentity.seerr.brandColor)
                         }
                         .contextMenu {
                             Button("Edit", systemImage: "pencil") {
@@ -128,12 +128,12 @@ struct SeerrLinkedApplicationsView: View {
                     Button {
                         editorContext = .create(.sonarr)
                     } label: {
-                        Label("Link Sonarr", systemImage: SeerrDVRKind.sonarr.symbolName)
+                        Label("Link Sonarr", systemImage: SeerrDVRKind.sonarr.serviceIdentity.systemImage)
                     }
                     Button {
                         editorContext = .create(.radarr)
                     } label: {
-                        Label("Link Radarr", systemImage: SeerrDVRKind.radarr.symbolName)
+                        Label("Link Radarr", systemImage: SeerrDVRKind.radarr.serviceIdentity.systemImage)
                     }
                 } label: {
                     Label("Add Linked App", systemImage: "plus")
@@ -237,8 +237,8 @@ private struct SeerrLinkedAppRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: entry.kind.symbolName)
-                .foregroundStyle(iconColor)
+            Image(systemName: entry.kind.serviceIdentity.systemImage)
+                .foregroundStyle(entry.kind.serviceIdentity.brandColor)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -259,8 +259,8 @@ private struct SeerrLinkedAppRow: View {
                             .font(.caption2.weight(.semibold))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.indigo.opacity(0.15), in: Capsule())
-                            .foregroundStyle(.indigo)
+                            .background(ServiceIdentity.seerr.brandColor.opacity(0.15), in: Capsule())
+                            .foregroundStyle(ServiceIdentity.seerr.brandColor)
                     }
                 }
 
@@ -280,12 +280,5 @@ private struct SeerrLinkedAppRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
-    }
-
-    private var iconColor: Color {
-        switch entry.kind {
-        case .sonarr: .blue
-        case .radarr: .orange
-        }
     }
 }

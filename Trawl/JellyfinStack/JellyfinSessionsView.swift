@@ -94,7 +94,7 @@ struct JellyfinSessionsView: View {
                                 } label: {
                                     Label("Message", systemImage: "message.fill")
                                 }
-                                .tint(.blue)
+                                .tint(ServiceIdentity.jellyfin.brandColor)
                             }
                     }
                 }
@@ -208,7 +208,7 @@ struct JellyfinSessionsView: View {
                     }
                 }
                 .padding(10)
-                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(.vertical, 4)

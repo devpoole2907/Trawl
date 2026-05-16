@@ -144,7 +144,7 @@ struct ProwlarrIndexerDetailView: View {
             }
         }
         .alert("Test Result", isPresented: $showTestResult) {
-            Button("OK", role: .cancel) {
+            Button("Done", role: .cancel) {
                 viewModel.clearTestOutcome()
                 testActionError = nil
             }

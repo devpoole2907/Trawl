@@ -78,7 +78,7 @@ private struct SeerrConnectionFormView: View {
                 .disabled(viewModel.hostURL.isEmpty || viewModel.username.isEmpty || viewModel.password.isEmpty || viewModel.isAuthenticating)
             }
         }
-        .tint(.indigo)
+        .tint(ServiceIdentity.seerr.brandColor)
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
@@ -181,20 +181,6 @@ struct SeerrSettingsView: View {
                         Label(settingsError, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
                             .foregroundStyle(.orange)
-                    }
-                }
-
-                if isConnected, let client = seerrServiceManager.activeClient {
-                    Section {
-                        NavigationLink {
-                            SeerrLinkedApplicationsView(apiClient: client)
-                        } label: {
-                            Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
-                        }
-                    } header: {
-                        Text("Automation")
-                    } footer: {
-                        Text("Link Sonarr or Radarr so Seerr can route approved requests to them.")
                     }
                 }
 

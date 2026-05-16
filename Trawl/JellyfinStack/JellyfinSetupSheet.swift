@@ -111,7 +111,7 @@ private struct JellyfinConnectionFormView: View {
                 .disabled(!viewModel.canConnect)
             }
         }
-        .tint(.indigo)
+        .tint(ServiceIdentity.jellyfin.brandColor)
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif

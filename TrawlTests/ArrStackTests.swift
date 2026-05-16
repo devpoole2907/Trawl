@@ -894,6 +894,72 @@ struct MiscellaneousParsingTests {
         #expect(profile.upgradeAllowed == true)
     }
 
+    @Test("ArrQualityProfile preserves group and format payload fields")
+    func qualityProfilePreservesSavePayloadFields() throws {
+        let json = #"""
+        {
+            "id": 1,
+            "name": "Any",
+            "upgradeAllowed": true,
+            "cutoff": 1000,
+            "items": [
+                {
+                    "id": 1000,
+                    "name": "WEB 1080p",
+                    "allowed": true,
+                    "items": [
+                        {
+                            "quality": {
+                                "id": 3,
+                                "name": "WEBDL-1080p",
+                                "source": "web",
+                                "resolution": 1080
+                            },
+                            "allowed": true
+                        }
+                    ]
+                }
+            ],
+            "minFormatScore": 10,
+            "cutoffFormatScore": 20,
+            "minUpgradeFormatScore": 5,
+            "formatItems": [
+                {
+                    "format": 7,
+                    "name": "HDR",
+                    "score": 100
+                }
+            ],
+            "language": {
+                "id": 1,
+                "name": "English"
+            }
+        }
+        """#
+        let data = try #require(json.data(using: .utf8))
+        let profile = try JSONDecoder().decode(ArrQualityProfile.self, from: data)
+        let group = try #require(profile.items?.first)
+        let formatItem = try #require(profile.formatItems?.first)
+
+        #expect(group.id == 1000)
+        #expect(group.name == "WEB 1080p")
+        #expect(formatItem.format == 7)
+        #expect(formatItem.score == 100)
+        #expect(profile.language?.name == "English")
+
+        let encoded = try JSONEncoder().encode(profile)
+        let payload = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let encodedItems = try #require(payload["items"] as? [[String: Any]])
+        let encodedGroup = try #require(encodedItems.first)
+        let encodedFormatItems = try #require(payload["formatItems"] as? [[String: Any]])
+        let encodedLanguage = try #require(payload["language"] as? [String: Any])
+
+        #expect(encodedGroup["id"] as? Int == 1000)
+        #expect(encodedGroup["name"] as? String == "WEB 1080p")
+        #expect(encodedFormatItems.first?["format"] as? Int == 7)
+        #expect(encodedLanguage["name"] as? String == "English")
+    }
+
     @Test("ArrRootFolder Decoding")
     func rootFolderDecoding() throws {
         let json = #"{"id": 1, "path": "/data/media/tv", "accessible": true, "freeSpace": 500000000000}"#

@@ -35,7 +35,7 @@ struct SonarrSeriesListView: View {
                 Color.clear
             }
         }
-        .task(id: serviceManager.activeSonarrInstanceID) {
+        .task(id: viewModelLoadKey) {
             let activeID = serviceManager.activeSonarrInstanceID
             guard serviceManager.sonarrConnected else {
                 viewModel = nil
@@ -47,6 +47,10 @@ struct SonarrSeriesListView: View {
                 viewModelInstanceID = activeID
             }
         }
+    }
+
+    private var viewModelLoadKey: String {
+        "\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none"):\(serviceManager.sonarrConnected)"
     }
 }
 
@@ -64,7 +68,7 @@ struct SonarrSeriesRow: View {
                     .overlay(Image(systemName: "tv").foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(series.title)
@@ -120,7 +124,7 @@ struct SonarrSeriesRow: View {
                     .font(.caption)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     private var metadataItems: [SeriesRowMetadataItem] {

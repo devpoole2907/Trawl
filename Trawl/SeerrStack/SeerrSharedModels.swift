@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 nonisolated struct SeerrPageInfo: Codable, Sendable {
     let pages: Int?
@@ -125,12 +126,22 @@ nonisolated enum SeerrRequestStatus: Int, Codable, Sendable {
         case .completed: "Completed"
         }
     }
+
+    var statusColor: Color {
+        switch self {
+        case .pending: .orange
+        case .approved: .green
+        case .declined: .red
+        case .failed: .red
+        case .completed: .green
+        }
+    }
 }
 
 enum SeerrRequestFilter: String, CaseIterable, Identifiable {
+    case all = "All"
     case pending = "Pending"
     case approved = "Approved"
-    case all = "All"
 
     var id: String { rawValue }
 

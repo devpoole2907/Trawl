@@ -185,7 +185,7 @@ struct SeerrLinkedApplicationEditorSheet: View {
                         ProgressView()
                             .padding(.trailing, 4)
                     }
-                    Label("Test Connection", systemImage: "checkmark.shield")
+                    Label("Test Connection", systemImage: "checkmark.circle")
                 }
             }
             .disabled(!form.canTest || isTesting)

@@ -145,7 +145,7 @@ struct SettingsView: View {
             Section("Services") {
                 Button(action: navigateToQbittorrentSettings) {
                     serviceRow(
-                        icon: "arrow.down.circle.fill", color: .blue,
+                        icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
                         name: activeServer?.displayName ?? "qBittorrent",
                         url: activeServer?.hostURL,
                         isConnected: syncService.isPolling,
@@ -157,7 +157,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToSonarrSettings) {
                     serviceRow(
-                        icon: "tv.fill", color: .purple,
+                        icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
                         name: serviceRowTitle(defaultName: "Sonarr", profile: sonarrProfile, count: sonarrProfiles.count),
                         url: serviceRowSubtitle(profile: sonarrProfile, count: sonarrProfiles.count),
                         isConnected: arrServiceManager.sonarrConnected,
@@ -169,7 +169,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToRadarrSettings) {
                     serviceRow(
-                        icon: "film.fill", color: .orange,
+                        icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
                         name: serviceRowTitle(defaultName: "Radarr", profile: radarrProfile, count: radarrProfiles.count),
                         url: serviceRowSubtitle(profile: radarrProfile, count: radarrProfiles.count),
                         isConnected: arrServiceManager.radarrConnected,
@@ -181,7 +181,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToProwlarrSettings) {
                     serviceRow(
-                        icon: "magnifyingglass.circle.fill", color: .yellow,
+                        icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
                         name: prowlarrProfile?.displayName ?? "Prowlarr",
                         url: prowlarrProfile?.hostURL,
                         isConnected: arrServiceManager.prowlarrConnected,
@@ -193,7 +193,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToBazarrSettings) {
                     serviceRow(
-                        icon: "captions.bubble.fill", color: .teal,
+                        icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
                         name: serviceRowTitle(defaultName: "Bazarr", profile: bazarrProfile, count: bazarrProfiles.count),
                         url: serviceRowSubtitle(profile: bazarrProfile, count: bazarrProfiles.count),
                         isConnected: arrServiceManager.hasAnyConnectedBazarrInstance,
@@ -205,7 +205,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToSeerrSettings) {
                     serviceRow(
-                        icon: "eye.fill", color: .indigo,
+                        icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
                         name: seerrProfile?.displayName ?? "Seerr",
                         url: seerrProfile?.hostURL,
                         isConnected: seerrServiceManager.isConnected,
@@ -217,7 +217,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToJellyfinSettings) {
                     serviceRow(
-                        icon: "server.rack", color: .mint,
+                        icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
                         name: jellyfinProfile?.displayName ?? "Jellyfin",
                         url: jellyfinProfile?.hostURL,
                         isConnected: jellyfinServiceManager.isConnected,

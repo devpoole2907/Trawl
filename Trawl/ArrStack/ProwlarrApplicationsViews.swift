@@ -3,6 +3,7 @@ import SwiftData
 
 struct ProwlarrApplicationsListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Query private var allProfiles: [ArrServiceProfile]
 
     @State private var viewModel: ProwlarrApplicationsViewModel
     @State private var editorContext: ProwlarrApplicationEditorContext?
@@ -16,7 +17,7 @@ struct ProwlarrApplicationsListView: View {
 
     var body: some View {
         content(viewModel: viewModel)
-        .navigationTitle("Linked Apps")
+        .navigationTitle("Prowlarr Linked Apps")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -87,7 +88,10 @@ struct ProwlarrApplicationsListView: View {
                         Button {
                             editorContext = .edit(application)
                         } label: {
-                            ProwlarrApplicationRow(application: application)
+                            ProwlarrApplicationRow(
+                                application: application,
+                                status: status(for: application)
+                            )
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -124,7 +128,14 @@ struct ProwlarrApplicationsListView: View {
             await viewModel.loadApplications()
         }
         .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Button {
+                    Task { await syncAllIndexers() }
+                } label: {
+                    Label("Sync All Indexers", systemImage: "arrow.triangle.2.circlepath")
+                }
+                .disabled(!serviceManager.prowlarrConnected || viewModel.isSyncingApplications)
+
                 Menu {
                     Button {
                         editorContext = .create(.sonarr)
@@ -144,15 +155,68 @@ struct ProwlarrApplicationsListView: View {
             }
         }
     }
+
+    private func syncAllIndexers() async {
+        do {
+            try await viewModel.syncApplications()
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Sync Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func status(for application: ProwlarrApplication) -> ProwlarrApplicationRowStatus {
+        if application.syncLevel == .disabled {
+            return .disabled
+        }
+
+        guard let appType = application.linkedAppType,
+              let baseURL = application.stringFieldValue(named: "baseUrl"),
+              let profile = matchingProfile(for: baseURL, appType: appType) else {
+            return .notConnected
+        }
+
+        switch appType {
+        case .sonarr:
+            return serviceManager.isConnected(.sonarr, profileID: profile.id) ? .connected : .notConnected
+        case .radarr:
+            return serviceManager.isConnected(.radarr, profileID: profile.id) ? .connected : .notConnected
+        }
+    }
+
+    private func matchingProfile(for linkedAppURL: String, appType: ProwlarrLinkedAppType) -> ArrServiceProfile? {
+        let targetService: ArrServiceType = switch appType {
+        case .sonarr: .sonarr
+        case .radarr: .radarr
+        }
+        let normalizedLinkedURL = normalizedURL(linkedAppURL)
+
+        return allProfiles
+            .filter { $0.resolvedServiceType == targetService && $0.isEnabled }
+            .first { normalizedURL($0.hostURL) == normalizedLinkedURL }
+    }
+
+    private func normalizedURL(_ string: String) -> String {
+        guard var components = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            return string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        }
+        components.scheme = components.scheme?.lowercased()
+        components.host = components.host?.lowercased()
+        if components.path == "/" {
+            components.path = ""
+        }
+        return components.string?.trimmingCharacters(in: CharacterSet(charactersIn: "/")).lowercased()
+            ?? string.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
 }
 
 private struct ProwlarrApplicationRow: View {
     let application: ProwlarrApplication
+    let status: ProwlarrApplicationRowStatus
 
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: appType?.systemImage ?? "app.connected.to.app.below.fill")
-                .foregroundStyle(iconColor)
+            Image(systemName: appType?.serviceIdentity.systemImage ?? "app.connected.to.app.below.fill")
+                .foregroundStyle(appType?.serviceIdentity.brandColor ?? .secondary)
                 .frame(width: 24)
 
             VStack(alignment: .leading, spacing: 3) {
@@ -167,9 +231,12 @@ private struct ProwlarrApplicationRow: View {
                         .lineLimit(1)
                 }
 
-                Text(application.syncLevel?.displayName ?? "Sync level unavailable")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                HStack(spacing: 4) {
+                    Image(systemName: status.systemImage)
+                    Text(status.label)
+                }
+                .font(.caption2)
+                .foregroundStyle(status.color)
             }
 
             Spacer()
@@ -181,14 +248,34 @@ private struct ProwlarrApplicationRow: View {
         application.linkedAppType
     }
 
-    private var iconColor: Color {
-        switch appType {
-        case .sonarr:
-            .blue
-        case .radarr:
-            .orange
-        case nil:
-            .secondary
+}
+
+private enum ProwlarrApplicationRowStatus {
+    case connected
+    case disabled
+    case notConnected
+
+    var label: String {
+        switch self {
+        case .connected: "Connected"
+        case .disabled: "Disabled"
+        case .notConnected: "Not Connected"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .connected: "checkmark.circle.fill"
+        case .disabled: "pause.circle"
+        case .notConnected: "exclamationmark.circle.fill"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .connected: .green
+        case .disabled: .secondary
+        case .notConnected: .orange
         }
     }
 }

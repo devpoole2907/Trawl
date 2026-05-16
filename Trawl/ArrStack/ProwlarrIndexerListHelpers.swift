@@ -109,7 +109,7 @@ struct UnifiedIndexerRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 4)
                 .fill(statusColor)
                 .frame(width: 4, height: 42)
 
@@ -269,7 +269,7 @@ struct DirectIndexerSchemaPickerSheet: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }
 
@@ -382,7 +382,7 @@ struct DirectIndexerEditorView: View {
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 4)
                 }
             }
 
