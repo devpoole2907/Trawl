@@ -225,6 +225,17 @@ final class ArrServiceManager {
         return matches.sorted { $0.dateAdded > $1.dateAdded }.first
     }
 
+    func resolvedProfile(
+        for serviceType: ArrServiceType,
+        allowErroredFallback: Bool = true
+    ) -> ArrServiceProfile? {
+        resolvedProfile(
+            for: serviceType,
+            in: storedProfiles,
+            allowErroredFallback: allowErroredFallback
+        )
+    }
+
     func setupNotifications(for profile: ArrServiceProfile, workerURL: String, deviceToken: String) async throws {
         let client = try notificationClient(for: profile)
         let notificationName = notificationName(for: profile)

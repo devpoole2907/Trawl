@@ -117,6 +117,19 @@ struct TorrentListView: View {
                 await vm.loadAlternativeSpeedMode()
             }
         }
+        .onAppear {
+            viewModel?.startSync()
+        }
+        .onChange(of: ObjectIdentifier(syncService)) {
+            let vm = TorrentListViewModel(
+                syncService: syncService,
+                torrentService: torrentService,
+                notificationCenter: inAppNotificationCenter
+            )
+            viewModel = vm
+            vm.startSync()
+            Task { await vm.loadAlternativeSpeedMode() }
+        }
         .onChange(of: activeServerID) { _, _ in
             Task {
                 await viewModel?.loadAlternativeSpeedMode()

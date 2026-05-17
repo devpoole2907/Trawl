@@ -209,7 +209,7 @@ struct ArrManualImportView: View {
     }
 }
 
-private extension ArrServiceType {
+extension ArrServiceType {
     var segmentBarItem: TrawlSegmentBarItem<Self> {
         TrawlSegmentBarItem(displayName, value: self)
     }

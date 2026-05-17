@@ -31,9 +31,9 @@ enum MoreDestination: Hashable {
     case calendarMovie(id: Int)
     case manualImportScan(path: String, service: ArrServiceType)
     case mediaManagement
-    case arrNamingConfig(service: ArrServiceType)
+    case arrNaming
     case rootFolders
-    case qualityProfiles(service: ArrServiceType)
+    case qualityProfiles
     case bazarrSettings
     case subtitleManagement
     case bazarrLanguageProfiles
@@ -53,6 +53,14 @@ enum MoreDestination: Hashable {
     case jellyfinScheduledTasks
     case jellyfinPlugins
     case unifiedUsers
+    case logsAndEvents
+    case arrEvents
+    case tasksHub
+    case arrTasks
+    case seerrJobs
+    case updatesHub
+    case backupsHub
+    case qualityDefinitions
 }
 
 enum MoreDestinationAccent {
@@ -209,6 +217,28 @@ struct MoreView: View {
                             title: "Jellyfin",
                             subtitle: jellyfinProfile == nil ? "Not configured" : "Libraries, sessions, activity, and server tasks"
                         )
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.logsAndEvents) {
+                        moreRow(icon: "text.document.fill", color: .brown,
+                                title: "Logs", subtitle: "Server logs and activity across all services")
+                    }
+
+                    NavigationLink(value: MoreDestination.tasksHub) {
+                        moreRow(icon: "clock.arrow.2.circlepath", color: .teal,
+                                title: "Tasks", subtitle: "Scheduled tasks and command queue")
+                    }
+
+                    NavigationLink(value: MoreDestination.updatesHub) {
+                        moreRow(icon: "arrow.down.app.fill", color: .green,
+                                title: "Updates", subtitle: "Software updates for connected services")
+                    }
+
+                    NavigationLink(value: MoreDestination.backupsHub) {
+                        moreRow(icon: "externaldrive.fill", color: .indigo,
+                                title: "Backups", subtitle: "System backups for Sonarr, Radarr and Prowlarr")
                     }
                 }
 
@@ -415,6 +445,36 @@ struct MoreView: View {
                 case .jellyfinSettings:
                     JellyfinSettingsView()
                         .moreDestinationTitleStyle()
+                case .logsAndEvents:
+                    LogsAndEventsHubView()
+                        .moreDestinationTitleStyle()
+                case .arrEvents:
+                    ArrEventsView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .tasksHub:
+                    TasksHubView(jellyfinProfile: jellyfinProfile)
+                        .moreDestinationTitleStyle()
+                case .arrTasks:
+                    ArrScheduledTasksView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .seerrJobs:
+                    if let client = seerrServiceManager.activeClient {
+                        SeerrJobsView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        seerrAdminDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .updatesHub:
+                    ArrUpdatesView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .backupsHub:
+                    ArrBackupsView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .unifiedUsers:
                     unifiedUsersDestination
                         .moreDestinationTitleStyle()
@@ -431,8 +491,8 @@ struct MoreView: View {
                     ArrMediaManagementView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
-                case .arrNamingConfig(let service):
-                    ArrNamingConfigView(serviceType: service)
+                case .arrNaming:
+                    ArrNamingConfigView()
                         .environment(arrServiceManager)
                         .environment(InAppNotificationCenter.shared)
                         .moreDestinationTitleStyle()
@@ -441,8 +501,13 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .environment(inAppNotificationCenter)
                         .moreDestinationTitleStyle()
-                case .qualityProfiles(let service):
-                    ArrQualityProfilesListView(serviceType: service)
+                case .qualityProfiles:
+                    ArrQualityProfilesListView()
+                        .environment(arrServiceManager)
+                        .environment(inAppNotificationCenter)
+                        .moreDestinationTitleStyle()
+                case .qualityDefinitions:
+                    ArrQualityDefinitionsView()
                         .environment(arrServiceManager)
                         .environment(inAppNotificationCenter)
                         .moreDestinationTitleStyle()
@@ -1464,14 +1529,6 @@ private struct RequestManagementView: View {
                     )
                 }
 
-                NavigationLink(value: MoreDestination.seerrLogs) {
-                    NavigationMenuRow(
-                        icon: "doc.text.magnifyingglass",
-                        color: ServiceIdentity.seerr.brandColor,
-                        title: "Seerr Logs",
-                        subtitle: "Live Seerr server logs"
-                    )
-                }
             }
         }
         #if os(iOS)
@@ -1479,6 +1536,115 @@ private struct RequestManagementView: View {
         #endif
         .navigationTitle("Requests")
         .moreDestinationBackground(.requestManagement)
+    }
+}
+
+private struct LogsAndEventsHubView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+
+    var body: some View {
+        List {
+            if arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance || arrServiceManager.hasProwlarrInstance || arrServiceManager.hasBazarrInstance {
+                Section {
+                    NavigationLink(value: MoreDestination.arrEvents) {
+                        NavigationMenuRow(
+                            icon: "list.bullet.rectangle.fill",
+                            color: .indigo,
+                            title: "Arr Events",
+                            subtitle: "Sonarr, Radarr, Prowlarr, and Bazarr server logs"
+                        )
+                    }
+                }
+            }
+
+            if seerrServiceManager.activeClient != nil {
+                Section {
+                    NavigationLink(value: MoreDestination.seerrLogs) {
+                        NavigationMenuRow(
+                            icon: "doc.text.magnifyingglass",
+                            color: ServiceIdentity.seerr.brandColor,
+                            title: "Seerr Logs",
+                            subtitle: "Live Seerr server logs"
+                        )
+                    }
+                }
+            }
+
+            if jellyfinServiceManager.activeClient != nil {
+                Section {
+                    NavigationLink(value: MoreDestination.jellyfinActivityLog) {
+                        NavigationMenuRow(
+                            icon: "person.crop.rectangle.stack.fill",
+                            color: ServiceIdentity.jellyfin.brandColor,
+                            title: "Jellyfin Activity",
+                            subtitle: "Jellyfin server activity history"
+                        )
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Logs")
+        .moreDestinationBackground(.integrations)
+    }
+}
+
+private struct TasksHubView: View {
+    let jellyfinProfile: JellyfinServiceProfile?
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+
+    var body: some View {
+        List {
+            if arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance || arrServiceManager.hasProwlarrInstance || arrServiceManager.hasBazarrInstance {
+                Section {
+                    NavigationLink(value: MoreDestination.arrTasks) {
+                        NavigationMenuRow(
+                            icon: "clock.arrow.2.circlepath",
+                            color: .teal,
+                            title: "Arr Tasks",
+                            subtitle: "Sonarr, Radarr, Prowlarr, and Bazarr tasks"
+                        )
+                    }
+                }
+            }
+
+            if seerrServiceManager.activeClient != nil {
+                Section {
+                    NavigationLink(value: MoreDestination.seerrJobs) {
+                        NavigationMenuRow(
+                            icon: "clock.arrow.2.circlepath",
+                            color: ServiceIdentity.seerr.brandColor,
+                            title: "Seerr Jobs",
+                            subtitle: "Scheduled jobs and background tasks"
+                        )
+                    }
+                }
+            }
+
+            if jellyfinServiceManager.activeClient != nil {
+                Section {
+                    NavigationLink(value: MoreDestination.jellyfinScheduledTasks) {
+                        NavigationMenuRow(
+                            icon: "clock.arrow.2.circlepath",
+                            color: ServiceIdentity.jellyfin.brandColor,
+                            title: "Jellyfin Tasks",
+                            subtitle: "View and trigger Jellyfin background tasks"
+                        )
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Tasks")
+        .moreDestinationBackground(.integrations)
     }
 }
 
@@ -1503,24 +1669,6 @@ private struct JellyfinManagementView: View {
                         color: .orange,
                         title: "Libraries",
                         subtitle: "Browse and scan media libraries"
-                    )
-                }
-
-                NavigationLink(value: MoreDestination.jellyfinScheduledTasks) {
-                    NavigationMenuRow(
-                        icon: "clock.arrow.2.circlepath",
-                        color: .teal,
-                        title: "Scheduled Tasks",
-                        subtitle: "View and trigger Jellyfin background tasks"
-                    )
-                }
-
-                NavigationLink(value: MoreDestination.jellyfinActivityLog) {
-                    NavigationMenuRow(
-                        icon: "list.bullet.rectangle.fill",
-                        color: ServiceIdentity.jellyfin.brandColor,
-                        title: "Activity Log",
-                        subtitle: "Jellyfin server activity history"
                     )
                 }
 
@@ -1589,7 +1737,7 @@ extension View {
 }
 
 
-private struct RecentNotificationsSheet: View {
+struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter

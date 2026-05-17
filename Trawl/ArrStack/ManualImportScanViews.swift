@@ -1,67 +1,93 @@
 import SwiftUI
 
+// MARK: - Tab
+
+enum ManualImportScanTab: Hashable, CaseIterable {
+    case all, new, inLibrary
+
+    var displayName: String {
+        switch self {
+        case .new: return "New"
+        case .inLibrary: return "In Library"
+        case .all: return "All"
+        }
+    }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(displayName, value: self)
+    }
+}
+
+// MARK: - Scan View
+
 struct ManualImportScanView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.navigateToSeriesTab) private var navigateToSeriesTab
     @Environment(\.navigateToMoviesTab) private var navigateToMoviesTab
     @State private var viewModel: ManualImportScanViewModel
-    @State private var showBlockedSelectionReview = false
+    @State private var showSelectionReview = false
     @State private var isSelectingMode = false
     @State private var reviewingGroup: ManualImportGroup?
     @State private var reviewingBlockedGroup: ManualImportGroup?
+    @State private var selectedTab: ManualImportScanTab = .new
+    @State private var searchText = ""
+    @State private var readyExpanded = true
+    @State private var pendingAddExpanded = true
+    @State private var needsIDExpanded = true
+    @State private var blockedExpanded = false
+    @State private var inLibraryExpanded = false
     let showsCloseButton: Bool
 
-    private var unidentifiedFiles: [ManualImportItem] {
-        viewModel.blockedFiles.filter(\.isAutoMatchCandidate)
+    // MARK: Filtered groups
+
+    private var readyGroups: [ManualImportGroup] {
+        let base = selectedTab == .new ? viewModel.groupedNewImportableFiles : viewModel.groupedImportableFiles
+        return searchFiltered(base)
     }
-    private var actuallyBlockedFiles: [ManualImportItem] {
-        viewModel.blockedFiles.filter { !$0.isAutoMatchCandidate }
+
+    private var pendingAddGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedIdentifiedPendingAddFiles) }
+    private var needsIDGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedUnidentifiedFiles) }
+    private var blockedGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedBlockedFiles) }
+    private var inLibraryGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedInLibraryFiles) }
+
+    private func searchFiltered(_ groups: [ManualImportGroup]) -> [ManualImportGroup] {
+        guard !searchText.isEmpty else { return groups }
+        return groups.filter {
+            $0.displayTitle.localizedCaseInsensitiveContains(searchText) ||
+            $0.items.contains { $0.fileName.localizedCaseInsensitiveContains(searchText) }
+        }
     }
-    private var hasAnyFiles: Bool {
-        !viewModel.importableFiles.isEmpty || !viewModel.blockedFiles.isEmpty
+
+    private var hasAnyContent: Bool { !viewModel.importableFiles.isEmpty || !viewModel.blockedFiles.isEmpty }
+
+    private func groupSelectionState(_ group: ManualImportGroup) -> GroupSelectionState {
+        let n = group.items.filter { viewModel.selectedFiles.contains($0.id) }.count
+        if n == 0 { return .none }
+        return n == group.items.count ? .all : .partial
     }
 
     private func blockedGroupSelectionState(_ group: ManualImportGroup) -> GroupSelectionState {
-        let selectedCount = group.items.filter { viewModel.selectedBlockedFiles.contains($0.id) }.count
-        if selectedCount == 0 { return .none }
-        if selectedCount == group.items.count { return .all }
-        return .partial
+        let n = group.items.filter { viewModel.selectedBlockedFiles.contains($0.id) }.count
+        if n == 0 { return .none }
+        return n == group.items.count ? .all : .partial
     }
+
+    // MARK: Auto-identify text
 
     private var autoIdentifyStatusText: String {
         if let current = viewModel.autoIdentifyCurrentFileName, viewModel.isAutoIdentifying {
             return "Matching \(current)"
         }
-        if let outcome = viewModel.autoIdentifyLastOutcomeMessage {
-            return outcome
-        }
-        if let lastMatchedTitle = viewModel.autoIdentifyLastMatchedTitle {
-            return "Last match: \(lastMatchedTitle)"
-        }
+        if let outcome = viewModel.autoIdentifyLastOutcomeMessage { return outcome }
+        if let last = viewModel.autoIdentifyLastMatchedTitle { return "Last match: \(last)" }
         let count = viewModel.unresolvedUnidentifiedCount
         return count == 1 ? "1 file waiting for automatic matching." : "\(count) files waiting for automatic matching."
     }
 
     private var autoIdentifyProgressText: String {
         let processed = viewModel.autoIdentifyProcessedCount
-        if viewModel.isAutoIdentifying {
-            return processed == 0 ? "Running" : "Matched \(processed)"
-        }
-        if processed > 0 {
-            return "Matched \(processed)"
-        }
-        return "Idle"
-    }
-
-    private var shouldShowAutoIdentifySection: Bool {
-        !viewModel.blockedFiles.isEmpty
-    }
-
-    private func groupSelectionState(_ group: ManualImportGroup) -> GroupSelectionState {
-        let selectedCount = group.items.filter { viewModel.selectedFiles.contains($0.id) }.count
-        if selectedCount == 0 { return .none }
-        if selectedCount == group.items.count { return .all }
-        return .partial
+        if viewModel.isAutoIdentifying { return processed == 0 ? "Running" : "Matched \(processed)" }
+        return processed > 0 ? "Matched \(processed)" : "Idle"
     }
 
     init(
@@ -75,22 +101,24 @@ struct ManualImportScanView: View {
         self.showsCloseButton = showsCloseButton
     }
 
+    // MARK: Body
+
     var body: some View {
         List {
-            if viewModel.isScanning && viewModel.importableFiles.isEmpty && viewModel.blockedFiles.isEmpty {
-                Section {
-                    VStack(spacing: 8) {
-                        ProgressView("Scanning for files…")
-                        Text(viewModel.scanStatusMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.vertical, 24)
-                    .listRowBackground(Color.clear)
-                }
-            } else if viewModel.importableFiles.isEmpty && viewModel.blockedFiles.isEmpty {
+            statusSection
+
+            if selectedTab != .inLibrary {
+                readySection
+                pendingAddSection
+                needsIDSection
+                blockedSection
+            }
+
+            if selectedTab == .all || selectedTab == .inLibrary {
+                inLibrarySection
+            }
+
+            if !viewModel.isScanning && !hasAnyContent && viewModel.hasPerformedInitialScan {
                 Section {
                     ContentUnavailableView(
                         "No Importable Files",
@@ -98,212 +126,6 @@ struct ManualImportScanView: View {
                         description: Text("No unmapped files found in this directory.")
                     )
                     .listRowBackground(Color.clear)
-                }
-            } else {
-                if viewModel.service == .sonarr && !viewModel.importableFiles.isEmpty {
-                    Section {
-                        Toggle(isOn: Binding(
-                            get: { viewModel.seasonFolder },
-                            set: { viewModel.seasonFolder = $0 }
-                        )) {
-                            Label("Season Folder", systemImage: "folder.badge.plus")
-                        }
-                    } footer: {
-                        Text("Place imported files in the season subfolder rather than the series root.")
-                    }
-                }
-
-                if !viewModel.groupedImportableFiles.isEmpty {
-                    Section {
-                        ForEach(viewModel.groupedImportableFiles) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .ready,
-                                selectionState: groupSelectionState(group),
-                                isSelectingMode: isSelectingMode,
-                                onToggle: {
-                                    if isSelectingMode {
-                                        withAnimation(.snappy) {
-                                            viewModel.toggleGroup(itemIDs: group.items.map(\.id))
-                                        }
-                                    } else {
-                                        reviewingGroup = group
-                                    }
-                                }
-                            )
-                            .contextMenu {
-                                Button("Review", systemImage: "list.bullet.rectangle") {
-                                    reviewingGroup = group
-                                }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button {
-                                    reviewingGroup = group
-                                } label: {
-                                    Label("Review", systemImage: "list.bullet.rectangle")
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                    } header: {
-                        Text("Ready to Import")
-                    }
-                }
-
-                if !viewModel.groupedIdentifiedPendingAddFiles.isEmpty {
-                    Section {
-                        ForEach(viewModel.groupedIdentifiedPendingAddFiles) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .pendingAdd,
-                                selectionState: blockedGroupSelectionState(group),
-                                isSelectingMode: isSelectingMode,
-                                onToggle: {
-                                    if isSelectingMode {
-                                        withAnimation(.snappy) {
-                                            viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id))
-                                        }
-                                    } else {
-                                        viewModel.beginIdentifying(group: group)
-                                    }
-                                }
-                            )
-                            .contextMenu {
-                                Button("Add to \(viewModel.service.displayName)", systemImage: "plus.circle") {
-                                    viewModel.beginIdentifying(group: group)
-                                }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("Add", systemImage: "plus.circle") {
-                                    viewModel.beginIdentifying(group: group)
-                                }
-                                .tint(.green)
-                            }
-                        }
-                    } header: {
-                        Text("Identified")
-                    } footer: {
-                        Text("These files matched a \(viewModel.service.displayName) result. Add the title to \(viewModel.service.displayName) to make it ready to import.")
-                    }
-                }
-
-                if shouldShowAutoIdentifySection {
-                    Section {
-                        VStack(alignment: .leading, spacing: 10) {
-                            HStack(spacing: 8) {
-                                if viewModel.isAutoIdentifying {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Image(systemName: viewModel.unresolvedUnidentifiedCount == 0 ? "checkmark.circle.fill" : "sparkle.magnifyingglass")
-                                        .foregroundStyle(viewModel.unresolvedUnidentifiedCount == 0 ? .green : .secondary)
-                                }
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(autoIdentifyProgressText)
-                                        .font(.subheadline.weight(.semibold))
-                                    Text(autoIdentifyStatusText)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                        .fixedSize(horizontal: false, vertical: true)
-                                }
-
-                                Spacer(minLength: 0)
-
-                                Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
-                                    if viewModel.isAutoIdentifying {
-                                        viewModel.stopAutoIdentify()
-                                    } else {
-                                        viewModel.startAutoIdentify()
-                                    }
-                                }
-                                .font(.caption.weight(.semibold))
-                                .disabled(viewModel.groupedUnidentifiedFiles.isEmpty && !viewModel.isAutoIdentifying)
-                            }
-                        }
-                        .padding(.vertical, 2)
-                    } header: {
-                        Text("Identification Status")
-                    }
-                }
-
-                if !viewModel.groupedUnidentifiedFiles.isEmpty {
-                    Section {
-                        ForEach(viewModel.groupedUnidentifiedFiles) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .unidentified,
-                                selectionState: blockedGroupSelectionState(group),
-                                isSelectingMode: isSelectingMode,
-                                onToggle: {
-                                    if isSelectingMode {
-                                        withAnimation(.snappy) {
-                                            viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id))
-                                        }
-                                    } else {
-                                        viewModel.beginIdentifying(group: group)
-                                    }
-                                }
-                            )
-                            .contextMenu {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    viewModel.beginIdentifying(group: group)
-                                }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    viewModel.beginIdentifying(group: group)
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                    } header: {
-                        Text("Needs Identification")
-                    }
-                }
-
-                if !viewModel.groupedBlockedFiles.isEmpty {
-                    Section {
-                        ForEach(viewModel.groupedBlockedFiles) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .blocked,
-                                selectionState: blockedGroupSelectionState(group),
-                                isSelectingMode: isSelectingMode,
-                                onToggle: {
-                                    if isSelectingMode {
-                                        withAnimation(.snappy) {
-                                            viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id))
-                                        }
-                                    } else {
-                                        reviewingBlockedGroup = group
-                                    }
-                                }
-                            )
-                            .contextMenu {
-                                Button("Review", systemImage: "list.bullet.rectangle") {
-                                    reviewingBlockedGroup = group
-                                }
-                                if !group.isIdentified {
-                                    Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                        viewModel.beginIdentifying(group: group)
-                                    }
-                                }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button {
-                                    reviewingBlockedGroup = group
-                                } label: {
-                                    Label("Review", systemImage: "list.bullet.rectangle")
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                    } header: {
-                        Text("Blocked")
-                    } footer: {
-                        Text("Files rejected by \(viewModel.service.displayName) due to quality, format, or other issues can't be imported until the underlying problem is resolved.")
-                    }
                 }
             }
         }
@@ -313,46 +135,51 @@ struct ManualImportScanView: View {
         .listStyle(.inset)
         #endif
         .navigationTitle(viewModel.folderName)
-        .navigationSubtitle(navigationSubtitleText)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .refreshable {
             await viewModel.loadFiles()
+            await viewModel.loadInLibraryStatus()
+        }
+        .safeAreaInset(edge: .top) {
+            TrawlSegmentBar(
+                "View",
+                selection: $selectedTab,
+                items: ManualImportScanTab.allCases.map(\.segmentBarItem),
+                searchText: $searchText,
+                searchHint: "Search files…",
+                searchPlacement: .leading,
+                alignment: .center
+            )
         }
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Close") {
-                        dismiss()
-                    }
+                    Button("Close") { dismiss() }
                 }
             }
 
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 if isSelectingMode {
                     Button(viewModel.allSelected ? "Deselect All" : "Select All") {
-                        withAnimation(.snappy) {
-                            viewModel.toggleSelectAll()
-                        }
+                        withAnimation(.snappy) { viewModel.toggleSelectAll() }
                     }
                     .font(.subheadline)
 
                     Button {
-                        showBlockedSelectionReview = true
+                        showSelectionReview = true
                     } label: {
                         if viewModel.isImporting {
-                            ProgressView()
-                                .controlSize(.small)
+                            ProgressView().controlSize(.small)
                         } else {
-                            Text("Import")
-                                .fontWeight(.semibold)
+                            Text("Import").fontWeight(.semibold)
                         }
                     }
                     .disabled(viewModel.isBusy || !viewModel.hasAnySelection)
                 }
 
-                if hasAnyFiles {
+                if hasAnyContent {
                     Button(isSelectingMode ? "Done" : "Select") {
                         withAnimation(.snappy) {
                             isSelectingMode.toggle()
@@ -367,16 +194,10 @@ struct ManualImportScanView: View {
             }
         }
         .sheet(item: $viewModel.identifyingTarget) { target in
-            ManualImportIdentifySheet(
-                target: target,
-                viewModel: viewModel,
-                importAfterAdding: false,
-                showsCancelButton: true,
-                wrapInNavigationStack: true
-            )
+            ManualImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
         }
-        .sheet(isPresented: $showBlockedSelectionReview) {
-            ManualImportBlockedSelectionSheet(viewModel: viewModel)
+        .sheet(isPresented: $showSelectionReview) {
+            ManualImportSelectionReviewSheet(viewModel: viewModel)
         }
         .sheet(item: $reviewingGroup) { group in
             ManualImportGroupSheet(initialGroup: group, viewModel: viewModel)
@@ -395,7 +216,8 @@ struct ManualImportScanView: View {
             if !viewModel.hasPerformedInitialScan {
                 await viewModel.loadFiles()
             }
-            Task { await viewModel.loadLibraryIfNeeded() }
+            await viewModel.loadLibraryIfNeeded()
+            await viewModel.loadInLibraryStatus()
             viewModel.startAutoIdentify()
         }
         .onDisappear {
@@ -403,34 +225,235 @@ struct ManualImportScanView: View {
         }
     }
 
-    private var navigationSubtitleText: String {
-        if isSelectingMode && viewModel.hasAnySelection {
-            let count = viewModel.selectedFiles.count + viewModel.selectedBlockedFiles.count
-            return "\(count) file\(count == 1 ? "" : "s") selected"
+    // MARK: Status Section
+
+    @ViewBuilder
+    private var statusSection: some View {
+        Section {
+            if viewModel.isScanning && !viewModel.hasPerformedInitialScan {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Scanning for files…")
+                            .font(.subheadline.weight(.medium))
+                        Text(viewModel.scanStatusMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 2)
+            } else if viewModel.hasPerformedInitialScan {
+                countChipsRow
+            }
+
+            if viewModel.isImporting {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("Importing…")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            if viewModel.hasPerformedInitialScan || viewModel.isScanning {
+                HStack(spacing: 8) {
+                    if viewModel.isAutoIdentifying {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Image(systemName: viewModel.unresolvedUnidentifiedCount == 0 ? "checkmark.circle.fill" : "sparkle.magnifyingglass")
+                            .foregroundStyle(viewModel.unresolvedUnidentifiedCount == 0 ? .green : .secondary)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(autoIdentifyProgressText)
+                            .font(.subheadline.weight(.semibold))
+                        Text(autoIdentifyStatusText)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
+                        if viewModel.isAutoIdentifying {
+                            viewModel.stopAutoIdentify()
+                        } else {
+                            viewModel.startAutoIdentify()
+                        }
+                    }
+                    .font(.caption.weight(.semibold))
+                    .disabled(viewModel.groupedUnidentifiedFiles.isEmpty && !viewModel.isAutoIdentifying)
+                }
+                .padding(.vertical, 2)
+            }
         }
-        var parts: [String] = []
-        if !viewModel.groupedImportableFiles.isEmpty {
-            let titles = viewModel.groupedImportableFiles.count
-            let files = viewModel.importableFiles.count
-            parts.append("\(files) ready · \(titles) title\(titles == 1 ? "" : "s")")
+    }
+
+    private var countChipsRow: some View {
+        let newCount = viewModel.groupedNewImportableFiles.reduce(0) { $0 + $1.items.count }
+        let pendingCount = viewModel.groupedIdentifiedPendingAddFiles.reduce(0) { $0 + $1.items.count }
+        let needsIDCount = viewModel.groupedUnidentifiedFiles.reduce(0) { $0 + $1.items.count }
+        let blockedCount = viewModel.groupedBlockedFiles.reduce(0) { $0 + $1.items.count }
+        let inLibraryCount = viewModel.groupedInLibraryFiles.reduce(0) { $0 + $1.items.count }
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                statusChip("\(newCount) ready", color: newCount > 0 ? .green : .secondary)
+                if pendingCount > 0 { statusChip("\(pendingCount) identified", color: .blue) }
+                if needsIDCount > 0 { statusChip("\(needsIDCount) to identify", color: .orange) }
+                if blockedCount > 0 { statusChip("\(blockedCount) blocked", color: .red) }
+                if inLibraryCount > 0 { statusChip("\(inLibraryCount) in library", color: .secondary) }
+            }
         }
-        if !viewModel.groupedIdentifiedPendingAddFiles.isEmpty {
-            let titles = viewModel.groupedIdentifiedPendingAddFiles.count
-            parts.append("\(titles) identified")
+    }
+
+    // MARK: Content Sections
+
+    @ViewBuilder
+    private var readySection: some View {
+        if !readyGroups.isEmpty {
+            Section(isExpanded: $readyExpanded) {
+                if viewModel.service == .sonarr {
+                    Toggle(isOn: Binding(get: { viewModel.seasonFolder }, set: { viewModel.seasonFolder = $0 })) {
+                        Label("Season Folder", systemImage: "folder.badge.plus")
+                    }
+                }
+                ForEach(readyGroups) { group in
+                    ManualImportGroupRow(
+                        group: group, style: .ready,
+                        selectionState: groupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleGroup(itemIDs: group.items.map(\.id)) }
+                            } else { reviewingGroup = group }
+                        }
+                    )
+                    .contextMenu { Button("Review", systemImage: "list.bullet.rectangle") { reviewingGroup = group } }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button { reviewingGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
+                    }
+                }
+            } header: {
+                Text("Ready to Import (\(readyGroups.count))")
+            }
         }
-        if !viewModel.groupedUnidentifiedFiles.isEmpty {
-            parts.append("\(viewModel.groupedUnidentifiedFiles.count) unidentified")
+    }
+
+    @ViewBuilder
+    private var pendingAddSection: some View {
+        if !pendingAddGroups.isEmpty {
+            Section(isExpanded: $pendingAddExpanded) {
+                ForEach(pendingAddGroups) { group in
+                    ManualImportGroupRow(
+                        group: group, style: .pendingAdd,
+                        selectionState: blockedGroupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
+                            } else { viewModel.beginIdentifying(group: group) }
+                        }
+                    )
+                    .contextMenu { Button("Add to \(viewModel.service.displayName)", systemImage: "plus.circle") { viewModel.beginIdentifying(group: group) } }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("Add", systemImage: "plus.circle") { viewModel.beginIdentifying(group: group) }.tint(.green)
+                    }
+                }
+            } header: {
+                Text("Identified (\(pendingAddGroups.count))")
+            }
         }
-        if !viewModel.groupedBlockedFiles.isEmpty {
-            parts.append("\(viewModel.groupedBlockedFiles.count) blocked")
+    }
+
+    @ViewBuilder
+    private var needsIDSection: some View {
+        if !needsIDGroups.isEmpty {
+            Section(isExpanded: $needsIDExpanded) {
+                ForEach(needsIDGroups) { group in
+                    ManualImportGroupRow(
+                        group: group, style: .unidentified,
+                        selectionState: blockedGroupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
+                            } else { viewModel.beginIdentifying(group: group) }
+                        }
+                    )
+                    .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) } }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }.tint(.blue)
+                    }
+                }
+            } header: {
+                Text("Needs Identification (\(needsIDGroups.count))")
+            }
         }
-        return parts.isEmpty ? viewModel.path : parts.joined(separator: " · ")
+    }
+
+    @ViewBuilder
+    private var blockedSection: some View {
+        if !blockedGroups.isEmpty {
+            Section(isExpanded: $blockedExpanded) {
+                ForEach(blockedGroups) { group in
+                    ManualImportGroupRow(
+                        group: group, style: .blocked,
+                        selectionState: blockedGroupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
+                            } else { reviewingBlockedGroup = group }
+                        }
+                    )
+                    .contextMenu {
+                        Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
+                        if !group.isIdentified {
+                            Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }
+                        }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button { reviewingBlockedGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
+                    }
+                }
+            } header: {
+                Text("Blocked (\(blockedGroups.count))")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inLibrarySection: some View {
+        if !inLibraryGroups.isEmpty {
+            Section(isExpanded: $inLibraryExpanded) {
+                ForEach(inLibraryGroups) { group in
+                    ManualImportGroupRow(
+                        group: group, style: .ready,
+                        selectionState: groupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleGroup(itemIDs: group.items.map(\.id)) }
+                            } else { reviewingGroup = group }
+                        }
+                    )
+                    .contextMenu { Button("Review", systemImage: "list.bullet.rectangle") { reviewingGroup = group } }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button { reviewingGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
+                    }
+                    .opacity(0.65)
+                }
+            } header: {
+                Text("In Library (\(inLibraryGroups.count))")
+            }
+        }
     }
 }
 
 struct ArrQueueImportIssueResolutionSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: ManualImportScanViewModel
+    @State private var readyExpanded = true
+    @State private var needsIDExpanded = true
+    @State private var blockedExpanded = false
 
     let resolution: ArrQueueImportIssueResolution
     let onImportCompleted: () async -> Void
@@ -540,7 +563,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                 }
 
                 if !readyItems.isEmpty {
-                    Section {
+                    Section(isExpanded: $readyExpanded) {
                         ForEach(readyItems) { item in
                             NavigationLink {
                                 ManualImportIdentifySheet(
@@ -551,23 +574,16 @@ struct ArrQueueImportIssueResolutionSheet: View {
                                     wrapInNavigationStack: false
                                 )
                             } label: {
-                                ManualImportRow(
-                                    item: item,
-                                    isSelected: false,
-                                    isSelectingMode: false,
-                                    onToggle: {}
-                                )
+                                ManualImportRow(item: item, isSelected: false, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
-                        Text("Ready to Import")
-                    } footer: {
-                        Text("Tap a file to change its match, or import the ready files from this sheet.")
+                        Text("Ready to Import (\(readyItems.count))")
                     }
                 }
 
                 if !viewModel.groupedUnidentifiedFiles.isEmpty {
-                    Section {
+                    Section(isExpanded: $needsIDExpanded) {
                         ForEach(viewModel.groupedUnidentifiedFiles) { group in
                             NavigationLink {
                                 ManualImportIdentifySheet(
@@ -578,41 +594,25 @@ struct ArrQueueImportIssueResolutionSheet: View {
                                     wrapInNavigationStack: false
                                 )
                             } label: {
-                                ManualImportGroupRow(
-                                    group: group,
-                                    style: .unidentified,
-                                    selectionState: .none,
-                                    isSelectingMode: false,
-                                    onToggle: {}
-                                )
+                                ManualImportGroupRow(group: group, style: .unidentified, selectionState: .none, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
-                        Text("Needs Identification")
-                    } footer: {
-                        Text("Choose the correct \(resolution.service == .radarr ? "movie" : "series") match. The file will move into Ready to Import in this same sheet.")
+                        Text("Needs Identification (\(viewModel.groupedUnidentifiedFiles.count))")
                     }
                 }
 
                 if !viewModel.groupedBlockedFiles.isEmpty {
-                    Section {
+                    Section(isExpanded: $blockedExpanded) {
                         ForEach(viewModel.groupedBlockedFiles) { group in
                             NavigationLink {
                                 ManualImportBlockedGroupInlineView(group: group, viewModel: viewModel)
                             } label: {
-                                ManualImportGroupRow(
-                                    group: group,
-                                    style: .blocked,
-                                    selectionState: .none,
-                                    isSelectingMode: false,
-                                    onToggle: {}
-                                )
+                                ManualImportGroupRow(group: group, style: .blocked, selectionState: .none, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
-                        Text("Still Blocked")
-                    } footer: {
-                        Text("These files need another server-side fix before they can be imported.")
+                        Text("Still Blocked (\(viewModel.groupedBlockedFiles.count))")
                     }
                 }
             }
@@ -1310,18 +1310,21 @@ private struct ManualImportGroupRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    if group.isIdentified {
+                    if group.isIdentified || group.isPendingAdd {
                         Text(group.fileSummary)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .frame(height: 32, alignment: .topLeading)
                     }
 
-                    HStack(spacing: 4) {
-                        ForEach(group.qualityNames, id: \.self) { name in
-                            statusChip(name, color: .blue)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 4) {
+                            ForEach(group.qualityNames, id: \.self) { name in
+                                statusChip(name, color: .blue)
+                            }
+                            statusChip(ByteFormatter.format(bytes: group.totalSize), color: .secondary)
                         }
-                        statusChip(ByteFormatter.format(bytes: group.totalSize), color: .secondary)
                     }
 
                     if style == .blocked, let firstReason = group.rejectionReasons.first {
@@ -1475,15 +1478,11 @@ struct ManualImportGroupSheet: View {
     }
 }
 
-private struct ManualImportBlockedSelectionSheet: View {
+private struct ManualImportSelectionReviewSheet: View {
     let viewModel: ManualImportScanViewModel
 
     @Environment(\.dismiss) private var dismiss
     @State private var identifyingTarget: ManualImportIdentifyTarget?
-
-    private var readyGroups: [ManualImportGroup] {
-        viewModel.selectedReadyGroups
-    }
 
     private var pendingAddGroups: [ManualImportGroup] {
         viewModel.selectedBlockedGroups.filter(\.isPendingAdd)
@@ -1493,13 +1492,23 @@ private struct ManualImportBlockedSelectionSheet: View {
         viewModel.selectedBlockedGroups.filter { !$0.isPendingAdd }
     }
 
-    private var allReadyGroups: [ManualImportGroup] {
-        readyGroups + pendingAddGroups
+    private var upgradingGroups: [ManualImportGroup] {
+        viewModel.selectedReadyGroups.filter { group in
+            group.items.allSatisfy { viewModel.inLibraryItemIDs.contains($0.id) }
+        }
     }
 
-    private var hasUnresolved: Bool {
-        !unresolvedGroups.isEmpty
+    private var trueReadyGroups: [ManualImportGroup] {
+        viewModel.selectedReadyGroups.filter { group in
+            !group.items.allSatisfy { viewModel.inLibraryItemIDs.contains($0.id) }
+        }
     }
+
+    private var allImportableGroups: [ManualImportGroup] {
+        trueReadyGroups + pendingAddGroups + upgradingGroups
+    }
+
+    private var hasUnresolved: Bool { !unresolvedGroups.isEmpty }
 
     private func identifyTarget(for group: ManualImportGroup) -> ManualImportIdentifyTarget {
         let label = group.items.count == 1 ? group.items[0].fileName : "\(group.displayTitle) · \(group.items.count) files"
@@ -1510,10 +1519,6 @@ private struct ManualImportBlockedSelectionSheet: View {
         viewModel.selectedFiles.count + pendingAddGroups.reduce(0) { $0 + $1.items.count }
     }
 
-    private var confirmButtonTitle: String {
-        hasUnresolved ? "Resolve \(unresolvedGroups.reduce(0) { $0 + $1.items.count })" : "Import \(confirmCount)"
-    }
-
     private var isConfirmDisabled: Bool {
         hasUnresolved || (viewModel.selectedFiles.isEmpty && pendingAddGroups.isEmpty) || viewModel.isBusy
     }
@@ -1522,7 +1527,7 @@ private struct ManualImportBlockedSelectionSheet: View {
         AppSheetShell(
             title: "Review Selection",
             cancelTitle: "Close",
-            confirmTitle: confirmButtonTitle,
+            confirmTitle: "Import \(confirmCount)",
             isConfirmDisabled: isConfirmDisabled,
             onConfirm: {
                 dismiss()
@@ -1532,86 +1537,54 @@ private struct ManualImportBlockedSelectionSheet: View {
             dragIndicator: .visible
         ) {
             List {
-                if !allReadyGroups.isEmpty {
+                if !allImportableGroups.isEmpty {
                     Section {
-                        ForEach(readyGroups) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .ready,
-                                selectionState: .none,
-                                isSelectingMode: false,
-                                onToggle: {}
-                            )
+                        ForEach(trueReadyGroups) { group in
+                            ManualImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
                         }
-
                         ForEach(pendingAddGroups) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: .pendingAdd,
-                                selectionState: .none,
-                                isSelectingMode: false,
-                                onToggle: { identifyingTarget = identifyTarget(for: group) }
-                            )
-                            .contextMenu {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: group)
+                            ManualImportGroupRow(group: group, style: .pendingAdd, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
+                                .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) } }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) }.tint(.blue)
                                 }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: group)
-                                }
-                                .tint(.blue)
-                            }
+                        }
+                        ForEach(upgradingGroups) { group in
+                            ManualImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
+                                .opacity(0.65)
                         }
                     } header: {
                         Text("Ready to Import")
                     } footer: {
                         if !pendingAddGroups.isEmpty {
-                            Text("These items will be added to \(viewModel.service.displayName) and imported together when you tap Import.")
+                            Text("Identified titles will be added to \(viewModel.service.displayName) and imported together.")
+                        } else if !upgradingGroups.isEmpty {
+                            Text("Dimmed titles will replace an existing file in your library.")
                         }
                     }
                 }
 
-                if unresolvedGroups.isEmpty && !pendingAddGroups.isEmpty && readyGroups.isEmpty {
+                if allImportableGroups.isEmpty && unresolvedGroups.isEmpty {
                     Section {
-                        ContentUnavailableView(
-                            "Ready to Import",
-                            systemImage: "checkmark.circle.fill",
-                            description: Text("These items will be added to \(viewModel.service.displayName) when you tap Import.")
-                        )
-                        .listRowBackground(Color.clear)
+                        ContentUnavailableView("No Files Selected", systemImage: "checkmark.circle", description: Text("Everything in this selection has been cleared."))
+                            .listRowBackground(Color.clear)
                     }
-                } else if unresolvedGroups.isEmpty && allReadyGroups.isEmpty {
+                }
+
+                if !unresolvedGroups.isEmpty {
                     Section {
-                        ContentUnavailableView(
-                            "No Files Selected",
-                            systemImage: "checkmark.circle",
-                            description: Text("Everything in this selection has been cleared.")
-                        )
-                        .listRowBackground(Color.clear)
-                    }
-                } else if !unresolvedGroups.isEmpty {
-                    Section {
+                        if hasUnresolved {
+                            Label("Identify the files below before importing.", systemImage: "info.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .listRowBackground(Color.clear)
+                        }
                         ForEach(unresolvedGroups) { group in
-                            ManualImportGroupRow(
-                                group: group,
-                                style: group.isIdentified ? .blocked : .unidentified,
-                                selectionState: .none,
-                                isSelectingMode: false,
-                                onToggle: { identifyingTarget = identifyTarget(for: group) }
-                            )
-                            .contextMenu {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: group)
+                            ManualImportGroupRow(group: group, style: group.isIdentified ? .blocked : .unidentified, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
+                                .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) } }
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) }.tint(.blue)
                                 }
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") {
-                                    identifyingTarget = identifyTarget(for: group)
-                                }
-                                .tint(.blue)
-                            }
                         }
                     } header: {
                         Text("Identify Before Import")
@@ -1626,13 +1599,7 @@ private struct ManualImportBlockedSelectionSheet: View {
             .listStyle(.inset)
             #endif
             .sheet(item: $identifyingTarget) { target in
-                ManualImportIdentifySheet(
-                    target: target,
-                    viewModel: viewModel,
-                    importAfterAdding: false,
-                    showsCancelButton: true,
-                    wrapInNavigationStack: true
-                )
+                ManualImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
             }
         }
     }
@@ -1742,6 +1709,13 @@ private struct ManualImportIdentifySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>?
+    @State private var currentItems: [ManualImportItem] = []
+    @State private var excludedItemIDs: Set<String> = []
+    @State private var isFilesExpanded = false
+
+    private var includedItems: [ManualImportItem] {
+        currentItems.filter { !excludedItemIDs.contains($0.id) }
+    }
 
     private var representativeFileName: String {
         target.items.first?.fileName ?? target.displayLabel
@@ -1762,6 +1736,7 @@ private struct ManualImportIdentifySheet: View {
             }
         }
         .task {
+            currentItems = target.items
             await viewModel.loadAutoSuggestions(for: representativeFileName)
         }
         .modifier(IdentifySheetPresentationModifier(isPresentedAsSheet: wrapInNavigationStack))
@@ -1814,16 +1789,47 @@ private struct ManualImportIdentifySheet: View {
     private var list: some View {
         List {
             Section {
-                if target.items.count > 1 {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(target.displayLabel)
-                            .font(.subheadline.weight(.semibold))
-                        Text("Your choice will apply to all \(target.items.count) files.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                if currentItems.count > 1 {
+                    let includedCount = currentItems.count - excludedItemIDs.count
+                    DisclosureGroup(isExpanded: $isFilesExpanded) {
+                        ForEach(currentItems) { item in
+                            let isExcluded = excludedItemIDs.contains(item.id)
+                            let isLastIncluded = !isExcluded && includedCount == 1
+                            HStack(spacing: 10) {
+                                Button {
+                                    withAnimation {
+                                        if isExcluded {
+                                            excludedItemIDs.remove(item.id)
+                                        } else {
+                                            excludedItemIDs.insert(item.id)
+                                        }
+                                    }
+                                } label: {
+                                    Image(systemName: isExcluded ? "plus.circle.fill" : "minus.circle.fill")
+                                        .foregroundStyle(isExcluded ? AnyShapeStyle(.green) : AnyShapeStyle(.red))
+                                        .font(.title3)
+                                }
+                                .buttonStyle(.plain)
+                                .disabled(isLastIncluded)
+
+                                Text(item.fileName)
+                                    .font(.caption)
+                                    .foregroundStyle(isExcluded ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
+                                    .lineLimit(2)
+                                    .strikethrough(isExcluded, color: .secondary)
+                            }
+                        }
+                    } label: {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(target.displayLabel)
+                                .font(.subheadline.weight(.semibold))
+                            Text("Your choice will apply to \(includedCount == currentItems.count ? "all \(includedCount)" : "\(includedCount) of \(currentItems.count)") files.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 } else {
-                    Text(target.displayLabel)
+                    Text(currentItems.first?.fileName ?? target.displayLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)
@@ -1960,7 +1966,7 @@ private struct ManualImportIdentifySheet: View {
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
         let posterImageURL = posterURL(from: movie.images)
         return Button {
-            viewModel.applyIdentification(to: target.items, mediaID: movie.id, title: movie.title, posterURL: posterImageURL)
+            viewModel.applyIdentification(to: includedItems, mediaID: movie.id, title: movie.title, posterURL: posterImageURL)
             dismiss()
         } label: {
             mediaRow(title: movie.title, year: movie.year, posterURL: posterImageURL, badge: nil)
@@ -1974,7 +1980,7 @@ private struct ManualImportIdentifySheet: View {
         return Button {
             Task {
                 let succeeded = await viewModel.addToLibraryAndIdentify(
-                    blockedItems: target.items,
+                    blockedItems: includedItems,
                     movie: movie,
                     importAfterAdding: importAfterAdding
                 )
@@ -1992,7 +1998,7 @@ private struct ManualImportIdentifySheet: View {
     private func librarySeriesRow(_ s: SonarrSeries) -> some View {
         let posterImageURL = posterURL(from: s.images)
         return Button {
-            viewModel.applyIdentification(to: target.items, mediaID: s.id, title: s.title, posterURL: posterImageURL)
+            viewModel.applyIdentification(to: includedItems, mediaID: s.id, title: s.title, posterURL: posterImageURL)
             dismiss()
         } label: {
             mediaRow(title: s.title, year: s.year, posterURL: posterImageURL, badge: nil)
@@ -2006,7 +2012,7 @@ private struct ManualImportIdentifySheet: View {
         return Button {
             Task {
                 let succeeded = await viewModel.addToLibraryAndIdentify(
-                    blockedItems: target.items,
+                    blockedItems: includedItems,
                     series: s,
                     importAfterAdding: importAfterAdding
                 )

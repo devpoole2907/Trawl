@@ -1,15 +1,22 @@
 import SwiftUI
 
 struct ArrQualityProfilesListView: View {
-    let serviceType: ArrServiceType
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var selectedService: ArrServiceType = .sonarr
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
     @State private var isSaving = false
 
+    private var availableServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     private var profiles: [ArrQualityProfile] {
-        switch serviceType {
+        switch selectedService {
         case .sonarr:
             serviceManager.sonarrQualityProfiles
         case .radarr:
@@ -29,7 +36,7 @@ struct ArrQualityProfilesListView: View {
                 ForEach(sortedProfiles) { profile in
                     NavigationLink {
                         ArrQualityProfileDetailView(
-                            serviceType: serviceType,
+                            serviceType: selectedService,
                             profile: profile,
                             onEdit: {
                                 editorSession = .edit(profile)
@@ -85,6 +92,17 @@ struct ArrQualityProfilesListView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .safeAreaInset(edge: .top) {
+            TrawlSegmentBar(
+                "Service",
+                selection: Binding(
+                    get: { selectedService },
+                    set: { newService in withAnimation { selectedService = newService } }
+                ),
+                items: availableServices.map(\.segmentBarItem),
+                alignment: .center
+            )
+        }
         .toolbar {
             if let firstProfile = sortedProfiles.first {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
@@ -100,7 +118,7 @@ struct ArrQualityProfilesListView: View {
         .sheet(item: $editorSession) { session in
             NavigationStack {
                 ArrQualityProfileEditorView(
-                    serviceType: serviceType,
+                    serviceType: selectedService,
                     session: session,
                     isSaving: isSaving,
                     onSave: { draft in
@@ -124,7 +142,12 @@ struct ArrQualityProfilesListView: View {
                 profilePendingDelete = nil
             }
         } message: { profile in
-            Text("Delete '\(profile.name)' from \(serviceType.displayName)?")
+            Text("Delete '\(profile.name)' from \(selectedService.displayName)?")
+        }
+        .onAppear {
+            if !availableServices.contains(selectedService), let first = availableServices.first {
+                selectedService = first
+            }
         }
     }
 
@@ -136,7 +159,7 @@ struct ArrQualityProfilesListView: View {
         let profile = draft.makeProfile()
 
         do {
-            switch serviceType {
+            switch selectedService {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { return false }
                 if draft.apiID == nil {
@@ -158,7 +181,7 @@ struct ArrQualityProfilesListView: View {
             await serviceManager.refreshConfiguration()
             editorSession = nil
             let verb = draft.apiID == nil ? "created" : "updated"
-            inAppNotificationCenter.showSuccess(title: "Saved", message: "Quality profile \(verb) in \(serviceType.displayName).")
+            inAppNotificationCenter.showSuccess(title: "Saved", message: "Quality profile \(verb) in \(selectedService.displayName).")
             return true
         } catch {
             inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
@@ -175,7 +198,7 @@ struct ArrQualityProfilesListView: View {
         }
 
         do {
-            switch serviceType {
+            switch selectedService {
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else { return }
                 try await client.deleteQualityProfile(id: profile.id)
@@ -187,7 +210,7 @@ struct ArrQualityProfilesListView: View {
             }
 
             await serviceManager.refreshConfiguration()
-            inAppNotificationCenter.showSuccess(title: "Deleted", message: "Removed '\(profile.name)' from \(serviceType.displayName).")
+            inAppNotificationCenter.showSuccess(title: "Deleted", message: "Removed '\(profile.name)' from \(selectedService.displayName).")
         } catch {
             inAppNotificationCenter.showError(title: "Delete Failed", message: error.localizedDescription)
         }

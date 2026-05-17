@@ -675,10 +675,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         grabbingReleaseID = nil
 
         if didGrab {
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Release Sent",
-                message: release.title ?? "The selected release was sent to the download client."
-            )
             dismiss()
         } else if let error = currentErrorMessage(), !error.isEmpty {
             InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error)

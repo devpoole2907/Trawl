@@ -19,6 +19,8 @@ struct SonarrSeriesDetailView: View {
     @State private var didAdd = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
+    @State private var showRenameFilesAlert = false
+    @State private var isRenamingFiles = false
     @State private var isDispatchingSeriesSearch = false
     @State private var showSeriesInteractiveSearchSheet = false
     @State private var bazarrEpisodes: [BazarrEpisode] = []
@@ -157,19 +159,22 @@ struct SonarrSeriesDetailView: View {
                         try Task.checkCancellation()
 
                         let currentIds = Set(currentViewModel.queue.map(\.id))
-                        if currentIds != knownQueueIds {
+                        let hasActiveOrIssueItems = currentViewModel.queue.contains {
+                            guard $0.seriesId == id else { return false }
+                            return isActiveQueueItem($0) || $0.isImportIssueQueueItem
+                        }
+
+                        if currentIds != knownQueueIds || hasActiveOrIssueItems {
                             await currentViewModel.loadEpisodes(for: id)
                             try Task.checkCancellation()
                             await currentViewModel.loadEpisodeFiles(for: id)
+                            try Task.checkCancellation()
+                            await currentViewModel.loadSeries()
                             try Task.checkCancellation()
                         }
                         knownQueueIds = currentIds
 
                         // Adaptive polling: fast (2s) if active/import-issue items, slow (30s) otherwise
-                        let hasActiveOrIssueItems = currentViewModel.queue.contains {
-                            guard $0.seriesId == id else { return false }
-                            return isActiveQueueItem($0) || $0.isImportIssueQueueItem
-                        }
                         let pollInterval = hasActiveOrIssueItems ? 2 : 30
 
                         try await Task.sleep(for: .seconds(pollInterval))
@@ -188,7 +193,12 @@ struct SonarrSeriesDetailView: View {
                     .presentationDragIndicator(.visible)
             }
         }
-        .sheet(isPresented: $showSeriesInteractiveSearchSheet) {
+        .sheet(
+            isPresented: $showSeriesInteractiveSearchSheet,
+            onDismiss: {
+                Task { await refreshSeriesDetailState() }
+            }
+        ) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
             }
@@ -690,6 +700,33 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
+    private func renameSeriesFiles() async {
+        guard let id = resolvedSeriesId,
+              let client = serviceManager.sonarrClient else { return }
+        isRenamingFiles = true
+        defer { isRenamingFiles = false }
+        do {
+            try await client.renameSeriesFiles(seriesId: id)
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Rename Queued",
+                message: "Sonarr is renaming the episode files in the background."
+            )
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Rename Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func refreshSeriesDetailState() async {
+        guard let id = resolvedSeriesId else {
+            await viewModel.loadQueue()
+            return
+        }
+        await viewModel.loadQueue()
+        await viewModel.loadEpisodes(for: id)
+        await viewModel.loadEpisodeFiles(for: id)
+        await viewModel.loadSeries()
+    }
+
     private func searchSeasonWithFeedback(seriesId: Int, seasonNumber: Int, episodeCount: Int) async {
         await viewModel.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
         if let error = viewModel.error, !error.isEmpty {
@@ -750,12 +787,11 @@ struct SonarrSeriesDetailView: View {
                 Divider()
                 ForEach(Array(episodeFiles.enumerated()), id: \.element.id) { index, file in
                     let bEp = bazarrEpisode(for: file)
-                    EpisodeFileRow(
-                        file: file,
-                        subtitles: bEp?.subtitles.isEmpty == false ? bEp?.subtitles : nil
-                    ) {
-                        selectedEpisodeFileForDeletion = file
-                    }
+                    ArrMediaFileRow(config: file.arrMediaFileConfig(
+                        showSeasonBadge: true,
+                        subtitles: bEp?.subtitles.isEmpty == false ? bEp?.subtitles : nil,
+                        onDelete: { selectedEpisodeFileForDeletion = file }
+                    ))
                     if index < episodeFiles.count - 1 {
                         Divider().padding(.leading, 42)
                     }
@@ -797,6 +833,13 @@ struct SonarrSeriesDetailView: View {
                             }
                         }
 
+                        Button {
+                            showRenameFilesAlert = true
+                        } label: {
+                            Label("Rename Files", systemImage: "pencil.and.list.clipboard")
+                        }
+                        .disabled(isRenamingFiles)
+
                         Divider()
                     }
                     Button {
@@ -806,6 +849,12 @@ struct SonarrSeriesDetailView: View {
                     }
                 } label: {
                     Label("More", systemImage: "ellipsis")
+                }
+                .alert("Rename All Episode Files?", isPresented: $showRenameFilesAlert) {
+                    Button("Rename") { Task { await renameSeriesFiles() } }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("All episode files for this series will be renamed on disk to match the current naming format configured in Sonarr.")
                 }
             }
         }

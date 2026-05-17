@@ -71,10 +71,13 @@ final class JellyfinAvailabilityResolver {
             let items: [JellyfinLibraryItem]
 
             if !pairs.isEmpty {
-                items = try await client.findItems(
+                let candidates = try await client.findItems(
                     includeItemTypes: media.itemTypes,
                     anyProviderIdEquals: pairs
                 )
+                // Apply local matching as a safety net — some Jellyfin versions
+                // ignore AnyProviderIdEquals on /Items and return all library items.
+                items = candidates.filter { localMatches($0, media: media) }
             } else {
                 let candidates = try await client.searchItems(
                     term: media.title,

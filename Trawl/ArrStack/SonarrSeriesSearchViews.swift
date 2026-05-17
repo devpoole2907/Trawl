@@ -171,98 +171,6 @@ struct SonarrAddToLibrarySheet: View {
     }
 }
 
-// MARK: - Episode Row
-
-struct EpisodeFileRow: View {
-    let file: SonarrEpisodeFile
-    let subtitles: [BazarrSubtitle]?
-    let onDelete: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                if let seasonNumber = file.seasonNumber {
-                    Text(seasonNumber == 0 ? "Specials" : "S\(seasonNumber)")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.purple)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.purple.opacity(0.18))
-                        .clipShape(Capsule())
-                }
-
-                Text(file.relativePath ?? "Unknown File")
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Button(role: .destructive, action: onDelete) {
-                    Image(systemName: "trash")
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Delete File")
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    if let size = file.size, size > 0 {
-                        Label(ByteFormatter.format(bytes: size), systemImage: "externaldrive")
-                    }
-                    if let videoCodec = file.mediaInfo?.videoCodec, !videoCodec.isEmpty {
-                        Label(videoCodec, systemImage: "video")
-                    }
-                    if let resolution = file.mediaInfo?.resolution, !resolution.isEmpty {
-                        Label(resolution, systemImage: "aspectratio")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let audio = audioDescription, !audio.isEmpty {
-                Label(audio, systemImage: "waveform")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if let subtitles, !subtitles.isEmpty {
-                BazarrSubtitleFilesView(subtitles: subtitles)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive, action: onDelete) {
-                Label("Delete File", systemImage: "trash")
-            }
-        }
-    }
-
-    private var audioDescription: String? {
-        let codec = file.mediaInfo?.audioCodec
-        let languages = file.mediaInfo?.audioLanguages
-
-        switch (codec, languages) {
-        case let (.some(codec), .some(languages)) where !codec.isEmpty && !languages.isEmpty:
-            return "\(codec) • \(languages)"
-        case let (.some(codec), _) where !codec.isEmpty:
-            return codec
-        case let (_, .some(languages)) where !languages.isEmpty:
-            return languages
-        default:
-            return nil
-        }
-    }
-}
-
 struct SonarrInteractiveSearchSheet: View {
     @Bindable var viewModel: SonarrViewModel
     let series: SonarrSeries
@@ -363,7 +271,7 @@ struct SonarrSeasonSearchView: View {
     @Bindable var viewModel: SonarrViewModel
     let series: SonarrSeries?
     let seasonNumber: Int
-    let episodes: [SonarrEpisode]
+    private let initialEpisodes: [SonarrEpisode]
     private let initialBazarrEpisodes: [BazarrEpisode]
     private let bazarrClient: BazarrAPIClient?
     private let onBazarrEpisodesUpdated: ([BazarrEpisode]) -> Void
@@ -391,7 +299,7 @@ struct SonarrSeasonSearchView: View {
         self.viewModel = viewModel
         self.series = series
         self.seasonNumber = seasonNumber
-        self.episodes = episodes
+        self.initialEpisodes = episodes
         self.initialBazarrEpisodes = bazarrEpisodes
         self.bazarrClient = bazarrClient
         self.onBazarrEpisodesUpdated = onBazarrEpisodesUpdated
@@ -401,8 +309,16 @@ struct SonarrSeasonSearchView: View {
         seasonNumber == 0 ? "Specials" : "Season \(seasonNumber)"
     }
 
+    private var seriesId: Int? {
+        series?.id ?? initialEpisodes.first?.seriesId
+    }
+
     private var sortedEpisodes: [SonarrEpisode] {
-        episodes.sorted { $0.episodeNumber < $1.episodeNumber }
+        let latestEpisodes = seriesId.flatMap { viewModel.episodes[$0] } ?? []
+        let source = latestEpisodes.isEmpty ? initialEpisodes : latestEpisodes
+        return source
+            .filter { $0.seasonNumber == seasonNumber }
+            .sorted { $0.episodeNumber < $1.episodeNumber }
     }
 
     private var activeBazarrEpisodes: [BazarrEpisode] {
@@ -479,14 +395,17 @@ struct SonarrSeasonSearchView: View {
         .onDisappear {
             automaticSearchMonitorTask?.cancel()
         }
+        .task(id: seriesId) {
+            await monitorSeasonState()
+        }
     }
 
     private var episodesAnimationValue: [String] {
         sortedEpisodes.map { "\($0.id)-\($0.hasFile == true)" }
     }
 
-    private var queueAnimationValue: [Int] {
-        viewModel.queue.map(\.id)
+    private var queueAnimationValue: [String] {
+        viewModel.queue.map { "\($0.id)-\($0.normalizedState)-\($0.progress)" }
     }
 
     @ViewBuilder
@@ -532,6 +451,56 @@ struct SonarrSeasonSearchView: View {
         }
         refreshedBazarrEpisodes = seasonEpisodes
         onBazarrEpisodesUpdated(seasonEpisodes)
+    }
+
+    private func refreshSeasonState() async {
+        guard let seriesId else { return }
+        await viewModel.loadQueue()
+        await viewModel.loadEpisodes(for: seriesId)
+        await viewModel.loadEpisodeFiles(for: seriesId)
+        await viewModel.loadSeries()
+    }
+
+    private func monitorSeasonState() async {
+        guard let seriesId else { return }
+        var knownQueueIDs = Set<Int>()
+        var hadRelevantQueueItems = false
+
+        do {
+            while true {
+                try Task.checkCancellation()
+
+                await viewModel.loadQueue()
+                try Task.checkCancellation()
+
+                let episodeIDs = Set(sortedEpisodes.map(\.id))
+                let relevantQueueItems = viewModel.queue.filter { item in
+                    guard let episodeId = item.episodeId else { return false }
+                    return episodeIDs.contains(episodeId)
+                }
+                let currentQueueIDs = Set(relevantQueueItems.map(\.id))
+                let hasRelevantQueueItems = !relevantQueueItems.isEmpty
+
+                await viewModel.loadEpisodes(for: seriesId)
+                try Task.checkCancellation()
+                await viewModel.loadEpisodeFiles(for: seriesId)
+                try Task.checkCancellation()
+
+                if currentQueueIDs != knownQueueIDs || hasRelevantQueueItems || hadRelevantQueueItems {
+                    await viewModel.loadSeries()
+                    try Task.checkCancellation()
+                }
+
+                knownQueueIDs = currentQueueIDs
+                hadRelevantQueueItems = hasRelevantQueueItems
+
+                try await Task.sleep(for: .seconds(hasRelevantQueueItems ? 2 : 15))
+            }
+        } catch is CancellationError {
+            // Task was cancelled because navigation moved away from this season.
+        } catch {
+            // Ignore transient refresh failures; the next loop can recover.
+        }
     }
 
     @ViewBuilder
@@ -672,7 +641,7 @@ struct SonarrSeasonSearchView: View {
                         for _ in 0..<6 {
                             try? await Task.sleep(for: .seconds(3))
                             guard !Task.isCancelled else { return }
-                            await viewModel.loadQueue()
+                            await refreshSeasonState()
 
                             let currentQueueIDs = Set(viewModel.queue.filter { item in
                                 guard let episodeId = item.episodeId else { return false }
@@ -853,23 +822,23 @@ struct SonarrSeasonEpisodeRow: View {
                     Spacer()
 
                     if let q = queueItem {
-                        let isIssue = q.isImportIssueQueueItem
-                        let status = isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading")
-                        Text(status)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(isIssue ? .orange : .purple)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background((isIssue ? Color.orange : Color.purple).opacity(0.2))
-                            .clipShape(Capsule())
-                            .overlay(alignment: .topTrailing) {
-                                if isIssue {
+                        if q.isImportIssueQueueItem {
+                            Text("Import Issue")
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(.orange)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.orange.opacity(0.2))
+                                .clipShape(Capsule())
+                                .overlay(alignment: .topTrailing) {
                                     Image(systemName: "exclamationmark.circle.fill")
                                         .font(.system(size: 8))
                                         .foregroundStyle(.orange)
                                         .offset(x: 3, y: -3)
                                 }
-                            }
+                        } else {
+                            episodeQueueProgressIndicator(q)
+                        }
                     } else if episode.hasFile == true {
                         HStack(spacing: 6) {
                             Image(systemName: "checkmark.circle.fill")
@@ -898,6 +867,32 @@ struct SonarrSeasonEpisodeRow: View {
             }
         }
     }
+
+    @ViewBuilder
+    private func episodeQueueProgressIndicator(_ item: ArrQueueItem) -> some View {
+        HStack(spacing: 6) {
+            if item.progress > 0 {
+                ProgressView(value: item.progress)
+                    .progressViewStyle(.circular)
+                    .tint(.purple)
+                    .frame(width: 18, height: 18)
+                Text("\(Int((item.progress * 100).rounded()))%")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.purple)
+                    .monospacedDigit()
+            } else {
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(.purple)
+                    .frame(width: 18, height: 18)
+            }
+        }
+        .padding(.horizontal, item.progress > 0 ? 8 : 6)
+        .padding(.vertical, 4)
+        .background(Color.purple.opacity(0.18))
+        .clipShape(Capsule())
+        .accessibilityLabel(item.status?.capitalized ?? "Downloading")
+    }
 }
 
 struct SonarrEpisodeSearchView: View {
@@ -917,10 +912,13 @@ struct SonarrEpisodeSearchView: View {
         return f
     }()
 
+    @Environment(SyncService.self) private var syncService
+
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
+    @State private var isTogglingMonitored = false
 
     @State private var isDispatchingBazarrSearch = false
     @State private var showBazarrInteractiveSearchSheet = false
@@ -944,15 +942,27 @@ struct SonarrEpisodeSearchView: View {
 
     private var episodeHistory: [ArrHistoryRecord] {
         viewModel.history
-            .filter { $0.episodeId == episode.id }
+            .filter { $0.episodeId == currentEpisode.id }
             .sorted {
                 SonarrEpisodeHistoryDateParser.parse($0.date) ?? .distantPast >
                 SonarrEpisodeHistoryDateParser.parse($1.date) ?? .distantPast
             }
     }
 
+    private var seriesId: Int? {
+        series?.id ?? episode.seriesId
+    }
+
+    private var currentEpisode: SonarrEpisode {
+        guard let seriesId,
+              let latestEpisode = viewModel.episodes[seriesId]?.first(where: { $0.id == episode.id }) else {
+            return episode
+        }
+        return latestEpisode
+    }
+
     private var queueItem: ArrQueueItem? {
-        viewModel.queue.first { $0.episodeId == episode.id }
+        viewModel.queue.first { $0.episodeId == currentEpisode.id }
     }
 
     private var activeBazarrEpisode: BazarrEpisode? {
@@ -960,8 +970,8 @@ struct SonarrEpisodeSearchView: View {
     }
 
     private var episodeFiles: [SonarrEpisodeFile] {
-        guard let seriesId = series?.id else { return [] }
-        return viewModel.episodeFiles[seriesId]?.filter { $0.id == episode.episodeFileId } ?? []
+        guard let seriesId, let episodeFileId = currentEpisode.episodeFileId else { return [] }
+        return viewModel.episodeFiles[seriesId]?.filter { $0.id == episodeFileId } ?? []
     }
 
     private func handleDeleteEpisodeFile(file: SonarrEpisodeFile) async {
@@ -990,14 +1000,20 @@ struct SonarrEpisodeSearchView: View {
                     }
                 }
 
+                if let q = queueItem {
+                    ArrDetailQueueCard(items: [q]) { item in
+                        ArrDetailQueueItemRow(item: item)
+                    }
+                }
+
                 episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
                     VStack(alignment: .leading, spacing: 8) {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("Aired \(formattedDate(episode.airDate))")
+                            Text("Aired \(formattedDate(currentEpisode.airDate))")
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
 
-                            if let overview = episode.overview, !overview.isEmpty {
+                            if let overview = currentEpisode.overview, !overview.isEmpty {
                                 Text(overview)
                                     .font(.subheadline)
                                     .foregroundStyle(.white.opacity(0.92))
@@ -1016,7 +1032,12 @@ struct SonarrEpisodeSearchView: View {
                     episodeSearchInfoCard(title: "Files", icon: "doc.fill") {
                         VStack(spacing: 0) {
                             ForEach(Array(episodeFiles.enumerated()), id: \.element.id) { index, file in
-                                episodeFileRow(file)
+                                ArrMediaFileRow(config: file.arrMediaFileConfig(
+                                    onDelete: {
+                                        episodeFileToDelete = file
+                                        showDeleteFileAlert = true
+                                    }
+                                ))
 
                                 if index < episodeFiles.count - 1 {
                                     Divider().padding(.leading, 14)
@@ -1046,6 +1067,7 @@ struct SonarrEpisodeSearchView: View {
                             }
                         }
                     }
+                    .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
                 }
             }
             .padding(.horizontal, 16)
@@ -1064,18 +1086,39 @@ struct SonarrEpisodeSearchView: View {
             .overlay(Color.black.opacity(0.55))
             .ignoresSafeArea()
         }
-        .navigationTitle(episode.episodeIdentifier)
+        .navigationTitle(currentEpisode.episodeIdentifier)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         .toolbarColorScheme(.dark, for: .navigationBar)
         #endif
         .environment(\.colorScheme, .dark)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.hasFile)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episode.monitored)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueItem?.id)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: currentEpisode.hasFile)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: currentEpisode.monitored)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueAnimationValue)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeFilesAnimationValue)
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: episodeHistoryAnimationValue)
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.isLoadingHistory)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    guard !isTogglingMonitored else { return }
+                    isTogglingMonitored = true
+                    Task {
+                        await viewModel.toggleEpisodeMonitored(currentEpisode)
+                        isTogglingMonitored = false
+                    }
+                } label: {
+                    if isTogglingMonitored {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Image(systemName: currentEpisode.monitored == true ? "bookmark.fill" : "bookmark.slash")
+                    }
+                }
+                .disabled(isTogglingMonitored)
+            }
+        }
         .alert("Delete Episode File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
                 if let file = episodeFileToDelete {
@@ -1090,7 +1133,7 @@ struct SonarrEpisodeSearchView: View {
         }
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
-                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: currentEpisode)
             }
         }
         .sheet(isPresented: $showBazarrInteractiveSearchSheet) {
@@ -1106,15 +1149,15 @@ struct SonarrEpisodeSearchView: View {
                 )
             }
         }
-        .task {
-            await viewModel.loadHistory(page: 1)
+        .task(id: currentEpisode.id) {
+            await monitorEpisodeState()
         }
     }
 
     @ViewBuilder
     private var statusBadges: some View {
-        episodeStatusBadge(episode.hasFile == true ? "Downloaded" : "Missing", tint: episode.hasFile == true ? .green : .orange, systemImage: episode.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-        episodeStatusBadge(episode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: episode.monitored == true ? "bookmark.fill" : "bookmark.slash")
+        episodeStatusBadge(currentEpisode.hasFile == true ? "Downloaded" : "Missing", tint: currentEpisode.hasFile == true ? .green : .orange, systemImage: currentEpisode.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+        episodeStatusBadge(currentEpisode.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: currentEpisode.monitored == true ? "bookmark.fill" : "bookmark.slash")
 
         if let q = queueItem {
             let isIssue = q.isImportIssueQueueItem
@@ -1141,6 +1184,13 @@ struct SonarrEpisodeSearchView: View {
 
     private var episodeHistoryAnimationValue: [Int] {
         episodeHistory.map(\.id)
+    }
+
+    private var queueAnimationValue: String {
+        if let queueItem {
+            return "\(queueItem.id)-\(queueItem.normalizedState)-\(queueItem.progress)"
+        }
+        return "none"
     }
 
     private var bazarrAutomaticSearchButton: some View {
@@ -1174,7 +1224,7 @@ struct SonarrEpisodeSearchView: View {
     private func refreshBazarrEpisode() async {
         guard let client = bazarrClient else { return }
         do {
-            let latestEpisodes = try await client.getEpisodes(episodeIds: [episode.id])
+            let latestEpisodes = try await client.getEpisodes(episodeIds: [currentEpisode.id])
             await MainActor.run {
                 refreshedBazarrEpisode = latestEpisodes.first
                 onBazarrEpisodeUpdated(latestEpisodes.first)
@@ -1213,13 +1263,13 @@ struct SonarrEpisodeSearchView: View {
             .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
 
             VStack(spacing: 6) {
-                Text(episode.title ?? episode.episodeIdentifier)
+                Text(currentEpisode.title ?? currentEpisode.episodeIdentifier)
                     .font(.title2.bold())
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("\(series?.title ?? "Series") · \(episode.episodeIdentifier)")
+                Text("\(series?.title ?? "Series") · \(currentEpisode.episodeIdentifier)")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -1234,7 +1284,7 @@ struct SonarrEpisodeSearchView: View {
             guard !isDispatchingAutomaticSearch else { return }
             isDispatchingAutomaticSearch = true
             Task {
-                await viewModel.searchEpisode(episode)
+                await viewModel.searchEpisode(currentEpisode)
                 isDispatchingAutomaticSearch = false
 
                 if let error = viewModel.error, !error.isEmpty {
@@ -1242,7 +1292,7 @@ struct SonarrEpisodeSearchView: View {
                 } else {
                     InAppNotificationCenter.shared.showSuccess(
                         title: "Search Queued",
-                        message: "\(episode.title ?? episode.episodeIdentifier) was sent to Sonarr for automatic search."
+                        message: "\(currentEpisode.title ?? currentEpisode.episodeIdentifier) was sent to Sonarr for automatic search."
                     )
                 }
             }
@@ -1311,8 +1361,9 @@ struct SonarrEpisodeSearchView: View {
                     .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -1352,101 +1403,56 @@ struct SonarrEpisodeSearchView: View {
         return date.formatted(date: .abbreviated, time: .omitted)
     }
 
-    @ViewBuilder
-    private func episodeFileRow(_ file: SonarrEpisodeFile) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.quality?.quality?.name ?? "Unknown Quality")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                    if let path = file.path {
-                        Text(path)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Menu {
-                    Button(role: .destructive) {
-                        episodeFileToDelete = file
-                        showDeleteFileAlert = true
-                    } label: {
-                        Label("Delete File", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                }
-                .accessibilityLabel("Episode File Actions")
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    if let size = file.size, size > 0 {
-                        Label(ByteFormatter.format(bytes: size), systemImage: "externaldrive")
-                    }
-                    if let videoCodec = file.mediaInfo?.videoCodec, !videoCodec.isEmpty {
-                        Label(videoCodec, systemImage: "video")
-                    }
-                    if let resolution = file.mediaInfo?.resolution, !resolution.isEmpty {
-                        Label(resolution, systemImage: "aspectratio")
-                    }
-                    if let videoBitDepth = file.mediaInfo?.videoBitDepth {
-                        Label("\(videoBitDepth)-bit", systemImage: "eyedropper")
-                    }
-                    if let videoFps = file.mediaInfo?.videoFps {
-                        Label("\(String(format: "%.1f", videoFps)) fps", systemImage: "timer")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let audio = audioDescription(for: file), !audio.isEmpty {
-                Label(audio, systemImage: "waveform")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+    private func refreshEpisodeState() async {
+        await viewModel.loadQueue()
+        if let seriesId {
+            await viewModel.loadEpisodes(for: seriesId)
+            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadSeries()
         }
-        .padding(.vertical, 10)
-        .padding(.horizontal, 4)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                episodeFileToDelete = file
-                showDeleteFileAlert = true
-            } label: {
-                Label("Delete", systemImage: "trash")
+        await viewModel.loadHistory(page: 1)
+    }
+
+    private func monitorEpisodeState() async {
+        var knownQueueID: Int?
+        var hadQueueItem = false
+
+        do {
+            while true {
+                try Task.checkCancellation()
+
+                await viewModel.loadQueue()
+                try Task.checkCancellation()
+
+                let currentQueueID = queueItem?.id
+                let hasQueueItem = currentQueueID != nil
+
+                if let seriesId {
+                    await viewModel.loadEpisodes(for: seriesId)
+                    try Task.checkCancellation()
+                    await viewModel.loadEpisodeFiles(for: seriesId)
+                    try Task.checkCancellation()
+                }
+
+                if currentQueueID != knownQueueID || hasQueueItem || hadQueueItem {
+                    await viewModel.loadSeries()
+                    try Task.checkCancellation()
+                    await viewModel.loadHistory(page: 1)
+                    try Task.checkCancellation()
+                }
+
+                knownQueueID = currentQueueID
+                hadQueueItem = hasQueueItem
+
+                try await Task.sleep(for: .seconds(hasQueueItem ? 2 : 15))
             }
+        } catch is CancellationError {
+            // Task was cancelled because navigation moved away from this episode.
+        } catch {
+            // Ignore transient refresh failures; the next loop can recover.
         }
     }
 
-    private func audioDescription(for file: SonarrEpisodeFile) -> String? {
-        let codec = file.mediaInfo?.audioCodec
-        let languages = file.mediaInfo?.audioLanguages
-
-        switch (codec, languages) {
-        case let (.some(codec), .some(languages)) where !codec.isEmpty && !languages.isEmpty:
-            return "\(codec) • \(languages)"
-        case let (.some(codec), _) where !codec.isEmpty:
-            return codec
-        case let (_, .some(languages)) where !languages.isEmpty:
-            return languages
-        default:
-            return nil
-        }
-    }
 }
 
 struct SonarrEpisodeHistoryRow: View {

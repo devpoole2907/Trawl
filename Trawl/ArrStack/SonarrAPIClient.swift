@@ -176,6 +176,17 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.post("/api/v3/command", jsonBody: params)
     }
 
+    func renameSeriesFiles(seriesId: Int) async throws -> ArrCommand {
+        let files = try await getEpisodeFiles(seriesId: seriesId)
+        let fileIds = files.compactMap { $0.id }
+        let params: [String: Any] = [
+            "name": SonarrCommand.renameFiles.rawValue,
+            "seriesId": seriesId,
+            "files": fileIds
+        ]
+        return try await base.post("/api/v3/command", jsonBody: params)
+    }
+
     func searchAllMissing() async throws -> ArrCommand {
         try await base.postCommand(name: SonarrCommand.missingEpisodeSearch.rawValue)
     }

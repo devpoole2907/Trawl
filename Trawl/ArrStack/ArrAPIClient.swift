@@ -65,7 +65,23 @@ extension SharedArrClient {
         return try await base.get("\(apiPath)/history", queryItems: params)
     }
 
+    func getLog(
+        page: Int = 1,
+        pageSize: Int = 50,
+        level: String? = nil
+    ) async throws -> ArrLogPage {
+        var params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: "time"),
+            URLQueryItem(name: "sortDirection", value: "descending")
+        ]
+        if let level { params.append(URLQueryItem(name: "level", value: level)) }
+        return try await base.get("\(apiPath)/log", queryItems: params)
+    }
+
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.get("\(apiPath)/diskspace") }
+    func getBackups() async throws -> [ArrBackup] { try await base.get("\(apiPath)/system/backup") }
     func getUpdates() async throws -> [ArrUpdateInfo] { try await base.get("\(apiPath)/update") }
     func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
     func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }
@@ -159,6 +175,22 @@ extension SharedArrClient {
 
     func testIndexer<T: Encodable>(_ indexer: sending T) async throws {
         try await base.postVoidCodable("\(apiPath)/indexer/test", body: indexer)
+    }
+
+    func getQualityDefinitions() async throws -> [ArrQualityDefinition] {
+        try await base.get("\(apiPath)/qualitydefinition")
+    }
+
+    func updateQualityDefinitions(_ definitions: [ArrQualityDefinition]) async throws -> [ArrQualityDefinition] {
+        try await base.putCodable("\(apiPath)/qualitydefinition/update", body: definitions)
+    }
+
+    func getScheduledTasks() async throws -> [ArrScheduledTask] {
+        try await base.get("\(apiPath)/system/task")
+    }
+
+    func getCommandQueue() async throws -> [ArrCommand] {
+        try await base.get("\(apiPath)/command")
     }
 
     func getCommand(id: Int) async throws -> ArrCommand {

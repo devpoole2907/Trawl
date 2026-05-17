@@ -37,14 +37,14 @@ struct JellyfinMediaAvailabilityCard: View {
             switch self {
             case .movie(_, _, let tmdbId, let imdbId):
                 var pairs: [(String, String)] = []
-                if let id = tmdbId { pairs.append(("tmdb", String(id))) }
-                if let id = imdbId, !id.isEmpty { pairs.append(("imdb", id)) }
+                if let id = tmdbId { pairs.append(("Tmdb", String(id))) }
+                if let id = imdbId, !id.isEmpty { pairs.append(("Imdb", id)) }
                 return pairs
             case .series(_, _, let tvdbId, let tmdbId, let imdbId):
                 var pairs: [(String, String)] = []
-                if let id = tvdbId { pairs.append(("tvdb", String(id))) }
-                if let id = tmdbId { pairs.append(("tmdb", String(id))) }
-                if let id = imdbId, !id.isEmpty { pairs.append(("imdb", id)) }
+                if let id = tvdbId { pairs.append(("Tvdb", String(id))) }
+                if let id = tmdbId { pairs.append(("Tmdb", String(id))) }
+                if let id = imdbId, !id.isEmpty { pairs.append(("Imdb", id)) }
                 return pairs
             }
         }

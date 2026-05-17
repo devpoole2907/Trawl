@@ -39,11 +39,11 @@ extension SonarrSeries: BadgeRenderable {
         badges.append(ArrDetailBadge(
             icon: isContinuing ? "play.circle.fill" : "checkmark.circle.fill",
             label: isContinuing ? "Continuing" : (status?.capitalized ?? "Unknown"),
-            color: isContinuing ? .green : .white.opacity(0.6)
+            color: isContinuing ? .green : .indigo
         ))
 
         if let certification, !certification.isEmpty {
-            badges.append(ArrDetailBadge(icon: "shield", label: certification, color: .white.opacity(0.8)))
+            badges.append(ArrDetailBadge(icon: "shield", label: certification, color: .yellow))
         }
 
         if context.isInLibrary && monitored == true {
@@ -84,8 +84,8 @@ extension SonarrSeries: BadgeRenderable {
             let allComplete = context.sonarrBazarrEpisodes.allSatisfy { $0.missingSubtitles.isEmpty }
             badges.append(ArrDetailBadge(
                 icon: "captions.bubble.fill",
-                label: allComplete ? "Complete" : "None",
-                color: allComplete ? .teal : .white.opacity(0.6)
+                label: allComplete ? "Complete" : "Missing",
+                color: allComplete ? .teal : .orange
             ))
         }
 
@@ -105,7 +105,7 @@ extension RadarrMovie: BadgeRenderable {
         ))
 
         if let cert = certification, !cert.isEmpty {
-            badges.append(ArrDetailBadge(icon: "shield", label: cert, color: .white.opacity(0.8)))
+            badges.append(ArrDetailBadge(icon: "shield", label: cert, color: .yellow))
         }
 
         if context.isInLibrary && monitored == true {
@@ -125,8 +125,8 @@ extension RadarrMovie: BadgeRenderable {
         if context.hasBazarr, let status = context.radarrBazarrStatus {
             badges.append(ArrDetailBadge(
                 icon: "captions.bubble.fill",
-                label: status == .allPresent ? "Complete" : "None",
-                color: status == .allPresent ? .teal : .white.opacity(0.6)
+                label: status == .allPresent ? "Complete" : "Missing",
+                color: status == .allPresent ? .teal : .orange
             ))
         }
 

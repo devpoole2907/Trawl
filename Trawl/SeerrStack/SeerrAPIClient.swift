@@ -217,6 +217,18 @@ actor SeerrAPIClient {
         return try await get(path)
     }
 
+    func getJobs() async throws -> [SeerrJob] {
+        try await get("/api/v1/settings/jobs")
+    }
+
+    func runJob(id: String) async throws {
+        try await postVoid("/api/v1/settings/jobs/\(id)/run", jsonBody: [String: String]())
+    }
+
+    func cancelJob(id: String) async throws {
+        try await postVoid("/api/v1/settings/jobs/\(id)/cancel", jsonBody: [String: String]())
+    }
+
     func getLogs(take: Int = 100, skip: Int = 0, filter: String = "debug", search: String? = nil) async throws -> [SeerrServerLogEntry] {
         var params = [
             "take": String(take),

@@ -125,9 +125,13 @@ final class ManualImportScanViewModel {
     var importableFiles: [ManualImportItem] = []
     var blockedFiles: [ManualImportItem] = []
     var groupedImportableFiles: [ManualImportGroup] = []
+    var groupedNewImportableFiles: [ManualImportGroup] = []
+    var groupedInLibraryFiles: [ManualImportGroup] = []
     var groupedIdentifiedPendingAddFiles: [ManualImportGroup] = []
     var groupedUnidentifiedFiles: [ManualImportGroup] = []
     var groupedBlockedFiles: [ManualImportGroup] = []
+    var inLibraryItemIDs: Set<String> = []
+    var isLoadingInLibraryStatus = false
     var selectedFiles: Set<String> = []
     var selectedBlockedFiles: Set<String> = []
     var navigationAction: (() -> Void)?
@@ -266,6 +270,7 @@ final class ManualImportScanViewModel {
 
             importableFiles = []
             blockedFiles = []
+            inLibraryItemIDs = []
             recomputeGroups()
             autoIdentifyProcessedCount = 0
             autoIdentifyLastMatchedTitle = nil
@@ -317,6 +322,7 @@ final class ManualImportScanViewModel {
             scanStatusMessage = "Scan cancelled"
             importableFiles = []
             blockedFiles = []
+            inLibraryItemIDs = []
             recomputeGroups()
             selectedFiles = []
             selectedBlockedFiles = []
@@ -330,6 +336,7 @@ final class ManualImportScanViewModel {
             InAppNotificationCenter.shared.showError(title: "Scan Failed", message: error.localizedDescription)
             importableFiles = []
             blockedFiles = []
+            inLibraryItemIDs = []
             recomputeGroups()
             selectedFiles = []
             selectedBlockedFiles = []
@@ -596,6 +603,48 @@ final class ManualImportScanViewModel {
         catalogMovieResults = []
         catalogSeriesResults = []
         isSearchingCatalog = false
+    }
+
+    func loadInLibraryStatus() async {
+        guard !importableFiles.isEmpty, !isLoadingInLibraryStatus else { return }
+        isLoadingInLibraryStatus = true
+        defer { isLoadingInLibraryStatus = false }
+        var found: Set<String> = []
+        switch service {
+        case .radarr:
+            for item in importableFiles {
+                guard let mid = item.mediaID else { continue }
+                if libraryMovies.first(where: { $0.id == mid })?.hasFile == true {
+                    found.insert(item.id)
+                }
+            }
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { break }
+            let seriesIDs = Set(importableFiles.compactMap(\.mediaID))
+            var episodeKeys: Set<String> = []
+            await withTaskGroup(of: [String].self) { group in
+                for sid in seriesIDs {
+                    group.addTask {
+                        (try? await client.getEpisodes(seriesId: sid))?.compactMap { ep in
+                            ep.hasFile == true ? "\(sid)-\(ep.seasonNumber)-\(ep.episodeNumber)" : nil
+                        } ?? []
+                    }
+                }
+                for await keys in group { episodeKeys.formUnion(keys) }
+            }
+            for item in importableFiles {
+                guard let mid = item.mediaID,
+                      let s = item.seasonNumber,
+                      let ep = item.episodes.first else { continue }
+                if episodeKeys.contains("\(mid)-\(s)-\(ep.number)") { found.insert(item.id) }
+            }
+        case .prowlarr, .bazarr:
+            break
+        }
+        withAnimation(.snappy) {
+            inLibraryItemIDs = found
+            recomputeGroups()
+        }
     }
 
     func loadLibraryIfNeeded() async {
@@ -870,6 +919,7 @@ final class ManualImportScanViewModel {
         if autoIdentifyEnabled, autoIdentifyTask == nil, unresolvedUnidentifiedCount > 0 {
             startAutoIdentify()
         }
+        Task { [weak self] in await self?.loadInLibraryStatus() }
     }
 
     func applyPendingAddIdentification(to items: [ManualImportItem], title: String, catalogID: Int?, posterURL: URL?) {
@@ -1170,7 +1220,11 @@ final class ManualImportScanViewModel {
     }
 
     func recomputeGroups() {
+        let inLibrary = importableFiles.filter { inLibraryItemIDs.contains($0.id) }
+        let newImportable = importableFiles.filter { !inLibraryItemIDs.contains($0.id) }
         groupedImportableFiles = Self.makeImportableGroups(from: importableFiles)
+        groupedNewImportableFiles = Self.makeImportableGroups(from: newImportable)
+        groupedInLibraryFiles = Self.makeImportableGroups(from: inLibrary)
         let pendingAdd = blockedFiles.filter(\.isIdentifiedPendingAdd)
         let unidentified = blockedFiles.filter { $0.isAutoMatchCandidate && !$0.isIdentifiedPendingAdd }
         let blocked = blockedFiles.filter { !$0.isAutoMatchCandidate }

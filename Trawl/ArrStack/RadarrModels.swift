@@ -413,6 +413,7 @@ enum RadarrCommand: String, Sendable {
     case refreshMovie = "RefreshMovie"
     case rescanMovie = "RescanMovie"
     case moviesSearch = "MoviesSearch"
+    case renameFiles = "RenameFiles"
     case missingMoviesSearch = "MissingMoviesSearch"
     case rssSync = "RssSync"
     case backup = "Backup"

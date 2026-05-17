@@ -57,45 +57,43 @@ struct TorrentSummaryView<Accessory: View>: View {
                 }
             }
 
-            ProgressView(value: torrent.progress)
-                .tint(progressTint)
+            HStack(alignment: .center, spacing: 8) {
+                ProgressView(value: torrent.progress)
+                    .tint(progressTint)
+                Text(percentText)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+                    .fixedSize()
+            }
 
             accessory()
 
-            HStack(spacing: 12) {
-                if torrent.dlspeed > 0 {
-                    TorrentMetricLabel(
-                        systemImage: "arrow.down",
-                        text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed),
-                        tint: .blue
-                    )
-                }
+            HStack(spacing: 8) {
+                TorrentMetricLabel(
+                    systemImage: "arrow.down",
+                    text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.dlspeed),
+                    tint: torrent.dlspeed > 0 ? .blue : .secondary
+                )
 
-                if torrent.upspeed > 0 {
-                    TorrentMetricLabel(
-                        systemImage: "arrow.up",
-                        text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed),
-                        tint: .green
-                    )
-                }
+                TorrentMetricLabel(
+                    systemImage: "arrow.up",
+                    text: ByteFormatter.formatSpeed(bytesPerSecond: torrent.upspeed),
+                    tint: torrent.upspeed > 0 ? .green : .secondary
+                )
 
-                if !torrent.state.isCompleted && torrent.eta > 0 && torrent.eta < 8_640_000 {
-                    TorrentMetricLabel(
-                        systemImage: "clock",
-                        text: ByteFormatter.formatETA(seconds: torrent.eta),
-                        tint: .secondary
-                    )
-                }
+                TorrentMetricLabel(
+                    systemImage: "clock",
+                    text: (!torrent.state.isCompleted && torrent.eta > 0 && torrent.eta < 8_640_000)
+                        ? ByteFormatter.formatETA(seconds: torrent.eta)
+                        : "—",
+                    tint: .secondary
+                )
 
                 Spacer()
 
                 Text(ByteFormatter.format(bytes: displayedSize))
                     .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                Text(percentText)
-                    .font(.caption)
-                    .bold()
                     .foregroundStyle(.secondary)
             }
         }

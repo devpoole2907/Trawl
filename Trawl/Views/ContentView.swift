@@ -41,6 +41,8 @@ struct ContentView: View {
     @State private var showMagnetHandlerPrompt = false
     #endif
     @State private var hasSetStartupTab = false
+    @State private var showNotificationsSheet = false
+    @State private var topBannerPadding: CGFloat = 100
 
     var body: some View {
         Group {
@@ -51,15 +53,28 @@ struct ContentView: View {
             }
         }
         .preferredColorScheme(themeOverride.colorScheme)
+        .background(
+            GeometryReader { geometry in
+                Color.clear
+                    .onAppear { topBannerPadding = geometry.safeAreaInsets.top + 44 + 8 }
+                    .onChange(of: geometry.safeAreaInsets.top) { topBannerPadding = geometry.safeAreaInsets.top + 44 + 8 }
+            }
+            .ignoresSafeArea()
+        )
         .overlay(alignment: .top) {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
                     inAppNotificationCenter.dismissCurrentBanner()
                 } onTap: {
-                    inAppNotificationCenter.fireCurrentBannerAction()
+                    if inAppNotificationCenter.currentBannerHasAction {
+                        inAppNotificationCenter.fireCurrentBannerAction()
+                    } else {
+                        showNotificationsSheet = true
+                        inAppNotificationCenter.dismissCurrentBanner()
+                    }
                 }
                 .withActionAffordance(inAppNotificationCenter.currentBannerHasAction)
-                .padding(.top, 8)
+                .padding(.top, topBannerPadding)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)
             }
@@ -72,6 +87,10 @@ struct ContentView: View {
             case .success: return .success
             case .progress: return nil
             }
+        }
+        .sheet(isPresented: $showNotificationsSheet) {
+            RecentNotificationsSheet()
+                .environment(inAppNotificationCenter)
         }
         .sheet(isPresented: $showOnboarding) {
             OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
@@ -800,7 +819,7 @@ private struct InAppNotificationBanner: View {
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
         .offset(y: dragOffset)
-        .gesture(
+        .simultaneousGesture(
             DragGesture()
                 .onChanged { value in
                     if value.translation.height < 0 {

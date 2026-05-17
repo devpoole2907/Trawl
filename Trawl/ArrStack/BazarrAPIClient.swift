@@ -357,6 +357,15 @@ actor BazarrAPIClient: SharedArrClient {
         try await base.patchVoid("/api/subtitles", queryItems: queryItems)
     }
 
+    // MARK: - Logs
+
+    func getLogs(start: Int = 0, length: Int = 50) async throws -> BazarrPage<BazarrLogEntry> {
+        try await base.get("/api/system/logs", queryItems: [
+            URLQueryItem(name: "start", value: String(start)),
+            URLQueryItem(name: "length", value: String(length))
+        ])
+    }
+
     // MARK: - History
 
     func getHistoryStats(

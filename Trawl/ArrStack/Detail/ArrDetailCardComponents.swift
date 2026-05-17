@@ -18,6 +18,7 @@ struct ArrDetailBadgeSection: View {
 
     private func pill(_ badge: ArrDetailBadge) -> some View {
         Label(badge.label, systemImage: badge.icon)
+            .labelStyle(.tightIcon)
             .font(.caption.weight(.semibold))
             .foregroundStyle(badge.color)
             .lineLimit(1)

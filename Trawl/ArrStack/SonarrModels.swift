@@ -462,6 +462,7 @@ enum SonarrCommand: String, Sendable {
     case episodeSearch = "EpisodeSearch"
     case seasonSearch = "SeasonSearch"
     case seriesSearch = "SeriesSearch"
+    case renameFiles = "RenameFiles"
     case missingEpisodeSearch = "missingEpisodeSearch"
     case rssSync = "RssSync"
     case backup = "Backup"

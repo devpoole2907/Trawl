@@ -777,6 +777,25 @@ struct ArrHistoryQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
+// MARK: - Log
+
+nonisolated struct ArrLogPage: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+    let totalRecords: Int?
+    let records: [ArrLogRecord]?
+}
+
+struct ArrLogRecord: Codable, Identifiable, Sendable {
+    let id: Int
+    let time: String?
+    let level: String?          // "trace", "debug", "info", "warn", "error", "fatal"
+    let logger: String?
+    let message: String?
+    let exception: String?
+    let exceptionType: String?
+}
+
 // MARK: - Calendar (shared shape, content type differs)
 
 struct ArrImage: Codable, Sendable {
@@ -811,6 +830,32 @@ nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
         status == "completed" || status == "failed" || status == "aborted" || status == "cancelled" || status == "orphaned"
     }
     var succeeded: Bool { status == "completed" }
+}
+
+// MARK: - Quality Definitions
+
+struct ArrQualityDefinition: Codable, Identifiable, Sendable {
+    let id: Int
+    let quality: ArrQuality?
+    let title: String?
+    let weight: Int?
+    var minSize: Double?        // MB/min, 0 = no minimum
+    var maxSize: Double?        // MB/min, 0 = unlimited
+    var preferredSize: Double?  // MB/min, 0 = no preference
+}
+
+// MARK: - Scheduled Tasks
+
+struct ArrScheduledTask: Codable, Identifiable, Sendable {
+    var id: String { taskName ?? name ?? UUID().uuidString }
+    let name: String?
+    let taskName: String?
+    let interval: Int?          // minutes
+    let lastExecution: String?
+    let lastDuration: String?
+    let nextExecution: String?
+    let lastStartMessage: String?
+    let isRunning: Bool?
 }
 
 // MARK: - Blocklist
@@ -1241,4 +1286,15 @@ nonisolated struct RadarrNamingConfig: Codable, Sendable, ArrAPIOptionalIdentifi
             colonReplacementFormat = nil
         }
     }
+}
+
+// MARK: - Backup
+
+nonisolated struct ArrBackup: Codable, Identifiable, Sendable {
+    let id: Int
+    let name: String
+    let type: String   // "manual", "scheduled", "update"
+    let time: String   // ISO 8601
+    let size: Int?
+    let path: String?
 }

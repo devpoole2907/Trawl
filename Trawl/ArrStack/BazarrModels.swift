@@ -489,6 +489,28 @@ nonisolated struct BazarrProvider: Codable, Identifiable, Sendable {
     var id: String { name }
 }
 
+// MARK: - Logs
+
+nonisolated struct BazarrLogEntry: Codable, Identifiable, Sendable {
+    let id = UUID()
+    let level: String
+    let timestamp: String
+    let message: String
+
+    enum CodingKeys: String, CodingKey {
+        case level = "type"
+        case timestamp
+        case message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        level = (try? c.decodeIfPresent(String.self, forKey: .level)) ?? "info"
+        timestamp = (try? c.decodeIfPresent(String.self, forKey: .timestamp)) ?? ""
+        message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? ""
+    }
+}
+
 // MARK: - History
 
 nonisolated struct BazarrHistoryStats: Codable, Sendable {

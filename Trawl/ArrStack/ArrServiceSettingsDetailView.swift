@@ -12,9 +12,6 @@ struct ArrServiceSettingsView: View {
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
-    @State private var availableUpdates: [ArrUpdateInfo] = []
-    @State private var isLoadingUpdates = false
-    @State private var showUpdateConfirmation = false
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
     @State private var isSettingUpNotifications = false
@@ -252,42 +249,6 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if let update = availableUpdates.first(where: { $0.installed == false }) {
-                    Section("Update Available") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text("v\(update.version ?? "Unknown")")
-                                    .fontWeight(.bold)
-                                Spacer()
-                                if let date = update.releaseDate {
-                                    Text(date.prefix(10))
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-
-                            if let changes = update.changes {
-                                if let new = changes.new, !new.isEmpty {
-                                    Text("New:").font(.caption).fontWeight(.semibold).padding(.top, 4)
-                                    ForEach(new.prefix(3), id: \.self) { change in
-                                        Text("• \(change)").font(.caption2).foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-
-                            Button {
-                                showUpdateConfirmation = true
-                            } label: {
-                                Label("Install Update", systemImage: "arrow.down.circle.fill")
-                                    .frame(maxWidth: .infinity)
-                            }
-                            .buttonStyle(.borderedProminent)
-                            .padding(.top, 8)
-                            .disabled(isRunningCommand)
-                        }
-                    }
-                }
-
                 Section {
                     Button("Reconnect", systemImage: "arrow.clockwise") {
                         Task {
@@ -350,22 +311,6 @@ struct ArrServiceSettingsView: View {
             })
             .environment(serviceManager)
         }
-        .confirmationDialog(
-            "Install Update",
-            isPresented: $showUpdateConfirmation,
-            titleVisibility: .visible
-        ) {
-            Button("Install Now") {
-                Task { await runCommand(named: "Install Update", action: installUpdate) }
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            if systemStatus?.isDocker == true {
-                Text("Warning: Internal updates are often disabled or discouraged for Docker instances. You should typically update by pulling a new image.")
-            } else {
-                Text("This will download and install the update. The service will restart automatically.")
-            }
-        }
         .onAppear {
             isViewActive = true
         }
@@ -374,7 +319,6 @@ struct ArrServiceSettingsView: View {
         }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
             await loadSystemStatus()
-            await loadUpdates()
             #if os(iOS)
             deviceToken = await NotificationService.shared.deviceToken
             #endif
@@ -506,26 +450,6 @@ struct ArrServiceSettingsView: View {
         } catch {
             systemStatus = nil
             systemStatusError = error.localizedDescription
-        }
-    }
-
-    private func loadUpdates() async {
-        let client: ArrUpdatesProviding? = switch serviceType {
-        case .sonarr: serviceManager.sonarrClient
-        case .radarr: serviceManager.radarrClient
-        case .prowlarr: nil
-        case .bazarr: nil
-        }
-        guard let client else {
-            availableUpdates = []
-            return
-        }
-        isLoadingUpdates = true
-        defer { isLoadingUpdates = false }
-        do {
-            availableUpdates = try await client.getUpdates()
-        } catch {
-            availableUpdates = []
         }
     }
 
@@ -684,18 +608,6 @@ struct ArrServiceSettingsView: View {
         }
     }
 
-    private func installUpdate() async throws {
-        switch serviceType {
-        case .sonarr:
-            let viewModel = SonarrViewModel(serviceManager: serviceManager)
-            try await viewModel.installUpdate()
-        case .radarr:
-            let viewModel = RadarrViewModel(serviceManager: serviceManager)
-            try await viewModel.installUpdate()
-        case .prowlarr, .bazarr:
-            break
-        }
-    }
 }
 
 private enum ArrServiceEditorContext: Identifiable {
@@ -737,12 +649,5 @@ private protocol ArrServiceStatusProviding: Sendable {
 extension SonarrAPIClient: ArrServiceStatusProviding {}
 extension RadarrAPIClient: ArrServiceStatusProviding {}
 extension ProwlarrAPIClient: ArrServiceStatusProviding {}
-
-private protocol ArrUpdatesProviding: Sendable {
-    func getUpdates() async throws -> [ArrUpdateInfo]
-}
-
-extension SonarrAPIClient: ArrUpdatesProviding {}
-extension RadarrAPIClient: ArrUpdatesProviding {}
 
 // MARK: - All-services settings view

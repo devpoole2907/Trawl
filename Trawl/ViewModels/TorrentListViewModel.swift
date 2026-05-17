@@ -22,6 +22,7 @@ final class TorrentListViewModel {
     private let torrentService: TorrentService
     private let notificationCenter: InAppNotificationCenter
     private var filterTask: Task<Void, Never>?
+    @ObservationIgnored private var observationGeneration = 0
 
     init(
         syncService: SyncService,
@@ -134,11 +135,14 @@ final class TorrentListViewModel {
 
     func startSync() {
         scheduleFilterUpdate()
-        registerObservation()
+        observationGeneration += 1
+        let gen = observationGeneration
+        registerObservation(generation: gen)
     }
 
     func stopSync() {
         filterTask?.cancel()
+        observationGeneration += 1
     }
 
     func refresh() async {
@@ -182,7 +186,7 @@ final class TorrentListViewModel {
 
     /// Re-registers after each change so we react to every future update.
     @MainActor
-    private func registerObservation() {
+    private func registerObservation(generation: Int) {
         withObservationTracking {
             _ = syncService.torrents
             _ = selectedFilter
@@ -190,9 +194,9 @@ final class TorrentListViewModel {
             _ = sortOrder
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.observationGeneration == generation else { return }
                 self.scheduleFilterUpdate()
-                self.registerObservation()
+                self.registerObservation(generation: generation)
             }
         }
     }

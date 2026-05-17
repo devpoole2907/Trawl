@@ -158,6 +158,15 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     }
 }
 
+nonisolated struct SeerrJob: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String?
+    let type: String?
+    let interval: String?
+    let nextExecutionTime: String?
+    let running: Bool?
+}
+
 nonisolated struct SeerrServerLogEntry: Codable, Identifiable, Sendable {
     let label: String?
     let level: String?

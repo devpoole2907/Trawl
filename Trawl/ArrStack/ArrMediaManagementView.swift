@@ -18,52 +18,35 @@ struct ArrMediaManagementView: View {
 
             if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
                 Section {
-                    if serviceManager.hasSonarrInstance {
-                        NavigationLink(value: MoreDestination.arrNamingConfig(service: .sonarr)) {
-                            NavigationMenuRow(
-                                icon: ServiceIdentity.sonarr.systemImage,
-                                color: ServiceIdentity.sonarr.brandColor,
-                                title: "Sonarr Naming",
-                                subtitle: "Episode and series folder formats"
-                            )
-                        }
-                    }
-
-                    if serviceManager.hasRadarrInstance {
-                        NavigationLink(value: MoreDestination.arrNamingConfig(service: .radarr)) {
-                            NavigationMenuRow(
-                                icon: ServiceIdentity.radarr.systemImage,
-                                color: ServiceIdentity.radarr.brandColor,
-                                title: "Radarr Naming",
-                                subtitle: "Movie file and folder formats"
-                            )
-                        }
+                    NavigationLink(value: MoreDestination.arrNaming) {
+                        NavigationMenuRow(
+                            icon: "character.cursor.ibeam",
+                            color: .purple,
+                            title: "Naming",
+                            subtitle: "Episode, series, and movie file name formats"
+                        )
                     }
                 }
             }
 
             if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
                 Section {
-                    if serviceManager.hasSonarrInstance {
-                        NavigationLink(value: MoreDestination.qualityProfiles(service: .sonarr)) {
-                            NavigationMenuRow(
-                                icon: "slider.horizontal.3",
-                                color: ServiceIdentity.sonarr.brandColor,
-                                title: "Sonarr Quality Profiles",
-                                subtitle: "Allowed qualities and upgrade rules for series"
-                            )
-                        }
+                    NavigationLink(value: MoreDestination.qualityProfiles) {
+                        NavigationMenuRow(
+                            icon: "slider.horizontal.3",
+                            color: .cyan,
+                            title: "Quality Profiles",
+                            subtitle: "Allowed qualities and upgrade rules"
+                        )
                     }
 
-                    if serviceManager.hasRadarrInstance {
-                        NavigationLink(value: MoreDestination.qualityProfiles(service: .radarr)) {
-                            NavigationMenuRow(
-                                icon: "slider.horizontal.3",
-                                color: ServiceIdentity.radarr.brandColor,
-                                title: "Radarr Quality Profiles",
-                                subtitle: "Allowed qualities and upgrade rules for movies"
-                            )
-                        }
+                    NavigationLink(value: MoreDestination.qualityDefinitions) {
+                        NavigationMenuRow(
+                            icon: "chart.bar.fill",
+                            color: .mint,
+                            title: "Quality Definitions",
+                            subtitle: "File size limits per quality level"
+                        )
                     }
                 }
             }

@@ -12,6 +12,8 @@ struct RadarrMovieDetailView: View {
     private let discoverMovie: RadarrMovie?
     private let onAdded: (() async -> Void)?
 
+    @State private var showRenameFilesAlert = false
+    @State private var isRenamingFiles = false
     @State private var showDeleteAlert = false
     @State private var deleteFiles = false
     @State private var showEditSheet = false
@@ -186,7 +188,12 @@ struct RadarrMovieDetailView: View {
                 )
             }
         }
-        .sheet(isPresented: $showInteractiveSearchSheet) {
+        .sheet(
+            isPresented: $showInteractiveSearchSheet,
+            onDismiss: {
+                Task { await refreshMovieDetailState() }
+            }
+        ) {
             if let movie, isInLibrary {
                 RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
             }
@@ -194,6 +201,7 @@ struct RadarrMovieDetailView: View {
         .task(id: resolvedLibraryId) {
             guard let id = resolvedLibraryId else { return }
             await viewModel.loadMovieFiles(movieId: id)
+            await viewModel.loadMovies()
             var knownQueueIds = Set(viewModel.queue.map(\.id))
             do {
                 while true {
@@ -202,14 +210,16 @@ struct RadarrMovieDetailView: View {
                     try Task.checkCancellation()
 
                     let currentIds = Set(viewModel.queue.map(\.id))
-                    if currentIds != knownQueueIds {
+                    let hasActive = viewModel.queue.contains { $0.movieId == id && isActiveQueueItem($0) }
+                    if currentIds != knownQueueIds || hasActive {
                         await viewModel.loadMovieFiles(movieId: id)
+                        try Task.checkCancellation()
+                        await viewModel.loadMovies()
                         try Task.checkCancellation()
                     }
                     knownQueueIds = currentIds
 
                     // Adaptive polling: fast (2s) if active queue items, slow (30s) otherwise
-                    let hasActive = viewModel.queue.contains { $0.movieId == id && isActiveQueueItem($0) }
                     let pollInterval = hasActive ? 2 : 30
                     try await Task.sleep(for: .seconds(pollInterval))
                 }
@@ -255,6 +265,33 @@ struct RadarrMovieDetailView: View {
         guard let error = viewModel.error else { return }
         InAppNotificationCenter.shared.showError(title: "Couldn't Delete Movie File", message: error)
     }
+
+    private func renameMovieFiles() async {
+        guard let id = resolvedLibraryId,
+              let client = serviceManager.radarrClient else { return }
+        isRenamingFiles = true
+        defer { isRenamingFiles = false }
+        do {
+            try await client.renameMovieFiles(movieId: id)
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Rename Queued",
+                message: "Radarr is renaming the movie file in the background."
+            )
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Rename Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func refreshMovieDetailState() async {
+        guard let id = resolvedLibraryId else {
+            await viewModel.loadMovies()
+            return
+        }
+        await viewModel.loadQueue()
+        await viewModel.loadMovieFiles(movieId: id)
+        await viewModel.loadMovies()
+    }
+
     private var queueItems: [ArrQueueItem] {
         guard let id = resolvedLibraryId else { return [] }
         return viewModel.queue
@@ -682,7 +719,13 @@ struct RadarrMovieDetailView: View {
 
                 if isFilesExpanded {
                     ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
-                        fileRow(file, subtitles: bazarrMovieSubtitles)
+                        ArrMediaFileRow(config: file.arrMediaFileConfig(
+                            subtitles: bazarrMovieSubtitles,
+                            onDelete: {
+                                movieFileToDelete = file.id
+                                showDeleteFileAlert = true
+                            }
+                        ))
                         if index < files.count - 1 {
                             Divider().padding(.leading, 16)
                         }
@@ -693,109 +736,6 @@ struct RadarrMovieDetailView: View {
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         }
     }
-
-    private func fileRow(_ file: RadarrMovieFile, subtitles: [BazarrSubtitle]?) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top, spacing: 8) {
-                if let qualityName = file.quality?.quality?.name {
-                    Text(qualityName)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.purple)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.purple.opacity(0.18))
-                        .clipShape(Capsule())
-                }
-
-                Text(file.relativePath ?? "Unknown File")
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Menu {
-                    Button(role: .destructive) {
-                        movieFileToDelete = file.id
-                        showDeleteFileAlert = true
-                    } label: {
-                        Label("Delete File", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                }
-                .accessibilityLabel("Movie File Actions")
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    if let size = file.size, size > 0 {
-                        Label(ByteFormatter.format(bytes: size), systemImage: "externaldrive")
-                    }
-                    if let videoCodec = file.mediaInfo?.videoCodec, !videoCodec.isEmpty {
-                        Label(videoCodec, systemImage: "video")
-                    }
-                    if let resolution = file.mediaInfo?.resolution, !resolution.isEmpty {
-                        Label(resolution, systemImage: "aspectratio")
-                    }
-                    if let dynamicRange = file.mediaInfo?.videoDynamicRangeType, !dynamicRange.isEmpty {
-                        Label(dynamicRange, systemImage: "sun.max")
-                    }
-                    if let edition = file.edition, !edition.isEmpty {
-                        Label(edition, systemImage: "film")
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            if let audio = audioDescription(file.mediaInfo), !audio.isEmpty {
-                Label(audio, systemImage: "waveform")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
-            if let subtitles, !subtitles.isEmpty {
-                BazarrSubtitleFilesView(subtitles: subtitles)
-            }
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 11)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                movieFileToDelete = file.id
-                showDeleteFileAlert = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-    }
-
-    private func audioDescription(_ mediaInfo: RadarrMediaInfo?) -> String? {
-        let codec = mediaInfo?.audioCodec
-        let languages = mediaInfo?.audioLanguages
-
-        switch (codec, languages) {
-        case let (.some(codec), .some(languages)) where !codec.isEmpty && !languages.isEmpty:
-            return "\(codec) • \(languages)"
-        case let (.some(codec), _) where !codec.isEmpty:
-            return codec
-        case let (_, .some(languages)) where !languages.isEmpty:
-            return languages
-        default:
-            return nil
-        }
-    }
-
 
     // MARK: - Shared rows card
 
@@ -908,6 +848,14 @@ struct RadarrMovieDetailView: View {
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
+
+                        Button {
+                            showRenameFilesAlert = true
+                        } label: {
+                            Label("Rename Files", systemImage: "pencil.and.list.clipboard")
+                        }
+                        .disabled(isRenamingFiles)
+
                         Divider()
                         Button(role: .destructive) {
                             showDeleteAlert = true
@@ -916,6 +864,12 @@ struct RadarrMovieDetailView: View {
                         }
                     } label: {
                         Label("More", systemImage: "ellipsis")
+                    }
+                    .alert("Rename Movie File?", isPresented: $showRenameFilesAlert) {
+                        Button("Rename") { Task { await renameMovieFiles() } }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("The movie file will be renamed on disk to match the current naming format configured in Radarr.")
                     }
                 }
             }

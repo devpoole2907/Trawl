@@ -21,6 +21,8 @@ protocol ArrLibraryAPIClient: SharedArrClient {
     associatedtype WantedRecord: Sendable
     associatedtype WantedPage: ArrWantedPageResponse where WantedPage.Record == WantedRecord
 
+    static var serviceType: ArrServiceType { get }
+
     func getLibraryItems() async throws -> [LibraryItem]
     func lookup(term: String) async throws -> [LibraryItem]
     func wantedMissingPage(page: Int, pageSize: Int) async throws -> WantedPage
@@ -414,7 +416,11 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         error = nil
         do {
             try await client.grabRelease(release)
-            InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
+            let expectsWebhook = await expectsReleaseGrabWebhook()
+            InAppNotificationCenter.shared.showSuccess(
+                title: expectsWebhook ? "Release Sent" : "Grabbed",
+                message: release.title ?? "Release"
+            )
             await loadQueue()
             return true
         } catch {
@@ -422,6 +428,29 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
             InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
             return false
         }
+    }
+
+    private func expectsReleaseGrabWebhook() async -> Bool {
+        #if os(iOS)
+        guard let profile = serviceManager.resolvedProfile(for: Client.serviceType, allowErroredFallback: false),
+              serviceManager.isConnected(Client.serviceType, profileID: profile.id),
+              let token = await NotificationService.shared.deviceToken,
+              !token.isEmpty else {
+            return false
+        }
+
+        do {
+            return try await serviceManager.notificationSetupStatus(
+                for: profile,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            ) == .configured
+        } catch {
+            return false
+        }
+        #else
+        return false
+        #endif
     }
 
     // MARK: - Lookup (add-new search)
@@ -639,6 +668,8 @@ extension SonarrAPIClient: ArrLibraryAPIClient {
     typealias WantedRecord = SonarrEpisode
     typealias WantedPage = SonarrWantedPage
 
+    static var serviceType: ArrServiceType { .sonarr }
+
     func getLibraryItems() async throws -> [SonarrSeries] {
         try await getSeries()
     }
@@ -664,6 +695,8 @@ extension RadarrAPIClient: ArrLibraryAPIClient {
     typealias LibraryItem = RadarrMovie
     typealias WantedRecord = RadarrMovie
     typealias WantedPage = RadarrWantedPage
+
+    static var serviceType: ArrServiceType { .radarr }
 
     func getLibraryItems() async throws -> [RadarrMovie] {
         try await getMovies()
