@@ -197,6 +197,15 @@ actor HTTPTransport {
         }
     }
 
+    /// Performs a request and returns the validated response body unchanged.
+    func performData(_ request: URLRequest) async throws -> Data {
+        let path = request.url?.path ?? "<unknown>"
+        let urlString = request.url?.absoluteString ?? "\(baseURL)\(path)"
+        let (data, response) = try await performRaw(request)
+        try validate(response, data: data, path: path, urlString: urlString)
+        return data
+    }
+
     private nonisolated static func decodeResponse<T: Decodable>(_ type: sending T.Type, from data: Data) throws -> sending T {
         try JSONDecoder().decode(type, from: data)
     }
@@ -211,6 +220,11 @@ actor HTTPTransport {
     func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
         let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
         return try await perform(request)
+    }
+
+    func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {
+        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
+        return try await performData(request)
     }
 
     func getVoid(_ path: String, queryItems: [URLQueryItem] = []) async throws {
@@ -272,6 +286,27 @@ actor HTTPTransport {
         var request = try buildRequest(path: path, method: "POST", queryItems: queryItems)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
+        try await performVoid(request)
+    }
+
+    /// POST with a multipart/form-data body containing a single file field.
+    func postMultipartVoid(_ path: String, fileData: Data, fieldName: String, filename: String, mimeType: String = "application/zip") async throws {
+        let boundary = "TrawlBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
+        var request = try buildRequest(path: path, method: "POST")
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        for string in [
+            "--\(boundary)\r\n",
+            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n",
+            "Content-Type: \(mimeType)\r\n\r\n"
+        ] {
+            if let d = string.data(using: .utf8) { body.append(d) }
+        }
+        body.append(fileData)
+        if let closing = "\r\n--\(boundary)--\r\n".data(using: .utf8) { body.append(closing) }
+
+        request.httpBody = body
         try await performVoid(request)
     }
 

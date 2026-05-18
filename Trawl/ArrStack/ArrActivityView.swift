@@ -61,6 +61,8 @@ struct ArrActivityView: View {
         .onChange(of: mode) { _, newMode in
             if newMode == .history && serviceFilter == .bazarr {
                 serviceFilter = .all
+            } else if newMode == .queue && serviceFilter == .prowlarr {
+                serviceFilter = .all
             }
         }
         .sheet(item: $selectedItem) { activity in
@@ -444,6 +446,9 @@ private struct ActivityFilterMenu: View {
                 }
                 if serviceManager.hasRadarrInstance {
                     Label("Radarr", systemImage: ServiceIdentity.radarr.systemImage).tag(ArrServiceFilter.radarr)
+                }
+                if serviceManager.hasProwlarrInstance && isHistoryMode {
+                    Label("Prowlarr", systemImage: ServiceIdentity.prowlarr.systemImage).tag(ArrServiceFilter.prowlarr)
                 }
                 if serviceManager.hasBazarrInstance && !isHistoryMode {
                     Label("Bazarr", systemImage: ServiceIdentity.bazarr.systemImage).tag(ArrServiceFilter.bazarr)

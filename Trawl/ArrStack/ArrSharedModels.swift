@@ -764,6 +764,9 @@ struct ArrHistoryRecord: Codable, Identifiable, Sendable {
     let sourceTitle: String?
     let quality: ArrHistoryQuality?
     let downloadId: String?
+    let indexerId: Int?
+    let successful: Bool?
+    let data: [String: String]?
 
     // Sonarr
     let seriesId: Int?

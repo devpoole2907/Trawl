@@ -1,7 +1,7 @@
 import Foundation
 import OSLog
 
-protocol SharedArrClient: Actor {
+protocol SharedArrClient: Actor, Sendable {
     var base: ArrAPIClient { get }
     var apiPath: String { get }
 }
@@ -82,6 +82,18 @@ extension SharedArrClient {
 
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.get("\(apiPath)/diskspace") }
     func getBackups() async throws -> [ArrBackup] { try await base.get("\(apiPath)/system/backup") }
+    func downloadBackup(_ backup: ArrBackup) async throws -> Data {
+        let backupPath = backup.path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let backupPath, !backupPath.isEmpty else {
+            return try await base.getData("\(apiPath)/system/backup/\(backup.id)/download")
+        }
+
+        let path = backupPath.hasPrefix("/") ? backupPath : "/\(backupPath)"
+        return try await base.getData(path)
+    }
+    func restoreBackup(id: Int) async throws { try await base.postVoid("\(apiPath)/system/backup/restore/\(id)", queryItems: []) }
+    func uploadBackup(data: Data, filename: String) async throws { try await base.postMultipartVoid("\(apiPath)/system/backup/restore/upload", fileData: data, fieldName: "restore", filename: filename) }
+    func deleteBackup(id: Int) async throws { try await base.delete("\(apiPath)/system/backup/\(id)") }
     func getUpdates() async throws -> [ArrUpdateInfo] { try await base.get("\(apiPath)/update") }
     func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
     func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }
@@ -378,6 +390,10 @@ actor ArrAPIClient {
         try await transport.get(path, queryItems: queryItems)
     }
 
+    func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {
+        try await transport.getData(path, queryItems: queryItems)
+    }
+
     func post<T: Decodable>(_ path: String, jsonBody: sending Any) async throws -> sending T {
         try await transport.postJSON(path, jsonBody: jsonBody)
     }
@@ -417,6 +433,10 @@ actor ArrAPIClient {
     /// Fire-and-forget POST with a Codable body (for commands that return empty body)
     func postVoidCodable<B: Encodable>(_ path: String, body: sending B) async throws {
         try await transport.postVoidCodable(path, body: body)
+    }
+
+    func postMultipartVoid(_ path: String, fileData: Data, fieldName: String, filename: String) async throws {
+        try await transport.postMultipartVoid(path, fileData: fileData, fieldName: fieldName, filename: filename)
     }
 
     /// POST with form-urlencoded body (used by Bazarr settings endpoint)

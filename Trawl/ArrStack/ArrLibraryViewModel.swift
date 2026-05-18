@@ -51,6 +51,11 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
     var isLoading = false
     var error: String?
 
+    private(set) var history: [ArrHistoryRecord] = []
+    private(set) var isLoadingHistory: Bool = false
+    private(set) var historyTotalRecords: Int = 0
+    private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
+
     var client: Client?
     var serviceManager: ArrServiceManager
 
@@ -100,6 +105,44 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
         if refreshCalendar {
             await serviceManager.calendarViewModel.refresh()
         }
+    }
+
+    var canLoadMoreHistory: Bool { history.count < historyTotalRecords }
+
+    func loadHistory(page: Int = 1) async {
+        guard let client else { return }
+        guard !isLoadingHistory else { return }
+        isLoadingHistory = true
+        defer { isLoadingHistory = false }
+
+        do {
+            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
+            let records = historyPageResult.records ?? []
+
+            if page == 1 {
+                historyLoader.replace(
+                    with: records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
+            } else {
+                historyLoader.append(
+                    records,
+                    page: historyPageResult.page ?? page,
+                    totalRecords: historyPageResult.totalRecords
+                )
+            }
+
+            history = historyLoader.items
+            historyTotalRecords = historyLoader.totalRecords
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    func loadNextHistoryPage() async {
+        guard !isLoadingHistory && canLoadMoreHistory else { return }
+        await loadHistory(page: historyLoader.page + 1)
     }
 }
 
@@ -191,12 +234,6 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     // Queue
     private(set) var queue: [ArrQueueItem] = []
-
-    // History
-    private(set) var history: [ArrHistoryRecord] = []
-    private(set) var isLoadingHistory: Bool = false
-    private(set) var historyTotalRecords: Int = 0
-    @ObservationIgnored private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
 
     // Updates
     private(set) var availableUpdates: [ArrUpdateInfo] = []
@@ -348,46 +385,6 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
             self.error = error.localizedDescription
             InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
         }
-    }
-
-    // MARK: - History
-
-    var canLoadMoreHistory: Bool { history.count < historyTotalRecords }
-
-    func loadHistory(page: Int = 1) async {
-        guard let client else { return }
-        guard !isLoadingHistory else { return }
-        isLoadingHistory = true
-        defer { isLoadingHistory = false }
-
-        do {
-            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
-            let records = historyPageResult.records ?? []
-
-            if page == 1 {
-                historyLoader.replace(
-                    with: records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            } else {
-                historyLoader.append(
-                    records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            }
-
-            history = historyLoader.items
-            historyTotalRecords = historyLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadNextHistoryPage() async {
-        guard !isLoadingHistory && canLoadMoreHistory else { return }
-        await loadHistory(page: historyLoader.page + 1)
     }
 
     // MARK: - Updates
