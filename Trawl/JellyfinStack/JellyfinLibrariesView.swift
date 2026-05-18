@@ -92,7 +92,7 @@ struct JellyfinLibrariesView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Libraries")
         .refreshable { await loadLibraries() }
         .task { await loadLibraries() }
@@ -333,7 +333,7 @@ private struct JellyfinLibraryDetailView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle(folder.name)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

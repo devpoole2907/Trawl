@@ -12,6 +12,7 @@ struct ArrBackupsView: View {
     @State private var servicePendingBackupCreation: ArrServiceType?
     @State private var backupPendingDelete: PendingBackupDelete?
     @State private var backupPendingRestore: PendingBackupDelete?
+    @State private var preparingShareID: String?
     @State private var showingFilePicker = false
 
     private struct BackupViewState {
@@ -56,6 +57,7 @@ struct ArrBackupsView: View {
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
         if serviceManager.hasRadarrInstance { services.append(.radarr) }
         if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
+        if serviceManager.hasBazarrInstance { services.append(.bazarr) }
         return services
     }
 
@@ -65,7 +67,7 @@ struct ArrBackupsView: View {
                 ContentUnavailableView(
                     "No Services Configured",
                     systemImage: "externaldrive.fill",
-                    description: Text("Add a Sonarr, Radarr, or Prowlarr server in Settings to manage backups.")
+                    description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to manage backups.")
                 )
             } else if unavailable.contains(selectedService) {
                 ContentUnavailableView(
@@ -75,18 +77,14 @@ struct ArrBackupsView: View {
                 )
             } else if let state = states[selectedService] {
                 backupList(state: state, service: selectedService)
-                    .id(selectedService)
-                    .transition(.opacity)
             } else {
                 ProgressView()
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .transition(.opacity)
             }
         }
-        .animation(.default, value: selectedService)
         .navigationTitle("Backups")
-        .moreDestinationBackground(.mediaManagement)
+        .moreDestinationBackground(.backups)
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Menu {
@@ -108,14 +106,16 @@ struct ArrBackupsView: View {
                 }
                 .disabled(states[selectedService]?.backups.isEmpty != false)
 
-                let isUploading = states[selectedService]?.isUploading == true
-                if isUploading {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button("Upload Backup", systemImage: "arrow.up.doc") {
-                        showingFilePicker = true
+                if selectedService.supportsBackupUpload {
+                    let isUploading = states[selectedService]?.isUploading == true
+                    if isUploading {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Upload Backup", systemImage: "arrow.up.doc") {
+                            showingFilePicker = true
+                        }
+                        .disabled(availableServices.isEmpty)
                     }
-                    .disabled(availableServices.isEmpty)
                 }
 
                 let isCreating = states[selectedService]?.isCreating == true
@@ -240,15 +240,25 @@ struct ArrBackupsView: View {
                 Section {
                     ForEach(sortedBackups(state.backups), id: \.id) { backup in
                         if let client = client(for: service) {
-                            let shareItem = ArrBackupShareItem(backup: backup, service: service, client: client)
+                            let shareID = sharePreparationID(for: backup, service: service)
+                            let shareItem = ArrBackupShareItem(backup: backup, service: service, client: client) { isPreparing in
+                                setSharePreparation(isPreparing, for: shareID)
+                            }
                             ShareLink(
                                 item: shareItem,
                                 preview: SharePreview(backup.name, icon: Image(systemName: "externaldrive"))
                             ) {
-                                ArrBackupRow(backup: backup, service: service)
+                                ArrBackupRow(
+                                    backup: backup,
+                                    service: service,
+                                    isPreparingShare: preparingShareID == shareID
+                                )
                             }
                             .buttonStyle(.plain)
                             .contentShape(Rectangle())
+                            .simultaneousGesture(TapGesture().onEnded {
+                                setSharePreparation(true, for: shareID)
+                            })
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
                                     backupPendingDelete = PendingBackupDelete(backup: backup, service: service)
@@ -296,6 +306,7 @@ struct ArrBackupsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .refreshable { await loadService(service) }
+        .animation(.default, value: sortedBackups(state.backups).map(\.id))
     }
 
     // MARK: - Load
@@ -322,7 +333,7 @@ struct ArrBackupsView: View {
         guard let client = client(for: service) else { return }
         states[service]?.isCreating = true
         do {
-            _ = try await client.postCommand(name: "Backup")
+            try await client.createBackup()
             try? await Task.sleep(for: .seconds(3))
             await loadService(service)
         } catch {
@@ -365,7 +376,7 @@ struct ArrBackupsView: View {
     private func restoreBackup(_ pendingRestore: PendingBackupDelete) async {
         guard let client = client(for: pendingRestore.service) else { return }
         do {
-            try await client.restoreBackup(id: pendingRestore.backup.id)
+            try await client.restoreBackup(pendingRestore.backup)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Restore Started",
                 message: "\(pendingRestore.service.displayName) is restoring \"\(pendingRestore.backup.name)\"."
@@ -382,7 +393,7 @@ struct ArrBackupsView: View {
     private func deleteBackup(_ pendingDelete: PendingBackupDelete) async {
         guard let client = client(for: pendingDelete.service) else { return }
         do {
-            try await client.deleteBackup(id: pendingDelete.backup.id)
+            try await client.deleteBackup(pendingDelete.backup)
             withAnimation {
                 states[pendingDelete.service]?.backups.removeAll { $0.id == pendingDelete.backup.id }
             }
@@ -459,26 +470,53 @@ struct ArrBackupsView: View {
         case .sonarr: serviceManager.sonarrClient
         case .radarr: serviceManager.radarrClient
         case .prowlarr: serviceManager.prowlarrClient
-        case .bazarr: nil
+        case .bazarr: serviceManager.activeBazarrEntry?.client
         }
     }
+
+    private func sharePreparationID(for backup: ArrBackup, service: ArrServiceType) -> String {
+        "\(service.rawValue)-\(backup.id)"
+    }
+
+    @MainActor
+    private func setSharePreparation(_ isPreparing: Bool, for shareID: String) {
+        withAnimation(.default) {
+            if isPreparing {
+                preparingShareID = shareID
+            } else if preparingShareID == shareID {
+                preparingShareID = nil
+            }
+        }
+    }
+}
+
+private extension ArrServiceType {
+    var supportsBackupUpload: Bool { self != .bazarr }
 }
 
 private struct ArrBackupShareItem: Transferable, Sendable {
     let backup: ArrBackup
     let service: ArrServiceType
     let client: any SharedArrClient
+    let onPreparationChanged: @MainActor @Sendable (Bool) -> Void
 
     static var transferRepresentation: some TransferRepresentation {
         FileRepresentation(exportedContentType: .zip) { item in
-            let data = try await item.client.downloadBackup(item.backup)
-            let directory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("TrawlBackupShare-\(UUID().uuidString)", isDirectory: true)
-            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            await item.onPreparationChanged(true)
+            do {
+                let data = try await item.client.downloadBackup(item.backup)
+                let directory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("TrawlBackupShare-\(UUID().uuidString)", isDirectory: true)
+                try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-            let fileURL = directory.appendingPathComponent(item.fileName)
-            try data.write(to: fileURL, options: .atomic)
-            return SentTransferredFile(fileURL)
+                let fileURL = directory.appendingPathComponent(item.fileName)
+                try data.write(to: fileURL, options: .atomic)
+                await item.onPreparationChanged(false)
+                return SentTransferredFile(fileURL)
+            } catch {
+                await item.onPreparationChanged(false)
+                throw error
+            }
         }
     }
 
@@ -498,6 +536,13 @@ private struct ArrBackupShareItem: Transferable, Sendable {
 private struct ArrBackupRow: View {
     let backup: ArrBackup
     let service: ArrServiceType
+    let isPreparingShare: Bool
+
+    init(backup: ArrBackup, service: ArrServiceType, isPreparingShare: Bool = false) {
+        self.backup = backup
+        self.service = service
+        self.isPreparingShare = isPreparingShare
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -513,6 +558,12 @@ private struct ArrBackupRow: View {
                     Text(ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
+                }
+                if isPreparingShare {
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(width: 16, height: 16)
+                        .accessibilityLabel("Preparing backup share")
                 }
             }
             Text(backup.name)

@@ -5,6 +5,22 @@ import Foundation
 nonisolated struct BazarrPage<T: Codable & Sendable>: Codable, Sendable {
     let data: [T]
     let total: Int
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case total
+    }
+
+    init(data: [T], total: Int) {
+        self.data = data
+        self.total = total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = try container.decode([T].self, forKey: .data)
+        total = try container.decodeIfPresent(Int.self, forKey: .total) ?? data.count
+    }
 }
 
 // MARK: - Subtitle Types

@@ -51,7 +51,7 @@ struct JellyfinPluginsView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Plugins")
         .refreshable { await loadPlugins() }
         .task { await loadPlugins() }

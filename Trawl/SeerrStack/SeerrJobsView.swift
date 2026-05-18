@@ -105,24 +105,13 @@ private struct SeerrJobRow: View {
     @State private var isActioning = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(job.name ?? job.id)
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-
-                HStack(spacing: 10) {
-                    if let interval = job.interval {
-                        label("clock", text: interval)
-                    }
-                    if let next = job.nextExecutionTime {
-                        label("arrow.clockwise", text: relativeDate(next))
-                    }
-                }
-            }
-
-            Spacer(minLength: 8)
-
+        ScheduledTaskRowView(
+            icon: job.running == true ? "clock.arrow.2.circlepath" : "clock",
+            iconColor: job.running == true ? .green : .secondary,
+            title: job.name ?? job.id,
+            badge: job.running == true ? ScheduledTaskRowBadge("RUNNING", color: .green) : nil,
+            details: jobDetails
+        ) {
             if job.running == true {
                 Button {
                     Task {
@@ -161,16 +150,19 @@ private struct SeerrJobRow: View {
                 .disabled(isActioning)
             }
         }
-        .padding(.vertical, 2)
     }
 
-    private func label(_ icon: String, text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-            Text(text)
+    private var jobDetails: [ScheduledTaskRowDetail] {
+        var details: [ScheduledTaskRowDetail] = []
+
+        if let interval = job.interval {
+            details.append(ScheduledTaskRowDetail(icon: "clock", text: interval))
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        if let next = job.nextExecutionTime {
+            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: relativeDate(next)))
+        }
+
+        return details
     }
 
     private func relativeDate(_ raw: String) -> String {

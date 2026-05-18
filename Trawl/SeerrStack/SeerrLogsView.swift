@@ -122,38 +122,23 @@ struct SeerrLogRow: View {
     let entry: SeerrServerLogEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(entry.level?.uppercased() ?? "LOG")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(levelTint.opacity(0.16), in: Capsule())
-                    .foregroundStyle(levelTint)
+        LogEntryRow(
+            message: entry.message ?? "No message",
+            timestamp: entry.timestampDate.map { $0.formatted(date: .abbreviated, time: .standard) } ?? ""
+        ) {
+            Text(entry.level?.uppercased() ?? "LOG")
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(levelTint.opacity(0.16), in: Capsule())
+                .foregroundStyle(levelTint)
 
-                if let label = entry.label, !label.isEmpty {
-                    Text(label)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                if let date = entry.timestampDate {
-                    Text(date.formatted(date: .abbreviated, time: .standard))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            if let label = entry.label, !label.isEmpty {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-
-            Text(entry.message ?? "No message")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(3)
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 
     private var levelTint: Color {

@@ -131,9 +131,11 @@ struct ManualImportScanView: View {
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
+        .scrollContentBackground(.hidden)
         #else
         .listStyle(.inset)
         #endif
+        .moreDestinationBackground(.manualImport)
         .navigationTitle(viewModel.folderName)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)

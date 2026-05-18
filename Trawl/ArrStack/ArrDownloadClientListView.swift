@@ -58,7 +58,9 @@ struct ArrDownloadClientListView: View {
         .navigationTitle("Download Clients")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
         #endif
+        .moreDestinationBackground(.downloadClients)
         .toolbar {
             if supportsDownloadClients {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {

@@ -159,6 +159,43 @@ actor HTTPTransport {
         }
     }
 
+    /// Like `performRaw` but uses `URLSession.upload(for:from:)`, which is the
+    /// correct API when the request body is a file payload. Using `data(for:)`
+    /// with `httpBody` can silently drop or truncate the body in some cases.
+    private func performRawUpload(_ request: URLRequest, body: Data) async throws -> (Data, HTTPURLResponse) {
+        let path = request.url?.path ?? "<unknown>"
+        do {
+            let (data, response) = try await session.upload(for: request, from: body)
+            guard let http = response as? HTTPURLResponse else {
+                throw errorMapper.invalidResponse()
+            }
+            responseObserver?(http)
+            return (data, http)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch let urlError as URLError where urlError.code == .cancelled {
+            throw CancellationError()
+        } catch let nsError as NSError where nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled {
+            throw CancellationError()
+        } catch {
+            if let diagnostics, diagnostics.shouldLog(path) {
+                diagnostics.networkError(
+                    path,
+                    request.url?.absoluteString ?? "\(baseURL)\(path)",
+                    error
+                )
+            }
+            throw errorMapper.transport(error)
+        }
+    }
+
+    private func performVoidUpload(_ request: URLRequest, body: Data) async throws {
+        let path = request.url?.path ?? "<unknown>"
+        let urlString = request.url?.absoluteString ?? "\(baseURL)\(path)"
+        let (data, response) = try await performRawUpload(request, body: body)
+        try validate(response, data: data, path: path, urlString: urlString)
+    }
+
     /// Validates the response status code, mapping 401/403 to unauthorized and
     /// non-2xx (excluding 3xx success) to the service's http error.
     private func validate(_ response: HTTPURLResponse, data: Data, path: String, urlString: String) throws {
@@ -306,8 +343,7 @@ actor HTTPTransport {
         body.append(fileData)
         if let closing = "\r\n--\(boundary)--\r\n".data(using: .utf8) { body.append(closing) }
 
-        request.httpBody = body
-        try await performVoid(request)
+        try await performVoidUpload(request, body: body)
     }
 
     /// POST with a form-urlencoded body. Preserves repeated keys and empty-list

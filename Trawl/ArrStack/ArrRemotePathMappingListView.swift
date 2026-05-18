@@ -15,7 +15,8 @@ struct ArrRemotePathMappingListView: View {
     private var availableServices: [ArrServiceType] {
         [
             serviceManager.sonarrClient == nil ? nil : ArrServiceType.sonarr,
-            serviceManager.radarrClient == nil ? nil : ArrServiceType.radarr
+            serviceManager.radarrClient == nil ? nil : ArrServiceType.radarr,
+            serviceManager.activeBazarrEntry?.client == nil ? nil : ArrServiceType.bazarr
         ].compactMap(\.self)
     }
 
@@ -39,7 +40,7 @@ struct ArrRemotePathMappingListView: View {
                 ContentUnavailableView(
                     "No Remote Path Mappings",
                     systemImage: "arrow.triangle.swap",
-                    description: Text("Add a mapping when Sonarr, Radarr, and your download client are on different machines or use different paths.")
+                    description: Text("Add a mapping when Sonarr, Radarr, Bazarr, and your download client are on different machines or use different paths.")
                 )
                 .listRowBackground(Color.clear)
             } else {
@@ -76,14 +77,16 @@ struct ArrRemotePathMappingListView: View {
                         }
                     }
                 } footer: {
-                    Text("Mappings translate paths reported by your download client into paths Sonarr or Radarr can access. Use * as the host to match any download client.")
+                    Text("Mappings translate paths reported by another service into paths the selected app can access. Use * as the host for Sonarr or Radarr to match any download client.")
                 }
             }
         }
         .navigationTitle("Remote Path Mappings")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
         #endif
+        .moreDestinationBackground(.remotePathMappings)
         .toolbar {
             if !availableServices.isEmpty {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
@@ -192,6 +195,7 @@ struct ArrRemotePathMappingListView: View {
         do {
             let sonarrClient = serviceManager.sonarrClient
             let radarrClient = serviceManager.radarrClient
+            let bazarrClient = serviceManager.activeBazarrEntry?.client
 
             async let sonarrMappings: [RemotePathMappingEntry] = {
                 guard let client = sonarrClient else { return [] }
@@ -207,7 +211,14 @@ struct ArrRemotePathMappingListView: View {
                 }
             }()
 
-            let loadedMappings = try await sonarrMappings + radarrMappings
+            async let bazarrMappings: [RemotePathMappingEntry] = {
+                guard let client = bazarrClient else { return [] }
+                return try await client.getRemotePathMappings().map {
+                    RemotePathMappingEntry(serviceType: .bazarr, mapping: $0)
+                }
+            }()
+
+            let loadedMappings = try await sonarrMappings + radarrMappings + bazarrMappings
             mappings = loadedMappings
             sortMappings()
         } catch {
@@ -236,9 +247,14 @@ struct ArrRemotePathMappingListView: View {
             case .prowlarr:
                 return
             case .bazarr:
-                return
+                guard let client = serviceManager.activeBazarrEntry?.client else { throw ArrError.noServiceConfigured }
+                try await client.deleteRemotePathMapping(id: entry.mapping.id)
             }
-            mappings.removeAll { $0.id == entry.id }
+            if entry.serviceType == .bazarr {
+                await loadMappings()
+            } else {
+                mappings.removeAll { $0.id == entry.id }
+            }
             inAppNotificationCenter.showSuccess(
                 title: "Deleted",
                 message: "Remote path mapping removed from \(entry.serviceType.displayName)."
@@ -279,6 +295,8 @@ struct ArrRemotePathMappingEditorSheet: View {
 
     private static let wildcardID = "wildcard"
     private static let customID = "custom"
+    private static let bazarrSonarrID = "bazarr-sonarr"
+    private static let bazarrRadarrID = "bazarr-radarr"
 
     init(
         availableServices: [ArrServiceType],
@@ -307,7 +325,7 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     private var canSave: Bool {
-        (selectedService == .sonarr || selectedService == .radarr) &&
+        (selectedService == .sonarr || selectedService == .radarr || selectedService == .bazarr) &&
         !isSaving &&
         !host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
         !remotePath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
@@ -336,15 +354,23 @@ struct ArrRemotePathMappingEditorSheet: View {
                 }
 
                 Section {
-                    Picker("Host", selection: $selectedHostID) {
-                        ForEach(qbitProfiles) { profile in
-                            Text(profile.displayName).tag(profile.id.uuidString)
+                    if selectedService == .bazarr {
+                        Picker("Source App", selection: $selectedHostID) {
+                            Text("Sonarr").tag(Self.bazarrSonarrID)
+                            Text("Radarr").tag(Self.bazarrRadarrID)
                         }
-                        Text("Any Host (*)").tag(Self.wildcardID)
-                        Text("Custom").tag(Self.customID)
+                        .disabled(isEditing)
+                    } else {
+                        Picker("Host", selection: $selectedHostID) {
+                            ForEach(qbitProfiles) { profile in
+                                Text(profile.displayName).tag(profile.id.uuidString)
+                            }
+                            Text("Any Host (*)").tag(Self.wildcardID)
+                            Text("Custom").tag(Self.customID)
+                        }
                     }
 
-                    if isCustom {
+                    if isCustom && selectedService != .bazarr {
                         LabeledContent("Hostname") {
                             TextField("192.168.1.10", text: $host)
                                 #if os(iOS)
@@ -356,9 +382,11 @@ struct ArrRemotePathMappingEditorSheet: View {
                         }
                     }
                 } header: {
-                    Text("Host")
+                    Text(selectedService == .bazarr ? "Source" : "Host")
                 } footer: {
-                    if selectedHostID == Self.wildcardID {
+                    if selectedService == .bazarr {
+                        Text("Bazarr keeps separate path mappings for Sonarr TV paths and Radarr movie paths.")
+                    } else if selectedHostID == Self.wildcardID {
                         Text("* matches any download client host.")
                     } else if isCustom {
                         Text("Enter the hostname exactly as the download client reports it.")
@@ -388,7 +416,11 @@ struct ArrRemotePathMappingEditorSheet: View {
                 } header: {
                     Text("Paths")
                 } footer: {
-                    Text("Remote path is what the download client reports. Local path is where \(selectedService.displayName) can access the same files.")
+                    if selectedService == .bazarr {
+                        Text("Remote path is what Sonarr or Radarr reports. Local path is where Bazarr can access the same files.")
+                    } else {
+                        Text("Remote path is what the download client reports. Local path is where \(selectedService.displayName) can access the same files.")
+                    }
                 }
 
                 if let errorMessage {
@@ -407,6 +439,8 @@ struct ArrRemotePathMappingEditorSheet: View {
                     localPath = existing.localPath
                     selectedHostID = matchedHostID(for: existing.host)
                     if isCustom { host = existing.host }
+                } else if selectedService == .bazarr {
+                    selectedHostID = Self.bazarrSonarrID
                 } else {
                     if let first = qbitProfiles.first {
                         selectedHostID = first.id.uuidString
@@ -420,6 +454,15 @@ struct ArrRemotePathMappingEditorSheet: View {
                 guard hasLoadedInitialState else { return }
                 applySelectedHostID()
             }
+            .onChange(of: selectedService) { _, _ in
+                guard hasLoadedInitialState else { return }
+                if selectedService == .bazarr {
+                    selectedHostID = Self.bazarrSonarrID
+                } else if selectedHostID == Self.bazarrSonarrID || selectedHostID == Self.bazarrRadarrID {
+                    selectedHostID = qbitProfiles.first?.id.uuidString ?? Self.wildcardID
+                }
+                applySelectedHostID()
+            }
         }
     }
 
@@ -428,7 +471,9 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     private func applySelectedHostID() {
-        if selectedHostID == Self.wildcardID {
+        if selectedService == .bazarr {
+            host = selectedHostID == Self.bazarrRadarrID ? "Radarr" : "Sonarr"
+        } else if selectedHostID == Self.wildcardID {
             host = "*"
         } else if selectedHostID == Self.customID {
             // Preserve current host value when custom is selected
@@ -441,6 +486,8 @@ struct ArrRemotePathMappingEditorSheet: View {
     }
 
     private func matchedHostID(for existingHost: String) -> String {
+        if existingHost.localizedCaseInsensitiveCompare("Radarr") == .orderedSame { return Self.bazarrRadarrID }
+        if existingHost.localizedCaseInsensitiveCompare("Sonarr") == .orderedSame { return Self.bazarrSonarrID }
         if existingHost == "*" { return Self.wildcardID }
         if let match = qbitProfiles.first(where: { profile in
             normalizedHost(from: profile.hostURL).lowercased() == existingHost.lowercased()
@@ -479,7 +526,10 @@ struct ArrRemotePathMappingEditorSheet: View {
             case .prowlarr:
                 throw ArrError.noServiceConfigured
             case .bazarr:
-                throw ArrError.noServiceConfigured
+                guard let client = serviceManager.activeBazarrEntry?.client else { throw ArrError.noServiceConfigured }
+                saved = isEditing
+                    ? try await client.updateRemotePathMapping(payload)
+                    : try await client.createRemotePathMapping(payload)
             }
             onComplete(selectedService, saved)
             dismiss()

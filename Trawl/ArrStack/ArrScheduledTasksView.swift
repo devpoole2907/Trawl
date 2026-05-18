@@ -3,14 +3,8 @@ import SwiftUI
 struct ArrScheduledTasksView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
+    @State private var vm = ArrTasksViewModel()
     @State private var selectedService: ArrServiceType = .sonarr
-    @State private var states: [ArrServiceType: TasksViewState] = [:]
-    @State private var unavailable: Set<ArrServiceType> = []
-
-    private enum TasksViewState {
-        case arr(ArrScheduledTasksViewModel)
-        case bazarr(BazarrScheduledTasksViewModel)
-    }
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -21,6 +15,26 @@ struct ArrScheduledTasksView: View {
         return services
     }
 
+    private var currentScheduledTasks: [ArrScheduledTask] {
+        selectedService == .bazarr ? [] : vm.scheduledTasks(for: selectedService)
+    }
+
+    private var currentCommandQueue: [ArrCommand] {
+        selectedService == .bazarr ? [] : vm.commandQueue(for: selectedService)
+    }
+
+    private var currentBazarrTasks: [BazarrTask] {
+        selectedService == .bazarr ? vm.bazarrTasks : []
+    }
+
+    private var isCurrentLoading: Bool {
+        vm.isLoading(for: selectedService)
+    }
+
+    private var currentError: String? {
+        vm.errorMessage(for: selectedService)
+    }
+
     var body: some View {
         Group {
             if availableServices.isEmpty {
@@ -29,33 +43,12 @@ struct ArrScheduledTasksView: View {
                     systemImage: "clock.arrow.2.circlepath",
                     description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view tasks.")
                 )
-            } else if unavailable.contains(selectedService) {
-                ContentUnavailableView(
-                    "Service Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("\(selectedService.displayName) is configured but currently unreachable.")
-                )
             } else {
-                switch states[selectedService] {
-                case .arr(let vm):
-                    arrTaskContent(vm)
-                        .id(selectedService)
-                        .transition(.opacity)
-                case .bazarr(let vm):
-                    bazarrTaskContent(vm)
-                        .id(selectedService)
-                        .transition(.opacity)
-                case nil:
-                    ProgressView()
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity)
-                }
+                taskList
             }
         }
-        .animation(.default, value: selectedService)
         .navigationTitle("Tasks")
-        .moreDestinationBackground(.mediaManagement)
+        .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Service",
@@ -77,105 +70,46 @@ struct ArrScheduledTasksView: View {
         }
     }
 
-    // MARK: - Load
-
-    @MainActor
-    private func loadService(_ service: ArrServiceType) async {
-        switch service {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { unavailable.insert(service); return }
-            await cachedArrVM(for: service, client: client).load()
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { unavailable.insert(service); return }
-            await cachedArrVM(for: service, client: client).load()
-        case .prowlarr:
-            guard let client = serviceManager.prowlarrClient else { unavailable.insert(service); return }
-            await cachedArrVM(for: service, client: client).load()
-        case .bazarr:
-            guard let client = serviceManager.activeBazarrEntry?.client else { unavailable.insert(service); return }
-            let vm: BazarrScheduledTasksViewModel
-            if case .bazarr(let existing) = states[service] {
-                vm = existing
-            } else {
-                vm = BazarrScheduledTasksViewModel(client: client)
-                withAnimation { states[service] = .bazarr(vm) }
-            }
-            await vm.load()
-        }
-    }
-
-    @MainActor
-    private func cachedArrVM(for service: ArrServiceType, client: any SharedArrClient) -> ArrScheduledTasksViewModel {
-        if case .arr(let existing) = states[service] { return existing }
-        let vm = ArrScheduledTasksViewModel(client: client)
-        withAnimation { states[service] = .arr(vm) }
-        return vm
-    }
+    // MARK: - List
 
     @ViewBuilder
-    private func arrTaskContent(_ vm: ArrScheduledTasksViewModel) -> some View {
+    private var taskList: some View {
         List {
-            if let error = vm.errorMessage {
+            if let error = currentError {
                 Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
                 }
             }
 
-            if vm.isLoading && vm.scheduledTasks.isEmpty {
+            if isCurrentLoading && currentScheduledTasks.isEmpty && currentBazarrTasks.isEmpty {
                 Section {
                     ProgressView().frame(maxWidth: .infinity)
                 }
             } else {
-                if !vm.scheduledTasks.isEmpty {
+                if !currentScheduledTasks.isEmpty {
                     Section("Scheduled") {
-                        ForEach(vm.scheduledTasks) { task in
+                        ForEach(currentScheduledTasks) { task in
                             ArrScheduledTaskRow(task: task) {
-                                await vm.triggerTask(task)
+                                await triggerArrTask(task)
                             }
                         }
                     }
                 }
 
-                if !vm.commandQueue.isEmpty {
+                if !currentCommandQueue.isEmpty {
                     Section("Queue") {
-                        ForEach(vm.commandQueue) { command in
+                        ForEach(currentCommandQueue) { command in
                             ArrCommandQueueRow(command: command)
                         }
                     }
                 }
-            }
-        }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
-        .refreshable { await vm.load() }
-    }
 
-    @ViewBuilder
-    private func bazarrTaskContent(_ vm: BazarrScheduledTasksViewModel) -> some View {
-        List {
-            if let error = vm.errorMessage {
-                Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            if vm.isLoading && vm.tasks.isEmpty {
-                Section {
-                    ProgressView().frame(maxWidth: .infinity)
-                }
-            } else if !vm.tasks.isEmpty {
-                Section("Scheduled") {
-                    ForEach(vm.tasks) { task in
-                        BazarrTaskRow(task: task) {
-                            await vm.runTask(task)
+                if !currentBazarrTasks.isEmpty {
+                    Section("Scheduled") {
+                        ForEach(currentBazarrTasks) { task in
+                            BazarrTaskRow(task: task) {
+                                await triggerBazarrTask(task)
+                            }
                         }
                     }
                 }
@@ -187,7 +121,54 @@ struct ArrScheduledTasksView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .refreshable { await vm.load() }
+        .refreshable { await loadService(selectedService) }
+        .animation(.default, value: currentScheduledTasks.map(\.id))
+        .animation(.default, value: currentBazarrTasks.map(\.id))
+    }
+
+    // MARK: - Load & Trigger
+
+    @MainActor
+    private func loadService(_ service: ArrServiceType) async {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return }
+            await vm.load(service: .sonarr, client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return }
+            await vm.load(service: .radarr, client: client)
+        case .prowlarr:
+            guard let client = serviceManager.prowlarrClient else { return }
+            await vm.load(service: .prowlarr, client: client)
+        case .bazarr:
+            guard let client = serviceManager.activeBazarrEntry?.client else { return }
+            await vm.loadBazarr(client: client)
+        }
+    }
+
+    @MainActor
+    private func triggerArrTask(_ task: ArrScheduledTask) async {
+        switch selectedService {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return }
+            await vm.triggerTask(task, service: .sonarr, client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return }
+            await vm.triggerTask(task, service: .radarr, client: client)
+        case .prowlarr:
+            guard let client = serviceManager.prowlarrClient else { return }
+            await vm.triggerTask(task, service: .prowlarr, client: client)
+        case .bazarr:
+            break
+        }
+        await loadService(selectedService)
+    }
+
+    @MainActor
+    private func triggerBazarrTask(_ task: BazarrTask) async {
+        guard let client = serviceManager.activeBazarrEntry?.client else { return }
+        await vm.triggerBazarrTask(task, client: client)
+        await loadService(.bazarr)
     }
 }
 
@@ -199,34 +180,10 @@ private struct ArrScheduledTaskRow: View {
     @State private var isTriggering = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(task.name ?? "Unknown Task")
-                    .font(.subheadline)
-                    .foregroundStyle(.primary)
-
-                HStack(spacing: 12) {
-                    if let interval = task.interval {
-                        label("clock", text: intervalText(interval))
-                    }
-                    if let last = task.lastExecution {
-                        label("arrow.counterclockwise", text: relativeDate(last))
-                    }
-                }
-
-                if let next = task.nextExecution {
-                    label("arrow.clockwise", text: "Next: \(relativeDate(next))")
-                        .foregroundStyle(.secondary)
-                }
-
-                if let duration = task.lastDuration, duration != "00:00:00" {
-                    label("timer", text: duration)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-
-            Spacer(minLength: 8)
-
+        ScheduledTaskRowView(
+            title: task.name ?? "Unknown Task",
+            details: taskDetails
+        ) {
             Button {
                 Task {
                     isTriggering = true
@@ -245,16 +202,25 @@ private struct ArrScheduledTaskRow: View {
             .buttonStyle(.plain)
             .disabled(isTriggering)
         }
-        .padding(.vertical, 2)
     }
 
-    private func label(_ icon: String, text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-            Text(text)
+    private var taskDetails: [ScheduledTaskRowDetail] {
+        var details: [ScheduledTaskRowDetail] = []
+
+        if let interval = task.interval {
+            details.append(ScheduledTaskRowDetail(icon: "clock", text: intervalText(interval)))
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        if let last = task.lastExecution {
+            details.append(ScheduledTaskRowDetail(icon: "arrow.counterclockwise", text: relativeDate(last)))
+        }
+        if let next = task.nextExecution {
+            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(relativeDate(next))"))
+        }
+        if let duration = task.lastDuration, duration != "00:00:00" {
+            details.append(ScheduledTaskRowDetail(icon: "timer", text: duration))
+        }
+
+        return details
     }
 
     private func intervalText(_ minutes: Int) -> String {
@@ -282,31 +248,13 @@ private struct BazarrTaskRow: View {
     @State private var isTriggering = false
 
     var body: some View {
-        HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    if task.jobRunning {
-                        Image(systemName: "arrow.triangle.2.circlepath")
-                            .font(.caption2)
-                            .foregroundStyle(.blue)
-                            .symbolEffect(.rotate)
-                    }
-                    Text(task.name)
-                        .font(.subheadline)
-                        .foregroundStyle(.primary)
-                }
-
-                if let interval = task.interval {
-                    label("clock", text: interval)
-                }
-
-                if let nextRunIn = task.nextRunIn {
-                    label("arrow.clockwise", text: "Next: \(nextRunIn)")
-                }
-            }
-
-            Spacer(minLength: 8)
-
+        ScheduledTaskRowView(
+            icon: task.jobRunning ? "arrow.triangle.2.circlepath" : "clock",
+            iconColor: task.jobRunning ? .blue : .secondary,
+            title: task.name,
+            badge: task.jobRunning ? ScheduledTaskRowBadge("RUNNING", color: .blue) : nil,
+            details: taskDetails
+        ) {
             Button {
                 Task {
                     isTriggering = true
@@ -325,51 +273,40 @@ private struct BazarrTaskRow: View {
             .buttonStyle(.plain)
             .disabled(isTriggering || task.jobRunning)
         }
-        .padding(.vertical, 2)
     }
 
-    private func label(_ icon: String, text: String) -> some View {
-        HStack(spacing: 4) {
-            Image(systemName: icon)
-            Text(text)
+    private var taskDetails: [ScheduledTaskRowDetail] {
+        var details: [ScheduledTaskRowDetail] = []
+
+        if let interval = task.interval {
+            details.append(ScheduledTaskRowDetail(icon: "clock", text: interval))
         }
-        .font(.caption2)
-        .foregroundStyle(.secondary)
+        if let nextRunIn = task.nextRunIn {
+            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(nextRunIn)"))
+        }
+
+        return details
     }
 }
 
-// MARK: - Command Queue Row
+// MARK: - Arr Command Queue Row
 
 private struct ArrCommandQueueRow: View {
     let command: ArrCommand
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: statusIcon)
-                .font(.caption)
-                .foregroundStyle(statusColor)
-                .frame(width: 16)
+        ScheduledTaskRowView(
+            icon: statusIcon,
+            iconColor: statusColor,
+            title: command.commandName ?? command.name ?? "Command",
+            badge: command.status.map { ScheduledTaskRowBadge($0.capitalized, color: statusColor) },
+            details: commandDetails
+        )
+    }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(command.commandName ?? command.name ?? "Command")
-                    .font(.subheadline)
-
-                if let queued = command.queued {
-                    Text(relativeDate(queued))
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Spacer()
-
-            if let status = command.status {
-                Text(status.capitalized)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(statusColor)
-            }
-        }
-        .padding(.vertical, 2)
+    private var commandDetails: [ScheduledTaskRowDetail] {
+        guard let queued = command.queued else { return [] }
+        return [ScheduledTaskRowDetail(icon: "clock", text: relativeDate(queued))]
     }
 
     private var statusIcon: String {
@@ -400,84 +337,98 @@ private struct ArrCommandQueueRow: View {
     }
 }
 
-// MARK: - Arr Tasks ViewModel
+// MARK: - Tasks ViewModel
 
 @MainActor
 @Observable
-final class ArrScheduledTasksViewModel {
-    private(set) var scheduledTasks: [ArrScheduledTask] = []
-    private(set) var commandQueue: [ArrCommand] = []
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
-
-    private let client: any SharedArrClient
-
-    init(client: any SharedArrClient) {
-        self.client = client
+final class ArrTasksViewModel {
+    private struct ArrState {
+        var scheduledTasks: [ArrScheduledTask] = []
+        var commandQueue: [ArrCommand] = []
+        var isLoading = false
+        var errorMessage: String?
     }
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
+    private struct BazarrState {
+        var tasks: [BazarrTask] = []
+        var isLoading = false
+        var errorMessage: String?
+    }
+
+    private var arrStates: [ArrServiceType: ArrState] = [:]
+    private var bazarr = BazarrState()
+
+    func scheduledTasks(for service: ArrServiceType) -> [ArrScheduledTask] {
+        arrStates[service]?.scheduledTasks ?? []
+    }
+
+    func commandQueue(for service: ArrServiceType) -> [ArrCommand] {
+        arrStates[service]?.commandQueue ?? []
+    }
+
+    var bazarrTasks: [BazarrTask] { bazarr.tasks }
+
+    func isLoading(for service: ArrServiceType) -> Bool {
+        service == .bazarr ? bazarr.isLoading : (arrStates[service]?.isLoading ?? false)
+    }
+
+    func errorMessage(for service: ArrServiceType) -> String? {
+        service == .bazarr ? bazarr.errorMessage : arrStates[service]?.errorMessage
+    }
+
+    func load(service: ArrServiceType, client: any SharedArrClient) async {
+        mutate(service) { $0.isLoading = true; $0.errorMessage = nil }
         do {
             async let tasks = client.getScheduledTasks()
             async let queue = client.getCommandQueue()
-            scheduledTasks = (try await tasks).sorted { ($0.name ?? "") < ($1.name ?? "") }
-            commandQueue = (try await queue)
+            let sorted = (try await tasks).sorted { ($0.name ?? "") < ($1.name ?? "") }
+            let trimmed = (try await queue)
                 .sorted { ($0.queued ?? "") > ($1.queued ?? "") }
                 .prefix(20)
                 .map { $0 }
+            mutate(service) {
+                $0.scheduledTasks = sorted
+                $0.commandQueue = trimmed
+                $0.isLoading = false
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            mutate(service) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
-        isLoading = false
     }
 
-    func triggerTask(_ task: ArrScheduledTask) async {
+    func loadBazarr(client: BazarrAPIClient) async {
+        bazarr.isLoading = true
+        bazarr.errorMessage = nil
+        do {
+            bazarr.tasks = (try await client.getTasks()).sorted { $0.name < $1.name }
+        } catch {
+            bazarr.errorMessage = error.localizedDescription
+        }
+        bazarr.isLoading = false
+    }
+
+    func triggerTask(_ task: ArrScheduledTask, service: ArrServiceType, client: any SharedArrClient) async {
         guard let taskName = task.taskName else { return }
         do {
             _ = try await client.postCommand(name: taskName)
             try? await Task.sleep(for: .seconds(1))
-            await load()
         } catch {
-            errorMessage = error.localizedDescription
+            mutate(service) { $0.errorMessage = error.localizedDescription }
         }
     }
-}
 
-// MARK: - Bazarr Tasks ViewModel
-
-@MainActor
-@Observable
-final class BazarrScheduledTasksViewModel {
-    private(set) var tasks: [BazarrTask] = []
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
-
-    private let client: BazarrAPIClient
-
-    init(client: BazarrAPIClient) {
-        self.client = client
-    }
-
-    func load() async {
-        isLoading = true
-        errorMessage = nil
-        do {
-            tasks = (try await client.getTasks()).sorted { $0.name < $1.name }
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-        isLoading = false
-    }
-
-    func runTask(_ task: BazarrTask) async {
+    func triggerBazarrTask(_ task: BazarrTask, client: BazarrAPIClient) async {
         do {
             try await client.runTask(taskId: task.jobId)
             try? await Task.sleep(for: .seconds(1))
-            await load()
         } catch {
-            errorMessage = error.localizedDescription
+            bazarr.errorMessage = error.localizedDescription
         }
+    }
+
+    private func mutate(_ service: ArrServiceType, _ modify: (inout ArrState) -> Void) {
+        var state = arrStates[service] ?? ArrState()
+        modify(&state)
+        arrStates[service] = state
     }
 }

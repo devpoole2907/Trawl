@@ -867,6 +867,15 @@ struct MiscellaneousParsingTests {
         #expect(page.records?.first?.eventType == "grabbed")
     }
 
+    @Test("Arr History Event Display Names")
+    func historyEventDisplayNames() {
+        #expect(ArrHistoryEventFormatter.displayName(for: "indexerRssQuery") == "Indexer RSS Query")
+        #expect(ArrHistoryEventFormatter.displayName(for: "indexerQuery") == "Indexer Query")
+        #expect(ArrHistoryEventFormatter.displayName(for: "releaseGrabbed") == "Release Grabbed")
+        #expect(ArrHistoryEventFormatter.displayName(for: "customAPIEvent") == "Custom API Event")
+        #expect(ArrHistoryEventFormatter.displayName(for: nil) == "Event")
+    }
+
     @Test("ArrBlocklistPage Decoding")
     func blocklistPageDecoding() throws {
         let json = #"{"page": 1, "pageSize": 20, "totalRecords": 1, "records": [{"id": 5, "sourceTitle": "Bad.Release.HDTV"}]}"#
@@ -974,5 +983,35 @@ struct MiscellaneousParsingTests {
         let data = try #require(json.data(using: .utf8))
         let tag = try JSONDecoder().decode(ArrTag.self, from: data)
         #expect(tag.label == "4k")
+    }
+
+    @Test("Bazarr page defaults total to data count when omitted")
+    func bazarrPageDefaultsMissingTotal() throws {
+        let json = #"""
+        {
+            "data": [
+                {
+                    "timestamp": "2026-05-18 09:30:00",
+                    "type": "INFO",
+                    "message": "Bazarr started"
+                }
+            ]
+        }
+        """#
+        let data = try #require(json.data(using: .utf8))
+        let page = try JSONDecoder().decode(BazarrPage<BazarrLogEntry>.self, from: data)
+
+        #expect(page.total == 1)
+        #expect(page.data.first?.message == "Bazarr started")
+    }
+
+    @Test("Bazarr page preserves explicit total")
+    func bazarrPagePreservesExplicitTotal() throws {
+        let json = #"{"data": [], "total": 42}"#
+        let data = try #require(json.data(using: .utf8))
+        let page = try JSONDecoder().decode(BazarrPage<BazarrLogEntry>.self, from: data)
+
+        #expect(page.total == 42)
+        #expect(page.data.isEmpty)
     }
 }

@@ -106,7 +106,7 @@ struct JellyfinSessionsView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .alert("Stop Playback?", isPresented: stopPlaybackAlertPresented) {
             Button("Cancel", role: .cancel) {
                 playbackStopSession = nil

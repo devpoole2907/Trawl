@@ -1,17 +1,22 @@
 import SwiftUI
 
+// MARK: - Unified Log Entry
+
+struct UnifiedLogEntry: Identifiable, Sendable {
+    let id: String
+    let service: ArrServiceType
+    let level: String
+    let logger: String?
+    let message: String
+    let timestamp: Date
+    let exceptionType: String?
+}
+
 // MARK: - Service Selection
 
 private enum ArrEventsSelection: Hashable, Sendable {
     case all
     case service(ArrServiceType)
-
-    var taskId: String {
-        switch self {
-        case .all: "all"
-        case .service(let t): t.rawValue
-        }
-    }
 }
 
 // MARK: - View
@@ -19,20 +24,13 @@ private enum ArrEventsSelection: Hashable, Sendable {
 struct ArrEventsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
+    @State private var vm = ArrEventsViewModel()
     @State private var selectedSelection: ArrEventsSelection = .all
     @State private var selectedLevel: ArrLogLevelFilter = .all
     @State private var searchText = ""
     @State private var committedSearchText = ""
     @State private var isSearchExpanded = false
     @State private var searchDebounceTask: Task<Void, Never>?
-    @State private var states: [ArrEventsSelection: LogsViewState] = [:]
-    @State private var unavailable: Set<ArrEventsSelection> = []
-
-    private enum LogsViewState {
-        case arr(ArrEventsViewModel)
-        case bazarr(BazarrEventsViewModel)
-        case all(AllEventsViewModel)
-    }
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -54,12 +52,42 @@ struct ArrEventsView: View {
         return items
     }
 
-    // All selections that should be preloaded in parallel.
-    private var allSelections: [ArrEventsSelection] {
-        var result: [ArrEventsSelection] = []
-        if availableServices.count > 1 { result.append(.all) }
-        for service in availableServices { result.append(.service(service)) }
-        return result
+    private var displayedEntries: [UnifiedLogEntry] {
+        let raw: [UnifiedLogEntry]
+        switch selectedSelection {
+        case .all:
+            raw = availableServices
+                .flatMap { vm.entries(for: $0) }
+                .sorted { $0.timestamp > $1.timestamp }
+        case .service(let t):
+            raw = vm.entries(for: t)
+        }
+
+        let levelFiltered = raw.filter { entry in
+            entry.service == .bazarr
+                ? selectedLevel.includesBazarrLevel(entry.level)
+                : selectedLevel.includesArrLevel(entry.level)
+        }
+
+        guard !committedSearchText.isEmpty else { return levelFiltered }
+        return levelFiltered.filter {
+            $0.message.localizedCaseInsensitiveContains(committedSearchText) ||
+            ($0.logger ?? "").localizedCaseInsensitiveContains(committedSearchText)
+        }
+    }
+
+    private var isCurrentLoading: Bool {
+        switch selectedSelection {
+        case .all: availableServices.contains { vm.isLoading(for: $0) }
+        case .service(let t): vm.isLoading(for: t)
+        }
+    }
+
+    private var currentError: String? {
+        switch selectedSelection {
+        case .all: nil
+        case .service(let t): vm.errorMessage(for: t)
+        }
     }
 
     var body: some View {
@@ -70,34 +98,12 @@ struct ArrEventsView: View {
                     systemImage: "list.bullet.rectangle",
                     description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.")
                 )
-            } else if unavailable.contains(selectedSelection) {
-                ContentUnavailableView(
-                    "Service Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("The selected service is configured but currently unreachable.")
-                )
             } else {
-                switch states[selectedSelection] {
-                case .arr(let vm): arrLogList(vm)
-                        .id(selectedSelection)
-                        .transition(.opacity)
-                case .bazarr(let vm): bazarrLogList(vm)
-                        .id(selectedSelection)
-                        .transition(.opacity)
-                case .all(let vm): allLogList(vm)
-                        .id(selectedSelection)
-                        .transition(.opacity)
-                case nil:
-                    ProgressView()
-                        .controlSize(.large)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .transition(.opacity)
-                }
+                logList
             }
         }
-        .animation(.default, value: selectedSelection)
         .navigationTitle("Events")
-        .moreDestinationBackground(.mediaManagement)
+        .moreDestinationBackground(.logsAndEvents)
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
@@ -113,7 +119,9 @@ struct ArrEventsView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: selectedLevel == .all ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
+                    Image(systemName: selectedLevel == .all
+                          ? "line.3.horizontal.decrease.circle"
+                          : "line.3.horizontal.decrease.circle.fill")
                 }
             }
         }
@@ -132,17 +140,8 @@ struct ArrEventsView: View {
                 alignment: .center
             )
         }
-        // Preloads all selections in parallel on appear; refreshes every 30 s.
-        // Use the id: overload because ArrEventsSelection's Hashable conformance is
-        // @MainActor-isolated (InferIsolatedConformances + default-isolation=MainActor).
-        .loadServicesPeriodically(id: allSelections.map(\.taskId), keys: allSelections) { selection in
-            await loadSelection(selection)
-        }
-        // Level changes need an immediate reload for the visible single-Arr selection
-        // (server-side filter). Other Arr selections update on the next 30 s cycle.
-        .onChange(of: selectedLevel) { _, _ in
-            guard case .service(let t) = selectedSelection, t != .bazarr else { return }
-            Task { await loadSelection(selectedSelection) }
+        .loadServicesPeriodically(availableServices) { service in
+            await loadService(service)
         }
         .onChange(of: searchText) { _, newValue in
             searchDebounceTask?.cancel()
@@ -153,201 +152,164 @@ struct ArrEventsView: View {
             }
         }
         .onAppear {
-            // If "All" is selected but only one service is available, switch to it.
             if case .all = selectedSelection, availableServices.count < 2, let first = availableServices.first {
                 withAnimation { selectedSelection = .service(first) }
             }
         }
     }
 
+    // MARK: - List
+
+    @ViewBuilder
+    private var logList: some View {
+        List {
+            if let error = currentError {
+                Section {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            if isCurrentLoading && displayedEntries.isEmpty {
+                Section {
+                    ProgressView().frame(maxWidth: .infinity)
+                }
+            } else if displayedEntries.isEmpty {
+                ContentUnavailableView(
+                    "No Events",
+                    systemImage: "list.bullet.rectangle",
+                    description: Text("No log entries match the current filter.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(displayedEntries) { entry in
+                        UnifiedEventRow(
+                            entry: entry,
+                            showServiceBadge: selectedSelection == .all
+                        )
+                        .task {
+                            guard case .service(let t) = selectedSelection,
+                                  entry.id == vm.entries(for: t).last?.id
+                            else { return }
+                            await loadMore(for: t)
+                        }
+                    }
+                    if case .service(let t) = selectedSelection, vm.isLoadingMore(for: t) {
+                        HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .refreshable {
+            await withTaskGroup(of: Void.self) { group in
+                for service in availableServices {
+                    group.addTask { await loadService(service) }
+                }
+            }
+        }
+        .animation(.default, value: displayedEntries.map(\.id))
+    }
+
     // MARK: - Load
 
     @MainActor
-    private func loadSelection(_ selection: ArrEventsSelection) async {
-        switch selection {
-        case .all:
-            let vm: AllEventsViewModel
-            if case .all(let existing) = states[selection] {
-                vm = existing
-            } else {
-                vm = AllEventsViewModel(
-                    sonarrClient: serviceManager.sonarrClient,
-                    radarrClient: serviceManager.radarrClient,
-                    prowlarrClient: serviceManager.prowlarrClient,
-                    bazarrClient: serviceManager.activeBazarrEntry?.client
-                )
-                withAnimation { states[selection] = .all(vm) }
-            }
-            await vm.load()
-
-        case .service(.sonarr):
-            guard let client = serviceManager.sonarrClient else { unavailable.insert(selection); return }
-            await loadArrSelection(selection, client: client)
-
-        case .service(.radarr):
-            guard let client = serviceManager.radarrClient else { unavailable.insert(selection); return }
-            await loadArrSelection(selection, client: client)
-
-        case .service(.prowlarr):
-            guard let client = serviceManager.prowlarrClient else { unavailable.insert(selection); return }
-            await loadArrSelection(selection, client: client)
-
-        case .service(.bazarr):
-            guard let client = serviceManager.activeBazarrEntry?.client else { unavailable.insert(selection); return }
-            let vm: BazarrEventsViewModel
-            if case .bazarr(let existing) = states[selection] {
-                vm = existing
-            } else {
-                vm = BazarrEventsViewModel(client: client)
-                withAnimation { states[selection] = .bazarr(vm) }
-            }
-            await vm.load()
-
-        case .service:
-            break
+    private func loadService(_ service: ArrServiceType) async {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return }
+            await vm.load(service: .sonarr, client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return }
+            await vm.load(service: .radarr, client: client)
+        case .prowlarr:
+            guard let client = serviceManager.prowlarrClient else { return }
+            await vm.load(service: .prowlarr, client: client)
+        case .bazarr:
+            guard let client = serviceManager.activeBazarrEntry?.client else { return }
+            await vm.loadBazarr(client: client)
         }
     }
 
     @MainActor
-    private func loadArrSelection(_ selection: ArrEventsSelection, client: any SharedArrClient) async {
-        let vm: ArrEventsViewModel
-        if case .arr(let existing) = states[selection] {
-            vm = existing
-        } else {
-            vm = ArrEventsViewModel(client: client)
-            withAnimation { states[selection] = .arr(vm) }
+    private func loadMore(for service: ArrServiceType) async {
+        switch service {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return }
+            await vm.loadMore(service: .sonarr, client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return }
+            await vm.loadMore(service: .radarr, client: client)
+        case .prowlarr:
+            guard let client = serviceManager.prowlarrClient else { return }
+            await vm.loadMore(service: .prowlarr, client: client)
+        case .bazarr:
+            guard let client = serviceManager.activeBazarrEntry?.client else { return }
+            await vm.loadMoreBazarr(client: client)
         }
-        await vm.load(level: selectedLevel.apiValue)
-    }
-
-    // MARK: - Arr list
-
-    @ViewBuilder
-    private func arrLogList(_ vm: ArrEventsViewModel) -> some View {
-        let filtered = committedSearchText.isEmpty ? vm.records : vm.records.filter {
-            ($0.logger ?? "").localizedCaseInsensitiveContains(committedSearchText) ||
-            ($0.message ?? "").localizedCaseInsensitiveContains(committedSearchText)
-        }
-        List {
-            if let error = vm.errorMessage, vm.records.isEmpty {
-                Section { Text(error).font(.footnote).foregroundStyle(.secondary) }
-            }
-            if vm.isLoading && vm.records.isEmpty {
-                Section { ProgressView().frame(maxWidth: .infinity) }
-            } else if filtered.isEmpty {
-                ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
-                    description: Text("No log entries match the current filter."))
-                    .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(filtered) { record in
-                        ArrEventRow(record: record)
-                            .task {
-                                if record.id == vm.records.last?.id {
-                                    await vm.loadMore(level: selectedLevel.apiValue)
-                                }
-                            }
-                    }
-                    if vm.isLoadingMore {
-                        HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                    }
-                }
-            }
-        }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
-        .refreshable { await vm.load(level: selectedLevel.apiValue) }
-    }
-
-    // MARK: - Bazarr list
-
-    @ViewBuilder
-    private func bazarrLogList(_ vm: BazarrEventsViewModel) -> some View {
-        let levelFiltered = vm.entries.filter { selectedLevel.includesBazarrLevel($0.level) }
-        let filtered = committedSearchText.isEmpty ? levelFiltered : levelFiltered.filter {
-            $0.message.localizedCaseInsensitiveContains(committedSearchText)
-        }
-        List {
-            if let error = vm.errorMessage, vm.entries.isEmpty {
-                Section { Text(error).font(.footnote).foregroundStyle(.secondary) }
-            }
-            if vm.isLoading && vm.entries.isEmpty {
-                Section { ProgressView().frame(maxWidth: .infinity) }
-            } else if filtered.isEmpty {
-                ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
-                    description: Text("No log entries match the current filter."))
-                    .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(filtered) { entry in
-                        BazarrEventRow(entry: entry)
-                            .task {
-                                if entry.id == vm.entries.last?.id {
-                                    await vm.loadMore()
-                                }
-                            }
-                    }
-                    if vm.isLoadingMore {
-                        HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
-                    }
-                }
-            }
-        }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
-        .refreshable { await vm.load() }
-    }
-
-    // MARK: - All list
-
-    @ViewBuilder
-    private func allLogList(_ vm: AllEventsViewModel) -> some View {
-        let levelFiltered = vm.entries.filter { entry in
-            entry.service == .bazarr
-                ? selectedLevel.includesBazarrLevel(entry.level)
-                : selectedLevel.includesArrLevel(entry.level)
-        }
-        let filtered = committedSearchText.isEmpty ? levelFiltered : levelFiltered.filter {
-            $0.message.localizedCaseInsensitiveContains(committedSearchText) ||
-            ($0.logger ?? "").localizedCaseInsensitiveContains(committedSearchText)
-        }
-        List {
-            if let error = vm.errorMessage, vm.entries.isEmpty {
-                Section { Text(error).font(.footnote).foregroundStyle(.secondary) }
-            }
-            if vm.isLoading && vm.entries.isEmpty {
-                Section { ProgressView().frame(maxWidth: .infinity) }
-            } else if filtered.isEmpty {
-                ContentUnavailableView("No Events", systemImage: "list.bullet.rectangle",
-                    description: Text("No log entries match the current filter."))
-                    .listRowBackground(Color.clear)
-            } else {
-                Section {
-                    ForEach(filtered) { entry in
-                        AllEventsEntryRow(entry: entry)
-                    }
-                }
-            }
-        }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #else
-        .listStyle(.inset)
-        #endif
-        .scrollContentBackground(.hidden)
-        .refreshable { await vm.load() }
     }
 }
 
-// MARK: - Arr Event Row
+// MARK: - Unified Event Row
+
+private struct UnifiedEventRow: View {
+    let entry: UnifiedLogEntry
+    let showServiceBadge: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                if showServiceBadge {
+                    Image(systemName: entry.service.serviceIdentity.systemImage)
+                        .font(.caption2)
+                        .foregroundStyle(entry.service.serviceIdentity.brandColor)
+                }
+                Image(systemName: levelIcon)
+                    .font(.caption2)
+                    .foregroundStyle(levelColor)
+                Text(entry.logger ?? entry.service.serviceIdentity.displayName)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            }
+            Text(entry.message)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .lineLimit(3)
+            if let exType = entry.exceptionType, !exType.isEmpty {
+                Text(exType).font(.caption2).foregroundStyle(.red.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 3)
+    }
+
+    private var levelColor: Color {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": .red
+        case "warn", "warning": .orange
+        default: .secondary
+        }
+    }
+
+    private var levelIcon: String {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": "xmark.octagon.fill"
+        case "warn", "warning": "exclamationmark.triangle.fill"
+        default: "circle.fill"
+        }
+    }
+}
+
+// MARK: - Arr Event Row (public, used by detail views)
 
 struct ArrEventRow: View {
     let record: ArrLogRecord
@@ -405,319 +367,139 @@ struct ArrEventRow: View {
     }
 }
 
-// MARK: - Bazarr Event Row
-
-private struct BazarrEventRow: View {
-    let entry: BazarrLogEntry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Image(systemName: levelIcon)
-                    .font(.caption2)
-                    .foregroundStyle(levelColor)
-                Text(entry.level.capitalized)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                Spacer(minLength: 8)
-                if let time = formattedTime {
-                    Text(time).font(.caption2).foregroundStyle(.tertiary)
-                }
-            }
-            Text(entry.message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .lineLimit(3)
-        }
-        .padding(.vertical, 3)
-    }
-
-    private var levelColor: Color {
-        switch entry.level.lowercased() {
-        case "error", "critical": .red
-        case "warning": .orange
-        default: .secondary
-        }
-    }
-
-    private var levelIcon: String {
-        switch entry.level.lowercased() {
-        case "error", "critical": "xmark.octagon.fill"
-        case "warning": "exclamationmark.triangle.fill"
-        default: "circle.fill"
-        }
-    }
-
-    private var formattedTime: String? {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        for format in ["yyyy-MM-dd HH:mm:ss,SSS", "yyyy-MM-dd HH:mm:ss"] {
-            formatter.dateFormat = format
-            if let date = formatter.date(from: entry.timestamp) {
-                return date.formatted(date: .abbreviated, time: .shortened)
-            }
-        }
-        return entry.timestamp
-    }
-}
-
-// MARK: - All Events Entry Row
-
-private struct AllEventsEntryRow: View {
-    let entry: AllEventsViewModel.Entry
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 8) {
-                Image(systemName: entry.service.serviceIdentity.systemImage)
-                    .font(.caption2)
-                    .foregroundStyle(entry.service.serviceIdentity.brandColor)
-
-                Image(systemName: levelIcon)
-                    .font(.caption2)
-                    .foregroundStyle(levelColor)
-
-                Text(entry.logger ?? entry.service.serviceIdentity.displayName)
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
-
-                Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
-            }
-
-            Text(entry.message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .lineLimit(3)
-
-            if let exType = entry.exceptionType, !exType.isEmpty {
-                Text(exType).font(.caption2).foregroundStyle(.red.secondary).lineLimit(1)
-            }
-        }
-        .padding(.vertical, 3)
-    }
-
-    private var levelColor: Color {
-        switch entry.level.lowercased() {
-        case "error", "fatal", "critical": .red
-        case "warn", "warning": .orange
-        default: .secondary
-        }
-    }
-
-    private var levelIcon: String {
-        switch entry.level.lowercased() {
-        case "error", "fatal", "critical": "xmark.octagon.fill"
-        case "warn", "warning": "exclamationmark.triangle.fill"
-        default: "circle.fill"
-        }
-    }
-}
-
-// MARK: - Arr Events ViewModel
+// MARK: - Events ViewModel
 
 @MainActor
 @Observable
 final class ArrEventsViewModel {
-    private(set) var records: [ArrLogRecord] = []
-    private(set) var isLoading = false
-    private(set) var isLoadingMore = false
-    private(set) var errorMessage: String?
+    private struct ServiceState {
+        var entries: [UnifiedLogEntry] = []
+        var total: Int = 0
+        var isLoading = false
+        var isLoadingMore = false
+        var loadMoreFailed = false
+        var errorMessage: String?
 
-    private let client: any SharedArrClient
+        var hasMore: Bool { !loadMoreFailed && entries.count < total }
+    }
+
+    private var states: [ArrServiceType: ServiceState] = [:]
     private let pageSize = 50
-    private var totalRecords = 0
-    private var loadMoreFailed = false
 
-    var hasMore: Bool { !loadMoreFailed && records.count < totalRecords }
-
-    init(client: any SharedArrClient) {
-        self.client = client
+    func entries(for service: ArrServiceType) -> [UnifiedLogEntry] {
+        states[service]?.entries ?? []
     }
 
-    func load(level: String?) async {
-        isLoading = true
-        errorMessage = nil
-        loadMoreFailed = false
+    func isLoading(for service: ArrServiceType) -> Bool {
+        states[service]?.isLoading ?? false
+    }
+
+    func isLoadingMore(for service: ArrServiceType) -> Bool {
+        states[service]?.isLoadingMore ?? false
+    }
+
+    func hasMore(for service: ArrServiceType) -> Bool {
+        states[service]?.hasMore ?? false
+    }
+
+    func errorMessage(for service: ArrServiceType) -> String? {
+        states[service]?.errorMessage
+    }
+
+    func load(service: ArrServiceType, client: any SharedArrClient) async {
+        mutate(service) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
         do {
-            let page = try await client.getLog(page: 1, pageSize: pageSize, level: level)
-            records = page.records ?? []
-            totalRecords = page.totalRecords ?? 0
+            let page = try await client.getLog(page: 1, pageSize: pageSize, level: nil)
+            let entries = (page.records ?? []).compactMap { makeEntry(from: $0, service: service) }
+            mutate(service) {
+                $0.entries = entries
+                $0.total = page.totalRecords ?? 0
+                $0.isLoading = false
+            }
         } catch {
-            errorMessage = error.localizedDescription
+            mutate(service) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
-        isLoading = false
     }
 
-    func loadMore(level: String?) async {
-        guard hasMore, !isLoadingMore else { return }
-        isLoadingMore = true
+    func loadMore(service: ArrServiceType, client: any SharedArrClient) async {
+        guard states[service]?.hasMore == true, states[service]?.isLoadingMore == false else { return }
+        mutate(service) { $0.isLoadingMore = true }
         do {
-            let nextPage = (records.count / pageSize) + 1
-            let page = try await client.getLog(page: nextPage, pageSize: pageSize, level: level)
-            records.append(contentsOf: page.records ?? [])
-            totalRecords = page.totalRecords ?? totalRecords
+            let count = states[service]?.entries.count ?? 0
+            let nextPage = (count / pageSize) + 1
+            let page = try await client.getLog(page: nextPage, pageSize: pageSize, level: nil)
+            let newEntries = (page.records ?? []).compactMap { makeEntry(from: $0, service: service) }
+            mutate(service) {
+                $0.entries.append(contentsOf: newEntries)
+                $0.total = page.totalRecords ?? $0.total
+                $0.isLoadingMore = false
+            }
         } catch {
-            loadMoreFailed = true
+            mutate(service) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
         }
-        isLoadingMore = false
-    }
-}
-
-// MARK: - Bazarr Events ViewModel
-
-@MainActor
-@Observable
-final class BazarrEventsViewModel {
-    private(set) var entries: [BazarrLogEntry] = []
-    private(set) var isLoading = false
-    private(set) var isLoadingMore = false
-    private(set) var errorMessage: String?
-
-    private let client: BazarrAPIClient
-    private let pageSize = 50
-    private var totalEntries = 0
-    private var loadMoreFailed = false
-
-    var hasMore: Bool { !loadMoreFailed && entries.count < totalEntries }
-
-    init(client: BazarrAPIClient) {
-        self.client = client
     }
 
-    func load() async {
-        isLoading = true
-        errorMessage = nil
-        loadMoreFailed = false
+    func loadBazarr(client: BazarrAPIClient) async {
+        mutate(.bazarr) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
         do {
             let page = try await client.getLogs(start: 0, length: pageSize)
-            entries = page.data
-            totalEntries = page.total
+            let entries = page.data.compactMap { makeEntry(from: $0) }
+            mutate(.bazarr) { $0.entries = entries; $0.total = page.total; $0.isLoading = false }
         } catch {
-            errorMessage = error.localizedDescription
+            mutate(.bazarr) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
-        isLoading = false
     }
 
-    func loadMore() async {
-        guard hasMore, !isLoadingMore else { return }
-        isLoadingMore = true
+    func loadMoreBazarr(client: BazarrAPIClient) async {
+        guard states[.bazarr]?.hasMore == true, states[.bazarr]?.isLoadingMore == false else { return }
+        mutate(.bazarr) { $0.isLoadingMore = true }
         do {
-            let page = try await client.getLogs(start: entries.count, length: pageSize)
-            entries.append(contentsOf: page.data)
-            totalEntries = page.total
+            let count = states[.bazarr]?.entries.count ?? 0
+            let page = try await client.getLogs(start: count, length: pageSize)
+            let newEntries = page.data.compactMap { makeEntry(from: $0) }
+            mutate(.bazarr) {
+                $0.entries.append(contentsOf: newEntries)
+                $0.total = page.total
+                $0.isLoadingMore = false
+            }
         } catch {
-            loadMoreFailed = true
-        }
-        isLoadingMore = false
-    }
-}
-
-// MARK: - All Events ViewModel
-
-@MainActor
-@Observable
-final class AllEventsViewModel {
-    struct Entry: Identifiable, Sendable {
-        let id = UUID()
-        let service: ArrServiceType
-        let level: String
-        let logger: String?
-        let message: String
-        let timestamp: Date
-        let exceptionType: String?
-    }
-
-    private(set) var entries: [Entry] = []
-    private(set) var isLoading = false
-    private(set) var errorMessage: String?
-
-    private let sonarrClient: (any SharedArrClient)?
-    private let radarrClient: (any SharedArrClient)?
-    private let prowlarrClient: (any SharedArrClient)?
-    private let bazarrClient: BazarrAPIClient?
-    private let pageSize = 50
-
-    init(
-        sonarrClient: (any SharedArrClient)?,
-        radarrClient: (any SharedArrClient)?,
-        prowlarrClient: (any SharedArrClient)?,
-        bazarrClient: BazarrAPIClient?
-    ) {
-        self.sonarrClient = sonarrClient
-        self.radarrClient = radarrClient
-        self.prowlarrClient = prowlarrClient
-        self.bazarrClient = bazarrClient
-    }
-
-    func load() async {
-        isLoading = true
-        errorMessage = nil
-
-        let pageSize = self.pageSize
-        let sonarrClient = self.sonarrClient
-        let radarrClient = self.radarrClient
-        let prowlarrClient = self.prowlarrClient
-        let bazarrClient = self.bazarrClient
-
-        var allEntries: [Entry] = []
-
-        await withTaskGroup(of: [Entry].self) { group in
-            if let client = sonarrClient {
-                group.addTask { await Self.arrEntries(client: client, service: .sonarr, pageSize: pageSize) }
-            }
-            if let client = radarrClient {
-                group.addTask { await Self.arrEntries(client: client, service: .radarr, pageSize: pageSize) }
-            }
-            if let client = prowlarrClient {
-                group.addTask { await Self.arrEntries(client: client, service: .prowlarr, pageSize: pageSize) }
-            }
-            if let client = bazarrClient {
-                group.addTask { await Self.bazarrEntries(client: client, pageSize: pageSize) }
-            }
-            for await batch in group { allEntries.append(contentsOf: batch) }
-        }
-
-        entries = allEntries.sorted { $0.timestamp > $1.timestamp }
-        isLoading = false
-    }
-
-    private static func arrEntries(client: any SharedArrClient, service: ArrServiceType, pageSize: Int) async -> [Entry] {
-        guard let page = try? await client.getLog(page: 1, pageSize: pageSize, level: nil) else { return [] }
-        return (page.records ?? []).compactMap { record in
-            guard let timestamp = parseArrDate(record.time) else { return nil }
-            return Entry(
-                service: service,
-                level: record.level ?? "info",
-                logger: record.logger,
-                message: record.message ?? "",
-                timestamp: timestamp,
-                exceptionType: record.exceptionType
-            )
+            mutate(.bazarr) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
         }
     }
 
-    private static func bazarrEntries(client: BazarrAPIClient, pageSize: Int) async -> [Entry] {
-        guard let page = try? await client.getLogs(start: 0, length: pageSize) else { return [] }
-        return page.data.compactMap { logEntry in
-            guard let timestamp = parseBazarrDate(logEntry.timestamp) else { return nil }
-            return Entry(
-                service: .bazarr,
-                level: logEntry.level,
-                logger: nil,
-                message: logEntry.message,
-                timestamp: timestamp,
-                exceptionType: nil
-            )
-        }
+    private func mutate(_ service: ArrServiceType, _ modify: (inout ServiceState) -> Void) {
+        var state = states[service] ?? ServiceState()
+        modify(&state)
+        states[service] = state
     }
 
-    private static func parseArrDate(_ raw: String?) -> Date? {
+    private func makeEntry(from record: ArrLogRecord, service: ArrServiceType) -> UnifiedLogEntry? {
+        guard let timestamp = parseArrDate(record.time) else { return nil }
+        return UnifiedLogEntry(
+            id: "\(service.rawValue)-\(record.id)",
+            service: service,
+            level: record.level ?? "info",
+            logger: record.logger,
+            message: record.message ?? "",
+            timestamp: timestamp,
+            exceptionType: record.exceptionType
+        )
+    }
+
+    private func makeEntry(from entry: BazarrLogEntry) -> UnifiedLogEntry? {
+        guard let timestamp = parseBazarrDate(entry.timestamp) else { return nil }
+        return UnifiedLogEntry(
+            id: entry.id.uuidString,
+            service: .bazarr,
+            level: entry.level,
+            logger: nil,
+            message: entry.message,
+            timestamp: timestamp,
+            exceptionType: nil
+        )
+    }
+
+    private func parseArrDate(_ raw: String?) -> Date? {
         guard let raw else { return nil }
         let iso = ISO8601DateFormatter()
         iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -726,7 +508,7 @@ final class AllEventsViewModel {
         return iso.date(from: raw)
     }
 
-    private static func parseBazarrDate(_ raw: String) -> Date? {
+    private func parseBazarrDate(_ raw: String) -> Date? {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
         for format in ["yyyy-MM-dd HH:mm:ss,SSS", "yyyy-MM-dd HH:mm:ss"] {
@@ -756,14 +538,12 @@ enum ArrLogLevelFilter: String, CaseIterable, Sendable {
         }
     }
 
-    // Bazarr levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
     func includesBazarrLevel(_ level: String) -> Bool {
         let priority: [String: Int] = ["debug": 0, "info": 1, "warning": 2, "error": 3, "critical": 4]
         let min: Int = switch self { case .all: -1; case .info: 1; case .warn: 2; case .error: 3 }
         return (priority[level.lowercased()] ?? 0) >= min
     }
 
-    // Arr levels: trace, debug, info, warn, error, fatal
     func includesArrLevel(_ level: String) -> Bool {
         switch self {
         case .all: true

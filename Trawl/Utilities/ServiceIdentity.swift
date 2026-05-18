@@ -39,7 +39,7 @@ enum ServiceIdentity: String, CaseIterable {
         case .radarr: .orange
         case .prowlarr: .yellow
         case .bazarr: .teal
-        case .seerr: .indigo
+        case .seerr: .pink
         case .jellyfin: .indigo
         }
     }

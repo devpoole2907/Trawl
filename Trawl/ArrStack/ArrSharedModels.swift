@@ -774,6 +774,73 @@ struct ArrHistoryRecord: Codable, Identifiable, Sendable {
 
     // Radarr
     let movieId: Int?
+
+    var eventDisplayName: String {
+        ArrHistoryEventFormatter.displayName(for: eventType)
+    }
+}
+
+nonisolated enum ArrHistoryEventFormatter {
+    static func displayName(for eventType: String?) -> String {
+        guard let eventType else { return "Event" }
+
+        let trimmed = eventType.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Event" }
+
+        let normalized = trimmed
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+
+        switch normalized {
+        case "indexerrssquery":
+            return "Indexer RSS Query"
+        case "indexerquery":
+            return "Indexer Query"
+        case "releasegrabbed":
+            return "Release Grabbed"
+        case "downloadfolderimported":
+            return "Imported"
+        case "downloadfailed":
+            return "Download Failed"
+        case "grabbed":
+            return "Grabbed"
+        default:
+            return readableName(from: trimmed)
+        }
+    }
+
+    private static func readableName(from value: String) -> String {
+        let spaced = value
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "([A-Z]+)([A-Z][a-z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+
+        let words = spaced
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+
+        guard !words.isEmpty else { return "Event" }
+
+        let acronyms: Set<String> = ["rss", "id", "url", "api"]
+        return words
+            .map { word in
+                let lowercased = word.lowercased()
+                if acronyms.contains(lowercased) {
+                    return lowercased.uppercased()
+                }
+                return String(lowercased.prefix(1)).uppercased() + String(lowercased.dropFirst())
+            }
+            .joined(separator: " ")
+    }
 }
 
 struct ArrHistoryQuality: Codable, Sendable {

@@ -338,22 +338,16 @@ private struct HistoryRow: View {
     }
 
     private var eventLabel: String {
-        if eventType.contains("query") || eventType.contains("search") { return "Search" }
-        if eventType.contains("grabbed") { return "Grabbed" }
-        if eventType.contains("import") { return "Imported" }
-        if eventType.contains("upgrade") { return "Upgraded" }
-        if eventType.contains("delete") { return "Deleted" }
-        if eventType.contains("download") { return "Downloaded" }
-        return "Event"
+        item.record.eventDisplayName
     }
 
     private var iconColor: Color {
         if eventType.contains("delete") { return .red }
+        if item.record.successful == false { return .red }
         if eventType.contains("upgrade") { return .blue }
         if eventType.contains("import") { return .green }
         if eventType.contains("grabbed") { return .orange }
         if eventType.contains("query") || eventType.contains("search") { return .yellow }
-        if item.record.successful == false { return .red }
         return .secondary
     }
 
@@ -364,12 +358,19 @@ private struct HistoryRow: View {
             item.record.data?["releaseTitle"],
             item.record.data?["title"],
             item.record.data?["query"],
+            prowlarrEventTitle,
             item.indexerName,
             item.record.indexerId.map { "Indexer #\($0)" }
         ]
 
         return candidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty } ?? "Unknown"
+    }
+
+    private var prowlarrEventTitle: String? {
+        guard item.source == .prowlarr else { return nil }
+        guard eventLabel != "Event" else { return nil }
+        return eventLabel
     }
 
     private var timeLabel: String {

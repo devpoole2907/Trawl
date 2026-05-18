@@ -4,6 +4,13 @@ import OSLog
 protocol SharedArrClient: Actor, Sendable {
     var base: ArrAPIClient { get }
     var apiPath: String { get }
+
+    func getBackups() async throws -> [ArrBackup]
+    func createBackup() async throws
+    func downloadBackup(_ backup: ArrBackup) async throws -> Data
+    func restoreBackup(_ backup: ArrBackup) async throws
+    func uploadBackup(data: Data, filename: String) async throws
+    func deleteBackup(_ backup: ArrBackup) async throws
 }
 
 extension SharedArrClient {
@@ -82,6 +89,7 @@ extension SharedArrClient {
 
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.get("\(apiPath)/diskspace") }
     func getBackups() async throws -> [ArrBackup] { try await base.get("\(apiPath)/system/backup") }
+    func createBackup() async throws { _ = try await postCommand(name: "Backup") }
     func downloadBackup(_ backup: ArrBackup) async throws -> Data {
         let backupPath = backup.path?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let backupPath, !backupPath.isEmpty else {
@@ -92,8 +100,10 @@ extension SharedArrClient {
         return try await base.getData(path)
     }
     func restoreBackup(id: Int) async throws { try await base.postVoid("\(apiPath)/system/backup/restore/\(id)", queryItems: []) }
+    func restoreBackup(_ backup: ArrBackup) async throws { try await restoreBackup(id: backup.id) }
     func uploadBackup(data: Data, filename: String) async throws { try await base.postMultipartVoid("\(apiPath)/system/backup/restore/upload", fileData: data, fieldName: "restore", filename: filename) }
     func deleteBackup(id: Int) async throws { try await base.delete("\(apiPath)/system/backup/\(id)") }
+    func deleteBackup(_ backup: ArrBackup) async throws { try await deleteBackup(id: backup.id) }
     func getUpdates() async throws -> [ArrUpdateInfo] { try await base.get("\(apiPath)/update") }
     func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
     func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }

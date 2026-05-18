@@ -30,17 +30,14 @@ struct ArrUpdatesView: View {
                 )
             } else if let service = selectedService {
                 serviceContent(for: service)
-                    .id(service)
-                    .transition(.opacity)
             } else {
                 ProgressView()
                     .controlSize(.large)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .animation(.default, value: selectedService)
         .navigationTitle("Updates")
-        .moreDestinationBackground(.integrations)
+        .moreDestinationBackground(.updates)
         .safeAreaInset(edge: .top) {
             if availableServices.count > 1, let selected = selectedService {
                 TrawlSegmentBar(
@@ -147,6 +144,7 @@ struct ArrUpdatesView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
+        .animation(.default, value: data.allVersions.map(\.id))
     }
 }
 
@@ -230,10 +228,10 @@ private struct ChangelogEntryRow: View {
                         if isInstalling {
                             ProgressView().controlSize(.small).tint(.white)
                         }
-                        Label(
-                            isInstalling ? "Installing…" : "Install Update",
-                            systemImage: "arrow.down.circle.fill"
-                        )
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.circle.fill")
+                            Text(isInstalling ? "Installing…" : "Install Update")
+                        }
                         .frame(maxWidth: .infinity)
                     }
                 }
@@ -248,9 +246,12 @@ private struct ChangelogEntryRow: View {
     @ViewBuilder
     private func changeGroup(title: String, icon: String, color: Color, items: [String]) -> some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label(title, systemImage: icon)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(color)
+            HStack(spacing: 4) {
+                Image(systemName: icon)
+                Text(title)
+            }
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(color)
 
             ForEach(items, id: \.self) { item in
                 HStack(alignment: .top, spacing: 6) {

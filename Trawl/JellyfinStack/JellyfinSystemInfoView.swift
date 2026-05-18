@@ -67,7 +67,7 @@ struct JellyfinSystemInfoView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("System Info")
         .refreshable { await loadSystemInfo() }
         .task { await loadSystemInfo() }

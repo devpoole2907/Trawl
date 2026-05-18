@@ -91,7 +91,9 @@ struct ArrQualityProfilesListView: View {
         .navigationTitle("Quality Profiles")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
+        .scrollContentBackground(.hidden)
         #endif
+        .moreDestinationBackground(.qualityProfiles)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Service",

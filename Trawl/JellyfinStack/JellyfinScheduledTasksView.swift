@@ -75,7 +75,7 @@ struct JellyfinScheduledTasksView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .seerr))
+        .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .alert("Stop Scheduled Task?", isPresented: stopTaskAlertPresented) {
             Button("Cancel", role: .cancel) {
                 taskPendingStop = nil
@@ -95,54 +95,15 @@ struct JellyfinScheduledTasksView: View {
 
     @ViewBuilder
     private func taskRow(_ task: JellyfinScheduledTask, viewModel: JellyfinScheduledTasksViewModel) -> some View {
-        HStack(spacing: 12) {
-            Image(systemName: task.isRunning ? "clock.arrow.2.circlepath" : "clock")
-                .font(.title3)
-                .foregroundStyle(task.isRunning ? .green : .secondary)
-
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(task.name)
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-
-                    taskStateBadge(task)
-                }
-
-                if let description = task.description, !description.isEmpty {
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                if task.isRunning, let progress = task.currentProgressPercentage {
-                    ProgressView(value: progress, total: 100)
-                        .tint(.green)
-                }
-
-                if let result = task.lastExecutionResult {
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(result.isSuccess ? .green : .red)
-                            .frame(width: 6, height: 6)
-                        Text(result.statusBadge)
-                            .font(.caption2.weight(.medium))
-                            .foregroundStyle(result.isSuccess ? .green : .red)
-
-                        if let start = result.startTimeUtc, let end = result.endTimeUtc {
-                            Text("·")
-                                .foregroundStyle(.tertiary)
-                            Text(durationText(start: start, end: end))
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-
+        ScheduledTaskRowView(
+            icon: task.isRunning ? "clock.arrow.2.circlepath" : "clock",
+            iconColor: task.isRunning ? .green : .secondary,
+            title: task.name,
+            subtitle: task.description,
+            badge: ScheduledTaskRowBadge(task.stateBadge, color: stateColor(task.state)),
+            progress: task.isRunning ? task.currentProgressPercentage : nil,
+            result: taskResult(task.lastExecutionResult)
+        ) {
             if task.isRunning || task.isCancelling {
                 Button {
                     taskPendingStop = task
@@ -163,17 +124,6 @@ struct JellyfinScheduledTasksView: View {
                 .buttonStyle(.plain)
             }
         }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func taskStateBadge(_ task: JellyfinScheduledTask) -> some View {
-        Text(task.stateBadge)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(stateColor(task.state).opacity(0.15), in: Capsule())
-            .foregroundStyle(stateColor(task.state))
     }
 
     private func stateColor(_ state: String) -> Color {
@@ -182,6 +132,21 @@ struct JellyfinScheduledTasksView: View {
         case "Cancelling": .orange
         default: .secondary
         }
+    }
+
+    private func taskResult(_ result: JellyfinScheduledTaskResult?) -> ScheduledTaskRowResult? {
+        guard let result else { return nil }
+
+        var detail: String?
+        if let start = result.startTimeUtc, let end = result.endTimeUtc {
+            detail = durationText(start: start, end: end)
+        }
+
+        return ScheduledTaskRowResult(
+            title: result.statusBadge,
+            detail: detail,
+            color: result.isSuccess ? .green : .red
+        )
     }
 
     private var groupedCategories: [(key: String, value: [JellyfinScheduledTask])] {
