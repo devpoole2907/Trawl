@@ -4,7 +4,7 @@ import Security
 final class ServerTrustPolicy: NSObject, URLSessionDelegate, URLSessionTaskDelegate, Sendable {
     private let allowsUntrustedTLS: Bool
 
-    /// Headers stripped on cross-host redirects so an attacker controlling a
+    /// Headers stripped on cross-origin redirects so an attacker controlling a
     /// redirector cannot exfiltrate a Trawl-managed API key or session cookie
     /// to an unrelated host.
     private static let sensitiveHeaders: Set<String> = [
@@ -13,6 +13,22 @@ final class ServerTrustPolicy: NSObject, URLSessionDelegate, URLSessionTaskDeleg
         "X-API-KEY",
         "Cookie"
     ]
+
+    private struct Origin: Equatable {
+        let scheme: String
+        let host: String
+        let port: Int?
+
+        init?(url: URL?) {
+            guard let scheme = url?.scheme?.lowercased(),
+                  let host = url?.host?.lowercased() else {
+                return nil
+            }
+            self.scheme = scheme
+            self.host = host
+            self.port = url?.port
+        }
+    }
 
     init(allowsUntrustedTLS: Bool) {
         self.allowsUntrustedTLS = allowsUntrustedTLS
@@ -43,9 +59,9 @@ final class ServerTrustPolicy: NSObject, URLSessionDelegate, URLSessionTaskDeleg
         newRequest request: URLRequest,
         completionHandler: @escaping @Sendable (URLRequest?) -> Void
     ) {
-        let originalHost = task.originalRequest?.url?.host?.lowercased()
-        let newHost = request.url?.host?.lowercased()
-        guard originalHost != newHost else {
+        let originalOrigin = Origin(url: task.originalRequest?.url)
+        let newOrigin = Origin(url: request.url)
+        if let originalOrigin, originalOrigin == newOrigin {
             completionHandler(request)
             return
         }

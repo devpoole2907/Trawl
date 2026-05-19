@@ -223,6 +223,20 @@ actor JellyfinAPIClient {
         return response.items
     }
 
+    func getDevices() async throws -> [JellyfinDeviceInfo] {
+        let response: JellyfinDevicesResponse = try await get("/Devices")
+        return response.items
+    }
+
+    func getChannels() async throws -> [JellyfinLibraryItem] {
+        let response: JellyfinItemsResponse = try await get("/Channels")
+        return response.items
+    }
+
+    func getParentalRatings() async throws -> [JellyfinParentalRating] {
+        try await get("/Library/ParentalRatings")
+    }
+
     func refreshAllLibraries() async throws {
         try await postEmpty("/Library/Refresh")
     }

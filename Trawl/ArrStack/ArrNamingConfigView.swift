@@ -39,16 +39,16 @@ struct ArrNamingConfigView: View {
                     systemImage: "exclamationmark.triangle",
                     description: Text(error)
                 )
-            } else if selectedService == .sonarr, let config = sonarrConfig {
-                sonarrForm(config: config)
-            } else if selectedService == .radarr, let config = radarrConfig {
-                radarrForm(config: config)
             } else if !isConnected {
                 ContentUnavailableView(
                     "\(selectedService.displayName) Unreachable",
                     systemImage: "network.slash",
                     description: Text("Check your server connection and try again.")
                 )
+            } else if selectedService == .sonarr, let config = sonarrConfig {
+                sonarrForm(config: config)
+            } else if selectedService == .radarr, let config = radarrConfig {
+                radarrForm(config: config)
             }
         }
         .navigationTitle("Naming")

@@ -603,6 +603,7 @@ final class ManualImportScanViewModel {
         catalogMovieResults = []
         catalogSeriesResults = []
         isSearchingCatalog = false
+        lastAutoSuggestionFilename = nil
     }
 
     func loadInLibraryStatus() async {
@@ -683,6 +684,7 @@ final class ManualImportScanViewModel {
         }
         let term = extractTitleFromFilename(filename)
         guard !term.isEmpty else {
+            lastAutoSuggestionFilename = nil
             withAnimation(.snappy) { isLoadingAutoSuggestions = false }
             return
         }
@@ -690,6 +692,7 @@ final class ManualImportScanViewModel {
             switch service {
             case .radarr:
                 guard let client = serviceManager.radarrClient else {
+                    lastAutoSuggestionFilename = nil
                     withAnimation(.snappy) { isLoadingAutoSuggestions = false }
                     return
                 }
@@ -700,6 +703,7 @@ final class ManualImportScanViewModel {
                 }
             case .sonarr:
                 guard let client = serviceManager.sonarrClient else {
+                    lastAutoSuggestionFilename = nil
                     withAnimation(.snappy) { isLoadingAutoSuggestions = false }
                     return
                 }
@@ -709,9 +713,11 @@ final class ManualImportScanViewModel {
                     isLoadingAutoSuggestions = false
                 }
             case .prowlarr, .bazarr:
+                lastAutoSuggestionFilename = nil
                 withAnimation(.snappy) { isLoadingAutoSuggestions = false }
             }
         } catch {
+            lastAutoSuggestionFilename = nil
             withAnimation(.snappy) { isLoadingAutoSuggestions = false }
         }
     }

@@ -234,6 +234,11 @@ struct ArrQualityProfileDetailView: View {
         profile.flattenedQualities.filter { !$0.allowed }
     }
 
+    private var hasFormatScoring: Bool {
+        profile.minFormatScore != nil || profile.cutoffFormatScore != nil ||
+        profile.minUpgradeFormatScore != nil || !(profile.formatItems?.isEmpty ?? true)
+    }
+
     var body: some View {
         List {
             Section {
@@ -284,6 +289,38 @@ struct ArrQualityProfileDetailView: View {
                 Section("Blocked Qualities") {
                     ForEach(blockedQualities) { quality in
                         qualityRow(for: quality, tint: .orange)
+                    }
+                }
+            }
+
+            if hasFormatScoring {
+                Section("Custom Format Scoring") {
+                    if let min = profile.minFormatScore {
+                        LabeledContent("Minimum Score") {
+                            Text("\(min)").foregroundStyle(.secondary)
+                        }
+                    }
+                    if let cutoff = profile.cutoffFormatScore {
+                        LabeledContent("Cutoff Score") {
+                            Text("\(cutoff)").foregroundStyle(.secondary)
+                        }
+                    }
+                    if let minUpgrade = profile.minUpgradeFormatScore {
+                        LabeledContent("Minimum Upgrade Score") {
+                            Text("\(minUpgrade)").foregroundStyle(.secondary)
+                        }
+                    }
+                    if let items = profile.formatItems, !items.isEmpty {
+                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                            let name = item.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Format #\(item.format ?? 0)"
+                            LabeledContent(name) {
+                                if let score = item.score {
+                                    Text(score > 0 ? "+\(score)" : "\(score)")
+                                        .foregroundStyle(score > 0 ? .green : score < 0 ? .red : .secondary)
+                                        .monospacedDigit()
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -362,6 +399,14 @@ private struct ArrQualityProfileSummaryRow: View {
                         Text(profile.upgradeAllowed == true ? "Upgrades On" : "Upgrades Off")
                     }
                     .foregroundStyle(profile.upgradeAllowed == true ? .blue : .secondary)
+
+                    if profile.hasActiveCustomFormatScoring {
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.circle")
+                            Text("CF")
+                        }
+                        .foregroundStyle(.purple)
+                    }
                 }
                 .font(.caption)
             }
@@ -603,6 +648,11 @@ private struct ArrQualityProfileEditorView: View {
 }
 
 private extension ArrQualityProfile {
+    var hasActiveCustomFormatScoring: Bool {
+        if (minFormatScore ?? 0) > 0 || (cutoffFormatScore ?? 0) > 0 { return true }
+        return formatItems?.contains { ($0.score ?? 0) != 0 } ?? false
+    }
+
     var flattenedQualities: [ArrQualityProfileQuality] {
         var seen = Set<String>()
         return flatten(items: items, inheritedAllowed: nil).filter { seen.insert($0.id).inserted }

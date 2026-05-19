@@ -812,10 +812,10 @@ struct RadarrMovieDetailView: View {
         }
         let df = Self.fallbackDateFormatter
         if let date = df.date(from: string) {
-            df.dateStyle = .medium; df.dateFormat = nil
-            let result = df.string(from: date)
-            df.dateFormat = "yyyy-MM-dd"
-            return result
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateStyle = .medium
+            outputFormatter.timeStyle = .none
+            return outputFormatter.string(from: date)
         }
         return string
     }

@@ -199,8 +199,10 @@ struct StreamingSearchTracker<Result> {
     func stream(_ items: [Result], token: UUID, onAppend: @MainActor @Sendable (Result) -> Void) async {
         for item in items {
             guard !Task.isCancelled && isCurrent(token) else { break }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                onAppend(item)
+            await MainActor.run {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    onAppend(item)
+                }
             }
             try? await Task.sleep(for: .milliseconds(40))
         }

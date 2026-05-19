@@ -561,47 +561,53 @@ private struct DirectIndexerFieldRow: View {
     @Binding var fieldValues: [String: ArrIndexerFieldValue]
 
     var body: some View {
-        let label = field.label ?? field.name ?? ""
-        let key = field.name ?? ""
+        let label = field.label ?? field.name ?? "Field"
 
         VStack(alignment: .leading, spacing: 6) {
-            switch field.type {
-            case "checkbox":
-                Toggle(label, isOn: boolBinding(for: key))
+            if let key = field.name {
+                switch field.type {
+                case "checkbox":
+                    Toggle(label, isOn: boolBinding(for: key))
 
-            case "select":
-                if let options = field.selectOptions, !options.isEmpty {
-                    Picker(label, selection: intBinding(for: key)) {
-                        ForEach(options) { option in
-                            Text(option.name ?? "Unknown")
-                                .tag(option.value ?? 0)
+                case "select":
+                    if let options = field.selectOptions, !options.isEmpty {
+                        Picker(label, selection: intBinding(for: key)) {
+                            ForEach(options) { option in
+                                Text(option.name ?? "Unknown")
+                                    .tag(option.value ?? 0)
+                            }
                         }
                     }
-                }
 
-            case "password":
-                LabeledContent(label) {
-                    SecureField(field.placeholder ?? label, text: stringBinding(for: key))
-                        .multilineTextAlignment(.trailing)
-                }
+                case "password":
+                    LabeledContent(label) {
+                        SecureField(field.placeholder ?? label, text: stringBinding(for: key))
+                            .multilineTextAlignment(.trailing)
+                    }
 
-            case "number":
-                LabeledContent(label) {
-                    TextField(field.placeholder ?? label, text: numberStringBinding(for: key, isFloat: field.isFloat == true))
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .keyboardType(field.isFloat == true ? .decimalPad : .numberPad)
-                        #endif
-                }
+                case "number":
+                    LabeledContent(label) {
+                        TextField(field.placeholder ?? label, text: numberStringBinding(for: key, isFloat: field.isFloat == true))
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .keyboardType(field.isFloat == true ? .decimalPad : .numberPad)
+                            #endif
+                    }
 
-            default:
+                default:
+                    LabeledContent(label) {
+                        TextField(field.placeholder ?? label, text: stringBinding(for: key))
+                            .multilineTextAlignment(.trailing)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
+                    }
+                }
+            } else {
                 LabeledContent(label) {
-                    TextField(field.placeholder ?? label, text: stringBinding(for: key))
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
+                    Text(field.value?.displayString ?? "Unavailable")
+                        .foregroundStyle(.secondary)
                 }
             }
 

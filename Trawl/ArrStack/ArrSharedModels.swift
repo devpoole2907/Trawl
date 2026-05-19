@@ -917,7 +917,7 @@ struct ArrQualityDefinition: Codable, Identifiable, Sendable {
 // MARK: - Scheduled Tasks
 
 struct ArrScheduledTask: Codable, Identifiable, Sendable {
-    var id: String { taskName ?? name ?? UUID().uuidString }
+    let id: String
     let name: String?
     let taskName: String?
     let interval: Int?          // minutes
@@ -926,6 +926,45 @@ struct ArrScheduledTask: Codable, Identifiable, Sendable {
     let nextExecution: String?
     let lastStartMessage: String?
     let isRunning: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case name, taskName, interval, lastExecution, lastDuration, nextExecution, lastStartMessage, isRunning
+    }
+
+    init(
+        id: String? = nil,
+        name: String?,
+        taskName: String?,
+        interval: Int?,
+        lastExecution: String?,
+        lastDuration: String?,
+        nextExecution: String?,
+        lastStartMessage: String?,
+        isRunning: Bool?
+    ) {
+        self.id = id ?? taskName ?? name ?? UUID().uuidString
+        self.name = name
+        self.taskName = taskName
+        self.interval = interval
+        self.lastExecution = lastExecution
+        self.lastDuration = lastDuration
+        self.nextExecution = nextExecution
+        self.lastStartMessage = lastStartMessage
+        self.isRunning = isRunning
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        taskName = try container.decodeIfPresent(String.self, forKey: .taskName)
+        interval = try container.decodeIfPresent(Int.self, forKey: .interval)
+        lastExecution = try container.decodeIfPresent(String.self, forKey: .lastExecution)
+        lastDuration = try container.decodeIfPresent(String.self, forKey: .lastDuration)
+        nextExecution = try container.decodeIfPresent(String.self, forKey: .nextExecution)
+        lastStartMessage = try container.decodeIfPresent(String.self, forKey: .lastStartMessage)
+        isRunning = try container.decodeIfPresent(Bool.self, forKey: .isRunning)
+        id = taskName ?? name ?? UUID().uuidString
+    }
 }
 
 // MARK: - Blocklist

@@ -58,11 +58,16 @@ nonisolated struct JellyfinUser: Codable, Identifiable, Sendable {
     }
 }
 
-nonisolated struct JellyfinUserPolicy: Codable, Sendable {
+nonisolated struct JellyfinUserPolicy: Codable, Equatable, Sendable {
     var isAdministrator: Bool?
     var isHidden: Bool?
     var isDisabled: Bool?
     var enableContentDeletion: Bool?
+    var enableContentDeletionFromFolders: [String]?
+    var enableContentDownloading: Bool?
+    var enableCollectionManagement: Bool?
+    var enableSubtitleManagement: Bool?
+    var enableLyricManagement: Bool?
     var enableMediaPlayback: Bool?
     var enableAudioPlaybackTranscoding: Bool?
     var enableVideoPlaybackTranscoding: Bool?
@@ -72,14 +77,43 @@ nonisolated struct JellyfinUserPolicy: Codable, Sendable {
     var enableSyncTranscoding: Bool?
     var enableMediaConversion: Bool?
     var enableSharedDeviceControl: Bool?
+    var enableRemoteControlOfOtherUsers: Bool?
     var enableRemoteAccess: Bool?
     var enableUserPreferenceAccess: Bool?
+    var enablePublicSharing: Bool?
+    var enableAllDevices: Bool?
+    var enabledDevices: [String]?
+    var enableAllChannels: Bool?
+    var enabledChannels: [String]?
+    var blockedChannels: [String]?
+    var enableAllFolders: Bool?
+    var enabledFolders: [String]?
+    var blockedMediaFolders: [String]?
+    var allowedTags: [String]?
+    var blockedTags: [String]?
+    var blockUnratedItems: [String]?
+    var maxParentalRating: Int?
+    var maxParentalSubRating: Int?
+    var accessSchedules: [JellyfinAccessSchedule]?
+    var remoteClientBitrateLimit: Int?
+    var authenticationProviderId: String?
+    var passwordResetProviderId: String?
+    var syncPlayAccess: String?
+    var invalidLoginAttemptCount: Int?
+    var loginAttemptsBeforeLockout: Int?
+    var maxActiveSessions: Int?
+    var forceRemoteSourceTranscoding: Bool?
 
     enum CodingKeys: String, CodingKey {
         case isAdministrator = "IsAdministrator"
         case isHidden = "IsHidden"
         case isDisabled = "IsDisabled"
         case enableContentDeletion = "EnableContentDeletion"
+        case enableContentDeletionFromFolders = "EnableContentDeletionFromFolders"
+        case enableContentDownloading = "EnableContentDownloading"
+        case enableCollectionManagement = "EnableCollectionManagement"
+        case enableSubtitleManagement = "EnableSubtitleManagement"
+        case enableLyricManagement = "EnableLyricManagement"
         case enableMediaPlayback = "EnableMediaPlayback"
         case enableAudioPlaybackTranscoding = "EnableAudioPlaybackTranscoding"
         case enableVideoPlaybackTranscoding = "EnableVideoPlaybackTranscoding"
@@ -89,8 +123,90 @@ nonisolated struct JellyfinUserPolicy: Codable, Sendable {
         case enableSyncTranscoding = "EnableSyncTranscoding"
         case enableMediaConversion = "EnableMediaConversion"
         case enableSharedDeviceControl = "EnableSharedDeviceControl"
+        case enableRemoteControlOfOtherUsers = "EnableRemoteControlOfOtherUsers"
         case enableRemoteAccess = "EnableRemoteAccess"
         case enableUserPreferenceAccess = "EnableUserPreferenceAccess"
+        case enablePublicSharing = "EnablePublicSharing"
+        case enableAllDevices = "EnableAllDevices"
+        case enabledDevices = "EnabledDevices"
+        case enableAllChannels = "EnableAllChannels"
+        case enabledChannels = "EnabledChannels"
+        case blockedChannels = "BlockedChannels"
+        case enableAllFolders = "EnableAllFolders"
+        case enabledFolders = "EnabledFolders"
+        case blockedMediaFolders = "BlockedMediaFolders"
+        case allowedTags = "AllowedTags"
+        case blockedTags = "BlockedTags"
+        case blockUnratedItems = "BlockUnratedItems"
+        case maxParentalRating = "MaxParentalRating"
+        case maxParentalSubRating = "MaxParentalSubRating"
+        case accessSchedules = "AccessSchedules"
+        case remoteClientBitrateLimit = "RemoteClientBitrateLimit"
+        case authenticationProviderId = "AuthenticationProviderId"
+        case passwordResetProviderId = "PasswordResetProviderId"
+        case syncPlayAccess = "SyncPlayAccess"
+        case invalidLoginAttemptCount = "InvalidLoginAttemptCount"
+        case loginAttemptsBeforeLockout = "LoginAttemptsBeforeLockout"
+        case maxActiveSessions = "MaxActiveSessions"
+        case forceRemoteSourceTranscoding = "ForceRemoteSourceTranscoding"
+    }
+}
+
+// Returned by GET /Devices.
+nonisolated struct JellyfinDevicesResponse: Decodable, Sendable {
+    let items: [JellyfinDeviceInfo]
+    let totalRecordCount: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case items = "Items"
+        case totalRecordCount = "TotalRecordCount"
+    }
+}
+
+nonisolated struct JellyfinDeviceInfo: Decodable, Identifiable, Sendable {
+    let id: String
+    let name: String?
+    let appName: String?
+    let lastUserName: String?
+
+    var displayName: String {
+        guard let name else { return id }
+        if let appName, !appName.isEmpty { return "\(name) (\(appName))" }
+        return name
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case name = "Name"
+        case appName = "AppName"
+        case lastUserName = "LastUserName"
+    }
+}
+
+// Returned by GET /Library/ParentalRatings. Score is the integer used in
+// MaxParentalRating; nil Score means the rating has no numeric rank (e.g. "Unrated").
+nonisolated struct JellyfinParentalRating: Decodable, Identifiable, Sendable {
+    let name: String?
+    let score: Int?
+
+    var id: String { name ?? "" }
+    var displayName: String { name ?? "?" }
+
+    enum CodingKeys: String, CodingKey {
+        case name = "Name"
+        case score = "Score"
+    }
+}
+
+nonisolated struct JellyfinAccessSchedule: Codable, Equatable, Sendable {
+    var dayOfWeek: String?
+    var startHour: Double?
+    var endHour: Double?
+
+    enum CodingKeys: String, CodingKey {
+        case dayOfWeek = "DayOfWeek"
+        case startHour = "StartHour"
+        case endHour = "EndHour"
     }
 }
 

@@ -9,8 +9,13 @@ struct UnifiedUserListView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var viewModel: UnifiedUserViewModel?
+    @State private var viewModelSeerrClientID: ObjectIdentifier?
     @State private var showingAddUser = false
     @State private var showingJellyfinImport = false
+
+    private var seerrClientID: ObjectIdentifier? {
+        seerrClient.map(ObjectIdentifier.init)
+    }
 
     var body: some View {
         Group {
@@ -25,14 +30,17 @@ struct UnifiedUserListView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .task {
-            if viewModel == nil {
+        .task(id: seerrClientID) {
+            if viewModel == nil || viewModelSeerrClientID != seerrClientID {
                 viewModel = UnifiedUserViewModel(
                     jellyfinClient: jellyfinClient,
                     seerrClient: seerrClient
                 )
+                viewModelSeerrClientID = seerrClientID
+                await viewModel?.load()
+            } else {
+                await viewModel?.loadIfNeeded()
             }
-            await viewModel?.loadIfNeeded()
         }
     }
 
