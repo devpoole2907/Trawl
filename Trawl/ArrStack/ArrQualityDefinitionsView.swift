@@ -74,7 +74,6 @@ struct ArrQualityDefinitionsView: View {
             }
         }
         .navigationTitle("Quality Definitions")
-        .navigationSubtitle(selectedService.displayName)
         .moreDestinationBackground(.qualityDefinitions)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(

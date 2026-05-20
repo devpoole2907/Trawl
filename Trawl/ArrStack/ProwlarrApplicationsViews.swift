@@ -17,7 +17,8 @@ struct ProwlarrApplicationsListView: View {
 
     var body: some View {
         content(viewModel: viewModel)
-        .navigationTitle("Prowlarr Linked Apps")
+        .navigationTitle("Linked Apps")
+        .navigationSubtitle("Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

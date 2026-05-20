@@ -307,7 +307,10 @@ private struct HistoryRow: View {
 
                 HStack(spacing: 6) {
                     if let indexerName = item.indexerName, !indexerName.isEmpty {
-                        Label(indexerName, systemImage: "magnifyingglass")
+                        HStack(spacing: 4) {
+                            Image(systemName: "magnifyingglass")
+                            Text(indexerName)
+                        }
                     }
                     if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
                         Text(quality)

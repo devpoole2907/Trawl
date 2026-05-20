@@ -29,10 +29,19 @@ struct QBittorrentLogView: View {
     @State private var isLoading = false
     @State private var loadError: ErrorAlertItem?
     @State private var filter: QBLogFilter = .all
+    @State private var searchText = ""
+    @State private var isSearchExpanded = false
 
     private var displayed: [QBittorrentLogEntry] {
-        guard let typeValue = filter.typeValue else { return entries }
-        return entries.filter { $0.type == typeValue }
+        var results = entries
+        if let typeValue = filter.typeValue {
+            results = results.filter { $0.type == typeValue }
+        }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !query.isEmpty {
+            results = results.filter { $0.message.localizedCaseInsensitiveContains(query) }
+        }
+        return results
     }
 
     var body: some View {
@@ -63,7 +72,8 @@ struct QBittorrentLogView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        .navigationTitle("qBittorrent Log")
+        .navigationTitle("Logs")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -75,7 +85,11 @@ struct QBittorrentLogView: View {
                     get: { filter },
                     set: { newFilter in withAnimation { filter = newFilter } }
                 ),
-                items: QBLogFilter.allCases.map(\.segmentBarItem)
+                items: QBLogFilter.allCases.map(\.segmentBarItem),
+                searchText: $searchText,
+                searchHint: "Search log",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading
             )
         }
         .errorAlert(item: $loadError)
@@ -119,35 +133,19 @@ struct QBittorrentLogView: View {
 private struct QBLogRow: View {
     let entry: QBittorrentLogEntry
 
-    private var date: Date {
-        Date(timeIntervalSince1970: Double(entry.timestamp))
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .center) {
-                severityBadge
-                Spacer()
-                Text(date, style: .relative)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-            Text(entry.message)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .textSelection(.enabled)
+        LogEntryRow(
+            message: entry.message,
+            timestamp: Date(timeIntervalSince1970: Double(entry.timestamp))
+                .formatted(date: .abbreviated, time: .standard)
+        ) {
+            Text(severityLabel)
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(severityColor.opacity(0.15), in: Capsule())
+                .foregroundStyle(severityColor)
         }
-        .padding(.vertical, 2)
-    }
-
-    private var severityBadge: some View {
-        Text(severityLabel)
-            .font(.caption2.weight(.bold))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(severityColor.opacity(0.15))
-            .foregroundStyle(severityColor)
-            .clipShape(Capsule())
     }
 
     private var severityLabel: String {

@@ -55,7 +55,8 @@ struct SeerrLogsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
-        .navigationTitle("Seerr Logs")
+        .navigationTitle("Logs")
+        .navigationSubtitle("Seerr")
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Level",

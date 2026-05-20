@@ -89,7 +89,6 @@ struct ArrQualityProfilesListView: View {
             }
         }
         .navigationTitle("Quality Profiles")
-        .navigationSubtitle(selectedService.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)

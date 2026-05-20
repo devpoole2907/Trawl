@@ -99,6 +99,28 @@ struct UnifiedUserListView: View {
                             } label: {
                                 UnifiedUserRowView(user: user, seerrBaseURL: seerrBaseURL)
                             }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                if let seerr = user.seerrUser, let client = seerrClient {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            try? await client.deleteUser(id: seerr.id)
+                                            viewModel.removeSeerrUser(seerr)
+                                        }
+                                    } label: {
+                                        Label("Remove from Seerr", systemImage: "person.badge.minus")
+                                    }
+                                }
+                                if let jf = user.jellyfinUser, !user.isInSeerr {
+                                    Button(role: .destructive) {
+                                        Task {
+                                            try? await jellyfinClient.deleteUser(id: jf.id)
+                                            viewModel.removeJellyfinUser(jf)
+                                        }
+                                    } label: {
+                                        Label("Delete from Jellyfin", systemImage: "trash")
+                                    }
+                                }
+                            }
                         }
                     } header: {
                         Text("\(viewModel.users.count) \(viewModel.users.count == 1 ? "user" : "users")")

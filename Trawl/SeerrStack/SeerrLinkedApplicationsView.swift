@@ -16,7 +16,8 @@ struct SeerrLinkedApplicationsView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Seerr Linked Apps")
+        .navigationTitle("Linked Apps")
+        .navigationSubtitle("Seerr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

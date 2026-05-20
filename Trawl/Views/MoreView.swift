@@ -623,7 +623,8 @@ struct MoreView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .navigationTitle("Prowlarr Linked Apps")
+            .navigationTitle("Linked Apps")
+            .navigationSubtitle("Prowlarr")
         } else {
             ContentUnavailableView {
                 Label("Prowlarr Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
@@ -634,7 +635,8 @@ struct MoreView: View {
                     path = [.settings]
                 }
             }
-            .navigationTitle("Prowlarr Linked Apps")
+            .navigationTitle("Linked Apps")
+            .navigationSubtitle("Prowlarr")
         }
     }
 
@@ -654,7 +656,8 @@ struct MoreView: View {
                 }
                 .buttonStyle(.bordered)
             }
-            .navigationTitle("Bazarr Linked Apps")
+            .navigationTitle("Linked Apps")
+            .navigationSubtitle("Bazarr")
         } else {
             ContentUnavailableView {
                 Label("Bazarr Not Set Up", systemImage: ServiceIdentity.bazarr.tabSystemImage)
@@ -665,7 +668,8 @@ struct MoreView: View {
                     path = [.settings]
                 }
             }
-            .navigationTitle("Bazarr Linked Apps")
+            .navigationTitle("Linked Apps")
+            .navigationSubtitle("Bazarr")
         }
     }
 

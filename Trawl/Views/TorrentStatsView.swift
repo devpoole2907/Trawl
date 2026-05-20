@@ -94,6 +94,7 @@ struct TorrentStatsView: View {
         .scrollContentBackground(.hidden)
         .moreDestinationBackground(.transferStats)
         .navigationTitle("Transfer Stats")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

@@ -114,7 +114,7 @@ struct ArrWantedView: View {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
-                                    WantedEpisodeRow(episode: episode) {
+                                    WantedEpisodeRow(episode: episode, viewModel: sonarrViewModel) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -140,7 +140,7 @@ struct ArrWantedView: View {
                         if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
                             Section("Movies") {
                                 ForEach(radarrViewModel.wantedMovies) { movie in
-                                    WantedMovieRow(movie: movie) {
+                                    WantedMovieRow(movie: movie, viewModel: radarrViewModel) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -189,11 +189,11 @@ struct ArrWantedView: View {
                         }
                     }
                     .scrollContentBackground(.hidden)
-                    .background(backgroundGradient)
                 }
             }
         }
         .navigationTitle("Wanted / Missing")
+        .background(backgroundGradient)
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: platformCancellationPlacement) {
@@ -477,11 +477,40 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
+    let viewModel: SonarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
+        HStack(spacing: 12) {
+            NavigationLink {
+                SonarrSeriesDetailView(seriesId: episode.seriesId ?? 0, viewModel: viewModel)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Search", systemImage: "magnifyingglass") {
+                    Task {
+                        isSearching = true
+                        async let search: Void = onSearch()
+                        async let minDelay: Void = { try? await Task.sleep(for: .seconds(1.5)) }()
+                        _ = await (search, minDelay)
+                        isSearching = false
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .contentShape(Rectangle())
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 12) {
             ArrArtworkView(url: episode.series?.posterURL) {
                 ZStack {
@@ -513,24 +542,7 @@ private struct WantedEpisodeRow: View {
             }
 
             Spacer()
-
-            if isSearching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Search", systemImage: "magnifyingglass") {
-                    Task {
-                        isSearching = true
-                        async let search: Void = onSearch()
-                        async let minDelay: Void = { try? await Task.sleep(for: .seconds(1.5)) }()
-                        _ = await (search, minDelay)
-                        isSearching = false
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .contentShape(Rectangle())
-            }
         }
-        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 
@@ -547,11 +559,38 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
+    let viewModel: RadarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
+        HStack(spacing: 12) {
+            NavigationLink {
+                RadarrMovieDetailView(movieId: movie.id, viewModel: viewModel)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Search", systemImage: "magnifyingglass") {
+                    Task {
+                        isSearching = true
+                        await onSearch()
+                        isSearching = false
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .contentShape(Rectangle())
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var rowContent: some View {
         HStack(spacing: 12) {
             ArrArtworkView(url: movie.posterURL) {
                 ZStack {
@@ -586,22 +625,7 @@ private struct WantedMovieRow: View {
             }
 
             Spacer()
-
-            if isSearching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Search", systemImage: "magnifyingglass") {
-                    Task {
-                        isSearching = true
-                        await onSearch()
-                        isSearching = false
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .contentShape(Rectangle())
-            }
         }
-        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 }

@@ -52,7 +52,6 @@ struct ArrNamingConfigView: View {
             }
         }
         .navigationTitle("Naming")
-        .navigationSubtitle(selectedService.displayName)
         .moreDestinationBackground(selectedService == .sonarr ? .sonarrNaming : .radarrNaming)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
