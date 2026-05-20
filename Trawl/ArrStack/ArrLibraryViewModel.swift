@@ -73,6 +73,8 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
         do {
             return try await work(client)
+        } catch is CancellationError {
+            return nil
         } catch {
             captureAndNotify(error, title: "Load Failed")
             return nil
@@ -256,9 +258,14 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     @ObservationIgnored let jellyfinManager: JellyfinServiceManager?
     @ObservationIgnored private var jellyfinLibraryItems: [JellyfinLibraryItem] = []
 
+    private let defaultSort: Sort
+
+    var isNonDefaultSortOrder: Bool { sortOrder != defaultSort }
+
     init(serviceManager: ArrServiceManager, client: Client?, jellyfinManager: JellyfinServiceManager? = nil, defaultFilter: Filter, defaultSort: Sort) {
         self.selectedFilter = defaultFilter
         self.sortOrder = defaultSort
+        self.defaultSort = defaultSort
         self.jellyfinManager = jellyfinManager
         super.init(serviceManager: serviceManager, client: client)
     }
@@ -637,6 +644,7 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     var searchText: String { get set }
     var selectedFilter: Filter { get set }
     var sortOrder: Sort { get set }
+    var isNonDefaultSortOrder: Bool { get }
     var isLoading: Bool { get }
     var items: [Item] { get }
     var queue: [ArrQueueItem] { get }

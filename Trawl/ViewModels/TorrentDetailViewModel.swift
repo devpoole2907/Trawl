@@ -19,11 +19,13 @@ final class TorrentDetailViewModel {
 
     private let torrentService: TorrentService
     private let syncService: SyncService
+    private let notificationCenter: InAppNotificationCenter
 
-    init(torrentHash: String, torrentService: TorrentService, syncService: SyncService) {
+    init(torrentHash: String, torrentService: TorrentService, syncService: SyncService, notificationCenter: InAppNotificationCenter? = nil) {
         self.torrentHash = torrentHash
         self.torrentService = torrentService
         self.syncService = syncService
+        self.notificationCenter = notificationCenter ?? .shared
     }
 
     /// Live torrent data from sync
@@ -99,6 +101,8 @@ final class TorrentDetailViewModel {
             try await torrentService.pauseTorrents(hashes: [torrentHash])
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
+            notificationCenter.showSuccess(title: "Paused", message: torrent?.name ?? "")
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Pause Torrent",
@@ -112,6 +116,8 @@ final class TorrentDetailViewModel {
             try await torrentService.resumeTorrents(hashes: [torrentHash])
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
+            notificationCenter.showSuccess(title: "Resumed", message: torrent?.name ?? "")
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Resume Torrent",
@@ -125,6 +131,8 @@ final class TorrentDetailViewModel {
             try await torrentService.recheckTorrents(hashes: [torrentHash])
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
+            notificationCenter.showSuccess(title: "Rechecking", message: torrent?.name ?? "")
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Recheck Torrent",
@@ -135,9 +143,12 @@ final class TorrentDetailViewModel {
 
     func deleteTorrent(deleteFiles: Bool) async -> Bool {
         do {
+            let name = torrent?.name ?? ""
             try await torrentService.deleteTorrents(hashes: [torrentHash], deleteFiles: deleteFiles)
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
+            notificationCenter.showSuccess(title: "Deleted", message: name)
             return true
         } catch {
             actionErrorAlert = ErrorAlertItem(
@@ -154,6 +165,7 @@ final class TorrentDetailViewModel {
             try await torrentService.renameTorrent(hash: torrentHash, name: newName)
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Rename Torrent",
@@ -168,6 +180,7 @@ final class TorrentDetailViewModel {
             try await torrentService.setTorrentLocation(hashes: [torrentHash], location: path)
             error = nil
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Move Torrent",

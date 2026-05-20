@@ -53,6 +53,7 @@ struct BazarrMovieDetailView: View {
             }
         }
         .task { await load() }
+        .refreshable { await load() }
     }
 
     private var contentView: some View {

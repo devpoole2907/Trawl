@@ -55,6 +55,7 @@ enum MoreDestination: Hashable {
     case unifiedUsers
     case logsAndEvents
     case arrEvents
+    case qbittorrentLog
     case tasksHub
     case arrTasks
     case seerrJobs
@@ -484,11 +485,14 @@ struct MoreView: View {
                     JellyfinSettingsView()
                         .moreDestinationTitleStyle()
                 case .logsAndEvents:
-                    LogsAndEventsHubView()
+                    LogsAndEventsHubView(hasQBittorrentLog: appServices != nil)
                         .moreDestinationTitleStyle()
                 case .arrEvents:
                     ArrEventsView()
                         .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .qbittorrentLog:
+                    qbittorrentLogDestination
                         .moreDestinationTitleStyle()
                 case .tasksHub:
                     TasksHubView(jellyfinProfile: jellyfinProfile)
@@ -785,6 +789,30 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
             } description: {
                 Text("Add a qBittorrent server in Settings before managing categories and tags.")
+            } actions: {
+                Button("Open Settings") {
+                    path = [.settings]
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var qbittorrentLogDestination: some View {
+        if let services = appServices {
+            QBittorrentLogView()
+                .environment(services.torrentService)
+        } else if hasQBittorrentServer {
+            ContentUnavailableView {
+                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
+            } description: {
+                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+            }
+        } else {
+            ContentUnavailableView {
+                Label("qBittorrent Not Set Up", systemImage: "doc.text")
+            } description: {
+                Text("Add a qBittorrent server in Settings to view server logs.")
             } actions: {
                 Button("Open Settings") {
                     path = [.settings]
@@ -1424,6 +1452,16 @@ private enum MoreSearchIndex {
                 subtitle: "Server logs and activity across all services",
                 category: "Operations",
                 keywords: ["events", "activity", "history", "server"]
+            ),
+            .init(
+                id: "qbittorrent-log",
+                destination: .qbittorrentLog,
+                icon: "doc.text.fill",
+                color: ServiceIdentity.qbittorrent.brandColor,
+                title: "qBittorrent Log",
+                subtitle: "Application events and warnings from qBittorrent",
+                category: "Logs",
+                keywords: ["qbittorrent", "log", "events", "warnings", "errors"]
             ),
             .init(
                 id: "arr-events",
@@ -2252,6 +2290,7 @@ private struct RequestManagementView: View {
 }
 
 private struct LogsAndEventsHubView: View {
+    let hasQBittorrentLog: Bool
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
@@ -2264,13 +2303,24 @@ private struct LogsAndEventsHubView: View {
     }
 
     private var hasAnyLogDestination: Bool {
-        hasArrEvents || seerrServiceManager.activeClient != nil || jellyfinServiceManager.activeClient != nil
+        hasQBittorrentLog || hasArrEvents || seerrServiceManager.activeClient != nil || jellyfinServiceManager.activeClient != nil
     }
 
     var body: some View {
         List {
             if hasAnyLogDestination {
                 Section {
+                    if hasQBittorrentLog {
+                        NavigationLink(value: MoreDestination.qbittorrentLog) {
+                            NavigationMenuRow(
+                                icon: "doc.text.fill",
+                                color: ServiceIdentity.qbittorrent.brandColor,
+                                title: "qBittorrent Log",
+                                subtitle: "Application events and warnings"
+                            )
+                        }
+                    }
+
                     if hasArrEvents {
                         NavigationLink(value: MoreDestination.arrEvents) {
                             NavigationMenuRow(

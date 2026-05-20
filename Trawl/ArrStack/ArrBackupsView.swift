@@ -84,6 +84,7 @@ struct ArrBackupsView: View {
             }
         }
         .navigationTitle("Backups")
+        .navigationSubtitle(selectedService.displayName)
         .moreDestinationBackground(.backups)
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {

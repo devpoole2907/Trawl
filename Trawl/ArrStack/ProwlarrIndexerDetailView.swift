@@ -123,9 +123,14 @@ struct ProwlarrIndexerDetailView: View {
             }
         }
         .navigationTitle(indexer.name ?? "Indexer")
+        .navigationSubtitle("Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .refreshable {
+            await viewModel.loadIndexers()
+            await viewModel.loadStats()
+        }
         .onChange(of: viewModel.testResult) { _, newValue in
             if newValue != nil {
                 testActionError = nil

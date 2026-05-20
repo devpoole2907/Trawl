@@ -205,6 +205,18 @@ actor JellyfinAPIClient {
         return response.items
     }
 
+    /// `GET /Shows/{seriesId}/Episodes` — returns every episode item Jellyfin
+    /// has for a given Series. Episodes carry `IndexNumber` (episode number) and
+    /// `ParentIndexNumber` (season number), used to match against Sonarr's
+    /// season/episode numbering.
+    func getSeriesEpisodes(seriesId: String) async throws -> [JellyfinLibraryItem] {
+        let params: [String: String] = [
+            "Fields": "ProviderIds,Path,DateCreated,MediaSources,Overview"
+        ]
+        let response: JellyfinItemsResponse = try await get("/Shows/\(seriesId)/Episodes", params: params)
+        return response.items
+    }
+
     func searchItems(
         term: String,
         includeItemTypes: [String],

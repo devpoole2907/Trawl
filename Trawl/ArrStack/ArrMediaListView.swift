@@ -284,7 +284,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                         }
                     }
                 } label: {
-                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                    Label("Sort", systemImage: viewModel.isNonDefaultSortOrder ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
                 }
 
                 Menu {

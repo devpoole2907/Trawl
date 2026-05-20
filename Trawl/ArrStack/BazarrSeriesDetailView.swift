@@ -55,6 +55,7 @@ struct BazarrSeriesDetailView: View {
             }
         }
         .task(id: serviceManager.activeBazarrProfileID) { await load() }
+        .refreshable { await load() }
     }
 
     private var contentView: some View {

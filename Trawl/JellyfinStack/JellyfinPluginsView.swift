@@ -53,6 +53,7 @@ struct JellyfinPluginsView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Plugins")
+        .navigationSubtitle("Jellyfin")
         .refreshable { await loadPlugins() }
         .task { await loadPlugins() }
         .alert("Uninstall Plugin", isPresented: Binding(

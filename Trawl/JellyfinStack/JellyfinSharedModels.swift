@@ -436,6 +436,10 @@ nonisolated struct JellyfinLibraryItem: Decodable, Identifiable, Sendable {
     let dateCreated: String?
     let providerIds: [String: String]?
     let mediaSources: [JellyfinMediaSource]?
+    let indexNumber: Int?
+    let parentIndexNumber: Int?
+    let seriesId: String?
+    let seasonId: String?
 
     var providerIDSummary: String {
         guard let providerIds, !providerIds.isEmpty else { return "No provider IDs" }
@@ -478,6 +482,10 @@ nonisolated struct JellyfinLibraryItem: Decodable, Identifiable, Sendable {
         case dateCreated = "DateCreated"
         case providerIds = "ProviderIds"
         case mediaSources = "MediaSources"
+        case indexNumber = "IndexNumber"
+        case parentIndexNumber = "ParentIndexNumber"
+        case seriesId = "SeriesId"
+        case seasonId = "SeasonId"
     }
 }
 

@@ -1,5 +1,8 @@
 import SwiftUI
 import SwiftData
+#if os(iOS)
+import UIKit
+#endif
 #if os(macOS)
 import AppKit
 #endif
@@ -41,8 +44,10 @@ struct ContentView: View {
     @State private var showMagnetHandlerPrompt = false
     #endif
     @State private var hasSetStartupTab = false
-    @State private var showNotificationsSheet = false
     @State private var topBannerPadding: CGFloat = 100
+    #if os(iOS)
+    @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
+    #endif
 
     var body: some View {
         Group {
@@ -61,6 +66,7 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
         )
+        #if os(macOS)
         .overlay(alignment: .top) {
             if let banner = inAppNotificationCenter.currentBanner {
                 InAppNotificationBanner(item: banner) {
@@ -69,7 +75,7 @@ struct ContentView: View {
                     if inAppNotificationCenter.currentBannerHasAction {
                         inAppNotificationCenter.fireCurrentBannerAction()
                     } else {
-                        showNotificationsSheet = true
+                        inAppNotificationCenter.showRecentNotifications()
                         inAppNotificationCenter.dismissCurrentBanner()
                     }
                 }
@@ -80,6 +86,7 @@ struct ContentView: View {
             }
         }
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: inAppNotificationCenter.currentBanner)
+        #endif
         .sensoryFeedback(trigger: inAppNotificationCenter.currentBanner) { _, newValue in
             guard hapticsEnabled, let newBanner = newValue else { return nil }
             switch newBanner.style {
@@ -88,7 +95,10 @@ struct ContentView: View {
             case .progress: return nil
             }
         }
-        .sheet(isPresented: $showNotificationsSheet) {
+        .sheet(isPresented: Binding(
+            get: { inAppNotificationCenter.isPresentingRecentNotifications },
+            set: { inAppNotificationCenter.isPresentingRecentNotifications = $0 }
+        )) {
             RecentNotificationsSheet()
                 .environment(inAppNotificationCenter)
         }
@@ -134,7 +144,15 @@ struct ContentView: View {
                 selectedTab = tab
                 hasSetStartupTab = true
             }
+            #if os(iOS)
+            notificationWindowPresenter.install(notificationCenter: inAppNotificationCenter)
+            #endif
         }
+        #if os(iOS)
+        .onChange(of: scenePhase) { _, _ in
+            notificationWindowPresenter.install(notificationCenter: inAppNotificationCenter)
+        }
+        #endif
         #if os(macOS)
         .alert("Handle Magnet Links?", isPresented: $showMagnetHandlerPrompt) {
             Button("Set as Default") { setAsDefaultMagnetHandler() }
@@ -221,8 +239,14 @@ struct ContentView: View {
             if newPhase == .background {
                 servicesTask?.cancel()
                 appServices?.syncService.stopPolling()
-            } else if newPhase == .active && oldPhase == .background && !shouldShowWelcomeScreen {
-                initializeServices()
+            } else if newPhase == .active && !shouldShowWelcomeScreen {
+                // iOS transitions scenePhase through .inactive in both directions
+                // (.background → .inactive → .active), so checking `oldPhase == .background`
+                // never matches. Restart whenever services are missing or polling died.
+                let needsRestart = appServices == nil || appServices?.syncService.isPolling == false
+                if needsRestart {
+                    initializeServices()
+                }
             }
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
@@ -770,6 +794,87 @@ struct ContentView: View {
         }
     }
 }
+
+#if os(iOS)
+@MainActor
+private final class InAppNotificationWindowPresenter {
+    private var window: UIWindow?
+
+    func install(notificationCenter: InAppNotificationCenter) {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .first(where: { $0.activationState == .foregroundActive }) else {
+            return
+        }
+
+        if window?.windowScene === scene {
+            return
+        }
+
+        let hostingController = UIHostingController(
+            rootView: InAppNotificationWindowOverlay(notificationCenter: notificationCenter)
+                .environment(notificationCenter)
+        )
+        hostingController.view.backgroundColor = .clear
+
+        let overlayWindow = PassthroughNotificationWindow(windowScene: scene)
+        overlayWindow.backgroundColor = .clear
+        overlayWindow.windowLevel = .statusBar + 1
+        overlayWindow.rootViewController = hostingController
+        overlayWindow.isHidden = false
+
+        window = overlayWindow
+    }
+}
+
+private final class PassthroughNotificationWindow: UIWindow {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let hitView = super.hitTest(point, with: event)
+        return hitView === rootViewController?.view ? nil : hitView
+    }
+}
+
+private struct InAppNotificationWindowOverlay: View {
+    let notificationCenter: InAppNotificationCenter
+
+    var body: some View {
+        GeometryReader { geometry in
+            Color.clear
+                .overlay(alignment: .top) {
+                    if let banner = notificationCenter.currentBanner {
+                        InAppNotificationBanner(item: banner) {
+                            notificationCenter.dismissCurrentBanner()
+                        } onTap: {
+                            if notificationCenter.currentBannerHasAction {
+                                notificationCenter.fireCurrentBannerAction()
+                            } else {
+                                notificationCenter.showRecentNotifications()
+                                notificationCenter.dismissCurrentBanner()
+                            }
+                        }
+                        .withActionAffordance(notificationCenter.currentBannerHasAction)
+                        .padding(.top, toolbarAwareTopPadding(safeAreaTop: geometry.safeAreaInsets.top))
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+        .ignoresSafeArea()
+        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: notificationCenter.currentBanner)
+    }
+
+    private func toolbarAwareTopPadding(safeAreaTop: CGFloat) -> CGFloat {
+        let statusBarTop = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?
+            .statusBarManager?
+            .statusBarFrame
+            .height ?? 0
+
+        return max(safeAreaTop, statusBarTop, 44) + 44 + 26
+    }
+}
+#endif
 
 private struct InAppNotificationBanner: View {
     let item: InAppBannerItem

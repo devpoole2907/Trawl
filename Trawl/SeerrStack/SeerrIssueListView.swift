@@ -17,6 +17,7 @@ struct SeerrIssueListView: View {
         }
         .background(backgroundGradient)
         .navigationTitle("Issue Management")
+        .navigationSubtitle("Seerr")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif

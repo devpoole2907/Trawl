@@ -21,6 +21,7 @@ struct JellyfinSessionsView: View {
             }
         }
         .navigationTitle("Sessions")
+        .navigationSubtitle("Jellyfin")
         .task {
             let vm = JellyfinSessionsViewModel(apiClient: apiClient)
             viewModel = vm
@@ -107,6 +108,9 @@ struct JellyfinSessionsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
+        .refreshable {
+            await viewModel.refresh()
+        }
         .alert("Stop Playback?", isPresented: stopPlaybackAlertPresented) {
             Button("Cancel", role: .cancel) {
                 playbackStopSession = nil
@@ -275,6 +279,10 @@ final class JellyfinSessionsViewModel {
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+    }
+
+    func refresh() async {
+        await loadSessions(showLoading: false)
     }
 
     private func loadSessions(showLoading: Bool = true) async {

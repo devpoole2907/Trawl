@@ -56,6 +56,7 @@ struct ArrDownloadClientListView: View {
             }
         }
         .navigationTitle("Download Clients")
+        .navigationSubtitle(serviceType.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)

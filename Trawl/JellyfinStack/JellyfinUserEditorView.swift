@@ -131,6 +131,7 @@ struct JellyfinUserEditorView: View {
             }
         }
         .navigationTitle(viewModel.user.name)
+        .navigationSubtitle("Jellyfin")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -215,6 +216,13 @@ struct JellyfinUserEditorView: View {
             await viewModel.loadVirtualFolders()
             await viewModel.loadDevices()
             await viewModel.loadChannels()
+        }
+        .refreshable {
+            async let ratings: Void = viewModel.loadParentalRatings()
+            async let folders: Void = viewModel.loadVirtualFolders()
+            async let devices: Void = viewModel.loadDevices()
+            async let channels: Void = viewModel.loadChannels()
+            _ = await (ratings, folders, devices, channels)
         }
     }
 

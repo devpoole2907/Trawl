@@ -17,6 +17,8 @@ struct RadarrMovieDetailView: View {
     @State private var showDeleteAlert = false
     @State private var deleteFiles = false
     @State private var showEditSheet = false
+    @State private var showRootFolderAlert = false
+    @State private var rootFolderText = ""
     @State private var showDeleteFileAlert = false
     @State private var movieFileToDelete: Int?
     @State private var isFilesExpanded = false
@@ -105,7 +107,26 @@ struct RadarrMovieDetailView: View {
                 bazarrMovieSubtitles = fetched.subtitles
             }
         }
+        .refreshable {
+            await refreshMovieDetailState()
+        }
         .toolbar { toolbarContent }
+        .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
+            TextField("Root folder", text: $rootFolderText)
+            Button("Move Existing Files") {
+                if let movie {
+                    Task { await updateMovieRootFolder(movie, moveFiles: true) }
+                }
+            }
+            Button("Update Only") {
+                if let movie {
+                    Task { await updateMovieRootFolder(movie, moveFiles: false) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the root folder Radarr should use for this movie.")
+        }
         .alert("Delete Movie?", isPresented: $showDeleteAlert) {
             Button("Delete & Remove Files", role: .destructive) {
                 if let id = resolvedLibraryId {
@@ -264,6 +285,25 @@ struct RadarrMovieDetailView: View {
         }
         guard let error = viewModel.error else { return }
         InAppNotificationCenter.shared.showError(title: "Couldn't Delete Movie File", message: error)
+    }
+
+    private func updateMovieRootFolder(_ movie: RadarrMovie, moveFiles: Bool) async {
+        let rootFolderPath = rootFolderText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rootFolderPath.isEmpty else { return }
+        guard let qualityProfileId = movie.qualityProfileId else {
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: "Movie quality profile is missing.")
+            return
+        }
+
+        _ = await viewModel.updateMovie(
+            movie,
+            monitored: movie.monitored ?? false,
+            qualityProfileId: qualityProfileId,
+            minimumAvailability: movie.minimumAvailability ?? "released",
+            rootFolderPath: rootFolderPath,
+            tags: movie.tags ?? [],
+            moveFiles: moveFiles
+        )
     }
 
     private func renameMovieFiles() async {
@@ -832,6 +872,13 @@ struct RadarrMovieDetailView: View {
                             showEditSheet = true
                         } label: {
                             Label("Edit", systemImage: "slider.horizontal.3")
+                        }
+
+                        Button {
+                            rootFolderText = movie.rootFolderPath ?? ""
+                            showRootFolderAlert = true
+                        } label: {
+                            Label("Change Root Folder", systemImage: "folder")
                         }
 
                         Button {

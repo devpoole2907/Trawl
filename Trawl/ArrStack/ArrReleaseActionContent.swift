@@ -340,6 +340,8 @@ struct ArrReleaseRowView: View {
 
 struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
 
     let title: String
     let emptyDescription: String
@@ -357,6 +359,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @State private var searchText = ""
     @State private var releaseSort: ArrReleaseSort
     @State private var searchError: String?
+    @State private var replacementCandidate: ExistingTorrentReplacementCandidate?
 
     init(
         title: String,
@@ -473,56 +476,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                         Button("Clear Filters") { clearFilters() }
                     }
                 } else {
-                    List {
-                        if isLoading && releases.isEmpty {
-                            Section {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Searching indexers…")
-                                            .font(.subheadline.weight(.semibold))
-                                        Text(loadingDescription)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-
-                        ForEach(displayedReleases) { release in
-                            NavigationLink {
-                                destination(
-                                    release,
-                                    grabbingReleaseID == release.id,
-                                    { await grab(release: release) }
-                                )
-                            } label: {
-                                ArrReleaseRowView(release: release)
-                            }
-                        }
-                        .animation(.default, value: displayedReleases.map(\.id))
-
-                        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
-                            Section {
-                                EmptyView()
-                            } footer: {
-                                Label(
-                                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
-                                    systemImage: "line.3.horizontal.decrease.circle"
-                                )
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                            }
-                        }
-                    }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #else
-                    .listStyle(.inset)
-                    #endif
+                    releaseList
                 }
             }
             .searchable(text: $searchText, prompt: "Search releases…")
@@ -537,21 +491,107 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    sortMenu
-                    filterMenu
-                }
-            }
+            .toolbar { browserToolbar }
             .task {
                 await loadReleases()
             }
             .onChange(of: releaseSort.option) { _, _ in
                 releaseSort.isAscending = false
             }
+            .alert(
+                "Replace Existing Torrent?",
+                isPresented: Binding(
+                    get: { replacementCandidate != nil },
+                    set: { if !$0 { replacementCandidate = nil } }
+                ),
+                presenting: replacementCandidate
+            ) { candidate in
+                Button("Remove Job and Retry", role: .destructive) {
+                    Task { await removeExistingTorrentAndRetry(candidate) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { candidate in
+                Text("qBittorrent already has \"\(candidate.torrent.name)\". Trawl can remove that qBittorrent job without deleting files, then retry this grab.")
+            }
+        }
+    }
+
+    private var releaseList: some View {
+        List {
+            loadingSection
+
+            ForEach(displayedReleases) { release in
+                releaseNavigationLink(for: release)
+            }
+            .animation(.default, value: displayedReleases.count)
+
+            hiddenReleasesFooter
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+    }
+
+    @ViewBuilder
+    private var loadingSection: some View {
+        if isLoading && releases.isEmpty {
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Searching indexers…")
+                            .font(.subheadline.weight(.semibold))
+                        Text(loadingDescription)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func releaseNavigationLink(for release: ArrRelease) -> some View {
+        NavigationLink {
+            destination(
+                release,
+                grabbingReleaseID == release.id,
+                { await grab(release: release) }
+            )
+        } label: {
+            ArrReleaseRowView(release: release)
+        }
+    }
+
+    @ViewBuilder
+    private var hiddenReleasesFooter: some View {
+        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
+            Section {
+                EmptyView()
+            } footer: {
+                Label(
+                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
+                    systemImage: "line.3.horizontal.decrease.circle"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var browserToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismiss() }
+        }
+
+        ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+            sortMenu
+            filterMenu
         }
     }
 
@@ -655,7 +695,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     releases.append(contentsOf: batch)
                 }
-                try? await Task.sleep(nanoseconds: 18_000_000)
+                try? await Task.sleep(for: .milliseconds(18))
             }
             hasLoaded = true
         } catch is CancellationError {
@@ -676,8 +716,13 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
 
         if didGrab {
             dismiss()
-        } else if let error = currentErrorMessage(), !error.isEmpty {
-            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error)
+        } else if let error = currentErrorMessage(),
+                  shouldOfferExistingTorrentReplacement(for: error),
+                  let torrent = matchingExistingTorrent(for: release) {
+            replacementCandidate = ExistingTorrentReplacementCandidate(
+                release: release,
+                torrent: torrent
+            )
         }
     }
 
@@ -685,4 +730,48 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         let nsError = error as NSError
         return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
     }
+
+    private func shouldOfferExistingTorrentReplacement(for error: String) -> Bool {
+        let normalized = error.lowercased()
+        return normalized.contains("download client rejected this release") ||
+            normalized.contains("download client failed to add torrent")
+    }
+
+    private func matchingExistingTorrent(for release: ArrRelease) -> Torrent? {
+        guard let hash = release.torrentInfoHash?.lowercased() else { return nil }
+        if let direct = syncService.torrents[hash] { return direct }
+        return syncService.torrents.first { key, torrent in
+            key.lowercased() == hash || torrent.hash.lowercased() == hash
+        }?.value
+    }
+
+    private func removeExistingTorrentAndRetry(_ candidate: ExistingTorrentReplacementCandidate) async {
+        guard grabbingReleaseID == nil else { return }
+        replacementCandidate = nil
+        grabbingReleaseID = candidate.release.id
+        defer { grabbingReleaseID = nil }
+
+        do {
+            try await torrentService.deleteTorrents(hashes: [candidate.torrent.hash], deleteFiles: false)
+            await syncService.refreshNow()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Replace Failed",
+                message: error.localizedDescription
+            )
+            return
+        }
+
+        let didGrab = await grabAction(candidate.release)
+        if didGrab {
+            dismiss()
+        }
+    }
+}
+
+private struct ExistingTorrentReplacementCandidate: Identifiable {
+    let release: ArrRelease
+    let torrent: Torrent
+
+    var id: String { "\(release.id)|\(torrent.hash)" }
 }

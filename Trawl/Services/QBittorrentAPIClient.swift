@@ -537,6 +537,21 @@ actor QBittorrentAPIClient {
         return json
     }
     
+    // MARK: - Logs
+
+    func getMainLog(normal: Bool = true, info: Bool = true, warning: Bool = true, critical: Bool = true, lastKnownId: Int = -1) async throws -> [QBittorrentLogEntry] {
+        let queryItems: [URLQueryItem] = [
+            .init(name: "normal", value: String(normal)),
+            .init(name: "info", value: String(info)),
+            .init(name: "warning", value: String(warning)),
+            .init(name: "critical", value: String(critical)),
+            .init(name: "last_known_id", value: String(lastKnownId)),
+        ]
+        let request = try buildRequest(path: "/api/v2/log/main", queryItems: queryItems)
+        let (data, _) = try await performRequest(request)
+        return try decode([QBittorrentLogEntry].self, from: data)
+    }
+
     /// Remove an auto-downloading rule
     func removeRSSRule(ruleName: String) async throws {
         let request = try buildFormRequest(

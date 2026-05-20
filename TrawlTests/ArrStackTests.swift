@@ -48,6 +48,33 @@ struct ArrErrorTests {
         let error = ArrError.serverError(statusCode: statusCode, message: message)
         #expect(error.errorDescription == expected)
     }
+
+    @Test("Server Error Description Extracts Servarr JSON Message")
+    func serverErrorDescriptionExtractsServarrJSONMessage() {
+        let body = """
+        {
+          "message": "Download client failed to add torrent by url",
+          "description": "Download client failed to add torrent by url\\n   at NzbDrone.Core.Download.Clients.QBittorrent.QBittorrentProxyV2.AddTorrentFromUrl()"
+        }
+        """
+
+        let error = ArrError.serverError(statusCode: 500, message: body)
+
+        #expect(error.errorDescription == "Server error (500): The download client rejected this release. If it was already downloaded and deleted, remove the old torrent from your download client or choose another release, then try again.")
+    }
+
+    @Test("Server Error Description Strips Stack Trace From Description")
+    func serverErrorDescriptionStripsStackTraceFromDescription() {
+        let body = """
+        {
+          "description": "Indexer request failed\\n   at NzbDrone.Core.Indexers.Fetch()"
+        }
+        """
+
+        let error = ArrError.serverError(statusCode: 500, message: body)
+
+        #expect(error.errorDescription == "Server error (500): Indexer request failed")
+    }
 }
 
 @Suite("ArrServiceType Tests")
@@ -362,6 +389,26 @@ struct ArrReleaseTests {
         let dataStr = try #require(jsonStr.data(using: .utf8))
         let releaseStr = try JSONDecoder().decode(ArrRelease.self, from: dataStr)
         #expect(releaseStr.ageHours == 3.5)
+    }
+
+    @Test("Torrent Info Hash Extracted From Magnet")
+    func torrentInfoHashExtractedFromMagnet() throws {
+        let hash = "0123456789abcdef0123456789abcdef01234567"
+        let json = #"{"magnetUrl":"magnet:?xt=urn:btih:\#(hash)&dn=Release","guid":"x","indexerId":1}"#
+        let data = try #require(json.data(using: .utf8))
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
+
+        #expect(release.torrentInfoHash == hash)
+    }
+
+    @Test("Torrent Info Hash Extracted From Encoded Guid")
+    func torrentInfoHashExtractedFromEncodedGuid() throws {
+        let hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+        let json = #"{"guid":"magnet%3A%3Fxt%3Durn%3Abtih%3A\#(hash)%26dn%3DRelease","indexerId":1}"#
+        let data = try #require(json.data(using: .utf8))
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
+
+        #expect(release.torrentInfoHash == hash)
     }
 }
 

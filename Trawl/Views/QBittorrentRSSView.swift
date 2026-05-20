@@ -39,6 +39,7 @@ struct QBittorrentRSSView: View {
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .navigationTitle("RSS Feeds")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -81,6 +82,9 @@ struct QBittorrentRSSView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
+            await loadRSSItems()
+        }
+        .refreshable {
             await loadRSSItems()
         }
     }

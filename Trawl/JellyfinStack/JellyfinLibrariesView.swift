@@ -94,6 +94,7 @@ struct JellyfinLibrariesView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("Libraries")
+        .navigationSubtitle("Jellyfin")
         .refreshable { await loadLibraries() }
         .task { await loadLibraries() }
         .toolbar {
@@ -335,6 +336,7 @@ private struct JellyfinLibraryDetailView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle(folder.name)
+        .navigationSubtitle("Jellyfin")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

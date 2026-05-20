@@ -40,6 +40,7 @@ struct BazarrLanguageProfilesView: View {
             }
         }
         .navigationTitle("Language Profiles")
+        .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif

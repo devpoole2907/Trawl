@@ -22,6 +22,7 @@ struct JellyfinActivityLogView: View {
             }
         }
         .navigationTitle("Activity Log")
+        .navigationSubtitle("Jellyfin")
         .task {
             let vm = JellyfinActivityLogViewModel(apiClient: apiClient)
             viewModel = vm

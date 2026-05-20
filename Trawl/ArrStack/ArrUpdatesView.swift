@@ -37,6 +37,7 @@ struct ArrUpdatesView: View {
             }
         }
         .navigationTitle("Updates")
+        .navigationSubtitle(selectedService?.displayName ?? "")
         .moreDestinationBackground(.updates)
         .safeAreaInset(edge: .top) {
             if availableServices.count > 1, let selected = selectedService {

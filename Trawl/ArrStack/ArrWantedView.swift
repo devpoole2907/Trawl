@@ -234,6 +234,9 @@ struct ArrWantedView: View {
             await initializeIfNeeded()
             await reloadWantedMissing()
         }
+        .refreshable {
+            await reloadWantedMissing()
+        }
     }
 
     // MARK: - Computed

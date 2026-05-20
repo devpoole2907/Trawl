@@ -343,7 +343,7 @@ struct TorrentListView: View {
                             }
                         }
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Label("Sort", systemImage: vm.sortOrder != .addedDate ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
                     }
 
                     Menu {

@@ -171,6 +171,14 @@ struct AppPreferences: Codable, Sendable {
     }
 }
 
+/// Log entry from /api/v2/log/main
+struct QBittorrentLogEntry: Codable, Identifiable, Sendable {
+    let id: Int
+    let message: String
+    let timestamp: Int
+    let type: Int
+}
+
 /// Tracker info from /api/v2/torrents/trackers
 struct TorrentTracker: Codable, Identifiable, Sendable {
     var id: String { url }

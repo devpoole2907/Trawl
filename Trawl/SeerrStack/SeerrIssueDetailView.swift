@@ -95,6 +95,7 @@ struct SeerrIssueDetailView: View {
             }
         }
         .navigationTitle("Issue #\(viewModel.issue.id)")
+        .navigationSubtitle(viewModel.issue.media?.displayTitle ?? viewModel.issue.issueKind?.title ?? "")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
@@ -149,6 +150,7 @@ struct SeerrIssueDetailView: View {
             .background(.ultraThinMaterial)
         }
         .task { await viewModel.loadComments() }
+        .refreshable { await viewModel.loadComments() }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
             guard let message else { return }

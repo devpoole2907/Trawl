@@ -27,6 +27,7 @@ struct ProwlarrIndexerListView: View {
             }
         }
         .navigationTitle("Indexers")
+        .navigationSubtitle("Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif

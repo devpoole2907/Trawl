@@ -68,11 +68,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.pauseTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Paused", message: "\(hashes.count) torrents paused.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Pause Torrents", message: error.localizedDescription)
@@ -84,11 +85,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.resumeTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Resumed", message: "\(hashes.count) torrents resumed.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Resume Torrents", message: error.localizedDescription)
@@ -100,11 +102,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.recheckTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Rechecking", message: "\(hashes.count) torrents queued for recheck.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Recheck Torrents", message: error.localizedDescription)
@@ -116,11 +119,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.deleteTorrents(hashes: hashes, deleteFiles: deleteFiles)
             notificationCenter.showSuccess(title: "Deleted", message: "\(hashes.count) torrents removed.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -295,6 +299,7 @@ final class TorrentListViewModel {
             try await torrentService.pauseTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Paused", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -311,6 +316,7 @@ final class TorrentListViewModel {
             try await torrentService.resumeTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Resumed", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -327,6 +333,7 @@ final class TorrentListViewModel {
             try await torrentService.recheckTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Rechecking", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -343,6 +350,7 @@ final class TorrentListViewModel {
             try await torrentService.deleteTorrents(hashes: [torrent.hash], deleteFiles: deleteFiles)
             notificationCenter.showSuccess(title: "Deleted", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(

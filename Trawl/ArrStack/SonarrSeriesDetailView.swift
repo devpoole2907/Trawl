@@ -13,6 +13,8 @@ struct SonarrSeriesDetailView: View {
 
     @State private var isFilesExpanded = false
     @State private var showEditSheet = false
+    @State private var showRootFolderAlert = false
+    @State private var rootFolderText = ""
     @State private var selectedEpisodeFileForDeletion: SonarrEpisodeFile?
     @State private var showAddSheet = false
     @State private var importIssueResolution: ArrQueueImportIssueResolution?
@@ -133,7 +135,29 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
+        .refreshable {
+            await refreshSeriesDetailState()
+            if let bazarrClientForEpisodes, let id = resolvedSeriesId {
+                bazarrEpisodes = (try? await bazarrClientForEpisodes.getEpisodes(seriesIds: [id])) ?? []
+            }
+        }
         .toolbar { toolbarContent }
+        .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
+            TextField("Root folder", text: $rootFolderText)
+            Button("Move Existing Files") {
+                if let series {
+                    Task { await updateSeriesRootFolder(series, moveFiles: true) }
+                }
+            }
+            Button("Update Only") {
+                if let series {
+                    Task { await updateSeriesRootFolder(series, moveFiles: false) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the root folder Sonarr should use for this series.")
+        }
         .task(id: "\(resolvedSeriesId?.description ?? "nil")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "nil")") {
             if let id = resolvedSeriesId {
                 bazarrEpisodes = []
@@ -364,7 +388,8 @@ struct SonarrSeriesDetailView: View {
                 year: series.year,
                 tvdbId: series.tvdbId,
                 tmdbId: nil,
-                imdbId: series.imdbId
+                imdbId: series.imdbId,
+                totalEpisodes: series.statistics?.episodeCount
             )
         )
 
@@ -700,6 +725,26 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
+    private func updateSeriesRootFolder(_ series: SonarrSeries, moveFiles: Bool) async {
+        let rootFolderPath = rootFolderText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rootFolderPath.isEmpty else { return }
+        guard let qualityProfileId = series.qualityProfileId else {
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: "Series quality profile is missing.")
+            return
+        }
+
+        _ = await viewModel.updateSeries(
+            series,
+            monitored: series.monitored ?? false,
+            qualityProfileId: qualityProfileId,
+            seriesType: series.seriesType ?? "standard",
+            seasonFolder: series.seasonFolder ?? true,
+            rootFolderPath: rootFolderPath,
+            tags: series.tags ?? [],
+            moveFiles: moveFiles
+        )
+    }
+
     private func renameSeriesFiles() async {
         guard let id = resolvedSeriesId,
               let client = serviceManager.sonarrClient else { return }
@@ -820,6 +865,13 @@ struct SonarrSeriesDetailView: View {
                             showEditSheet = true
                         } label: {
                             Label("Edit", systemImage: "slider.horizontal.3")
+                        }
+
+                        Button {
+                            rootFolderText = series?.rootFolderPath ?? ""
+                            showRootFolderAlert = true
+                        } label: {
+                            Label("Change Root Folder", systemImage: "folder")
                         }
 
                         if let series {

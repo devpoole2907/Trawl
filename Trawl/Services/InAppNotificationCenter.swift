@@ -15,6 +15,7 @@ final class InAppNotificationCenter {
     private(set) var currentBanner: InAppBannerItem?
     private(set) var recentNotifications: [NotificationLogEntry] = InAppNotificationCenter.loadPersistedNotifications()
     private(set) var lastReadDate: Date = InAppNotificationCenter.loadLastReadDate()
+    var isPresentingRecentNotifications = false
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
     var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }
 
@@ -239,6 +240,10 @@ final class InAppNotificationCenter {
         action?.handler()
     }
 
+    func showRecentNotifications() {
+        isPresentingRecentNotifications = true
+    }
+
     private func enqueue(_ banner: InAppBannerItem) {
         queuedBanners.append(banner)
 
@@ -282,7 +287,7 @@ final class InAppNotificationCenter {
             return
         }
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3.5))
+            try? await Task.sleep(for: .seconds(4.5))
             guard !Task.isCancelled else { return }
             self?.dismissCurrentBanner()
         }

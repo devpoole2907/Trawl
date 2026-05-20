@@ -29,6 +29,10 @@ struct ArrHistoryView: View {
             await reloadHistory()
             historyRefreshGeneration += 1
         }
+        .refreshable {
+            await reloadHistory()
+            historyRefreshGeneration += 1
+        }
     }
 
     @ViewBuilder

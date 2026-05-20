@@ -37,6 +37,7 @@ struct QBittorrentCategoriesAndTagsView: View {
         }
         .moreDestinationBackground(.categoriesAndTags)
         .navigationTitle(selectedTab == 0 ? "Categories" : "Tags")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -104,6 +105,9 @@ struct QBittorrentCategoriesAndTagsView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
+            await syncService.refreshNow()
+        }
+        .refreshable {
             await syncService.refreshNow()
         }
         .safeAreaInset(edge: .top) {

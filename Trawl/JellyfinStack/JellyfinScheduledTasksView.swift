@@ -20,6 +20,7 @@ struct JellyfinScheduledTasksView: View {
             }
         }
         .navigationTitle("Scheduled Tasks")
+        .navigationSubtitle("Jellyfin")
         .task {
             let vm = JellyfinScheduledTasksViewModel(apiClient: apiClient)
             viewModel = vm
@@ -76,6 +77,9 @@ struct JellyfinScheduledTasksView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
+        .refreshable {
+            await viewModel.refresh()
+        }
         .alert("Stop Scheduled Task?", isPresented: stopTaskAlertPresented) {
             Button("Cancel", role: .cancel) {
                 taskPendingStop = nil
@@ -211,6 +215,10 @@ final class JellyfinScheduledTasksViewModel {
     func stopPolling() {
         pollingTask?.cancel()
         pollingTask = nil
+    }
+
+    func refresh() async {
+        await loadTasks(showLoading: false)
     }
 
     private func loadTasks(showLoading: Bool = true) async {

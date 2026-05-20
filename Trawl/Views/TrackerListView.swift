@@ -46,6 +46,9 @@ struct TrackerListView: View {
         .task {
             await viewModel.loadTrackers()
         }
+        .refreshable {
+            await viewModel.loadTrackers()
+        }
     }
 
     private func refreshTrackers() async {

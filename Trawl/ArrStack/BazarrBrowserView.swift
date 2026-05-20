@@ -69,6 +69,7 @@ struct BazarrBrowserView: View {
             }
         }
         .navigationTitle("Subtitles")
+        .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

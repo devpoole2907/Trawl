@@ -126,6 +126,11 @@ struct SearchView: View {
             createLookupViewModels()
             await reconcileTrendingMatches()
         }
+        .refreshable {
+            await loadTrending()
+            await refreshLibrary()
+            await reconcileTrendingMatches()
+        }
         .errorAlert(item: $viewModel.actionErrorAlert)
     }
 

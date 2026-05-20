@@ -90,6 +90,13 @@ struct ArrEventsView: View {
         }
     }
 
+    private var navigationSubtitleText: String {
+        switch selectedSelection {
+        case .all: availableServices.count > 1 ? "All Services" : availableServices.first?.displayName ?? ""
+        case .service(let t): t.displayName
+        }
+    }
+
     var body: some View {
         Group {
             if availableServices.isEmpty {
@@ -103,6 +110,7 @@ struct ArrEventsView: View {
             }
         }
         .navigationTitle("Events")
+        .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.logsAndEvents)
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {

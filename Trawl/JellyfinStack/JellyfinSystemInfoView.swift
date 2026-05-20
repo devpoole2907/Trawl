@@ -69,6 +69,7 @@ struct JellyfinSystemInfoView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
         .navigationTitle("System Info")
+        .navigationSubtitle("Jellyfin")
         .refreshable { await loadSystemInfo() }
         .task { await loadSystemInfo() }
         .confirmationDialog("Restart Server", isPresented: $showRestartConfirmation, titleVisibility: .visible) {

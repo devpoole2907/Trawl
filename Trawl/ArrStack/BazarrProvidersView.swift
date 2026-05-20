@@ -56,6 +56,7 @@ struct BazarrProvidersView: View {
             }
         }
         .navigationTitle("Providers")
+        .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif

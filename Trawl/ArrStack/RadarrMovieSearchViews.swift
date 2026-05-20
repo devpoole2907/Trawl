@@ -299,6 +299,11 @@ struct RadarrMovieSearchView: View {
         .onDisappear {
             automaticSearchMonitorTask?.cancel()
         }
+        .refreshable {
+            await viewModel.loadMovies()
+            await viewModel.loadQueue()
+            await viewModel.loadMovieFiles(movieId: movie.id)
+        }
     }
 
     private var movieSearchHero: some View {

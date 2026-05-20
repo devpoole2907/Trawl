@@ -3,17 +3,17 @@ import SwiftUI
 struct JellyfinMediaAvailabilityCard: View {
     enum Media: Sendable {
         case movie(title: String, year: Int?, tmdbId: Int?, imdbId: String?)
-        case series(title: String, year: Int?, tvdbId: Int?, tmdbId: Int?, imdbId: String?)
+        case series(title: String, year: Int?, tvdbId: Int?, tmdbId: Int?, imdbId: String?, totalEpisodes: Int?)
 
         var title: String {
             switch self {
-            case .movie(let title, _, _, _), .series(let title, _, _, _, _): title
+            case .movie(let title, _, _, _), .series(let title, _, _, _, _, _): title
             }
         }
 
         var year: Int? {
             switch self {
-            case .movie(_, let year, _, _), .series(_, let year, _, _, _): year
+            case .movie(_, let year, _, _), .series(_, let year, _, _, _, _): year
             }
         }
 
@@ -24,11 +24,18 @@ struct JellyfinMediaAvailabilityCard: View {
             }
         }
 
+        var totalEpisodes: Int? {
+            switch self {
+            case .movie: return nil
+            case .series(_, _, _, _, _, let total): return total
+            }
+        }
+
         var taskKey: String {
             switch self {
             case .movie(let title, let year, let tmdbId, let imdbId):
                 "movie-\(title)-\(year?.description ?? "nil")-\(tmdbId?.description ?? "nil")-\(imdbId ?? "nil")"
-            case .series(let title, let year, let tvdbId, let tmdbId, let imdbId):
+            case .series(let title, let year, let tvdbId, let tmdbId, let imdbId, _):
                 "series-\(title)-\(year?.description ?? "nil")-\(tvdbId?.description ?? "nil")-\(tmdbId?.description ?? "nil")-\(imdbId ?? "nil")"
             }
         }
@@ -40,7 +47,7 @@ struct JellyfinMediaAvailabilityCard: View {
                 if let id = tmdbId { pairs.append(("Tmdb", String(id))) }
                 if let id = imdbId, !id.isEmpty { pairs.append(("Imdb", id)) }
                 return pairs
-            case .series(_, _, let tvdbId, let tmdbId, let imdbId):
+            case .series(_, _, let tvdbId, let tmdbId, let imdbId, _):
                 var pairs: [(String, String)] = []
                 if let id = tvdbId { pairs.append(("Tvdb", String(id))) }
                 if let id = tmdbId { pairs.append(("Tmdb", String(id))) }
@@ -63,6 +70,33 @@ struct JellyfinMediaAvailabilityCard: View {
         key.map { serviceManager.availability.state(for: $0) } ?? .idle
     }
 
+    private var matchedSeriesItem: JellyfinLibraryItem? {
+        guard case .series = media,
+              case .resolved(let items) = resolverState
+        else { return nil }
+        return items.first
+    }
+
+    private var episodesKey: JellyfinAvailabilityResolver.EpisodesKey? {
+        guard let profileID = serviceManager.activeProfileID,
+              let seriesItemID = matchedSeriesItem?.id
+        else { return nil }
+        return .init(profileID: profileID, seriesItemID: seriesItemID)
+    }
+
+    private var episodesState: JellyfinAvailabilityResolver.State {
+        episodesKey.map { serviceManager.availability.episodesState(for: $0) } ?? .idle
+    }
+
+    /// Non-special episodes Jellyfin reports for the matched series, used as the
+    /// numerator of the "X / Y" badge. Specials (season 0 or missing season)
+    /// are excluded so the count lines up with Sonarr's `episodeCount` which
+    /// only counts aired non-special episodes.
+    private var matchedEpisodeCount: Int? {
+        guard case .resolved(let items) = episodesState else { return nil }
+        return items.filter { ($0.parentIndexNumber ?? 0) > 0 }.count
+    }
+
     var body: some View {
         if serviceManager.isConnected || serviceManager.connectionError != nil || serviceManager.isConnecting {
             cardContent
@@ -71,6 +105,12 @@ struct JellyfinMediaAvailabilityCard: View {
                     refreshedItemIDs = []
                     guard let key, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(key, media: media, client: client)
+                }
+                .task(id: episodesKey?.seriesItemID) {
+                    guard media.totalEpisodes != nil,
+                          let episodesKey,
+                          let client = serviceManager.activeClient else { return }
+                    serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
                 }
         }
     }
@@ -145,7 +185,17 @@ struct JellyfinMediaAvailabilityCard: View {
     private var availabilityStatusText: String {
         switch resolverState {
         case .idle, .loading: return "Check"
-        case .resolved(let items): return items.isEmpty ? "Not Present" : "Present"
+        case .resolved(let items):
+            if items.isEmpty { return "Not Present" }
+            if let total = media.totalEpisodes, total > 0 {
+                if let matched = matchedEpisodeCount {
+                    return "\(matched) / \(total)"
+                }
+                if case .loading = episodesState { return "Counting..." }
+                if case .failed = episodesState { return "Present" }
+                return "Present"
+            }
+            return "Present"
         case .failed: return "Error"
         }
     }
@@ -216,6 +266,17 @@ struct JellyfinMediaAvailabilityCard: View {
                             .lineLimit(2)
                             .truncationMode(.middle)
                     }
+
+                    if let total = media.totalEpisodes, total > 0, let matched = matchedEpisodeCount {
+                        HStack(spacing: 6) {
+                            Image(systemName: "rectangle.stack.fill")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                            Text("\(matched) of \(total) episodes in Jellyfin")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                 }
                 .padding(12)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 12))
@@ -275,6 +336,9 @@ struct JellyfinMediaAvailabilityCard: View {
             refreshedItemIDs.insert(item.id)
             serviceManager.availability.invalidate(key)
             serviceManager.availability.ensureLoaded(key, media: media, client: client)
+            if let episodesKey {
+                serviceManager.availability.invalidateEpisodes(episodesKey)
+            }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Jellyfin Refresh Started",
                 message: "\(item.name ?? media.title) was sent for metadata refresh.",

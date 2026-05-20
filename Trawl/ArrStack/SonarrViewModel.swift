@@ -150,6 +150,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         do {
             let eps = try await client.getEpisodes(seriesId: seriesId)
             episodes[seriesId] = eps
+        } catch is CancellationError {
+            // ignore
         } catch {
             self.error = error.localizedDescription
         }
@@ -163,6 +165,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             episodeFiles[seriesId] = files.sorted {
                 ($0.seasonNumber ?? 0, $0.relativePath ?? "") < ($1.seasonNumber ?? 0, $1.relativePath ?? "")
             }
+        } catch is CancellationError {
+            // ignore
         } catch {
             self.error = error.localizedDescription
         }

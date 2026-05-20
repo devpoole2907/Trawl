@@ -171,6 +171,10 @@ final class TorrentService {
         try await apiClient.getTrackers(hash: hash)
     }
 
+    func getMainLog() async throws -> [QBittorrentLogEntry] {
+        try await apiClient.getMainLog()
+    }
+
     // MARK: - Transfer
 
     func getTransferInfo() async throws -> TransferInfo {

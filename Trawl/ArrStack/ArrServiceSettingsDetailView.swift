@@ -324,6 +324,10 @@ struct ArrServiceSettingsView: View {
             #endif
             await loadNotificationSetupStatus()
         }
+        .refreshable {
+            await loadSystemStatus()
+            await loadNotificationSetupStatus()
+        }
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
             if let token = notification.object as? String {

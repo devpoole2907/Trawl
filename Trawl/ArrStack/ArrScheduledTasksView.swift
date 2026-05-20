@@ -48,6 +48,7 @@ struct ArrScheduledTasksView: View {
             }
         }
         .navigationTitle("Tasks")
+        .navigationSubtitle(selectedService.displayName)
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(

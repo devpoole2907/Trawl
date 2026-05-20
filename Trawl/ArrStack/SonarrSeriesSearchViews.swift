@@ -398,6 +398,15 @@ struct SonarrSeasonSearchView: View {
         .task(id: seriesId) {
             await monitorSeasonState()
         }
+        .refreshable {
+            guard let seriesId else { return }
+            await viewModel.loadEpisodes(for: seriesId)
+            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadQueue()
+            if let bazarrClient {
+                await refreshBazarrSeasonEpisodes(seriesId: seriesId, client: bazarrClient)
+            }
+        }
     }
 
     private var episodesAnimationValue: [String] {
@@ -789,6 +798,18 @@ struct SonarrSeasonEpisodeRow: View {
         bazarrEpisodes.first { $0.sonarrEpisodeId == episode.id }
     }
 
+    private var jellyfinSeriesMedia: JellyfinMediaAvailabilityCard.Media? {
+        guard let series else { return nil }
+        return .series(
+            title: series.title,
+            year: series.year,
+            tvdbId: series.tvdbId,
+            tmdbId: nil,
+            imdbId: series.imdbId,
+            totalEpisodes: series.statistics?.episodeCount
+        )
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             NavigationLink {
@@ -848,6 +869,13 @@ struct SonarrSeasonEpisodeRow: View {
                                 Image(systemName: "captions.bubble.fill")
                                     .foregroundStyle(bEp.missingSubtitles.isEmpty ? .teal : .secondary)
                                     .font(.caption)
+                            }
+                            if let jellyfinMedia = jellyfinSeriesMedia {
+                                JellyfinEpisodePresenceIcon(
+                                    media: jellyfinMedia,
+                                    seasonNumber: episode.seasonNumber,
+                                    episodeNumber: episode.episodeNumber
+                                )
                             }
                         }
                     }
@@ -969,6 +997,18 @@ struct SonarrEpisodeSearchView: View {
         refreshedBazarrEpisode ?? initialBazarrEpisode
     }
 
+    private var jellyfinSeriesMedia: JellyfinMediaAvailabilityCard.Media? {
+        guard let series else { return nil }
+        return .series(
+            title: series.title,
+            year: series.year,
+            tvdbId: series.tvdbId,
+            tmdbId: nil,
+            imdbId: series.imdbId,
+            totalEpisodes: series.statistics?.episodeCount
+        )
+    }
+
     private var episodeFiles: [SonarrEpisodeFile] {
         guard let seriesId, let episodeFileId = currentEpisode.episodeFileId else { return [] }
         return viewModel.episodeFiles[seriesId]?.filter { $0.id == episodeFileId } ?? []
@@ -1026,6 +1066,14 @@ struct SonarrEpisodeSearchView: View {
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
+                }
+
+                if let jellyfinMedia = jellyfinSeriesMedia {
+                    JellyfinEpisodeAvailabilityCard(
+                        media: jellyfinMedia,
+                        seasonNumber: currentEpisode.seasonNumber,
+                        episodeNumber: currentEpisode.episodeNumber
+                    )
                 }
 
                 if !episodeFiles.isEmpty {
@@ -1151,6 +1199,14 @@ struct SonarrEpisodeSearchView: View {
         }
         .task(id: currentEpisode.id) {
             await monitorEpisodeState()
+        }
+        .refreshable {
+            guard let seriesId else { return }
+            await viewModel.loadEpisodes(for: seriesId)
+            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadQueue()
+            await viewModel.loadHistory()
+            await refreshBazarrEpisode()
         }
     }
 
