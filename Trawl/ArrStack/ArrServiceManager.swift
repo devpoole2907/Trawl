@@ -416,6 +416,20 @@ final class ArrServiceManager {
         }
     }
 
+    /// Retry only services that are configured but not currently connected or connecting.
+    /// Safe to call on foreground return — does not reset already-connected services.
+    func retryDisconnected() async {
+        guard !isInitializing else { return }
+        for serviceType in ArrServiceType.allCases {
+            guard !isConnected(serviceType), !isConnecting(serviceType) else { continue }
+            let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
+            guard !profiles.isEmpty else { continue }
+            for profile in profiles {
+                await connectService(profile)
+            }
+        }
+    }
+
     /// Connect a single service profile.
     func connectService(_ profile: ArrServiceProfile) async {
         guard let serviceType = profile.resolvedServiceType else {

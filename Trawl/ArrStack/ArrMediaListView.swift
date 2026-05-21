@@ -113,25 +113,23 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     private var baseContent: some View {
         if serviceManager.isConnected(serviceType) {
             mainContent
-        } else if isShowingConnectingState {
-            ArrConnectingView(profile: activeProfile) {
-                showSettings = true
-            }
-        } else if let errorMessage = serviceManager.connectionError(serviceType) {
-            ContentUnavailableView {
-                Label("Connection Failed", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text(errorMessage)
-            } actions: {
-                Button("Retry", systemImage: "arrow.clockwise") {
-                    Task { await serviceManager.retry(serviceType) }
+        } else if isShowingConnectingState || serviceManager.connectionError(serviceType) != nil {
+            ConnectionStatusCard(
+                identity: serviceType.serviceIdentity,
+                title: isShowingConnectingState ? "Connecting to \(serviceType.displayName)" : "\(serviceType.displayName) Unreachable",
+                message: serviceManager.connectionError(serviceType) ?? "Checking your configured \(serviceType.displayName) server.",
+                isConnecting: isShowingConnectingState,
+                detailTitle: activeProfile?.displayName,
+                detailSubtitle: activeProfile?.hostURL,
+                presentation: .embedded,
+                onRetry: { Task { await serviceManager.retry(serviceType) } },
+                onEdit: {
+                    withAnimation(.snappy) {
+                        showSettings = true
+                    }
                 }
-                .buttonStyle(.borderedProminent)
-                .disabled(serviceManager.isConnecting(serviceType))
-                Button("Edit Server", systemImage: "server.rack") {
-                    showSettings = true
-                }
-            }
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
         } else {
             notSetUpView
         }
@@ -144,10 +142,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
             Text("Add a \(serviceType.displayName) server to get started.")
         } actions: {
             Button("Add Server", systemImage: "plus") {
-                if profiles.filter({ $0.resolvedServiceType == serviceType }).isEmpty {
-                    showAddSheet = true
-                } else {
-                    showSettings = true
+                withAnimation(.snappy) {
+                    if profiles.filter({ $0.resolvedServiceType == serviceType }).isEmpty {
+                        showAddSheet = true
+                    } else {
+                        showSettings = true
+                    }
                 }
             }
             .buttonStyle(.borderedProminent)

@@ -1,4 +1,5 @@
 import Foundation
+import OSLog
 
 // MARK: - Generic Page
 
@@ -333,6 +334,8 @@ nonisolated struct BazarrLanguage: Codable, Identifiable, Sendable {
 }
 
 nonisolated struct BazarrLanguageProfile: Codable, Identifiable, Sendable {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "BazarrModels")
+
     let profileId: Int
     let name: String
     let cutoff: Int?
@@ -394,7 +397,14 @@ nonisolated struct BazarrLanguageProfile: Codable, Identifiable, Sendable {
 
     var parsedItems: [BazarrLanguageProfileItem] {
         guard let json = itemsJSON, let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([BazarrLanguageProfileItem].self, from: data)) ?? []
+        do {
+            return try JSONDecoder().decode([BazarrLanguageProfileItem].self, from: data)
+        } catch {
+            Self.logger.error(
+                "Failed to decode Bazarr language profile items for profile \(profileId): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
     }
 }
 
@@ -461,8 +471,8 @@ nonisolated struct BazarrLanguageProfileItem: Codable, Identifiable, Sendable {
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        bazarrId = (try? container.decodeIfPresent(Int.self, forKey: .bazarrId)) ?? 0
-        language = (try? container.decodeIfPresent(String.self, forKey: .language)) ?? ""
+        bazarrId = try Self.decodeRequiredBazarrId(container)
+        language = try Self.decodeRequiredLanguage(container)
         hi = Self.decodePythonBool(container, key: .hi)
         forced = Self.decodePythonBool(container, key: .forced)
         audioExclude = Self.decodePythonBool(container, key: .audioExclude)
@@ -492,6 +502,41 @@ nonisolated struct BazarrLanguageProfileItem: Codable, Identifiable, Sendable {
             }
         }
         return false
+    }
+
+    private static func decodeRequiredBazarrId(_ container: KeyedDecodingContainer<CodingKeys>) throws -> Int {
+        if let value = try? container.decodeIfPresent(Int.self, forKey: .bazarrId) {
+            return value
+        }
+        if let string = try? container.decodeIfPresent(String.self, forKey: .bazarrId),
+           let value = Int(string) {
+            return value
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: .bazarrId,
+            in: container,
+            debugDescription: "Language profile item is missing a valid Bazarr ID."
+        )
+    }
+
+    private static func decodeRequiredLanguage(_ container: KeyedDecodingContainer<CodingKeys>) throws -> String {
+        guard let language = try container.decodeIfPresent(String.self, forKey: .language) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .language,
+                in: container,
+                debugDescription: "Language profile item is missing a language."
+            )
+        }
+
+        let trimmedLanguage = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLanguage.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .language,
+                in: container,
+                debugDescription: "Language profile item has an empty language."
+            )
+        }
+        return trimmedLanguage
     }
 }
 

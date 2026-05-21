@@ -46,10 +46,10 @@ struct BazarrProvidersView: View {
                     description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
                 )
             } else if client == nil {
-                ContentUnavailableView(
-                    "Bazarr Unreachable",
-                    systemImage: "network.slash",
-                    description: Text(serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server.")
+                ArrServiceConnectionStatusView(
+                    serviceType: .bazarr,
+                    title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                    message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
                 )
             } else {
                 contentView

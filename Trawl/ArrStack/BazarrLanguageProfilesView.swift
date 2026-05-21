@@ -30,10 +30,10 @@ struct BazarrLanguageProfilesView: View {
                     description: Text("Add a Bazarr server in Settings to manage language profiles.")
                 )
             } else if client == nil {
-                ContentUnavailableView(
-                    "Bazarr Unreachable",
-                    systemImage: "network.slash",
-                    description: Text(serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server.")
+                ArrServiceConnectionStatusView(
+                    serviceType: .bazarr,
+                    title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                    message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
                 )
             } else {
                 contentView
@@ -193,16 +193,25 @@ struct BazarrLanguageProfilesView: View {
     private func load() async {
         guard let client else {
             profiles = []
+            availableLanguages = []
             return
         }
         profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
+        availableLanguages = serviceManager.activeBazarrEntry?.languages ?? []
         isLoading = profiles.isEmpty
         errorMessage = nil
         do {
             async let profilesLoad = client.getLanguageProfiles()
             async let languagesLoad = client.getLanguages()
             let fetchedProfiles = try await profilesLoad
-            let fetchedLanguages = (try? await languagesLoad) ?? []
+            var fetchedLanguages = availableLanguages
+            do {
+                fetchedLanguages = try await languagesLoad
+            } catch {
+                let message = "Language list could not be loaded: \(error.localizedDescription)"
+                errorMessage = message
+                InAppNotificationCenter.shared.showError(title: "Languages Unavailable", message: error.localizedDescription)
+            }
             profiles = fetchedProfiles
             availableLanguages = fetchedLanguages
             if let id = serviceManager.activeBazarrEntry?.id {
@@ -231,7 +240,15 @@ struct BazarrLanguageProfilesView: View {
                 )
             }
             let itemsData = try JSONEncoder().encode(items)
-            let itemsString = String(data: itemsData, encoding: .utf8) ?? "[]"
+            guard let itemsString = String(data: itemsData, encoding: .utf8) else {
+                throw EncodingError.invalidValue(
+                    items,
+                    EncodingError.Context(
+                        codingPath: [],
+                        debugDescription: "Encoded language profile items were not valid UTF-8."
+                    )
+                )
+            }
 
             let profileId = existing?.profileId ?? ((profiles.map(\.profileId).max() ?? 0) + 1)
 

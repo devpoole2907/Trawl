@@ -43,6 +43,25 @@ nonisolated struct SeerrMediaRequest: Codable, Identifiable, Sendable {
         return SeerrRequestStatus(rawValue: status)
     }
 
+    var badgeStatus: SeerrRequestBadgeStatus? {
+        guard let requestStatus else { return nil }
+
+        if requestStatus == .approved {
+            switch media?.mediaStatus {
+            case .processing, .pending, .unknown:
+                return .processing
+            case .partiallyAvailable:
+                return .partiallyAvailable
+            case .available:
+                return .available
+            case .blocklisted, .deleted, nil:
+                break
+            }
+        }
+
+        return SeerrRequestBadgeStatus(requestStatus: requestStatus)
+    }
+
     var createdAtRelativeText: String? {
         SeerrDateFormatter.relativeDateText(from: createdAt)
     }
@@ -82,6 +101,21 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
         if let tmdbId { return "TMDb \(tmdbId)" }
         return "Unknown Media"
     }
+
+    var mediaStatus: SeerrMediaStatus? {
+        guard let status else { return nil }
+        return SeerrMediaStatus(rawValue: status)
+    }
+}
+
+nonisolated enum SeerrMediaStatus: Int, Codable, Sendable {
+    case unknown = 1
+    case pending = 2
+    case processing = 3
+    case partiallyAvailable = 4
+    case available = 5
+    case blocklisted = 6
+    case deleted = 7
 }
 
 nonisolated struct SeerrMediaSummary: Codable, Sendable {
@@ -131,6 +165,53 @@ nonisolated enum SeerrRequestStatus: Int, Codable, Sendable {
         switch self {
         case .pending: .orange
         case .approved: .green
+        case .declined: .red
+        case .failed: .red
+        case .completed: .green
+        }
+    }
+}
+
+nonisolated enum SeerrRequestBadgeStatus: Sendable {
+    case pending
+    case approved
+    case processing
+    case partiallyAvailable
+    case available
+    case declined
+    case failed
+    case completed
+
+    init(requestStatus: SeerrRequestStatus) {
+        switch requestStatus {
+        case .pending: self = .pending
+        case .approved: self = .approved
+        case .declined: self = .declined
+        case .failed: self = .failed
+        case .completed: self = .completed
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .pending: "Pending"
+        case .approved: "Approved"
+        case .processing: "Processing"
+        case .partiallyAvailable: "Partial"
+        case .available: "Available"
+        case .declined: "Declined"
+        case .failed: "Failed"
+        case .completed: "Completed"
+        }
+    }
+
+    var statusColor: Color {
+        switch self {
+        case .pending: .orange
+        case .approved: .green
+        case .processing: .blue
+        case .partiallyAvailable: .teal
+        case .available: .green
         case .declined: .red
         case .failed: .red
         case .completed: .green

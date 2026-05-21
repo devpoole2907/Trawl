@@ -5,6 +5,7 @@ struct ArrHistoryView: View {
 
     let embedded: Bool
     let serviceFilter: ArrServiceFilter
+    @State private var showSettings = false
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
     @State private var prowlarrViewModel: ProwlarrViewModel?
@@ -33,6 +34,17 @@ struct ArrHistoryView: View {
             await reloadHistory()
             historyRefreshGeneration += 1
         }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: settingsServiceType)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
+        }
     }
 
     @ViewBuilder
@@ -44,10 +56,10 @@ struct ArrHistoryView: View {
                 description: Text("Connect Sonarr, Radarr, or Prowlarr to view activity history.")
             )
         } else if !hasConnectedService {
-            ContentUnavailableView(
-                "Services Unreachable",
-                systemImage: "network.slash",
-                description: Text("Unable to reach your configured activity history services.")
+            ArrServicesConnectionStatusView(
+                services: configuredHistoryServices,
+                title: "Services Unreachable",
+                message: "Unable to reach your configured activity history services."
             )
         } else {
             ArrLoadingErrorEmptyView(
@@ -110,6 +122,46 @@ struct ArrHistoryView: View {
         case .prowlarr: serviceManager.hasProwlarrInstance
         case .all: serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasProwlarrInstance
         case .bazarr: false
+        }
+    }
+
+    private var configuredHistoryServices: [ArrServiceType] {
+        switch serviceFilter {
+        case .sonarr:
+            return serviceManager.hasSonarrInstance ? [.sonarr] : []
+        case .radarr:
+            return serviceManager.hasRadarrInstance ? [.radarr] : []
+        case .prowlarr:
+            return serviceManager.hasProwlarrInstance ? [.prowlarr] : []
+        case .all:
+            var services: [ArrServiceType] = []
+            if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+            if serviceManager.hasRadarrInstance { services.append(.radarr) }
+            if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
+            return services
+        case .bazarr:
+            return []
+        }
+    }
+
+    private var isConnecting: Bool {
+        guard !hasConnectedService else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr) ||
+            serviceManager.isConnecting(.prowlarr)
+    }
+
+    private var settingsServiceType: ArrServiceType {
+        switch serviceFilter {
+        case .sonarr: return .sonarr
+        case .radarr: return .radarr
+        case .prowlarr: return .prowlarr
+        case .all, .bazarr:
+            if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+            if serviceManager.hasRadarrInstance && !serviceManager.radarrConnected { return .radarr }
+            if serviceManager.hasProwlarrInstance && !serviceManager.prowlarrConnected { return .prowlarr }
+            return .sonarr
         }
     }
 

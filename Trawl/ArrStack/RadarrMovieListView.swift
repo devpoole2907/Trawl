@@ -32,7 +32,8 @@ struct RadarrMovieListView: View {
                     }
                 )
             } else {
-                Color.clear
+                radarrUnavailableContent
+                    .navigationTitle("Movies")
             }
         }
         .task(id: viewModelLoadKey) {
@@ -46,6 +47,29 @@ struct RadarrMovieListView: View {
                 viewModel = RadarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
                 viewModelInstanceID = activeID
             }
+        }
+    }
+
+    @ViewBuilder
+    private var radarrUnavailableContent: some View {
+        if !serviceManager.hasRadarrInstance {
+            ContentUnavailableView {
+                Label("Radarr Not Set Up", systemImage: ServiceIdentity.radarr.tabSystemImage)
+            } description: {
+                Text("Add a Radarr server in Settings to manage your movies.")
+            }
+        } else if serviceManager.radarrIsConnecting || serviceManager.isInitializing {
+            ArrServiceConnectionStatusView(
+                serviceType: .radarr,
+                title: "Connecting to Radarr",
+                message: "Checking your configured Radarr server."
+            )
+        } else {
+            ArrServiceConnectionStatusView(
+                serviceType: .radarr,
+                title: "Radarr Unreachable",
+                message: serviceManager.radarrConnectionError ?? "Unable to reach your Radarr server."
+            )
         }
     }
 

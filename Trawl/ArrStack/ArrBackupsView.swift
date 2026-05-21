@@ -9,6 +9,7 @@ struct ArrBackupsView: View {
     @State private var states: [ArrServiceType: BackupViewState] = [:]
     @State private var unavailable: Set<ArrServiceType> = []
     @State private var sortOrder: BackupSortOrder = .newestFirst
+    @State private var showSettings = false
     @State private var servicePendingBackupCreation: ArrServiceType?
     @State private var backupPendingDelete: PendingBackupDelete?
     @State private var backupPendingRestore: PendingBackupDelete?
@@ -69,11 +70,11 @@ struct ArrBackupsView: View {
                     systemImage: "externaldrive.fill",
                     description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to manage backups.")
                 )
-            } else if unavailable.contains(selectedService) {
-                ContentUnavailableView(
-                    "Service Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("\(selectedService.displayName) is configured but currently unreachable.")
+            } else if !serviceManager.isConnected(selectedService) && (serviceManager.isInitializing || serviceManager.isConnecting(selectedService) || unavailable.contains(selectedService)) {
+                ArrServiceConnectionStatusView(
+                    serviceType: selectedService,
+                    title: serviceManager.isConnecting(selectedService) || serviceManager.isInitializing ? "Connecting to \(selectedService.displayName)" : "\(selectedService.displayName) Unreachable",
+                    message: serviceManager.connectionError(selectedService) ?? "\(selectedService.displayName) is configured but currently unreachable."
                 )
             } else if let state = states[selectedService] {
                 backupList(state: state, service: selectedService)
@@ -207,8 +208,22 @@ struct ArrBackupsView: View {
                 alignment: .leading
             )
         }
-        .loadServicesPeriodically(availableServices) { service in
+        .loadServicesPeriodically(
+            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
+            keys: availableServices
+        ) { service in
             await loadService(service)
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: selectedService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
         }
         .onAppear {
             if !availableServices.contains(selectedService), let first = availableServices.first {
@@ -315,6 +330,7 @@ struct ArrBackupsView: View {
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
         guard let client = client(for: service) else { unavailable.insert(service); return }
+        unavailable.remove(service)
         states[service, default: BackupViewState()].isLoading = true
         states[service]?.error = nil
         do {

@@ -39,6 +39,7 @@ struct ContentView: View {
     @State private var setupTarget: SetupTarget?
     @State private var didEvaluateWelcomeState = false
     @State private var servicesTask: Task<Void, Never>?
+    @State private var connectionRetryScheduler = ConnectionRetryScheduler()
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -57,6 +58,7 @@ struct ContentView: View {
                 tabContent
             }
         }
+        .environment(connectionRetryScheduler)
         .preferredColorScheme(themeOverride.colorScheme)
         .background(
             GeometryReader { geometry in
@@ -224,12 +226,20 @@ struct ContentView: View {
             }
             await arrServiceManager.initialize(from: arrProfiles)
         }
+        .task(id: connectionRetryLoopKey) {
+            guard scenePhase == .active, !shouldShowWelcomeScreen else { return }
+            await connectionRetryScheduler.start {
+                await retryDisconnectedConnections()
+            }
+        }
         .onChange(of: activeServerID) { _, newValue in
             appServices?.syncService.stopPolling()
             if newValue == nil {
-                appServices = nil
-                connectionError = nil
-                isConnecting = false
+                withAnimation(.snappy) {
+                    appServices = nil
+                    connectionError = nil
+                    isConnecting = false
+                }
             } else {
                 initializeServices()
             }
@@ -247,6 +257,15 @@ struct ContentView: View {
                 if needsRestart {
                     initializeServices()
                 }
+                // Re-attempt service managers that failed to connect (e.g. VPN was off at launch).
+                // These don't reset already-connected services — only retry disconnected ones.
+                if !seerrServiceManager.isConnected && !seerrServiceManager.isConnecting && !seerrProfiles.isEmpty {
+                    Task { await seerrServiceManager.initialize(from: seerrProfiles) }
+                }
+                if !jellyfinServiceManager.isConnected && !jellyfinServiceManager.isConnecting && !jellyfinProfiles.isEmpty {
+                    Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
+                }
+                Task { await arrServiceManager.retryDisconnected() }
             }
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
@@ -544,7 +563,9 @@ struct ContentView: View {
             Tab("More", systemImage: "ellipsis", value: RootTab.more) {
                 MoreView(
                     appServices: appServices,
-                    path: $morePath
+                    path: $morePath,
+                    isQBittorrentConnecting: isConnecting,
+                    onRetryQBittorrent: { initializeServices() }
                 )
                     .environment(services.syncService)
                     .environment(services.torrentService)
@@ -594,36 +615,18 @@ struct ContentView: View {
 
     @ViewBuilder
     private var torrentsUnavailableContent: some View {
-        if isConnecting {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Connecting…")
-                    .font(.headline)
-                if let server = activeServer {
-                    VStack(spacing: 4) {
-                        Text(server.displayName)
-                        Text(server.hostURL)
-                            .foregroundStyle(.secondary)
-                    }
-                    .font(.subheadline)
-                    .multilineTextAlignment(.center)
-                }
-                Button("Edit Server", systemImage: "server.rack") {
-                    showOnboarding = true
-                }
-            }
-            .padding()
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let error = connectionError {
-            ContentUnavailableView {
-                Label("Connection Failed", systemImage: "wifi.exclamationmark")
-            } description: {
-                Text(error)
-            } actions: {
-                Button("Retry", systemImage: "arrow.clockwise") { initializeServices() }
-                Button("Edit Server", systemImage: "server.rack") { showOnboarding = true }
-            }
+        if isConnecting || connectionError != nil {
+            ConnectionStatusCard(
+                identity: .qbittorrent,
+                title: isConnecting ? "Connecting to qBittorrent" : "qBittorrent Unreachable",
+                message: connectionError ?? "Checking your configured qBittorrent server.",
+                isConnecting: isConnecting,
+                detailTitle: activeServer?.displayName,
+                detailSubtitle: activeServer?.hostURL,
+                presentation: .embedded,
+                onRetry: { initializeServices() },
+                onEdit: { showOnboarding = true }
+            )
         } else {
             // qBittorrent not configured — arr-only user or setup pending
             ContentUnavailableView {
@@ -703,6 +706,17 @@ struct ContentView: View {
             .joined(separator: "|")
     }
 
+    private var connectionRetryLoopKey: String {
+        [
+            scenePhase == .active ? "active" : "paused",
+            shouldShowWelcomeScreen ? "welcome" : "content",
+            activeServerID?.uuidString ?? "no-qbittorrent",
+            arrProfilesSyncKey,
+            seerrProfilesSyncKey,
+            jellyfinProfilesSyncKey
+        ].joined(separator: "|")
+    }
+
     private var shouldShowWelcomeScreen: Bool {
         didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
     }
@@ -712,15 +726,19 @@ struct ContentView: View {
 
         guard let server = activeServer else {
             appServices?.syncService.stopPolling()
-            appServices = nil
-            connectionError = nil
-            isConnecting = false
+            withAnimation(.snappy) {
+                appServices = nil
+                connectionError = nil
+                isConnecting = false
+            }
             return
         }
 
         let previousServices = appServices
-        isConnecting = true
-        connectionError = nil
+        withAnimation(.snappy) {
+            isConnecting = true
+            connectionError = nil
+        }
 
         servicesTask = Task {
             do {
@@ -730,9 +748,11 @@ struct ContentView: View {
                 guard !username.isEmpty, !password.isEmpty else {
                     guard !Task.isCancelled else { return }
                     previousServices?.syncService.stopPolling()
-                    appServices = nil
-                    connectionError = "Credentials not found. Please re-enter your server details."
-                    isConnecting = false
+                    withAnimation(.snappy) {
+                        appServices = nil
+                        connectionError = "Credentials not found. Please re-enter your server details."
+                        isConnecting = false
+                    }
                     return
                 }
 
@@ -764,8 +784,10 @@ struct ContentView: View {
                     services.syncService.stopPolling()
                     return
                 }
-                appServices = services
-                isConnecting = false
+                withAnimation(.snappy) {
+                    appServices = services
+                    isConnecting = false
+                }
 
                 #if os(macOS)
                 if !hasPromptedForMagnetHandler && !isDefaultMagnetHandler() {
@@ -781,11 +803,31 @@ struct ContentView: View {
             } catch {
                 guard !Task.isCancelled else { return }
                 previousServices?.syncService.stopPolling()
-                appServices = nil
-                connectionError = error.localizedDescription
-                isConnecting = false
+                withAnimation(.snappy) {
+                    appServices = nil
+                    connectionError = error.localizedDescription
+                    isConnecting = false
+                }
             }
         }
+    }
+
+    private func retryDisconnectedConnections() async {
+        guard !shouldShowWelcomeScreen else { return }
+
+        if activeServer != nil && appServices == nil && !isConnecting {
+            initializeServices()
+        }
+
+        if !seerrProfiles.isEmpty && !seerrServiceManager.isConnected && !seerrServiceManager.isConnecting {
+            await seerrServiceManager.initialize(from: seerrProfiles)
+        }
+
+        if !jellyfinProfiles.isEmpty && !jellyfinServiceManager.isConnected && !jellyfinServiceManager.isConnecting {
+            await jellyfinServiceManager.initialize(from: jellyfinProfiles)
+        }
+
+        await arrServiceManager.retryDisconnected()
     }
 
     private func refreshArrConfiguration() {

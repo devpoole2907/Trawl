@@ -284,6 +284,13 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
+    private var calendarServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     var isConnected: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
@@ -317,10 +324,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     description: Text("Connect Sonarr or Radarr to see upcoming releases.")
                 )
             } else if !isConnected {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: calendarServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else {
                 ArrLoadingErrorEmptyView(

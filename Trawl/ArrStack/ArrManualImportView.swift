@@ -52,10 +52,10 @@ struct ArrManualImportView: View {
             if availableServices.isEmpty {
                 emptyState
             } else if !hasConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: availableServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else {
                 listContent

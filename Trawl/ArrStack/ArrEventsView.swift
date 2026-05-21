@@ -31,6 +31,7 @@ struct ArrEventsView: View {
     @State private var committedSearchText = ""
     @State private var isSearchExpanded = false
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var showSettings = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -39,6 +40,18 @@ struct ArrEventsView: View {
         if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
         if serviceManager.hasBazarrInstance { services.append(.bazarr) }
         return services
+    }
+
+    private var isAnyConnecting: Bool {
+        serviceManager.isInitializing || availableServices.contains { serviceManager.isConnecting($0) }
+    }
+
+    private var hasAnyConnected: Bool {
+        availableServices.contains { serviceManager.isConnected($0) }
+    }
+
+    private var primarySettingsService: ArrServiceType? {
+        availableServices.first { !serviceManager.isConnected($0) } ?? availableServices.first
     }
 
     private var segmentItems: [TrawlSegmentBarItem<ArrEventsSelection>] {
@@ -105,6 +118,12 @@ struct ArrEventsView: View {
                     systemImage: "list.bullet.rectangle",
                     description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.")
                 )
+            } else if !hasAnyConnected {
+                ArrServicesConnectionStatusView(
+                    services: availableServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured services."
+                )
             } else {
                 logList
             }
@@ -148,8 +167,24 @@ struct ArrEventsView: View {
                 alignment: .center
             )
         }
-        .loadServicesPeriodically(availableServices) { service in
+        .loadServicesPeriodically(
+            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
+            keys: availableServices
+        ) { service in
             await loadService(service)
+        }
+        .sheet(isPresented: $showSettings) {
+            if let service = primarySettingsService {
+                NavigationStack {
+                    ArrServiceSettingsView(serviceType: service)
+                        .environment(serviceManager)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showSettings = false }
+                            }
+                        }
+                }
+            }
         }
         .onChange(of: searchText) { _, newValue in
             searchDebounceTask?.cancel()

@@ -14,6 +14,7 @@ struct ArrDownloadClientListView: View {
     @State private var isTogglingID: Int?
     @State private var isTestingID: Int?
     @State private var showAddSheet = false
+    @State private var showSettings = false
     @State private var reachability: [Int: Bool] = [:]
     @State private var isCheckingIDs: Set<Int> = []
 
@@ -21,9 +22,29 @@ struct ArrDownloadClientListView: View {
         serviceType == .sonarr || serviceType == .radarr
     }
 
+    private var isServiceConnecting: Bool {
+        serviceManager.isInitializing || serviceManager.isConnecting(serviceType)
+    }
+
     var body: some View {
         List {
-            if isLoading && clients.isEmpty {
+            if !serviceManager.isConnected(serviceType) {
+                Section {
+                    ConnectionIssueRow(
+                        identity: serviceType.serviceIdentity,
+                        title: isServiceConnecting ? "Connecting to \(serviceType.displayName)" : "\(serviceType.displayName) Unreachable",
+                        message: serviceManager.connectionError(serviceType) ?? "Check your server connection and try again.",
+                        isConnecting: isServiceConnecting,
+                        onRetry: { Task { await serviceManager.retry(serviceType) } },
+                        onEdit: {
+                            withAnimation(.snappy) {
+                                showSettings = true
+                            }
+                        }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            } else if isLoading && clients.isEmpty {
                 Section {
                     HStack {
                         ProgressView()
@@ -85,6 +106,10 @@ struct ArrDownloadClientListView: View {
             }
             .environment(serviceManager)
         }
+        .sheet(isPresented: $showSettings) {
+            ArrServiceSettingsSheet(serviceType: serviceType, isPresented: $showSettings)
+                .environment(serviceManager)
+        }
         .sheet(item: supportsDownloadClients ? $clientBeingEdited : .constant(nil)) { client in
             ArrDownloadClientEditorSheet(serviceType: serviceType, existingClient: client) { saved in
                 if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
@@ -102,7 +127,7 @@ struct ArrDownloadClientListView: View {
             await loadClients()
             checkReachabilityForAll()
         }
-        .task {
+        .task(id: serviceManager.isConnected(serviceType)) {
             await loadClients()
             checkReachabilityForAll()
         }

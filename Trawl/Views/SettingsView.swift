@@ -624,6 +624,23 @@ struct QBittorrentSettingsView: View {
         .errorAlert(item: $speedLimitErrorAlert)
     }
 
+    private var hasKnownQBittorrentConnectionFailure: Bool {
+        if !syncService.isPolling {
+            return true
+        }
+
+        guard let lastError = syncService.lastError else {
+            return false
+        }
+
+        switch lastError {
+        case .authFailed, .networkError, .noServerConfigured, .connectionTestFailed:
+            return true
+        case .invalidResponse, .decodingError, .serverError:
+            return false
+        }
+    }
+
     private func loadSpeedLimitSettings() async {
         do {
             async let downloadLimit = torrentService.getGlobalDownloadLimit()
@@ -642,6 +659,11 @@ struct QBittorrentSettingsView: View {
             await Task.yield()
             didLoadSpeedLimits = true
         } catch {
+            guard !hasKnownQBittorrentConnectionFailure else {
+                speedLimitErrorAlert = nil
+                return
+            }
+
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Load Speed Limits",
                 message: error.localizedDescription

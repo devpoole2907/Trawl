@@ -30,6 +30,7 @@ struct RemotePathBrowserView: View {
     let title: String
     let source: RemotePathBrowserSource
     let initialPath: String
+    let onClose: (() -> Void)?
     let onSelect: (String) -> Void
 
     @State private var entries: [RemotePathEntry] = []
@@ -41,11 +42,13 @@ struct RemotePathBrowserView: View {
         title: String = "Browse Folder",
         source: RemotePathBrowserSource,
         initialPath: String = "",
+        onClose: (() -> Void)? = nil,
         onSelect: @escaping (String) -> Void
     ) {
         self.title = title
         self.source = source
         self.initialPath = initialPath
+        self.onClose = onClose
         self.onSelect = onSelect
         _manualPath = State(initialValue: initialPath)
     }
@@ -137,7 +140,7 @@ struct RemotePathBrowserView: View {
         #endif
         .toolbar {
             ToolbarItem(placement: platformCancellationPlacement) {
-                Button("Cancel") { dismiss() }
+                Button("Cancel") { closeBrowser() }
             }
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Button("Use This Folder") {
@@ -151,6 +154,7 @@ struct RemotePathBrowserView: View {
                 title: title,
                 source: source,
                 initialPath: path,
+                onClose: onClose,
                 onSelect: onSelect
             )
         }
@@ -187,7 +191,15 @@ struct RemotePathBrowserView: View {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         onSelect(trimmed)
-        dismiss()
+        closeBrowser()
+    }
+
+    private func closeBrowser() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
+        }
     }
 
     private func iconName(for entry: RemotePathEntry) -> String {

@@ -49,14 +49,12 @@ struct BazarrBrowserView: View {
     var body: some View {
         Group {
             if !viewModel.isConnected {
-                if viewModel.isConnecting {
-                    ProgressView("Connecting to Bazarr...")
-                } else if let error = viewModel.connectionError {
-                    ContentUnavailableView {
-                        Label("Connection Error", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    }
+                if viewModel.isConnecting || viewModel.connectionError != nil {
+                    ArrServiceConnectionStatusView(
+                        serviceType: .bazarr,
+                        title: viewModel.isConnecting ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                        message: viewModel.connectionError ?? "Checking your configured Bazarr server."
+                    )
                 } else {
                     ContentUnavailableView {
                         Label("Bazarr Not Set Up", systemImage: "captions.bubble")

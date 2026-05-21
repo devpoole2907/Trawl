@@ -103,8 +103,16 @@ struct UnifiedUserListView: View {
                                 if let seerr = user.seerrUser, let client = seerrClient {
                                     Button(role: .destructive) {
                                         Task {
-                                            try? await client.deleteUser(id: seerr.id)
-                                            viewModel.removeSeerrUser(seerr)
+                                            do {
+                                                try await client.deleteUser(id: seerr.id)
+                                                viewModel.removeSeerrUser(seerr)
+                                            } catch {
+                                                inAppNotificationCenter.showError(
+                                                    title: "Remove Failed",
+                                                    message: error.localizedDescription,
+                                                    source: .inApp
+                                                )
+                                            }
                                         }
                                     } label: {
                                         Label("Remove from Seerr", systemImage: "person.badge.minus")
@@ -113,8 +121,16 @@ struct UnifiedUserListView: View {
                                 if let jf = user.jellyfinUser, !user.isInSeerr {
                                     Button(role: .destructive) {
                                         Task {
-                                            try? await jellyfinClient.deleteUser(id: jf.id)
-                                            viewModel.removeJellyfinUser(jf)
+                                            do {
+                                                try await jellyfinClient.deleteUser(id: jf.id)
+                                                viewModel.removeJellyfinUser(jf)
+                                            } catch {
+                                                inAppNotificationCenter.showError(
+                                                    title: "Delete Failed",
+                                                    message: error.localizedDescription,
+                                                    source: .inApp
+                                                )
+                                            }
                                         }
                                     } label: {
                                         Label("Delete from Jellyfin", systemImage: "trash")
@@ -223,9 +239,11 @@ private struct UnifiedAddUserSheet: View {
 
     @Environment(\.dismiss) private var dismiss
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var name = ""
     @State private var password = ""
     @State private var isCreating = false
+    @State private var isSyncingToSeerr = false
     @State private var errorMessage: String?
     @State private var createdUser: JellyfinUser?
     @State private var showSyncAlert = false
@@ -236,7 +254,7 @@ private struct UnifiedAddUserSheet: View {
         AppSheetShell(
             title: "Add User",
             confirmTitle: "Add",
-            isConfirmDisabled: trimmedName.isEmpty,
+            isConfirmDisabled: trimmedName.isEmpty || createdUser != nil,
             isConfirmLoading: isCreating,
             onConfirm: { Task { await createUser() } },
             detents: [.medium],
@@ -252,6 +270,27 @@ private struct UnifiedAddUserSheet: View {
 
                     SecureField("Password", text: $password)
                         .textContentType(.newPassword)
+                }
+
+                if let createdUser {
+                    Section("Jellyfin") {
+                        Label("\(createdUser.name) was added to Jellyfin.", systemImage: "checkmark.circle")
+                            .foregroundStyle(.green)
+
+                        if seerrServiceManager.isConnected {
+                            Button {
+                                Task { await syncToSeerr() }
+                            } label: {
+                                HStack {
+                                    if isSyncingToSeerr {
+                                        ProgressView()
+                                    }
+                                    Text("Sync to Seerr")
+                                }
+                            }
+                            .disabled(isSyncingToSeerr)
+                        }
+                    }
                 }
 
                 if let errorMessage {
@@ -295,9 +334,21 @@ private struct UnifiedAddUserSheet: View {
     }
 
     private func syncToSeerr() async {
-        guard let user = createdUser else { return }
-        try? await onImportToSeerr(user)
-        dismiss()
+        guard let user = createdUser, !isSyncingToSeerr else { return }
+        isSyncingToSeerr = true
+        errorMessage = nil
+        do {
+            try await onImportToSeerr(user)
+            dismiss()
+        } catch {
+            errorMessage = "Seerr sync failed: \(error.localizedDescription)"
+            inAppNotificationCenter.showError(
+                title: "Sync Failed",
+                message: error.localizedDescription,
+                source: .inApp
+            )
+        }
+        isSyncingToSeerr = false
     }
 }
 

@@ -7,6 +7,7 @@ struct ArrUpdatesView: View {
     @State private var viewModel = ArrUpdatesViewModel()
     @State private var selectedService: ArrServiceType?
     @State private var confirmingInstall: ArrServiceType?
+    @State private var showSettings = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -14,6 +15,18 @@ struct ArrUpdatesView: View {
         if serviceManager.hasRadarrInstance { services.append(.radarr) }
         if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
         return services
+    }
+
+    private var isAnyConnecting: Bool {
+        serviceManager.isInitializing || availableServices.contains { serviceManager.isConnecting($0) }
+    }
+
+    private var hasAnyConnected: Bool {
+        availableServices.contains { serviceManager.isConnected($0) }
+    }
+
+    private var primarySettingsService: ArrServiceType? {
+        availableServices.first { !serviceManager.isConnected($0) } ?? availableServices.first
     }
 
     private var segmentItems: [TrawlSegmentBarItem<ArrServiceType>] {
@@ -27,6 +40,12 @@ struct ArrUpdatesView: View {
                     "No Services Configured",
                     systemImage: "arrow.down.app",
                     description: Text("Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.")
+                )
+            } else if !hasAnyConnected {
+                ArrServicesConnectionStatusView(
+                    services: availableServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured services."
                 )
             } else if let service = selectedService {
                 serviceContent(for: service)
@@ -58,8 +77,24 @@ struct ArrUpdatesView: View {
             }
         }
         // Preloads all services in parallel on appear; refreshes every 30 s.
-        .loadServicesPeriodically(availableServices) { service in
+        .loadServicesPeriodically(
+            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
+            keys: availableServices
+        ) { service in
             await viewModel.load(service: service, serviceManager: serviceManager)
+        }
+        .sheet(isPresented: $showSettings) {
+            if let service = primarySettingsService {
+                NavigationStack {
+                    ArrServiceSettingsView(serviceType: service)
+                        .environment(serviceManager)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showSettings = false }
+                            }
+                        }
+                }
+            }
         }
         .refreshable {
             guard let service = selectedService else { return }

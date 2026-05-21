@@ -70,7 +70,8 @@ struct AddImportLocationSheet: View {
                         RemotePathBrowserView(
                             title: "\(service.displayName) Folders",
                             source: source,
-                            initialPath: path
+                            initialPath: path,
+                            onClose: { showingBrowser = false }
                         ) { selectedPath in
                             path = selectedPath
                         }

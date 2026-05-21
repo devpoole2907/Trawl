@@ -27,7 +27,7 @@ enum ServerURLValidationError: LocalizedError {
 }
 
 enum ServerURLValidator {
-    static func normalizedURLString(from rawValue: String, defaultScheme: String = "https") throws -> String {
+    static func normalizedURLString(from rawValue: String, defaultScheme: String = "http") throws -> String {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty else {
             throw ServerURLValidationError.empty

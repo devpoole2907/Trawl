@@ -50,6 +50,7 @@ struct ArrQualityDefinitionsView: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @State private var editingDefinition: ArrQualityDefinition?
+    @State private var showSettings = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -58,17 +59,37 @@ struct ArrQualityDefinitionsView: View {
         return services
     }
 
+    private var isSelectedConnecting: Bool {
+        !serviceManager.isConnected(selectedService) &&
+        (serviceManager.isInitializing || serviceManager.isConnecting(selectedService))
+    }
+
+    private var isSelectedUnreachable: Bool {
+        !serviceManager.isConnected(selectedService) && !serviceManager.isConnecting(selectedService) && !serviceManager.isInitializing
+    }
+
     var body: some View {
         Group {
-            if isLoading && definitions.isEmpty {
+            if isSelectedConnecting || (isSelectedUnreachable && definitions.isEmpty) {
+                ArrServiceConnectionStatusView(
+                    serviceType: selectedService,
+                    title: isSelectedConnecting ? "Connecting to \(selectedService.displayName)" : "\(selectedService.displayName) Unreachable",
+                    message: serviceManager.connectionError(selectedService) ?? "Check your server connection and try again."
+                )
+            } else if isLoading && definitions.isEmpty {
                 ProgressView("Loading quality definitions…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage, definitions.isEmpty {
-                ContentUnavailableView(
-                    "Could Not Load",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
-                )
+                ContentUnavailableView {
+                    Label("Could Not Load", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        Task { await load() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else {
                 definitionsList
             }
@@ -87,12 +108,23 @@ struct ArrQualityDefinitionsView: View {
             )
             .disabled(isSaving)
         }
-        .task(id: selectedService.rawValue) {
+        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
             await load()
         }
         .onAppear {
             if !availableServices.contains(selectedService), let first = availableServices.first {
                 selectedService = first
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: selectedService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
             }
         }
         .sheet(item: $editingDefinition) { def in

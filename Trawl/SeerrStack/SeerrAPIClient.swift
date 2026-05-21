@@ -296,17 +296,87 @@ actor SeerrAPIClient {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Parse `Set-Cookie` headers using `HTTPCookie` so multi-cookie responses and
-    /// header field name casing variations are handled correctly.
+    /// Parse every exposed `Set-Cookie` value so multi-cookie responses do not lose
+    /// `connect.sid` before Foundation's cookie parser can inspect it.
     private nonisolated static func extractSessionCookie(from response: HTTPURLResponse) -> String? {
         guard let url = response.url else { return nil }
-        let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, pair in
-            if let key = pair.key as? String, let value = pair.value as? String {
-                result[key] = value
+
+        for headerValue in setCookieHeaderValues(from: response) {
+            let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": headerValue], for: url)
+            if let value = cookies.first(where: { $0.name == "connect.sid" })?.value {
+                return value
+            }
+            if let value = sessionCookieValue(fromSetCookieHeader: headerValue) {
+                return value
             }
         }
-        let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-        return cookies.first { $0.name == "connect.sid" }?.value
+        return nil
+    }
+
+    private nonisolated static func setCookieHeaderValues(from response: HTTPURLResponse) -> [String] {
+        var values: [String] = []
+        for (rawKey, rawValue) in response.allHeaderFields {
+            guard let key = rawKey as? String,
+                  key.caseInsensitiveCompare("Set-Cookie") == .orderedSame
+            else { continue }
+            appendSetCookieHeaderValues(rawValue, to: &values)
+        }
+
+        if values.isEmpty, let fallback = response.value(forHTTPHeaderField: "Set-Cookie") {
+            appendSetCookieHeader(fallback, to: &values)
+        }
+        return values
+    }
+
+    private nonisolated static func appendSetCookieHeaderValues(_ rawValue: Any, to values: inout [String]) {
+        if let value = rawValue as? String {
+            appendSetCookieHeader(value, to: &values)
+        } else if let valueList = rawValue as? [String] {
+            valueList.forEach { appendSetCookieHeader($0, to: &values) }
+        } else if let valueList = rawValue as? NSArray {
+            valueList.compactMap { $0 as? String }.forEach { appendSetCookieHeader($0, to: &values) }
+        }
+    }
+
+    private nonisolated static func appendSetCookieHeader(_ value: String, to values: inout [String]) {
+        let lines = value
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if lines.isEmpty {
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedValue.isEmpty {
+                values.append(trimmedValue)
+            }
+        } else {
+            values.append(contentsOf: lines)
+        }
+    }
+
+    private nonisolated static func sessionCookieValue(fromSetCookieHeader header: String) -> String? {
+        let marker = "connect.sid="
+        var searchRange = header.startIndex..<header.endIndex
+        while let markerRange = header.range(of: marker, options: [.caseInsensitive], range: searchRange) {
+            if isCookieBoundary(before: markerRange.lowerBound, in: header) {
+                let valueStart = markerRange.upperBound
+                let valueEnd = header[valueStart...].firstIndex { character in
+                    character == ";" || character == "," || character.isNewline
+                } ?? header.endIndex
+                let value = header[valueStart..<valueEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+            searchRange = markerRange.upperBound..<header.endIndex
+        }
+        return nil
+    }
+
+    private nonisolated static func isCookieBoundary(before index: String.Index, in header: String) -> Bool {
+        guard index > header.startIndex else { return true }
+        let previous = header[..<index].last { !$0.isWhitespace }
+        return previous == ","
     }
 
     private nonisolated static func queryItems(from params: [String: String]) -> [URLQueryItem] {

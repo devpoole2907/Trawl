@@ -514,7 +514,7 @@ private struct SeerrRequestRow: View {
                         .foregroundStyle(ServiceIdentity.seerr.brandColor)
                 }
 
-                if let status = item.request.requestStatus {
+                if let status = item.request.badgeStatus {
                     Text(status.title)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 6)

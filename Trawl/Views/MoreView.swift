@@ -132,6 +132,10 @@ struct MoreView: View {
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
+    let isQBittorrentConnecting: Bool
+    let onRetryQBittorrent: (() -> Void)?
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
@@ -139,6 +143,7 @@ struct MoreView: View {
     @State private var showingNotificationsSheet = false
     @State private var subtitleBadgeCount = 0
     @State private var moreSearchText = ""
+    @State private var connectionEditSheet: ConnectionEditSheet?
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
 
@@ -162,12 +167,227 @@ struct MoreView: View {
         MoreSearchIndex.results(for: trimmedMoreSearchText)
     }
 
+    private struct ConnectionIssue: Identifiable {
+        let identity: ServiceIdentity
+        let isConnecting: Bool
+        let message: String
+        var id: ServiceIdentity { identity }
+    }
+
+    private enum ConnectionEditSheet: Identifiable, Hashable {
+        case qbittorrent
+        case arr(ArrServiceType)
+        case seerr
+        case jellyfin
+
+        var id: String {
+            switch self {
+            case .qbittorrent:
+                "qbittorrent"
+            case .arr(let service):
+                "arr-\(service.rawValue)"
+            case .seerr:
+                "seerr"
+            case .jellyfin:
+                "jellyfin"
+            }
+        }
+    }
+
+    private var connectionIssues: [ConnectionIssue] {
+        guard !isShowingMoreSearchResults else { return [] }
+        var issues: [ConnectionIssue] = []
+
+        if hasQBittorrentServer && (isQBittorrentConnecting || appServices == nil) {
+            issues.append(ConnectionIssue(
+                identity: .qbittorrent,
+                isConnecting: isQBittorrentConnecting,
+                message: isQBittorrentConnecting
+                    ? "Checking your configured qBittorrent server."
+                    : "Unable to reach your configured qBittorrent server."
+            ))
+        }
+        if arrServiceManager.hasSonarrInstance && !arrServiceManager.sonarrConnected
+            && (arrServiceManager.sonarrIsConnecting || arrServiceManager.isInitializing || arrServiceManager.sonarrConnectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .sonarr,
+                isConnecting: arrServiceManager.sonarrIsConnecting || arrServiceManager.isInitializing,
+                message: arrServiceManager.sonarrConnectionError ?? "Checking your configured Sonarr server."
+            ))
+        }
+        if arrServiceManager.hasRadarrInstance && !arrServiceManager.radarrConnected
+            && (arrServiceManager.radarrIsConnecting || arrServiceManager.isInitializing || arrServiceManager.radarrConnectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .radarr,
+                isConnecting: arrServiceManager.radarrIsConnecting || arrServiceManager.isInitializing,
+                message: arrServiceManager.radarrConnectionError ?? "Checking your configured Radarr server."
+            ))
+        }
+        if arrServiceManager.hasProwlarrInstance && !arrServiceManager.prowlarrConnected
+            && (arrServiceManager.prowlarrIsConnecting || arrServiceManager.isInitializing || arrServiceManager.prowlarrConnectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .prowlarr,
+                isConnecting: arrServiceManager.prowlarrIsConnecting || arrServiceManager.isInitializing,
+                message: arrServiceManager.prowlarrConnectionError ?? "Checking your configured Prowlarr server."
+            ))
+        }
+        if arrServiceManager.hasBazarrInstance && !arrServiceManager.hasAnyConnectedBazarrInstance
+            && (arrServiceManager.isConnecting(.bazarr) || arrServiceManager.isInitializing || arrServiceManager.bazarrConnectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .bazarr,
+                isConnecting: arrServiceManager.isConnecting(.bazarr) || arrServiceManager.isInitializing,
+                message: arrServiceManager.bazarrConnectionError ?? "Checking your configured Bazarr server."
+            ))
+        }
+        if !seerrProfiles.isEmpty && !seerrServiceManager.isConnected
+            && (seerrServiceManager.isConnecting || seerrServiceManager.connectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .seerr,
+                isConnecting: seerrServiceManager.isConnecting,
+                message: seerrServiceManager.connectionError ?? "Checking your configured Seerr server."
+            ))
+        }
+        if !jellyfinProfiles.isEmpty && !jellyfinServiceManager.isConnected
+            && (jellyfinServiceManager.isConnecting || jellyfinServiceManager.connectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .jellyfin,
+                isConnecting: jellyfinServiceManager.isConnecting,
+                message: jellyfinServiceManager.connectionError ?? "Checking your configured Jellyfin server."
+            ))
+        }
+
+        return issues
+    }
+
+    private var connectionIssuesAnimationKey: String {
+        connectionIssues
+            .map { "\($0.identity.rawValue):\($0.isConnecting):\($0.message)" }
+            .joined(separator: "|")
+    }
+
+    private func retryAllConnections() {
+        if hasQBittorrentServer && appServices == nil {
+            onRetryQBittorrent?()
+        }
+        if !seerrServiceManager.isConnected && !seerrServiceManager.isConnecting {
+            Task { await seerrServiceManager.initialize(from: seerrProfiles) }
+        }
+        if !jellyfinServiceManager.isConnected && !jellyfinServiceManager.isConnecting {
+            Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
+        }
+        Task { await arrServiceManager.retryDisconnected() }
+    }
+
+    private func retryConnection(for identity: ServiceIdentity) {
+        switch identity {
+        case .qbittorrent:
+            onRetryQBittorrent?()
+        case .sonarr:
+            Task { await arrServiceManager.retry(.sonarr) }
+        case .radarr:
+            Task { await arrServiceManager.retry(.radarr) }
+        case .prowlarr:
+            Task { await arrServiceManager.retry(.prowlarr) }
+        case .bazarr:
+            Task { await arrServiceManager.retry(.bazarr) }
+        case .seerr:
+            Task { await seerrServiceManager.initialize(from: seerrProfiles) }
+        case .jellyfin:
+            Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
+        }
+    }
+
+    private func presentConnectionEditor(for identity: ServiceIdentity) {
+        let sheet: ConnectionEditSheet
+        switch identity {
+        case .qbittorrent:
+            sheet = .qbittorrent
+        case .sonarr:
+            sheet = .arr(.sonarr)
+        case .radarr:
+            sheet = .arr(.radarr)
+        case .prowlarr:
+            sheet = .arr(.prowlarr)
+        case .bazarr:
+            sheet = .arr(.bazarr)
+        case .seerr:
+            sheet = .seerr
+        case .jellyfin:
+            sheet = .jellyfin
+        }
+
+        withAnimation(.snappy) {
+            connectionEditSheet = sheet
+        }
+    }
+
+    private func dismissConnectionEditor() {
+        withAnimation(.snappy) {
+            connectionEditSheet = nil
+        }
+    }
+
+    private var connectionEditorIsPresented: Binding<Bool> {
+        Binding(
+            get: { connectionEditSheet != nil },
+            set: { isPresented in
+                if !isPresented {
+                    dismissConnectionEditor()
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var connectivityAlertSection: some View {
+        let issues = connectionIssues
+        if !issues.isEmpty {
+            Section {
+                ForEach(issues) { issue in
+                    ConnectionIssueRow(
+                        identity: issue.identity,
+                        title: issue.isConnecting ? "Connecting to \(issue.identity.displayName)" : "\(issue.identity.displayName) Unreachable",
+                        message: issue.message,
+                        isConnecting: issue.isConnecting,
+                        actionStyle: .glassIcons,
+                        onRetry: { retryConnection(for: issue.identity) },
+                        onEdit: { presentConnectionEditor(for: issue.identity) }
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+
+                Button {
+                    withAnimation(.snappy) {
+                        retryAllConnections()
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                        Text("Retry Connections")
+                    }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                        .font(.subheadline.weight(.medium))
+                }
+            } header: {
+                HStack(spacing: 4) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                    Text("Connection Issues")
+                }
+                    .foregroundStyle(.orange)
+                    .font(.footnote.weight(.semibold))
+                    .textCase(nil)
+            }
+            .animation(.snappy, value: connectionIssuesAnimationKey)
+        }
+    }
+
     var body: some View {
         NavigationStack(path: $path) {
             List {
                 if isShowingMoreSearchResults {
                     moreSearchResultsContent
                 } else {
+                    connectivityAlertSection
                     Section {
                         NavigationLink(value: MoreDestination.activity) {
                             moreRow(icon: "arrow.down.doc.fill", color: .indigo,
@@ -319,6 +539,9 @@ struct MoreView: View {
             .sheet(isPresented: $showingNotificationsSheet) {
                 RecentNotificationsSheet()
                     .environment(inAppNotificationCenter)
+            }
+            .sheet(item: $connectionEditSheet) { sheet in
+                connectionEditSheetView(for: sheet)
             }
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
@@ -613,16 +836,11 @@ struct MoreView: View {
             ProwlarrApplicationsListView()
                 .environment(arrServiceManager)
         } else if arrServiceManager.hasProwlarrInstance {
-            ContentUnavailableView {
-                Label("Prowlarr Unreachable", systemImage: "network.slash")
-            } description: {
-                Text(arrServiceManager.prowlarrConnectionError ?? "Unable to reach your configured Prowlarr server.")
-            } actions: {
-                Button("Retry Connection") {
-                    Task { await arrServiceManager.retry(.prowlarr) }
-                }
-                .buttonStyle(.bordered)
-            }
+            ArrServiceConnectionStatusView(
+                serviceType: .prowlarr,
+                title: arrServiceManager.prowlarrIsConnecting || arrServiceManager.isInitializing ? "Connecting to Prowlarr" : "Prowlarr Unreachable",
+                message: arrServiceManager.prowlarrConnectionError ?? "Unable to reach your configured Prowlarr server."
+            )
             .navigationTitle("Linked Apps")
             .navigationSubtitle("Prowlarr")
         } else {
@@ -646,16 +864,11 @@ struct MoreView: View {
             BazarrLinkedApplicationsListView()
                 .environment(arrServiceManager)
         } else if arrServiceManager.hasBazarrInstance {
-            ContentUnavailableView {
-                Label("Bazarr Unreachable", systemImage: "network.slash")
-            } description: {
-                Text(arrServiceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server.")
-            } actions: {
-                Button("Retry Connection") {
-                    Task { await arrServiceManager.retry(.bazarr) }
-                }
-                .buttonStyle(.bordered)
-            }
+            ArrServiceConnectionStatusView(
+                serviceType: .bazarr,
+                title: arrServiceManager.isConnecting(.bazarr) || arrServiceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                message: arrServiceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
+            )
             .navigationTitle("Linked Apps")
             .navigationSubtitle("Bazarr")
         } else {
@@ -688,11 +901,7 @@ struct MoreView: View {
             TorrentStatsView()
                 .environment(services.syncService)
         } else if hasQBittorrentServer {
-            ContentUnavailableView {
-                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
-            } description: {
-                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
-            }
+            qbittorrentConnectionStatusView
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "chart.line.uptrend.xyaxis")
@@ -710,25 +919,14 @@ struct MoreView: View {
             ProwlarrIndexerListView()
                 .environment(arrServiceManager)
         } else if arrServiceManager.hasProwlarrInstance || arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance {
-            ContentUnavailableView {
-                Label("No Connected Indexer Sources", systemImage: "network.slash")
-            } description: {
-                if let error = arrServiceManager.prowlarrConnectionError ?? arrServiceManager.sonarrConnectionError ?? arrServiceManager.radarrConnectionError {
-                    Text(error)
-                } else {
-                    Text("Your configured Prowlarr, Sonarr, or Radarr services are currently unreachable.")
-                }
-            } actions: {
-                Button("Retry Connection") {
-                    Task {
-                        async let prowlarrRetry: Void = arrServiceManager.retry(.prowlarr)
-                        async let sonarrRetry: Void = arrServiceManager.retry(.sonarr)
-                        async let radarrRetry: Void = arrServiceManager.retry(.radarr)
-                        _ = await (prowlarrRetry, sonarrRetry, radarrRetry)
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
+            ArrServicesConnectionStatusView(
+                services: indexerSourceServices,
+                title: "No Connected Indexer Sources",
+                message: arrServiceManager.prowlarrConnectionError
+                    ?? arrServiceManager.sonarrConnectionError
+                    ?? arrServiceManager.radarrConnectionError
+                    ?? "Your configured Prowlarr, Sonarr, or Radarr services are currently unreachable."
+            )
         } else {
             ContentUnavailableView {
                 Label("Indexers Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
@@ -744,25 +942,83 @@ struct MoreView: View {
 
     @ViewBuilder
     private var settingsDestination: some View {
-        let services = appServices ?? AppServices.disconnected()
         SettingsView(showsDoneButton: false)
-            .environment(services.syncService)
-            .environment(services.torrentService)
+            .environment(syncService)
+            .environment(torrentService)
             .environment(arrServiceManager)
     }
 
     @ViewBuilder
-    private var qbittorrentSettingsDestination: some View {
-        if let services = appServices {
-            QBittorrentSettingsView()
-                .environment(services.syncService)
-                .environment(services.torrentService)
-        } else if hasQBittorrentServer {
-            ContentUnavailableView {
-                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
-            } description: {
-                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
+    private func connectionEditSheetView(for sheet: ConnectionEditSheet) -> some View {
+        switch sheet {
+        case .qbittorrent:
+            NavigationStack {
+                QBittorrentSettingsView()
+                    .environment(syncService)
+                    .environment(torrentService)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", action: dismissConnectionEditor)
+                        }
+                    }
             }
+
+        case .arr(let service):
+            ArrServiceSettingsSheet(serviceType: service, isPresented: connectionEditorIsPresented)
+                .environment(arrServiceManager)
+
+        case .seerr:
+            NavigationStack {
+                SeerrSettingsView()
+                    .environment(seerrServiceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", action: dismissConnectionEditor)
+                        }
+                    }
+            }
+
+        case .jellyfin:
+            NavigationStack {
+                JellyfinSettingsView()
+                    .environment(jellyfinServiceManager)
+                    .environment(inAppNotificationCenter)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", action: dismissConnectionEditor)
+                        }
+                    }
+            }
+        }
+    }
+
+    private var indexerSourceServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if arrServiceManager.hasProwlarrInstance { services.append(.prowlarr) }
+        if arrServiceManager.hasSonarrInstance { services.append(.sonarr) }
+        if arrServiceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
+    private var qbittorrentConnectionStatusView: some View {
+        ConnectionStatusCard(
+            identity: .qbittorrent,
+            title: isQBittorrentConnecting ? "Connecting to qBittorrent" : "qBittorrent Unreachable",
+            message: isQBittorrentConnecting
+                ? "Checking your configured qBittorrent server."
+                : "Your qBittorrent server is currently unreachable. Check your connection or server status.",
+            isConnecting: isQBittorrentConnecting,
+            onRetry: { onRetryQBittorrent?() },
+            onEdit: { presentConnectionEditor(for: .qbittorrent) }
+        )
+    }
+
+    @ViewBuilder
+    private var qbittorrentSettingsDestination: some View {
+        if appServices != nil || hasQBittorrentServer {
+            QBittorrentSettingsView()
+                .environment(syncService)
+                .environment(torrentService)
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
@@ -783,11 +1039,7 @@ struct MoreView: View {
                 .environment(services.syncService)
                 .environment(services.torrentService)
         } else if hasQBittorrentServer {
-            ContentUnavailableView {
-                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
-            } description: {
-                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
-            }
+            qbittorrentConnectionStatusView
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "tag")
@@ -807,11 +1059,7 @@ struct MoreView: View {
             QBittorrentLogView()
                 .environment(services.torrentService)
         } else if hasQBittorrentServer {
-            ContentUnavailableView {
-                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
-            } description: {
-                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
-            }
+            qbittorrentConnectionStatusView
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "doc.text")
@@ -832,11 +1080,7 @@ struct MoreView: View {
                 .environment(services.torrentService)
                 .environment(services)
         } else if hasQBittorrentServer {
-            ContentUnavailableView {
-                Label("Unable to Reach qBittorrent", systemImage: "network.slash")
-            } description: {
-                Text("Your qBittorrent server is currently unreachable. Check your connection or server status.")
-            }
+            qbittorrentConnectionStatusView
         } else {
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: "dot.radiowaves.left.and.right")
@@ -854,28 +1098,19 @@ struct MoreView: View {
     private var seerrAdminDestination: some View {
         if seerrServiceManager.isConnected {
             SeerrDashboardView()
-        } else if seerrServiceManager.isConnecting {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Connecting to Seerr…")
-                    .font(.headline)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Requests")
         } else if let seerrProfile {
-            ContentUnavailableView {
-                Label("Seerr Unreachable", systemImage: "network.slash")
-            } description: {
-                Text(seerrServiceManager.connectionError ?? "Unable to reach your configured Seerr server.")
-            } actions: {
-                Button("Retry Connection") {
-                    Task {
-                        await seerrServiceManager.connectService(seerrProfile)
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
+            ConnectionStatusCard(
+                identity: .seerr,
+                title: seerrServiceManager.isConnecting ? "Connecting to Seerr" : "Seerr Unreachable",
+                message: seerrServiceManager.connectionError ?? "Unable to reach your configured Seerr server.",
+                isConnecting: seerrServiceManager.isConnecting,
+                detailTitle: seerrProfile.displayName,
+                detailSubtitle: seerrProfile.hostURL,
+                onRetry: {
+                    Task { await seerrServiceManager.connectService(seerrProfile) }
+                },
+                onEdit: { presentConnectionEditor(for: .seerr) }
+            )
             .navigationTitle("Requests")
         } else {
             ContentUnavailableView {
@@ -909,28 +1144,19 @@ struct MoreView: View {
 
     @ViewBuilder
     private var jellyfinUnavailableDestination: some View {
-        if jellyfinServiceManager.isConnecting {
-            VStack(spacing: 16) {
-                ProgressView()
-                    .controlSize(.large)
-                Text("Connecting to Jellyfin…")
-                    .font(.headline)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .navigationTitle("Jellyfin")
-        } else if let jellyfinProfile {
-            ContentUnavailableView {
-                Label("Jellyfin Unreachable", systemImage: "network.slash")
-            } description: {
-                Text(jellyfinServiceManager.connectionError ?? "Unable to reach your configured Jellyfin server.")
-            } actions: {
-                Button("Retry Connection") {
-                    Task {
-                        await jellyfinServiceManager.connectService(jellyfinProfile)
-                    }
-                }
-                .buttonStyle(.bordered)
-            }
+        if let jellyfinProfile {
+            ConnectionStatusCard(
+                identity: .jellyfin,
+                title: jellyfinServiceManager.isConnecting ? "Connecting to Jellyfin" : "Jellyfin Unreachable",
+                message: jellyfinServiceManager.connectionError ?? "Unable to reach your configured Jellyfin server.",
+                isConnecting: jellyfinServiceManager.isConnecting,
+                detailTitle: jellyfinProfile.displayName,
+                detailSubtitle: jellyfinProfile.hostURL,
+                onRetry: {
+                    Task { await jellyfinServiceManager.connectService(jellyfinProfile) }
+                },
+                onEdit: { presentConnectionEditor(for: .jellyfin) }
+            )
             .navigationTitle("Jellyfin")
         } else {
             ContentUnavailableView {

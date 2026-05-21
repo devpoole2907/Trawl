@@ -32,7 +32,8 @@ struct SonarrSeriesListView: View {
                     }
                 )
             } else {
-                Color.clear
+                sonarrUnavailableContent
+                    .navigationTitle("Series")
             }
         }
         .task(id: viewModelLoadKey) {
@@ -46,6 +47,29 @@ struct SonarrSeriesListView: View {
                 viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
                 viewModelInstanceID = activeID
             }
+        }
+    }
+
+    @ViewBuilder
+    private var sonarrUnavailableContent: some View {
+        if !serviceManager.hasSonarrInstance {
+            ContentUnavailableView {
+                Label("Sonarr Not Set Up", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+            } description: {
+                Text("Add a Sonarr server in Settings to manage your series.")
+            }
+        } else if serviceManager.sonarrIsConnecting || serviceManager.isInitializing {
+            ArrServiceConnectionStatusView(
+                serviceType: .sonarr,
+                title: "Connecting to Sonarr",
+                message: "Checking your configured Sonarr server."
+            )
+        } else {
+            ArrServiceConnectionStatusView(
+                serviceType: .sonarr,
+                title: "Sonarr Unreachable",
+                message: serviceManager.sonarrConnectionError ?? "Unable to reach your Sonarr server."
+            )
         }
     }
 

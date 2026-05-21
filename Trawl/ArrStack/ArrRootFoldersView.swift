@@ -7,6 +7,7 @@ struct ArrRootFoldersView: View {
     @State private var showingAddSheet = false
     @State private var pendingDelete: (folder: ArrRootFolder, service: ArrServiceType)?
     @State private var isDeleting = false
+    @State private var showSettings = false
 
     var body: some View {
         Group {
@@ -17,10 +18,10 @@ struct ArrRootFoldersView: View {
                     description: Text("Connect Sonarr or Radarr to view root folders.")
                 )
             } else if !hasAnyConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: rootFolderServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else if sonarrFolders.isEmpty && radarrFolders.isEmpty {
                 ContentUnavailableView(
@@ -83,6 +84,17 @@ struct ArrRootFoldersView: View {
                 }
             }
         }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: rootFoldersSettingsService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
+        }
         .sheet(isPresented: $showingAddSheet) {
             AddRootFolderSheet { path, service in
                 await addFolder(path: path, service: service)
@@ -125,8 +137,27 @@ struct ArrRootFoldersView: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
+    private var rootFolderServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     private var hasAnyConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
+    }
+
+    private var isConnecting: Bool {
+        guard !hasAnyConnectedService else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr)
+    }
+
+    private var rootFoldersSettingsService: ArrServiceType {
+        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        return .radarr
     }
 
     private var sonarrFolders: [ArrRootFolder] {
@@ -294,7 +325,8 @@ private struct AddRootFolderSheet: View {
                         RemotePathBrowserView(
                             title: "\(selectedService.displayName) Folders",
                             source: source,
-                            initialPath: path
+                            initialPath: path,
+                            onClose: { showingBrowser = false }
                         ) { selectedPath in
                             path = selectedPath
                         }

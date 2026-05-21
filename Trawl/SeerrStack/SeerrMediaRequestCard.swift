@@ -143,7 +143,7 @@ struct SeerrMediaRequestCard: View {
 
                         Spacer(minLength: 8)
 
-                        if let status = request.requestStatus {
+                        if let status = request.badgeStatus {
                             Text(status.title)
                                 .font(.caption.weight(.semibold))
                                 .padding(.horizontal, 8)

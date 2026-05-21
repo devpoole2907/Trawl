@@ -12,6 +12,7 @@ struct ArrNamingConfigView: View {
     @State private var errorMessage: String?
     @State private var isSaving = false
     @State private var saveTask: Task<Void, Never>?
+    @State private var showSettings = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -28,23 +29,32 @@ struct ArrNamingConfigView: View {
         }
     }
 
+    private var isSelectedConnecting: Bool {
+        !isConnected && (serviceManager.isInitializing || serviceManager.isConnecting(selectedService))
+    }
+
     var body: some View {
         Group {
-            if isLoading && sonarrConfig == nil && radarrConfig == nil {
+            if isSelectedConnecting || !isConnected {
+                ArrServiceConnectionStatusView(
+                    serviceType: selectedService,
+                    title: isSelectedConnecting ? "Connecting to \(selectedService.displayName)" : "\(selectedService.displayName) Unreachable",
+                    message: serviceManager.connectionError(selectedService) ?? "Check your server connection and try again."
+                )
+            } else if isLoading && sonarrConfig == nil && radarrConfig == nil {
                 ProgressView("Loading naming settings…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage {
-                ContentUnavailableView(
-                    "Could Not Load Settings",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
-                )
-            } else if !isConnected {
-                ContentUnavailableView(
-                    "\(selectedService.displayName) Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Check your server connection and try again.")
-                )
+                ContentUnavailableView {
+                    Label("Could Not Load Settings", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(error)
+                } actions: {
+                    Button("Retry", systemImage: "arrow.clockwise") {
+                        Task { await load() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else if selectedService == .sonarr, let config = sonarrConfig {
                 sonarrForm(config: config)
             } else if selectedService == .radarr, let config = radarrConfig {
@@ -73,12 +83,23 @@ struct ArrNamingConfigView: View {
                 onSave: { newFormat in applyFormat(newFormat, for: target) }
             )
         }
-        .task(id: selectedService.rawValue) {
+        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
             await load()
         }
         .onAppear {
             if !availableServices.contains(selectedService), let first = availableServices.first {
                 selectedService = first
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: selectedService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
             }
         }
     }

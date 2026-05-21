@@ -23,6 +23,14 @@ struct ArrWantedView: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
     }
 
+    private var wantedServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        if serviceManager.hasBazarrInstance { services.append(.bazarr) }
+        return services
+    }
+
     private var hasConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance
     }
@@ -95,10 +103,10 @@ struct ArrWantedView: View {
                     description: Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
                 )
             } else if !hasConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr, Radarr, or Bazarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: wantedServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr, Radarr, or Bazarr servers."
                 )
             } else {
                 ArrLoadingErrorEmptyView(

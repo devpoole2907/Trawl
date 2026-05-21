@@ -361,11 +361,26 @@ struct JellyfinSettingsView: View {
 
     private func removeProfile() async {
         guard let profile else { return }
-        try? await KeychainHelper.shared.delete(key: profile.accessTokenKey)
-        modelContext.delete(profile)
-        try? modelContext.save()
-        jellyfinServiceManager.disconnect()
-        settingsError = nil
+        var keychainDeleted = false
+        do {
+            try await KeychainHelper.shared.delete(key: profile.accessTokenKey)
+            keychainDeleted = true
+            modelContext.delete(profile)
+            try modelContext.save()
+            jellyfinServiceManager.disconnect()
+            settingsError = nil
+        } catch {
+            modelContext.rollback()
+            if keychainDeleted {
+                jellyfinServiceManager.disconnect()
+            }
+            settingsError = error.localizedDescription
+            inAppNotificationCenter.showError(
+                title: "Remove Failed",
+                message: error.localizedDescription,
+                source: .inApp
+            )
+        }
     }
 
     private func restartServer() async {

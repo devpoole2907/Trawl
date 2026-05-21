@@ -580,7 +580,12 @@ private struct JellyfinAddLibrarySheet: View {
             }
             .sheet(isPresented: $showingBrowser) {
                 NavigationStack {
-                    RemotePathBrowserView(title: "Jellyfin Folders", source: source, initialPath: manualPath) { path in
+                    RemotePathBrowserView(
+                        title: "Jellyfin Folders",
+                        source: source,
+                        initialPath: manualPath,
+                        onClose: { showingBrowser = false }
+                    ) { path in
                         appendPath(path)
                     }
                 }
@@ -657,7 +662,12 @@ private struct JellyfinAddPathSheet: View {
             }
             .sheet(isPresented: $showingBrowser) {
                 NavigationStack {
-                    RemotePathBrowserView(title: "Jellyfin Folders", source: source, initialPath: path) { selectedPath in
+                    RemotePathBrowserView(
+                        title: "Jellyfin Folders",
+                        source: source,
+                        initialPath: path,
+                        onClose: { showingBrowser = false }
+                    ) { selectedPath in
                         path = selectedPath
                     }
                 }
