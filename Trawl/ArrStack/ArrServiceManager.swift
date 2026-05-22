@@ -917,31 +917,71 @@ final class ArrServiceManager {
     func removeImportListExclusion(id: Int, source: ArrServiceType) async {
         switch source {
         case .sonarr:
-            try? await sonarrClient?.deleteImportListExclusion(id: id)
-            sonarrImportListExclusions.removeAll { $0.id == id }
+            do {
+                try await sonarrClient?.deleteImportListExclusion(id: id)
+                sonarrImportListExclusions.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
         case .radarr:
-            try? await radarrClient?.deleteImportListExclusion(id: id)
-            radarrImportListExclusions.removeAll { $0.id == id }
+            do {
+                try await radarrClient?.deleteImportListExclusion(id: id)
+                radarrImportListExclusions.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
         case .prowlarr, .bazarr:
             break
         }
     }
 
     func clearImportListExclusions(sonarrIDs: [Int], radarrIDs: [Int]) async {
-        await withTaskGroup(of: Void.self) { group in
+        let successfulSonarrIDs = await withTaskGroup(of: Int?.self) { group in
             if let client = sonarrClient {
                 for id in sonarrIDs {
-                    group.addTask { try? await client.deleteImportListExclusion(id: id) }
+                    group.addTask {
+                        do {
+                            try await client.deleteImportListExclusion(id: id)
+                            return id
+                        } catch {
+                            return nil
+                        }
+                    }
                 }
             }
+            var successful: [Int] = []
+            for await result in group {
+                if let id = result {
+                    successful.append(id)
+                }
+            }
+            return successful
+        }
+
+        let successfulRadarrIDs = await withTaskGroup(of: Int?.self) { group in
             if let client = radarrClient {
                 for id in radarrIDs {
-                    group.addTask { try? await client.deleteImportListExclusion(id: id) }
+                    group.addTask {
+                        do {
+                            try await client.deleteImportListExclusion(id: id)
+                            return id
+                        } catch {
+                            return nil
+                        }
+                    }
                 }
             }
+            var successful: [Int] = []
+            for await result in group {
+                if let id = result {
+                    successful.append(id)
+                }
+            }
+            return successful
         }
-        sonarrImportListExclusions.removeAll { sonarrIDs.contains($0.id) }
-        radarrImportListExclusions.removeAll { radarrIDs.contains($0.id) }
+
+        sonarrImportListExclusions.removeAll { successfulSonarrIDs.contains($0.id) }
+        radarrImportListExclusions.removeAll { successfulRadarrIDs.contains($0.id) }
     }
 
     private func fetchHealth<C: SharedArrClient>(_ client: C?) async -> [ArrHealthCheck] {
@@ -967,7 +1007,23 @@ final class ArrServiceManager {
     ) async -> (items: [ArrImportListExclusion], error: String?) {
         guard let client else { return ([], nil) }
         do {
-            return (try await client.getImportListExclusions(pageSize: 100).records ?? [], nil)
+            var allItems: [ArrImportListExclusion] = []
+            var page = 1
+            let pageSize = 100
+
+            while true {
+                let response = try await client.getImportListExclusions(page: page, pageSize: pageSize)
+                let records = response.records ?? []
+                allItems.append(contentsOf: records)
+
+                // Check if we've fetched all pages
+                if records.count < pageSize {
+                    break
+                }
+                page += 1
+            }
+
+            return (allItems, nil)
         } catch {
             return ([], "\(serviceName): \(error.localizedDescription)")
         }

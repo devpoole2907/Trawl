@@ -2604,17 +2604,25 @@ private struct ArrActivityHubView: View {
             arrServiceManager.hasBazarrInstance
     }
 
+    private var hasQueueCapableService: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasBazarrInstance
+    }
+
     var body: some View {
         List {
             if hasAnyActivitySource {
                 Section {
-                    NavigationLink(value: MoreDestination.activityQueue) {
-                        NavigationMenuRow(
-                            icon: "arrow.down.circle.fill",
-                            color: MoreDestinationAccent.activity.color,
-                            title: "Queue",
-                            subtitle: "Downloads, imports, and background tasks"
-                        )
+                    if hasQueueCapableService {
+                        NavigationLink(value: MoreDestination.activityQueue) {
+                            NavigationMenuRow(
+                                icon: "arrow.down.circle.fill",
+                                color: MoreDestinationAccent.activity.color,
+                                title: "Queue",
+                                subtitle: "Downloads, imports, and background tasks"
+                            )
+                        }
                     }
 
                     NavigationLink(value: MoreDestination.activityHistory) {

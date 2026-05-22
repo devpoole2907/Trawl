@@ -498,7 +498,8 @@ struct TorrentListView: View {
     }
 
     private func areAllTorrentsSelected(_ vm: TorrentListViewModel) -> Bool {
-        !vm.filteredTorrents.isEmpty && vm.selectedHashes.count == vm.filteredTorrents.count
+        let filteredHashSet = Set(vm.filteredTorrents.map(\.hash))
+        return !filteredHashSet.isEmpty && vm.selectedHashes.isSuperset(of: filteredHashSet)
     }
 
     private func torrentSelectAllButtonTitle(for vm: TorrentListViewModel) -> String {
@@ -507,7 +508,8 @@ struct TorrentListView: View {
 
     private func toggleAllTorrents(for vm: TorrentListViewModel) {
         withAnimation {
-            if areAllTorrentsSelected(vm) {
+            let filteredHashSet = Set(vm.filteredTorrents.map(\.hash))
+            if !filteredHashSet.isEmpty && vm.selectedHashes.isSuperset(of: filteredHashSet) {
                 vm.selectedHashes = []
             } else {
                 vm.selectAll()

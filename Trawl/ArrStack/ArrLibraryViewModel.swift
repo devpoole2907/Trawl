@@ -663,6 +663,7 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     func toggleMonitored(_ item: Item) async
     func refreshFilters()
     func refreshJellyfinLibraryCache() async
+    func rebuildFilteredItems()
 }
 
 // MARK: - Wanted-page conformances

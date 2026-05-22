@@ -53,6 +53,12 @@ struct TorrentDetailView: View {
                 }
             }
         }
+        .onChange(of: viewModel?.properties) { _, newProperties in
+            if let properties = newProperties {
+                selectedDownloadLimit = max(0, properties.dlLimit)
+                selectedUploadLimit = max(0, properties.upLimit)
+            }
+        }
     }
 
     @ViewBuilder

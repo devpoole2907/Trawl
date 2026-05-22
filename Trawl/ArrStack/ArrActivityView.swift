@@ -733,7 +733,7 @@ struct ArrHealthView: View {
         .navigationTitle("Health")
         .navigationSubtitle(navigationSubtitle)
         .safeAreaInset(edge: .top) {
-            ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: ArrServiceFilter.healthFilters, alignment: .leading)
+            ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
         }
         .task(id: healthReloadKey) {
             guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected else {
@@ -773,6 +773,14 @@ struct ArrHealthView: View {
         if serviceManager.hasRadarrInstance { services.append(.radarr) }
         if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
         return services
+    }
+
+    private var healthFilters: [ArrServiceFilter] {
+        var filters: [ArrServiceFilter] = [.all]
+        if serviceManager.hasSonarrInstance { filters.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { filters.append(.radarr) }
+        if serviceManager.hasProwlarrInstance { filters.append(.prowlarr) }
+        return filters
     }
 
     private var isHealthConnecting: Bool {

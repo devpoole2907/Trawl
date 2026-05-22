@@ -377,7 +377,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     }
 
     private var areAllItemsSelected: Bool {
-        !viewModel.filteredItems.isEmpty && selectedIDs.count == viewModel.filteredItems.count
+        let filteredIDs = Set(viewModel.filteredItems.map(\.id))
+        return !filteredIDs.isEmpty && filteredIDs.isSubset(of: selectedIDs)
     }
 
     private var selectAllButtonTitle: String {
@@ -386,7 +387,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
 
     private func toggleAllItems() {
         withAnimation {
-            if areAllItemsSelected {
+            let filteredIDs = Set(viewModel.filteredItems.map(\.id))
+            if !filteredIDs.isEmpty && filteredIDs.isSubset(of: selectedIDs) {
                 selectedIDs = []
             } else {
                 selectedIDs = Set(viewModel.filteredItems.map(\.id))
