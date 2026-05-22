@@ -5,8 +5,11 @@ struct ArrHistoryView: View {
 
     let embedded: Bool
     let serviceFilter: ArrServiceFilter
+    @State private var showSettings = false
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
+    @State private var prowlarrViewModel: ProwlarrViewModel?
+    @State private var historyRefreshGeneration = 0
 
     init(embedded: Bool = false, serviceFilter: ArrServiceFilter = .all) {
         self.embedded = embedded
@@ -25,6 +28,22 @@ struct ArrHistoryView: View {
         .task(id: reloadKey) {
             await initializeIfNeeded()
             await reloadHistory()
+            historyRefreshGeneration += 1
+        }
+        .refreshable {
+            await reloadHistory()
+            historyRefreshGeneration += 1
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: settingsServiceType)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
         }
     }
 
@@ -34,13 +53,13 @@ struct ArrHistoryView: View {
             ContentUnavailableView(
                 "No Services Configured",
                 systemImage: "server.rack",
-                description: Text("Connect Sonarr or Radarr to view download and import history.")
+                description: Text("Connect Sonarr, Radarr, or Prowlarr to view activity history.")
             )
         } else if !hasConnectedService {
-            ContentUnavailableView(
-                "Services Unreachable",
-                systemImage: "network.slash",
-                description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+            ArrServicesConnectionStatusView(
+                services: configuredHistoryServices,
+                title: "Services Unreachable",
+                message: "Unable to reach your configured activity history services."
             )
         } else {
             ArrLoadingErrorEmptyView(
@@ -50,7 +69,10 @@ struct ArrHistoryView: View {
                 emptyTitle: "No History",
                 emptyIcon: "tray",
                 emptyDescription: "No download or import events are available yet.",
-                onRetry: nil
+                onRetry: { Task {
+                    await reloadHistory()
+                    historyRefreshGeneration += 1
+                } }
             ) {
                 List {
                     ForEach(groupedItems) { section in
@@ -64,7 +86,10 @@ struct ArrHistoryView: View {
 
                     if shouldShowLoadMore {
                         Button {
-                            Task { await loadMoreHistory() }
+                            Task {
+                                await loadMoreHistory()
+                                historyRefreshGeneration += 1
+                            }
                         } label: {
                             HStack {
                                 Spacer()
@@ -94,8 +119,49 @@ struct ArrHistoryView: View {
         switch serviceFilter {
         case .sonarr: serviceManager.hasSonarrInstance
         case .radarr: serviceManager.hasRadarrInstance
-        case .all: serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
-        case .prowlarr, .bazarr: false
+        case .prowlarr: serviceManager.hasProwlarrInstance
+        case .all: serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasProwlarrInstance
+        case .bazarr: false
+        }
+    }
+
+    private var configuredHistoryServices: [ArrServiceType] {
+        switch serviceFilter {
+        case .sonarr:
+            return serviceManager.hasSonarrInstance ? [.sonarr] : []
+        case .radarr:
+            return serviceManager.hasRadarrInstance ? [.radarr] : []
+        case .prowlarr:
+            return serviceManager.hasProwlarrInstance ? [.prowlarr] : []
+        case .all:
+            var services: [ArrServiceType] = []
+            if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+            if serviceManager.hasRadarrInstance { services.append(.radarr) }
+            if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
+            return services
+        case .bazarr:
+            return []
+        }
+    }
+
+    private var isConnecting: Bool {
+        guard !hasConnectedService else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr) ||
+            serviceManager.isConnecting(.prowlarr)
+    }
+
+    private var settingsServiceType: ArrServiceType {
+        switch serviceFilter {
+        case .sonarr: return .sonarr
+        case .radarr: return .radarr
+        case .prowlarr: return .prowlarr
+        case .all, .bazarr:
+            if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+            if serviceManager.hasRadarrInstance && !serviceManager.radarrConnected { return .radarr }
+            if serviceManager.hasProwlarrInstance && !serviceManager.prowlarrConnected { return .prowlarr }
+            return .sonarr
         }
     }
 
@@ -103,13 +169,16 @@ struct ArrHistoryView: View {
         switch serviceFilter {
         case .sonarr: serviceManager.sonarrConnected
         case .radarr: serviceManager.radarrConnected
-        case .all: serviceManager.sonarrConnected || serviceManager.radarrConnected
-        case .prowlarr, .bazarr: false
+        case .prowlarr: serviceManager.prowlarrConnected
+        case .all: serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected
+        case .bazarr: false
         }
     }
 
     private var isLoading: Bool {
-        sonarrViewModel?.isLoadingHistory == true || radarrViewModel?.isLoadingHistory == true
+        sonarrViewModel?.isLoadingHistory == true ||
+            radarrViewModel?.isLoadingHistory == true ||
+            prowlarrViewModel?.isLoadingHistory == true
     }
 
     private var isLoadingMore: Bool {
@@ -117,10 +186,11 @@ struct ArrHistoryView: View {
     }
 
     private var reloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)"
     }
 
     private var historyItems: [HistoryItem] {
+        _ = historyRefreshGeneration
         var items: [HistoryItem] = []
 
         if serviceFilter == .all || serviceFilter == .sonarr, let sonarrViewModel {
@@ -129,6 +199,15 @@ struct ArrHistoryView: View {
 
         if serviceFilter == .all || serviceFilter == .radarr, let radarrViewModel {
             items.append(contentsOf: radarrViewModel.history.map { HistoryItem(record: $0, source: .radarr) })
+        }
+
+        if serviceFilter == .all || serviceFilter == .prowlarr, let prowlarrViewModel {
+            let indexerNamesByID = Dictionary(uniqueKeysWithValues: prowlarrViewModel.indexers.compactMap { indexer in
+                indexer.name.map { (indexer.id, $0) }
+            })
+            items.append(contentsOf: prowlarrViewModel.history.map { record in
+                HistoryItem(record: record, source: .prowlarr, indexerName: record.indexerId.flatMap { indexerNamesByID[$0] })
+            })
         }
 
         return items.sorted { $0.sortDate > $1.sortDate }
@@ -144,12 +223,16 @@ struct ArrHistoryView: View {
     private var shouldShowLoadMore: Bool {
         switch serviceFilter {
         case .all:
-            return (sonarrViewModel?.canLoadMoreHistory == true) || (radarrViewModel?.canLoadMoreHistory == true)
+            return (sonarrViewModel?.canLoadMoreHistory == true) ||
+                (radarrViewModel?.canLoadMoreHistory == true) ||
+                (prowlarrViewModel?.canLoadMoreHistory == true)
         case .sonarr:
             return sonarrViewModel?.canLoadMoreHistory == true
         case .radarr:
             return radarrViewModel?.canLoadMoreHistory == true
-        case .prowlarr, .bazarr:
+        case .prowlarr:
+            return prowlarrViewModel?.canLoadMoreHistory == true
+        case .bazarr:
             return false
         }
     }
@@ -167,12 +250,22 @@ struct ArrHistoryView: View {
             radarrViewModel = RadarrViewModel(serviceManager: serviceManager)
         }
 
+        if (serviceFilter == .all || serviceFilter == .prowlarr),
+           serviceManager.prowlarrConnected,
+           prowlarrViewModel == nil {
+            prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
+        }
+
         if !serviceManager.sonarrConnected {
             sonarrViewModel = nil
         }
 
         if !serviceManager.radarrConnected {
             radarrViewModel = nil
+        }
+
+        if !serviceManager.prowlarrConnected {
+            prowlarrViewModel = nil
         }
     }
 
@@ -193,6 +286,15 @@ struct ArrHistoryView: View {
                     await radarrViewModel.loadHistory(page: 1)
                 }
             }
+
+            if (serviceFilter == .all || serviceFilter == .prowlarr),
+               serviceManager.prowlarrConnected,
+               let prowlarrViewModel {
+                group.addTask {
+                    await prowlarrViewModel.loadIndexers()
+                    await prowlarrViewModel.loadHistory(page: 1)
+                }
+            }
         }
     }
 
@@ -207,6 +309,11 @@ struct ArrHistoryView: View {
                let radarrViewModel,
                radarrViewModel.canLoadMoreHistory {
                 group.addTask { await radarrViewModel.loadNextHistoryPage() }
+            }
+            if (serviceFilter == .all || serviceFilter == .prowlarr),
+               let prowlarrViewModel,
+               prowlarrViewModel.canLoadMoreHistory {
+                group.addTask { await prowlarrViewModel.loadNextHistoryPage() }
             }
         }
     }
@@ -223,6 +330,7 @@ private struct HistorySection: Identifiable {
 private struct HistoryItem: Identifiable {
     let record: ArrHistoryRecord
     let source: ArrServiceType
+    var indexerName: String?
 
     var id: String { "\(source.rawValue)-\(record.id)" }
 
@@ -245,13 +353,22 @@ private struct HistoryRow: View {
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(item.record.sourceTitle ?? "Unknown")
+                Text(displayTitle)
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
+                    if let indexerName = item.indexerName, !indexerName.isEmpty {
+                        HStack(spacing: 4) {
+                            Image(systemName: "magnifyingglass")
+                            Text(indexerName)
+                        }
+                    }
                     if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
                         Text(quality)
+                    }
+                    if item.source == .prowlarr, let query = item.record.data?["query"], !query.isEmpty {
+                        Text(query)
                     }
                 }
                 .font(.caption)
@@ -280,20 +397,39 @@ private struct HistoryRow: View {
     }
 
     private var eventLabel: String {
-        if eventType.contains("grabbed") { return "Grabbed" }
-        if eventType.contains("import") { return "Imported" }
-        if eventType.contains("upgrade") { return "Upgraded" }
-        if eventType.contains("delete") { return "Deleted" }
-        if eventType.contains("download") { return "Downloaded" }
-        return "Event"
+        item.record.eventDisplayName
     }
 
     private var iconColor: Color {
         if eventType.contains("delete") { return .red }
+        if item.record.successful == false { return .red }
         if eventType.contains("upgrade") { return .blue }
         if eventType.contains("import") { return .green }
         if eventType.contains("grabbed") { return .orange }
+        if eventType.contains("query") || eventType.contains("search") { return .yellow }
         return .secondary
+    }
+
+    private var displayTitle: String {
+        let candidates = [
+            item.record.sourceTitle,
+            item.record.data?["sourceTitle"],
+            item.record.data?["releaseTitle"],
+            item.record.data?["title"],
+            item.record.data?["query"],
+            prowlarrEventTitle,
+            item.indexerName,
+            item.record.indexerId.map { "Indexer #\($0)" }
+        ]
+
+        return candidates.compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? "Unknown"
+    }
+
+    private var prowlarrEventTitle: String? {
+        guard item.source == .prowlarr else { return nil }
+        guard eventLabel != "Event" else { return nil }
+        return eventLabel
     }
 
     private var timeLabel: String {

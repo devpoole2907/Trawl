@@ -31,6 +31,7 @@ struct SeerrUserEditorView: View {
             }
         }
         .navigationTitle(viewModel.user.displayName)
+        .navigationSubtitle("Seerr")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif

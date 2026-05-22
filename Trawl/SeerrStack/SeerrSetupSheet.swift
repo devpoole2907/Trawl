@@ -3,10 +3,14 @@ import SwiftData
 
 struct SeerrSetupSheet: View {
     var onComplete: (() -> Void)?
-    
+
     var body: some View {
-        NavigationStack {
-            SeerrConnectionFormView(onComplete: onComplete, showsCancelButton: true)
+        AppSheetShell(
+            title: "Add Seerr",
+            detents: [.medium, .large],
+            dragIndicator: .visible
+        ) {
+            SeerrConnectionFormView(onComplete: onComplete)
         }
     }
 }
@@ -17,7 +21,6 @@ private struct SeerrConnectionFormView: View {
     @State private var viewModel = SeerrSetupViewModel()
 
     var onComplete: (() -> Void)?
-    var showsCancelButton = false
 
     var body: some View {
         Form {
@@ -75,21 +78,10 @@ private struct SeerrConnectionFormView: View {
                 .disabled(viewModel.hostURL.isEmpty || viewModel.username.isEmpty || viewModel.password.isEmpty || viewModel.isAuthenticating)
             }
         }
-        .tint(.indigo)
-        .navigationTitle("Add Seerr")
+        .tint(ServiceIdentity.seerr.brandColor)
         #if os(iOS)
-        .navigationBarTitleDisplayMode(showsCancelButton ? .inline : .large)
         .listStyle(.insetGrouped)
         #endif
-        .toolbar {
-            if showsCancelButton {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-            }
-        }
     }
 }
 
@@ -192,20 +184,6 @@ struct SeerrSettingsView: View {
                     }
                 }
 
-                if isConnected, let client = seerrServiceManager.activeClient {
-                    Section {
-                        NavigationLink {
-                            SeerrLinkedApplicationsView(apiClient: client)
-                        } label: {
-                            Label("Linked Applications", systemImage: "app.connected.to.app.below.fill")
-                        }
-                    } header: {
-                        Text("Automation")
-                    } footer: {
-                        Text("Link Sonarr or Radarr so Seerr can route approved requests to them.")
-                    }
-                }
-
                 Section {
                     Button("Reconnect", systemImage: "arrow.clockwise") {
                         Task {
@@ -243,19 +221,20 @@ struct SeerrSettingsView: View {
             await loadPublicSettings()
         }
         .sheet(isPresented: $showingConnectionSheet) {
-            NavigationStack {
+            AppSheetShell(
+                title: "Add Seerr",
+                detents: [.medium, .large],
+                dragIndicator: .visible
+            ) {
                 SeerrConnectionFormView(
                     onComplete: {
                         Task {
                             await seerrServiceManager.initialize(from: profiles)
                             await loadPublicSettings()
                         }
-                    },
-                    showsCancelButton: true
+                    }
                 )
             }
-            .presentationDetents([.medium, .large])
-            .presentationDragIndicator(.visible)
         }
         .confirmationDialog(
             "Remove Seerr Server?",
@@ -294,9 +273,17 @@ struct SeerrSettingsView: View {
 
     private func removeProfile() async {
         guard let profile else { return }
-        try? await KeychainHelper.shared.delete(key: profile.sessionCookieKey)
+        do {
+            try await KeychainHelper.shared.delete(key: profile.sessionCookieKey)
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Failed to Remove Profile", message: error.localizedDescription)
+        }
         modelContext.delete(profile)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Failed to Save Changes", message: error.localizedDescription)
+        }
         seerrServiceManager.disconnect()
         publicSettings = nil
         settingsError = nil

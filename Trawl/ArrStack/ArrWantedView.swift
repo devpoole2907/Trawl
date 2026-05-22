@@ -23,6 +23,14 @@ struct ArrWantedView: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
     }
 
+    private var wantedServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        if serviceManager.hasBazarrInstance { services.append(.bazarr) }
+        return services
+    }
+
     private var hasConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance
     }
@@ -95,10 +103,10 @@ struct ArrWantedView: View {
                     description: Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
                 )
             } else if !hasConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr, Radarr, or Bazarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: wantedServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr, Radarr, or Bazarr servers."
                 )
             } else {
                 ArrLoadingErrorEmptyView(
@@ -114,7 +122,7 @@ struct ArrWantedView: View {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
-                                    WantedEpisodeRow(episode: episode) {
+                                    WantedEpisodeRow(episode: episode, viewModel: sonarrViewModel) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -140,7 +148,7 @@ struct ArrWantedView: View {
                         if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
                             Section("Movies") {
                                 ForEach(radarrViewModel.wantedMovies) { movie in
-                                    WantedMovieRow(movie: movie) {
+                                    WantedMovieRow(movie: movie, viewModel: radarrViewModel) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -189,11 +197,11 @@ struct ArrWantedView: View {
                         }
                     }
                     .scrollContentBackground(.hidden)
-                    .background(backgroundGradient)
                 }
             }
         }
         .navigationTitle("Wanted / Missing")
+        .background(backgroundGradient)
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: platformCancellationPlacement) {
@@ -224,18 +232,17 @@ struct ArrWantedView: View {
             Text(searchAllConfirmMessage)
         }
         .safeAreaInset(edge: .top) {
-            Picker("Scope", selection: $scope) {
-                ForEach(ArrWantedScope.allCases, id: \.self) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
+            TrawlSegmentBar("Scope", selection: Binding(
+                get: { scope },
+                set: { newScope in withAnimation { scope = newScope } }
+            ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .task(id: reloadKey) {
             await initializeIfNeeded()
+            await reloadWantedMissing()
+        }
+        .refreshable {
             await reloadWantedMissing()
         }
     }
@@ -302,7 +309,7 @@ struct ArrWantedView: View {
             if scope.includesSeries, let sonarrViewModel, sonarrCanSearch {
                 group.addTask {
                     do {
-                        try await sonarrViewModel.searchAllMissing()
+                        try await sonarrViewModel.searchAllMissing(noun: "series")
                         return nil
                     } catch {
                         return "Sonarr: \(error.localizedDescription)"
@@ -312,7 +319,7 @@ struct ArrWantedView: View {
             if scope.includesMovies, let radarrViewModel, radarrCanSearch {
                 group.addTask {
                     do {
-                        try await radarrViewModel.searchAllMissing()
+                        try await radarrViewModel.searchAllMissing(noun: "movies")
                         return nil
                     } catch {
                         return "Radarr: \(error.localizedDescription)"
@@ -410,6 +417,11 @@ struct ArrWantedView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.orange.opacity(0.15), Color.clear],
                 startPoint: .top,
@@ -457,6 +469,10 @@ enum ArrWantedScope: CaseIterable, Hashable {
         }
     }
 
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(title, value: self)
+    }
+
     var includesSeries: Bool {
         self == .all || self == .series
     }
@@ -474,42 +490,19 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
+    let viewModel: SonarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
-            ArrArtworkView(url: episode.series?.posterURL) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
-                    Image(systemName: "tv")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.purple)
-                }
+            NavigationLink {
+                SonarrSeriesDetailView(seriesId: episode.seriesId ?? 0, viewModel: viewModel)
+            } label: {
+                rowContent
             }
-            .frame(width: 46, height: 69)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text(episode.series?.title ?? "Unknown Series")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
-
-                if let title = episode.title, !title.isEmpty {
-                    Text(title)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    wantedStatusChip(episode.episodeIdentifier, color: .purple)
-                    wantedStatusChip(formatDate(episode.airDate), color: .secondary)
-                }
-            }
-
-            Spacer()
+            .buttonStyle(.plain)
 
             if isSearching {
                 ProgressView().controlSize(.small)
@@ -528,6 +521,41 @@ private struct WantedEpisodeRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 12) {
+            ArrArtworkView(url: episode.series?.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                    Image(systemName: "tv")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.purple)
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(episode.series?.title ?? "Unknown Series")
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+
+                if let title = episode.title, !title.isEmpty {
+                    Text(title)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 6) {
+                    wantedStatusChip(episode.episodeIdentifier, color: ServiceIdentity.sonarr.brandColor)
+                    wantedStatusChip(formatDate(episode.airDate), color: .secondary)
+                }
+            }
+
+            Spacer()
+        }
         .contentShape(Rectangle())
     }
 
@@ -544,22 +572,49 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
+    let viewModel: RadarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
+            NavigationLink {
+                RadarrMovieDetailView(movieId: movie.id, viewModel: viewModel)
+            } label: {
+                rowContent
+            }
+            .buttonStyle(.plain)
+
+            if isSearching {
+                ProgressView().controlSize(.small)
+            } else {
+                Button("Search", systemImage: "magnifyingglass") {
+                    Task {
+                        isSearching = true
+                        await onSearch()
+                        isSearching = false
+                    }
+                }
+                .labelStyle(.iconOnly)
+                .contentShape(Rectangle())
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private var rowContent: some View {
+        HStack(spacing: 12) {
             ArrArtworkView(url: movie.posterURL) {
                 ZStack {
-                    RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                     Image(systemName: "film")
                         .font(.system(size: 14))
                         .foregroundStyle(.orange)
                 }
             }
             .frame(width: 46, height: 69)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(movie.title)
@@ -578,27 +633,12 @@ private struct WantedMovieRow: View {
                     if let year = movie.year {
                         wantedStatusChip(String(year), color: .secondary)
                     }
-                    wantedStatusChip(movie.displayStatus, color: .orange)
+                    wantedStatusChip(movie.displayStatus, color: ServiceIdentity.radarr.brandColor)
                 }
             }
 
             Spacer()
-
-            if isSearching {
-                ProgressView().controlSize(.small)
-            } else {
-                Button("Search", systemImage: "magnifyingglass") {
-                    Task {
-                        isSearching = true
-                        await onSearch()
-                        isSearching = false
-                    }
-                }
-                .labelStyle(.iconOnly)
-                .contentShape(Rectangle())
-            }
         }
-        .padding(.vertical, 4)
         .contentShape(Rectangle())
     }
 }
@@ -618,14 +658,14 @@ private struct BazarrWantedSeriesRow: View {
                 HStack(spacing: 12) {
                     ArrArtworkView(url: series.poster.flatMap(URL.init(string:))) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                             Image(systemName: "captions.bubble")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(series.title)
@@ -683,14 +723,14 @@ private struct BazarrWantedMovieRow: View {
                 HStack(spacing: 12) {
                     ArrArtworkView(url: movie.poster.flatMap(URL.init(string:))) {
                         ZStack {
-                            RoundedRectangle(cornerRadius: 6).fill(.quaternary)
+                            RoundedRectangle(cornerRadius: 8).fill(.quaternary)
                             Image(systemName: "captions.bubble")
                                 .font(.system(size: 14))
                                 .foregroundStyle(.secondary)
                         }
                     }
                     .frame(width: 46, height: 69)
-                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
 
                     VStack(alignment: .leading, spacing: 3) {
                         Text(movie.title)

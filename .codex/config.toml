@@ -1,0 +1,11 @@
+[mcp_servers.XcodeBuildMCP]
+args = [
+    "-y",
+    "xcodebuildmcp@latest",
+    "mcp",
+]
+command = "npx"
+
+[mcp_servers.xcode]
+args = ["mcpbridge"]
+command = "xcrun"

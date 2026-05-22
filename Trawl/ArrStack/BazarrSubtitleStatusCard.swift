@@ -12,11 +12,13 @@ struct BazarrSubtitleStatusCard: View {
     @State private var errorMessage: String?
     @State private var movie: BazarrMovie?
     @State private var series: BazarrSeries?
+    @State private var episodes: [BazarrEpisode] = []
     @State private var isSearching = false
     @State private var isUpdatingProfile = false
     @State private var showInteractiveSearch = false
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
+    @State private var isExpanded = false
 
     private var accent: Color { .teal }
 
@@ -24,23 +26,25 @@ struct BazarrSubtitleStatusCard: View {
         if serviceManager.hasBazarrInstance {
             cardContent
                 .task(id: taskID) {
+                    isExpanded = false
                     movie = nil
                     series = nil
+                    episodes = []
                     await load()
                 }
                 .sheet(isPresented: $showInteractiveSearch) {
                     if let movie {
-                BazarrInteractiveSearchSheet(
-                    radarrId: movie.radarrId,
-                    missingLanguages: movie.missingSubtitles,
-                    viewModel: BazarrViewModel(serviceManager: serviceManager),
-                    onDownloaded: {
-                        await serviceManager.refreshActiveBazarrSubtitleCache()
-                        await load(force: true)
+                        BazarrInteractiveSearchSheet(
+                            radarrId: movie.radarrId,
+                            missingLanguages: movie.missingSubtitles,
+                            viewModel: BazarrViewModel(serviceManager: serviceManager),
+                            onDownloaded: {
+                                await serviceManager.refreshActiveBazarrSubtitleCache()
+                                await load(force: true)
+                            }
+                        )
                     }
-                )
-            }
-        }
+                }
                 .sheet(isPresented: $showProfilePicker) {
                     profilePickerSheet
                 }
@@ -65,28 +69,49 @@ struct BazarrSubtitleStatusCard: View {
     @ViewBuilder
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 10) {
-                Image(systemName: "captions.bubble.fill")
-                    .foregroundStyle(accent)
-                Text(title)
-                    .font(.headline)
-                Spacer()
-                statusBadge
-            }
+            header
 
-            if !serviceManager.hasAnyConnectedBazarrInstance {
-                disconnectedContent
-            } else if isLoading && movie == nil && series == nil {
-                loadingContent
-            } else if let errorMessage {
-                errorContent(errorMessage)
-            } else {
-                loadedContent
+            if isExpanded {
+                if !serviceManager.hasAnyConnectedBazarrInstance {
+                    disconnectedContent
+                } else if isLoading && movie == nil && series == nil {
+                    loadingContent
+                } else if let errorMessage {
+                    errorContent(errorMessage)
+                } else {
+                    loadedContent
+                }
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var header: some View {
+        Button {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                isExpanded.toggle()
+            }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "captions.bubble.fill")
+                    .foregroundStyle(accent)
+                    .frame(width: 24, alignment: .leading)
+                Text(title)
+                    .font(.headline)
+                Spacer()
+                statusBadge
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -98,10 +123,16 @@ struct BazarrSubtitleStatusCard: View {
         } else if missingCount > 0 {
             Text("\(missingCount) missing")
                 .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(Color.red.opacity(0.16), in: Capsule())
                 .foregroundStyle(.red)
         } else if hasLoadedMedia {
             Text("Complete")
                 .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(accent.opacity(0.16), in: Capsule())
                 .foregroundStyle(accent)
         }
     }
@@ -162,6 +193,22 @@ struct BazarrSubtitleStatusCard: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
+
+                if !presentSubtitleKeys.isEmpty {
+                    languageChipsView(
+                        keys: presentSubtitleKeys,
+                        label: "Present",
+                        foreground: .teal
+                    )
+                }
+
+                if !missingLanguageKeys.isEmpty {
+                    languageChipsView(
+                        keys: missingLanguageKeys,
+                        label: "Missing",
+                        foreground: .red
+                    )
+                }
 
                 if missingCount > 0 {
                     HStack(spacing: 12) {
@@ -284,6 +331,46 @@ struct BazarrSubtitleStatusCard: View {
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
 
+    private func languageChipsView(
+        keys: [SubtitleKey],
+        label: String,
+        foreground: Color
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label.uppercased())
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(foreground)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(keys.enumerated()), id: \.offset) { _, key in
+                        HStack(spacing: 3) {
+                            Text(key.code2)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(foreground)
+                            if key.hi {
+                                Text("HI")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.blue)
+                            }
+                            if key.forced {
+                                Text("Forced")
+                                    .font(.caption2)
+                                    .fontWeight(.bold)
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 3)
+                        .background(Capsule().fill(foreground.opacity(0.12)))
+                        .overlay(Capsule().strokeBorder(foreground.opacity(0.25)))
+                    }
+                }
+            }
+        }
+    }
+
     private var hasLoadedMedia: Bool {
         movie != nil || series != nil
     }
@@ -330,8 +417,49 @@ struct BazarrSubtitleStatusCard: View {
         return ""
     }
 
+    private typealias SubtitleKey = (code2: String, hi: Bool, forced: Bool)
+
+    private var presentSubtitleKeys: [SubtitleKey] {
+        if let movie {
+            return uniqueSubtitleKeys(movie.subtitles.map { ($0.code2, $0.hi, $0.forced) })
+        }
+        return uniqueSubtitleKeys(episodes.flatMap { episode in
+            episode.subtitles.map { ($0.code2, $0.hi, $0.forced) }
+        })
+    }
+
+    private var missingLanguageKeys: [SubtitleKey] {
+        if let movie {
+            return uniqueSubtitleKeys(movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) })
+        }
+        return uniqueSubtitleKeys(episodes.flatMap { episode in
+            episode.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) }
+        })
+    }
+
+    private func uniqueSubtitleKeys(_ keys: [SubtitleKey]) -> [SubtitleKey] {
+        var seen = Set<String>()
+        var result: [SubtitleKey] = []
+        for key in keys {
+            let id = "\(key.code2):\(key.hi):\(key.forced)"
+            if seen.insert(id).inserted {
+                result.append(key)
+            }
+        }
+        return result
+    }
+
     private var profilePickerSheet: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Language Profile",
+            confirmTitle: "Save",
+            isConfirmDisabled: isUpdatingProfile,
+            onConfirm: {
+                showProfilePicker = false
+                Task { await updateProfile() }
+            },
+            detents: [.medium]
+        ) {
             List {
                 Picker("Profile", selection: $selectedProfileId) {
                     Text("None").tag(nil as Int?)
@@ -341,21 +469,7 @@ struct BazarrSubtitleStatusCard: View {
                 }
                 .pickerStyle(.inline)
             }
-            .navigationTitle("Language Profile")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        showProfilePicker = false
-                        Task { await updateProfile() }
-                    }
-                    .disabled(isUpdatingProfile)
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showProfilePicker = false }
-                }
-            }
         }
-        .presentationDetents([.medium])
     }
 
     private func load(force: Bool = false) async {
@@ -376,6 +490,9 @@ struct BazarrSubtitleStatusCard: View {
             case .series(let seriesId, _):
                 let page = try await client.getSeries(ids: [seriesId])
                 series = page.data.first
+                if let s = series {
+                    episodes = (try? await client.getEpisodes(seriesIds: [s.sonarrSeriesId])) ?? []
+                }
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -398,6 +515,7 @@ struct BazarrSubtitleStatusCard: View {
             }
             movie = nil
             series = nil
+            episodes = []
             await serviceManager.refreshActiveBazarrSubtitleCache()
             await load(force: true)
         } catch {
@@ -410,27 +528,119 @@ struct BazarrSubtitleStatusCard: View {
         isUpdatingProfile = true
         defer { isUpdatingProfile = false }
 
+        var apiError: Error?
         do {
             switch media {
             case .movie(let radarrId, _):
                 try await client.updateMovieProfile(
                     radarrIds: [radarrId],
-                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                    profileIds: [selectedProfileId.map(String.init)]
                 )
             case .series(let seriesId, _):
                 try await client.updateSeriesProfile(
                     seriesIds: [seriesId],
-                    profileIds: [selectedProfileId.map(String.init) ?? "none"]
+                    profileIds: [selectedProfileId.map(String.init)]
                 )
             }
-
-            movie = nil
-            series = nil
-            await serviceManager.refreshActiveBazarrSubtitleCache()
-            await load(force: true)
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
         } catch {
-            InAppNotificationCenter.shared.showError(title: "Failed", message: error.localizedDescription)
+            apiError = error
         }
+
+        movie = nil
+        series = nil
+        episodes = []
+        await serviceManager.refreshActiveBazarrSubtitleCache()
+        await load(force: true)
+        if let apiError {
+            let isMovie500: Bool = {
+                if case .movie = media, case ArrError.serverError(500, _) = apiError { return true }
+                return false
+            }()
+            if isMovie500 {
+                InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
+            } else {
+                InAppNotificationCenter.shared.showError(title: "Failed", message: apiError.localizedDescription)
+            }
+        } else {
+            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: "Language profile updated.")
+        }
+    }
+}
+
+// MARK: - Shared subtitle list row
+
+struct BazarrSubtitleListRow: View {
+    let subtitle: BazarrSubtitle
+
+    var body: some View {
+        HStack {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(subtitle.name).font(.body)
+                if let path = subtitle.path {
+                    Text(path)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+            Spacer()
+            HStack(spacing: 4) {
+                if subtitle.hi {
+                    Text("HI")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.15)))
+                }
+                if subtitle.forced {
+                    Text("Forced")
+                        .font(.caption2)
+                        .padding(.horizontal, 4)
+                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Shared subtitle file chips (used in Radarr/Sonarr file rows)
+
+struct BazarrSubtitleFilesView: View {
+    let subtitles: [BazarrSubtitle]
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 6) {
+                Image(systemName: "captions.bubble.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.teal)
+                ForEach(Array(subtitles.enumerated()), id: \.offset) { _, sub in
+                    HStack(spacing: 3) {
+                        Text(sub.code2)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.teal)
+                        if sub.hi {
+                            Text("HI")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.blue)
+                        }
+                        if sub.forced {
+                            Text("Forced")
+                                .font(.system(size: 7).weight(.bold))
+                                .foregroundStyle(.orange)
+                        }
+                        if let size = sub.fileSize {
+                            Text(ByteFormatter.format(bytes: Int64(size)))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 2)
+                    .background(Capsule().fill(Color.teal.opacity(0.12)))
+                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

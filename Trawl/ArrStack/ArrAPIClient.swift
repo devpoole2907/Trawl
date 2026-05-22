@@ -1,9 +1,16 @@
 import Foundation
 import OSLog
 
-protocol SharedArrClient: Actor {
+protocol SharedArrClient: Actor, Sendable {
     var base: ArrAPIClient { get }
     var apiPath: String { get }
+
+    func getBackups() async throws -> [ArrBackup]
+    func createBackup() async throws
+    func downloadBackup(_ backup: ArrBackup) async throws -> Data
+    func restoreBackup(_ backup: ArrBackup) async throws
+    func uploadBackup(data: Data, filename: String) async throws
+    func deleteBackup(_ backup: ArrBackup) async throws
 }
 
 extension SharedArrClient {
@@ -18,6 +25,10 @@ extension SharedArrClient {
     func getRootFolders() async throws -> [ArrRootFolder] { try await base.get("\(apiPath)/rootfolder") }
     func createRootFolder(path: String) async throws -> ArrRootFolder { try await base.postCodable("\(apiPath)/rootfolder", body: ["path": path]) }
     func deleteRootFolder(id: Int) async throws { try await base.delete("\(apiPath)/rootfolder/\(id)") }
+    func getFileSystem(path: String = "", includeFiles: Bool = false) async throws -> [ArrFileSystemEntry] {
+        let response: ArrFileSystemResponse = try await base.get("\(apiPath)/filesystem", queryItems: Self.fileSystemQueryItems(path: path, includeFiles: includeFiles))
+        return response.entries
+    }
     func getTags() async throws -> [ArrTag] { try await base.get("\(apiPath)/tag") }
     func getNotifications() async throws -> [ArrNotification] { try await base.get("\(apiPath)/notification") }
     func createNotification(_ notification: ArrNotification) async throws -> ArrNotification { try await base.postCodable("\(apiPath)/notification", body: notification) }
@@ -61,7 +72,38 @@ extension SharedArrClient {
         return try await base.get("\(apiPath)/history", queryItems: params)
     }
 
+    func getLog(
+        page: Int = 1,
+        pageSize: Int = 50,
+        level: String? = nil
+    ) async throws -> ArrLogPage {
+        var params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize)),
+            URLQueryItem(name: "sortKey", value: "time"),
+            URLQueryItem(name: "sortDirection", value: "descending")
+        ]
+        if let level { params.append(URLQueryItem(name: "level", value: level)) }
+        return try await base.get("\(apiPath)/log", queryItems: params)
+    }
+
     func getDiskSpace() async throws -> [ArrDiskSpace] { try await base.get("\(apiPath)/diskspace") }
+    func getBackups() async throws -> [ArrBackup] { try await base.get("\(apiPath)/system/backup") }
+    func createBackup() async throws { _ = try await postCommand(name: "Backup") }
+    func downloadBackup(_ backup: ArrBackup) async throws -> Data {
+        let backupPath = backup.path?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let backupPath, !backupPath.isEmpty else {
+            return try await base.getData("\(apiPath)/system/backup/\(backup.id)/download")
+        }
+
+        let path = backupPath.hasPrefix("/") ? backupPath : "/\(backupPath)"
+        return try await base.getData(path)
+    }
+    func restoreBackup(id: Int) async throws { try await base.postVoid("\(apiPath)/system/backup/restore/\(id)", queryItems: []) }
+    func restoreBackup(_ backup: ArrBackup) async throws { try await restoreBackup(id: backup.id) }
+    func uploadBackup(data: Data, filename: String) async throws { try await base.postMultipartVoid("\(apiPath)/system/backup/restore/upload", fileData: data, fieldName: "restore", filename: filename) }
+    func deleteBackup(id: Int) async throws { try await base.delete("\(apiPath)/system/backup/\(id)") }
+    func deleteBackup(_ backup: ArrBackup) async throws { try await deleteBackup(id: backup.id) }
     func getUpdates() async throws -> [ArrUpdateInfo] { try await base.get("\(apiPath)/update") }
     func getDownloadClients() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient") }
     func getDownloadClientSchema() async throws -> [ArrDownloadClient] { try await base.get("\(apiPath)/downloadclient/schema") }
@@ -157,6 +199,22 @@ extension SharedArrClient {
         try await base.postVoidCodable("\(apiPath)/indexer/test", body: indexer)
     }
 
+    func getQualityDefinitions() async throws -> [ArrQualityDefinition] {
+        try await base.get("\(apiPath)/qualitydefinition")
+    }
+
+    func updateQualityDefinitions(_ definitions: [ArrQualityDefinition]) async throws -> [ArrQualityDefinition] {
+        try await base.putCodable("\(apiPath)/qualitydefinition/update", body: definitions)
+    }
+
+    func getScheduledTasks() async throws -> [ArrScheduledTask] {
+        try await base.get("\(apiPath)/system/task")
+    }
+
+    func getCommandQueue() async throws -> [ArrCommand] {
+        try await base.get("\(apiPath)/command")
+    }
+
     func getCommand(id: Int) async throws -> ArrCommand {
         try await base.getCommand(id: id, apiPath: apiPath)
     }
@@ -192,6 +250,14 @@ extension SharedArrClient {
             URLQueryItem(name: "sortDirection", value: sortDirection)
         ] + extraItems
     }
+
+    nonisolated static func fileSystemQueryItems(path: String, includeFiles: Bool) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "allowFoldersWithoutTrailingSlashes", value: "true"),
+            URLQueryItem(name: "includeFiles", value: String(includeFiles))
+        ]
+    }
 }
 
 protocol ArrAPIIdentifiable {
@@ -208,168 +274,77 @@ actor ArrAPIClient {
     private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "ArrAPIClient")
     static let defaultPageSize = 20
 
-    let baseURL: String
-    private let apiKey: String
-    private let session: URLSession
-    private let trustPolicy: ServerTrustPolicy
-
+    nonisolated var baseURL: String { transport.baseURL }
     let apiKeyHeaderName: String
+    private let transport: HTTPTransport
+
+    /// Re-exposed here (also lives on `SharedArrClient`) so tests and
+    /// non-conforming call sites can build the standard filesystem query
+    /// without going through a service-specific actor.
+    nonisolated static func fileSystemQueryItems(path: String, includeFiles: Bool) -> [URLQueryItem] {
+        [
+            URLQueryItem(name: "path", value: path),
+            URLQueryItem(name: "allowFoldersWithoutTrailingSlashes", value: "true"),
+            URLQueryItem(name: "includeFiles", value: String(includeFiles))
+        ]
+    }
 
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false, apiKeyHeaderName: String = "X-Api-Key") {
-        var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if url.hasSuffix("/") { url = String(url.dropLast()) }
-        self.baseURL = url
-        self.apiKey = apiKey
         self.apiKeyHeaderName = apiKeyHeaderName
-        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
-
-        let config = URLSessionConfiguration.makeTrawlSecure()
-        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+        let mapper = HTTPErrorMapper(
+            badURL: { ArrError.invalidURL },
+            transport: { ArrError.networkError($0) },
+            unauthorized: { ArrError.invalidAPIKey },
+            http: { code, body in ArrError.serverError(statusCode: code, message: body) },
+            decode: { ArrError.decodingError($0) },
+            invalidResponse: { ArrError.invalidResponse },
+            unauthorizedStatusCodes: [401]
+        )
+        let diagnostics = HTTPDiagnostics(
+            shouldLog: { $0.contains("/api/v3/release") },
+            networkError: { path, _, error in
+                Self.logger.error("Interactive search diagnostic: Network error")
+                Self.logger.error("Interactive search path: \(path, privacy: .public)")
+                Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .private)")
+            },
+            httpError: { path, url, code, data in
+                Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(code)")
+                if let data, let body = String(data: data, encoding: .utf8) {
+                    Self.logger.debug("Arr request failure body for \(path, privacy: .public): \(body, privacy: .private)")
+                    Self.logger.error("Interactive search diagnostic: HTTP error \(code)")
+                    Self.logger.error("Interactive search URL: \(url, privacy: .private)")
+                    if !body.isEmpty {
+                        Self.logger.error("Interactive search response body: \(body, privacy: .private)")
+                    }
+                }
+            },
+            decodingError: { path, url, error, data in
+                Self.logger.error("Interactive search diagnostic: Decoding error")
+                Self.logger.error("Interactive search URL: \(url, privacy: .private)")
+                Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .private)")
+                if let data, let body = String(data: data, encoding: .utf8), !body.isEmpty {
+                    Self.logger.error("Interactive search response body: \(body, privacy: .private)")
+                }
+                _ = path
+            }
+        )
+        self.transport = HTTPTransport(
+            baseURL: baseURL,
+            auth: .staticHeader(name: apiKeyHeaderName, value: apiKey),
+            allowsUntrustedTLS: allowsUntrustedTLS,
+            sessionConfiguration: .makeTrawlSecure(),
+            errorMapper: mapper,
+            diagnostics: diagnostics
+        )
     }
 
-    deinit {
-        session.invalidateAndCancel()
-    }
-
-    // MARK: - Shared Endpoints
-
-    func getSystemStatus() async throws -> ArrSystemStatus {
-        try await get("/api/v3/system/status")
-    }
-
-    func getHealth() async throws -> [ArrHealthCheck] {
-        try await get("/api/v3/health")
-    }
-
-    func getQualityProfiles() async throws -> [ArrQualityProfile] {
-        try await get("/api/v3/qualityprofile")
-    }
-
-    func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile {
-        try await postCodable("/api/v3/qualityprofile", body: profile)
-    }
-
-    func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile {
-        try await putCodable("/api/v3/qualityprofile/\(profile.id)", body: profile)
-    }
-
-    func deleteQualityProfile(id: Int) async throws {
-        try await delete("/api/v3/qualityprofile/\(id)")
-    }
-
-    func getRootFolders() async throws -> [ArrRootFolder] {
-        try await get("/api/v3/rootfolder")
-    }
-
-    func createRootFolder(path: String) async throws -> ArrRootFolder {
-        try await postCodable("/api/v3/rootfolder", body: ["path": path])
-    }
-
-    func deleteRootFolder(id: Int) async throws {
-        try await delete("/api/v3/rootfolder/\(id)")
-    }
-
-    func getTags() async throws -> [ArrTag] {
-        try await get("/api/v3/tag")
-    }
-
-    func getNotifications() async throws -> [ArrNotification] {
-        try await get("/api/v3/notification")
-    }
-
-    func createNotification(_ notification: ArrNotification) async throws -> ArrNotification {
-        try await postCodable("/api/v3/notification", body: notification)
-    }
-
-    func updateNotification(_ notification: ArrNotification) async throws -> ArrNotification {
-        guard let id = notification.id else { throw ArrError.invalidResponse }
-        return try await putCodable("/api/v3/notification/\(id)", body: notification)
-    }
-
-    func getQueue(
-        page: Int = 1,
-        pageSize: Int = defaultPageSize,
-        includeUnknownMovieItems: Bool = true
-    ) async throws -> ArrQueuePage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "includeUnknownMovieItems", value: String(includeUnknownMovieItems)),
-            URLQueryItem(name: "includeUnknownSeriesItems", value: "true")
-        ]
-        return try await get("/api/v3/queue", queryItems: params)
-    }
-
-    func deleteQueueItem(id: Int, removeFromClient: Bool = true, blocklist: Bool = false) async throws {
-        let params = [
-            URLQueryItem(name: "removeFromClient", value: String(removeFromClient)),
-            URLQueryItem(name: "blocklist", value: String(blocklist))
-        ]
-        try await delete("/api/v3/queue/\(id)", queryItems: params)
-    }
-
-    func getHistory(
-        page: Int = 1,
-        pageSize: Int = defaultPageSize,
-        sortKey: String = "date",
-        sortDirection: String = "descending"
-    ) async throws -> ArrHistoryPage {
-        let params = [
-            URLQueryItem(name: "page", value: String(page)),
-            URLQueryItem(name: "pageSize", value: String(pageSize)),
-            URLQueryItem(name: "sortKey", value: sortKey),
-            URLQueryItem(name: "sortDirection", value: sortDirection)
-        ]
-        return try await get("/api/v3/history", queryItems: params)
-    }
-
-    func getDiskSpace() async throws -> [ArrDiskSpace] {
-        try await get("/api/v3/diskspace")
-    }
-
-    func getUpdates() async throws -> [ArrUpdateInfo] {
-        try await get("/api/v3/update")
-    }
-
-    func getDownloadClients() async throws -> [ArrDownloadClient] {
-        try await get("/api/v3/downloadclient")
-    }
-
-    func getDownloadClientSchema() async throws -> [ArrDownloadClient] {
-        try await get("/api/v3/downloadclient/schema")
-    }
-
-    func createDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient {
-        try await postCodable("/api/v3/downloadclient", body: client)
-    }
-
-    func updateDownloadClient(_ client: ArrDownloadClient) async throws -> ArrDownloadClient {
-        try await putCodable("/api/v3/downloadclient/\(client.id)", body: client)
-    }
-
-    func deleteDownloadClient(id: Int) async throws {
-        try await delete("/api/v3/downloadclient/\(id)")
-    }
-
-    func testDownloadClient(_ client: ArrDownloadClient) async throws {
-        try await postVoidCodable("/api/v3/downloadclient/test", body: client)
-    }
-
-    func getRemotePathMappings() async throws -> [ArrRemotePathMapping] {
-        try await get("/api/v3/remotepathmapping")
-    }
-
-    func createRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping {
-        try await postCodable("/api/v3/remotepathmapping", body: mapping)
-    }
-
-    func updateRemotePathMapping(_ mapping: ArrRemotePathMapping) async throws -> ArrRemotePathMapping {
-        try await putCodable("/api/v3/remotepathmapping/\(mapping.id)", body: mapping)
-    }
-
-    func deleteRemotePathMapping(id: Int) async throws {
-        try await delete("/api/v3/remotepathmapping/\(id)")
-    }
+    // MARK: - Command primitives (per-service apiPath)
+    // The "shared endpoints" (getSystemStatus, getQualityProfiles, getRootFolders, getTags,
+    // getQueue, getHistory, getDownloadClients, getRemotePathMappings, etc.) live on the
+    // SharedArrClient protocol extension above, which parametrises on `apiPath` so each
+    // conformer (Sonarr /api/v3, Radarr /api/v3, Prowlarr /api/v1, Bazarr /api) hits the
+    // right endpoint. Only command-related calls live on the actor because they're invoked
+    // directly via `base.postCommand(...)` from the conforming clients.
 
     func getCommand(id: Int, apiPath: String = "/api/v3") async throws -> ArrCommand {
         return try await get("\(apiPath)/command/\(id)")
@@ -422,76 +397,56 @@ actor ArrAPIClient {
     // MARK: - HTTP Infrastructure
 
     func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
-        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
-        return try await perform(request)
+        try await transport.get(path, queryItems: queryItems)
     }
 
-    func post<T: Decodable>(_ path: String, jsonBody: Any) async throws -> sending T {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        return try await perform(request)
+    func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {
+        try await transport.getData(path, queryItems: queryItems)
+    }
+
+    func post<T: Decodable>(_ path: String, jsonBody: sending Any) async throws -> sending T {
+        try await transport.postJSON(path, jsonBody: jsonBody)
     }
 
     func postCodable<T: Decodable, B: Encodable>(_ path: String, body: sending B) async throws -> sending T {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await perform(request)
+        try await transport.postCodable(path, body: body)
     }
 
     func putCodable<T: Decodable, B: Encodable>(_ path: String, body: sending B, queryItems: [URLQueryItem] = []) async throws -> sending T {
-        var request = try buildRequest(path: path, method: "PUT", queryItems: queryItems)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await perform(request)
+        try await transport.putCodable(path, body: body, queryItems: queryItems)
     }
 
     func delete(_ path: String, queryItems: [URLQueryItem] = []) async throws {
-        let request = try buildRequest(path: path, method: "DELETE", queryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+        try await transport.delete(path, queryItems: queryItems)
     }
 
     /// DELETE with a JSON body (e.g. bulk blocklist delete)
-    func deleteWithBody(_ path: String, jsonBody: Any) async throws {
-        var request = try buildRequest(path: path, method: "DELETE")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+    func deleteWithBody(_ path: String, jsonBody: sending Any) async throws {
+        try await transport.deleteJSONBody(path, jsonBody: jsonBody)
     }
 
     /// Fire-and-forget POST (for commands that return empty body)
-    func postVoid(_ path: String, jsonBody: Any) async throws {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+    func postVoid(_ path: String, jsonBody: sending Any) async throws {
+        try await transport.postVoidJSON(path, jsonBody: jsonBody)
     }
 
     /// Fire-and-forget POST with query parameters.
     func postVoid(_ path: String, queryItems: [URLQueryItem]) async throws {
-        let request = try buildRequest(path: path, method: "POST", queryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+        try await transport.postVoid(path, queryItems: queryItems)
     }
 
     /// Fire-and-forget PATCH with query parameters.
     func patchVoid(_ path: String, queryItems: [URLQueryItem] = []) async throws {
-        let request = try buildRequest(path: path, method: "PATCH", queryItems: queryItems)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+        try await transport.patchVoid(path, queryItems: queryItems)
     }
 
     /// Fire-and-forget POST with a Codable body (for commands that return empty body)
     func postVoidCodable<B: Encodable>(_ path: String, body: sending B) async throws {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
+        try await transport.postVoidCodable(path, body: body)
+    }
+
+    func postMultipartVoid(_ path: String, fileData: Data, fieldName: String, filename: String) async throws {
+        try await transport.postMultipartVoid(path, fileData: fileData, fieldName: fieldName, filename: filename)
     }
 
     /// POST with form-urlencoded body (used by Bazarr settings endpoint)
@@ -504,128 +459,6 @@ actor ArrAPIClient {
 
     /// POST with form-urlencoded body preserving repeated keys and empty list sentinels.
     func postFormItems(_ path: String, formItems: [URLQueryItem]) async throws {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-        var components = URLComponents()
-        components.queryItems = formItems
-        request.httpBody = components.query?.data(using: .utf8)
-        let (data, response) = try await session.data(for: request)
-        try validateResponse(response, data: data, path: path)
-    }
-
-    // MARK: - Private
-
-    private func buildRequest(path: String, method: String, queryItems: [URLQueryItem] = []) throws -> URLRequest {
-        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
-            throw ArrError.invalidURL
-        }
-        components.queryItems = queryItems.isEmpty ? nil : queryItems
-        guard let url = components.url else {
-            throw ArrError.invalidURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue(apiKey, forHTTPHeaderField: apiKeyHeaderName)
-        return request
-    }
-
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> sending T {
-        let data: Data
-        let response: URLResponse
-        let path = request.url?.path ?? "<unknown>"
-        do {
-            (data, response) = try await session.data(for: request)
-        } catch {
-            if isRequestCancellation(error) {
-                throw CancellationError()
-            }
-            
-            logReleaseDiagnostics(
-                message: "Network error",
-                path: path,
-                request: request,
-                responseData: nil,
-                error: error
-            )
-            throw ArrError.networkError(error)
-        }
-        
-        try validateResponse(response, data: data, path: path)
-        
-        do {
-            return try Self.decodeResponse(T.self, from: data)
-        } catch {
-            logReleaseDiagnostics(
-                message: "Decoding error",
-                path: path,
-                request: request,
-                responseData: data,
-                error: error
-            )
-            throw ArrError.decodingError(error)
-        }
-    }
-
-    private nonisolated static func decodeResponse<T: Decodable>(_ type: sending T.Type, from data: Data) throws -> sending T {
-        try JSONDecoder().decode(type, from: data)
-    }
-
-    private func validateResponse(_ response: URLResponse, data: Data, path: String) throws {
-        guard let http = response as? HTTPURLResponse else {
-            throw ArrError.invalidResponse
-        }
-
-        if http.statusCode == 401 {
-            throw ArrError.invalidAPIKey
-        }
-
-        guard (200..<400).contains(http.statusCode) else {
-            let body = String(data: data, encoding: .utf8) ?? "No body"
-            Self.logger.error("Arr request failed for \(path, privacy: .public) with status \(http.statusCode)")
-            
-            Self.logger.debug("Arr request failure body for \(path, privacy: .public): \(body, privacy: .private)")
-            
-            logReleaseDiagnostics(
-                message: "HTTP error \(http.statusCode)",
-                path: path,
-                request: nil,
-                responseData: data,
-                error: nil
-            )
-            throw ArrError.serverError(statusCode: http.statusCode, message: body)
-        }
-    }
-
-    private func logReleaseDiagnostics(
-        message: String,
-        path: String,
-        request: URLRequest?,
-        responseData: Data?,
-        error: Error?
-    ) {
-        guard path.contains("/api/v3/release") else { return }
-
-        let urlString = request?.url?.absoluteString ?? "\(baseURL)\(path)"
-        Self.logger.error("Interactive search diagnostic: \(message, privacy: .public)")
-        Self.logger.error("Interactive search URL: \(urlString, privacy: .private)")
-
-        if let error {
-            Self.logger.error("Interactive search error: \(error.localizedDescription, privacy: .private)")
-        }
-
-        if let responseData,
-           let body = String(data: responseData, encoding: .utf8),
-           !body.isEmpty {
-            Self.logger.error("Interactive search response body: \(body, privacy: .private)")
-        }
-    }
-    
-    private func isRequestCancellation(_ error: Error) -> Bool {
-        if error is CancellationError {
-            return true
-        }
-        
-        let nsError = error as NSError
-        return nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled
+        try await transport.postFormItems(path, formItems: formItems)
     }
 }

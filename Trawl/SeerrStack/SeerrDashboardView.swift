@@ -6,6 +6,8 @@ struct SeerrDashboardView: View {
     @State private var viewModel: SeerrRequestManagementViewModel?
     @State private var deleteTarget: SeerrRequestDisplayItem?
     @State private var isOverviewExpanded = true
+    @State private var requestSearchText = ""
+    @State private var isSearchExpanded = false
 
     var body: some View {
         Group {
@@ -27,6 +29,14 @@ struct SeerrDashboardView: View {
 
     @ViewBuilder
     private func requestList(viewModel: SeerrRequestManagementViewModel) -> some View {
+        let query = requestSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let filteredRequests = query.isEmpty
+            ? viewModel.requests
+            : viewModel.requests.filter { item in
+                item.title.localizedCaseInsensitiveContains(query)
+                    || item.request.requestedBy?.displayName.localizedCaseInsensitiveContains(query) == true
+            }
+
         List {
             if let requestCount = viewModel.requestCount {
                 seerrOverviewSection(requestCount)
@@ -46,7 +56,7 @@ struct SeerrDashboardView: View {
                 emptyState
             } else {
                 Section {
-                    ForEach(viewModel.requests) { item in
+                    ForEach(filteredRequests) { item in
                         SeerrRequestRow(item: item)
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
@@ -115,12 +125,19 @@ struct SeerrDashboardView: View {
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .safeAreaInset(edge: .top) {
-            SeerrRequestFilterPicker(
-                filter: Binding(
+            TrawlSegmentBar(
+                "Filter",
+                selection: Binding(
                     get: { viewModel.selectedFilter },
-                    set: { viewModel.selectedFilter = $0 }
-                )
+                    set: { newFilter in withAnimation { viewModel.selectedFilter = newFilter } }
+                ),
+                items: SeerrRequestFilter.allCases.map(\.segmentBarItem),
+                searchText: $requestSearchText,
+                searchHint: "Search requests",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading
             )
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await viewModel.loadRequests() }
         .alert(
@@ -188,13 +205,18 @@ struct SeerrDashboardView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
-                colors: [Color.indigo.opacity(0.11), Color.teal.opacity(0.06), Color.clear],
+                colors: [ServiceIdentity.seerr.brandColor.opacity(0.11), Color.teal.opacity(0.06), Color.clear],
                 startPoint: .top,
                 endPoint: .center
             )
             RadialGradient(
-                colors: [Color.indigo.opacity(0.13), Color.clear],
+                colors: [ServiceIdentity.seerr.brandColor.opacity(0.13), Color.clear],
                 center: .topTrailing,
                 startRadius: 20,
                 endRadius: 260
@@ -206,7 +228,6 @@ struct SeerrDashboardView: View {
 
 extension EnvironmentValues {
     @Entry var navigateToSeerrIssues: () -> Void = {}
-    @Entry var navigateToSeerrUserManagement: () -> Void = {}
 }
 
 @MainActor
@@ -404,22 +425,6 @@ private final class SeerrRequestManagementViewModel {
     }
 }
 
-private struct SeerrRequestFilterPicker: View {
-    @Binding var filter: SeerrRequestFilter
-
-    var body: some View {
-        Picker("Request Status", selection: $filter) {
-            ForEach(SeerrRequestFilter.allCases) { filter in
-                Text(filter.rawValue).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
-        .transition(.opacity.combined(with: .move(edge: .top)))
-    }
-}
-
 private struct SeerrRequestDisplayItem: Identifiable {
     let request: SeerrMediaRequest
     var title: String
@@ -470,7 +475,7 @@ private struct SeerrRequestRow: View {
                     .overlay(Image(systemName: item.symbolName).foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.title)
@@ -511,31 +516,20 @@ private struct SeerrRequestRow: View {
                 if item.request.is4k == true {
                     Text("4K")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.indigo)
+                        .foregroundStyle(ServiceIdentity.seerr.brandColor)
                 }
 
-                if let status = item.request.requestStatus {
+                if let status = item.request.badgeStatus {
                     Text(status.title)
                         .font(.caption.weight(.semibold))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(statusTint(status).opacity(0.15), in: Capsule())
-                        .foregroundStyle(statusTint(status))
+                        .background(status.statusColor.opacity(0.15), in: Capsule())
+                        .foregroundStyle(status.statusColor)
                 }
             }
         }
         .padding(.vertical, 2)
     }
 
-    private func statusTint(_ status: SeerrRequestStatus) -> Color {
-        switch status {
-        case .pending: .orange
-        case .approved: .green
-        case .declined: .red
-        case .processing: .blue
-        case .available, .completed: .green
-        case .failed: .red
-        }
-    }
 }
-

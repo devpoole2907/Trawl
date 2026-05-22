@@ -5,62 +5,59 @@ import SwiftUI
 
 @MainActor
 @Observable
-final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
+final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFilter, RadarrSortOrder> {
     // Library state
-    private(set) var movies: [RadarrMovie] = [] { didSet { rebuildFilteredMovies() } }
+    private(set) var movies: [RadarrMovie] = [] { didSet { rebuildFilteredItems() } }
     private(set) var movieFiles: [RadarrMovieFile] = []
     private(set) var isLoadingFiles: Bool = false
 
-    // Search state
-    var searchText: String = "" { didSet { rebuildFilteredMovies() } }
-    private(set) var searchResults: [RadarrMovie] = []
-    private(set) var isSearching: Bool = false
-    private var searchTracker = StreamingSearchTracker<RadarrMovie>()
-    private(set) var wantedMovies: [RadarrMovie] = []
-    private(set) var isLoadingWantedMissing: Bool = false
-    private(set) var wantedMissingTotalRecords: Int = 0
-    private var wantedMissingLoader = PaginatedLoader<RadarrMovie>(pageSize: 20)
-
-    // Queue state
-    private(set) var queue: [ArrQueueItem] = []
-    private(set) var history: [ArrHistoryRecord] = []
-    private(set) var isLoadingHistory: Bool = false
-    private(set) var historyTotalRecords: Int = 0
-    private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
-
-    // Updates
-    private(set) var availableUpdates: [ArrUpdateInfo] = []
-    private(set) var isLoadingUpdates: Bool = false
-
-    // Filter & Sort
-    var selectedFilter: RadarrFilter = .all { didSet { rebuildFilteredMovies() } }
-    var sortOrder: RadarrSortOrder = .title { didSet { rebuildFilteredMovies() } }
-
     // Race-condition guard for loadMovieFiles
-    private var latestRequestedMovieId: Int?
+    @ObservationIgnored private var latestRequestedMovieId: Int?
 
-    init(serviceManager: ArrServiceManager) {
-        super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
+    init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.radarrClient,
+            jellyfinManager: jellyfinManager,
+            defaultFilter: .all,
+            defaultSort: .title
+        )
     }
 
     /// Convenience init that pre-seeds the movie list (used by Search to avoid a fresh empty load).
-    init(serviceManager: ArrServiceManager, preloadedMovies: [RadarrMovie]) {
-        super.init(serviceManager: serviceManager, client: serviceManager.radarrClient)
+    init(serviceManager: ArrServiceManager, preloadedMovies: [RadarrMovie], jellyfinManager: JellyfinServiceManager? = nil) {
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.radarrClient,
+            jellyfinManager: jellyfinManager,
+            defaultFilter: .all,
+            defaultSort: .title
+        )
         self.movies = preloadedMovies
         setLibraryItems(preloadedMovies)
-        rebuildFilteredMovies()
+        rebuildFilteredItems()
     }
 
-    // MARK: - Filtered (cached, updated via didSet observers)
+    override var nounSingular: String { "movie" }
+    override var nounPlural: String { "movies" }
 
-    private(set) var filteredMovies: [RadarrMovie] = []
+    override func toggleMonitored(_ item: RadarrMovie) async { await toggleMovieMonitored(item) }
 
-    func refreshFilters() {
-        rebuildFilteredMovies()
+    override func setLibraryItems(_ items: [RadarrMovie]) {
+        super.setLibraryItems(items)
+        self.movies = items
     }
 
-    private func rebuildFilteredMovies() {
-        filteredMovies = FilterSortPipeline.apply(
+    // MARK: - Domain-named accessors (compat shims)
+    /// Movies returned from the wanted/missing endpoint.
+    var wantedMovies: [RadarrMovie] { wantedRecords }
+
+    override func onJellyfinLibraryCacheChanged() {
+        rebuildFilteredItems()
+    }
+
+    override func rebuildFilteredItems() {
+        filteredItems = FilterSortPipeline.apply(
             items: movies,
             filter: selectedFilter,
             searchText: searchText,
@@ -84,6 +81,8 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
                     movie.hasFile != true && movie.monitored == true && movie.isAvailable == true
                 case .subtitlesPresent:
                     serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) == .allPresent
+                case .inJellyfinLibrary:
+                    isInJellyfinLibrary(movie)
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -160,98 +159,10 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
         }
     }
 
-    func loadWantedMissing() async {
-        guard !isLoadingWantedMissing else { return }
-        guard let client else { return }
-        isLoadingWantedMissing = true
-        defer { isLoadingWantedMissing = false }
-        error = nil
-        do {
-            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.replace(
-                with: page.records ?? [],
-                page: page.page ?? 1,
-                totalRecords: page.totalRecords
-            )
-            wantedMovies = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadMoreWantedMissing() async {
-        guard !isLoadingWantedMissing && canLoadMoreWantedMissing else { return }
-        guard let client else { return }
-        isLoadingWantedMissing = true
-        defer { isLoadingWantedMissing = false }
-
-        let nextPage = wantedMissingLoader.page + 1
-        do {
-            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.append(
-                page.records ?? [],
-                page: page.page ?? nextPage,
-                totalRecords: page.totalRecords
-            )
-            wantedMovies = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
     // MARK: - Search for new movies
 
     func searchForNewMovies(term: String) async {
-        guard let client, !term.isEmpty else {
-            isSearching = false
-            searchResults = []
-            searchTracker.cancel()
-            return
-        }
-
-        let requestToken = searchTracker.begin()
-        isSearching = true
-        searchResults = []
-        error = nil
-
-        do {
-            let results = try await client.lookupMovie(term: term)
-            guard !Task.isCancelled else { return }
-            guard searchTracker.isCurrent(requestToken) else {
-                return
-            }
-
-            await searchTracker.stream(results, token: requestToken) { item in
-                self.searchResults.append(item)
-            }
-
-            // Only turn off spinner if still the active request
-            if !Task.isCancelled && searchTracker.isCurrent(requestToken) {
-                isSearching = false
-            }
-        } catch is CancellationError {
-            if searchTracker.isCurrent(requestToken) {
-                isSearching = false
-            }
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
-            guard searchTracker.isCurrent(requestToken) else {
-                return
-            }
-            self.error = error.localizedDescription
-            searchResults = []
-            isSearching = false
-        }
-    }
-
-    func clearSearchResults() {
-        searchResults = []
-        error = nil
-        isSearching = false
-        searchTracker.cancel()
+        await performLookup(term: term)
     }
 
     func addMovie(
@@ -446,18 +357,6 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
         }
     }
 
-    private static func bulkDeleteSuccessMessage(count: Int, singular: String, plural: String) -> String {
-        count == 1 ? "1 \(singular) removed." : "\(count) \(plural) removed."
-    }
-
-    private static func bulkDeleteFailureMessage(_ failures: [String], singular: String, plural: String) -> String {
-        let itemLabel = failures.count == 1 ? singular : plural
-        let visibleFailures = failures.prefix(3).joined(separator: "\n")
-        let remainingCount = failures.count - min(failures.count, 3)
-        let remainingMessage = remainingCount > 0 ? "\n...and \(remainingCount) more failed." : ""
-        return "\(failures.count) \(itemLabel) failed:\n\(visibleFailures)\(remainingMessage)"
-    }
-
     // MARK: - Search for existing
 
     @discardableResult
@@ -482,47 +381,28 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
     func interactiveSearchMovie(movieId: Int) async throws -> [ArrRelease] {
         guard let client else { throw ArrError.noServiceConfigured }
         error = nil
+        #if DEBUG
         print("[InteractiveSearch][Radarr] start movieId=\(movieId)")
+        #endif
         do {
             let releases = try await client.getReleases(movieId: movieId)
+            #if DEBUG
             print("[InteractiveSearch][Radarr] success releases=\(releases.count)")
+            #endif
             return releases
         } catch is CancellationError {
+            #if DEBUG
             print("[InteractiveSearch][Radarr] cancelled")
+            #endif
             throw CancellationError()
         } catch {
             self.error = error.localizedDescription
             let nsError = error as NSError
+            #if DEBUG
             print("[InteractiveSearch][Radarr] failed domain=\(nsError.domain) code=\(nsError.code) description=\(error.localizedDescription)")
+            #endif
             throw error
         }
-    }
-
-    func grabRelease(_ release: ArrRelease) async -> Bool {
-        guard let client else { return false }
-        error = nil
-        do {
-            try await client.grabRelease(release)
-            InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
-            await loadQueue()
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
-            return false
-        }
-    }
-
-    func searchAllMissing() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.searchAllMissing()
-        InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for all missing movies.")
-    }
-
-    func rssSync() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.rssSync()
-        InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
     }
 
     func deleteMovieFile(id: Int) async -> Bool {
@@ -544,96 +424,11 @@ final class RadarrViewModel: ArrLibraryViewModel<RadarrMovie, RadarrAPIClient> {
             return false
         }
     }
-
-    // MARK: - Queue
-
-    func loadQueue() async {
-        guard let client else { return }
-        do {
-            let page = try await client.getQueue(page: 1, pageSize: 250)
-            queue = page.records ?? []
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadHistory(page: Int = 1) async {
-        guard let client else { return }
-        guard !isLoadingHistory else { return }
-        isLoadingHistory = true
-        defer { isLoadingHistory = false }
-
-        do {
-            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
-            let records = historyPageResult.records ?? []
-
-            if page == 1 {
-                historyLoader.replace(
-                    with: records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            } else {
-                historyLoader.append(
-                    records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            }
-
-            history = historyLoader.items
-            historyTotalRecords = historyLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadNextHistoryPage() async {
-        guard !isLoadingHistory && canLoadMoreHistory else { return }
-        await loadHistory(page: historyLoader.page + 1)
-    }
-
-    func removeQueueItem(id: Int, blocklist: Bool = false) async {
-        guard let client else { return }
-        do {
-            try await client.deleteQueueItem(id: id, blocklist: blocklist)
-            queue.removeAll { $0.id == id }
-            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
-        } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
-        }
-    }
-
-    func checkForUpdates() async {
-        guard let client else { return }
-        isLoadingUpdates = true
-        defer { isLoadingUpdates = false }
-        do {
-            availableUpdates = try await client.getUpdates()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func installUpdate() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.installUpdate()
-        InAppNotificationCenter.shared.showSuccess(title: "Update Started", message: "Application update command sent.")
-    }
-
-    var canLoadMoreWantedMissing: Bool {
-        wantedMovies.count < wantedMissingTotalRecords
-    }
-
-    var canLoadMoreHistory: Bool {
-        history.count < historyTotalRecords
-    }
 }
 
 // MARK: - Filter
 
-enum RadarrFilter: String, CaseIterable, Identifiable {
+nonisolated enum RadarrFilter: String, CaseIterable, Identifiable, Sendable {
     case all = "All"
     case monitored = "Monitored"
     case unmonitored = "Unmonitored"
@@ -641,11 +436,12 @@ enum RadarrFilter: String, CaseIterable, Identifiable {
     case downloaded = "Downloaded"
     case wanted = "Wanted"
     case subtitlesPresent = "Subtitles Present"
+    case inJellyfinLibrary = "In Jellyfin Library"
 
     var id: String { rawValue }
 }
 
-enum RadarrSortOrder: String, CaseIterable, Identifiable {
+nonisolated enum RadarrSortOrder: String, CaseIterable, Identifiable, Sendable {
     case title = "Title"
     case year = "Year"
     case size = "Size"

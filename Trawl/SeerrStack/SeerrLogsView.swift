@@ -11,6 +11,7 @@ struct SeerrLogsView: View {
     @State private var errorMessage: String?
     @State private var selectedEntry: SeerrServerLogEntry?
     @State private var searchDebounceTask: Task<Void, Never>?
+    @State private var isSearchExpanded = false
 
     var body: some View {
         List {
@@ -54,12 +55,22 @@ struct SeerrLogsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
-        .navigationTitle("Seerr Logs")
-        .searchable(text: $searchText, prompt: "Search logs")
-        .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                SeerrLogLevelMenu(level: $level)
-            }
+        .navigationTitle("Logs")
+        .navigationSubtitle("Seerr")
+        .safeAreaInset(edge: .top) {
+            TrawlSegmentBar(
+                "Level",
+                selection: Binding(
+                    get: { level },
+                    set: { newLevel in withAnimation { level = newLevel } }
+                ),
+                items: SeerrLogLevelFilter.allCases.map(\.segmentBarItem),
+                searchText: $searchText,
+                searchHint: "Search logs",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading
+            )
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await loadLogs() }
         .task(id: "\(level.apiValue)|\(committedSearchText)") {
@@ -92,11 +103,14 @@ struct SeerrLogsView: View {
         errorMessage = nil
 
         do {
-            entries = try await apiClient.getLogs(
+            let result = try await apiClient.getLogs(
                 take: 100,
                 filter: level.apiValue,
                 search: committedSearchText
             )
+            withAnimation(.default) {
+                entries = result
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
@@ -105,76 +119,27 @@ struct SeerrLogsView: View {
     }
 }
 
-private struct SeerrLogLevelMenu: View {
-    @Binding var level: SeerrLogLevelFilter
-
-    var body: some View {
-        Menu {
-            Picker("Log Level", selection: Binding(
-                get: { level },
-                set: { newLevel in
-                    withAnimation { level = newLevel }
-                }
-            )) {
-                ForEach(SeerrLogLevelFilter.allCases) { option in
-                    Label(option.rawValue, systemImage: option.iconName).tag(option)
-                }
-            }
-        } label: {
-            Image(systemName: level == .debug
-                  ? "line.3.horizontal.decrease.circle"
-                  : "line.3.horizontal.decrease.circle.fill")
-        }
-    }
-}
-
-private extension SeerrLogLevelFilter {
-    var iconName: String {
-        switch self {
-        case .debug: return "ant"
-        case .info: return "info.circle"
-        case .warn: return "exclamationmark.triangle"
-        case .error: return "xmark.octagon"
-        }
-    }
-}
-
 struct SeerrLogRow: View {
     let entry: SeerrServerLogEntry
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Text(entry.level?.uppercased() ?? "LOG")
-                    .font(.caption2.weight(.bold))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 2)
-                    .background(levelTint.opacity(0.16), in: Capsule())
-                    .foregroundStyle(levelTint)
+        LogEntryRow(
+            message: entry.message ?? "No message",
+            timestamp: entry.timestampDate.map { $0.formatted(date: .abbreviated, time: .standard) } ?? ""
+        ) {
+            Text(entry.level?.uppercased() ?? "LOG")
+                .font(.caption2.weight(.bold))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(levelTint.opacity(0.16), in: Capsule())
+                .foregroundStyle(levelTint)
 
-                if let label = entry.label, !label.isEmpty {
-                    Text(label)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 8)
-
-                if let date = entry.timestampDate {
-                    Text(date.formatted(date: .abbreviated, time: .standard))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
+            if let label = entry.label, !label.isEmpty {
+                Text(label)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
             }
-
-            Text(entry.message ?? "No message")
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .lineLimit(3)
         }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
     }
 
     private var levelTint: Color {
@@ -192,7 +157,7 @@ private struct SeerrLogDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Log Details") {
             Form {
                 Section("Timestamp") {
                     Text(timestampText)
@@ -230,18 +195,6 @@ private struct SeerrLogDetailSheet: View {
                             .font(.system(.caption, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                }
-            }
-            .navigationTitle("Log Details")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .fontWeight(.semibold)
                     }
                 }
             }

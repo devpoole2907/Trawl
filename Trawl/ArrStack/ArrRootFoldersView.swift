@@ -7,6 +7,7 @@ struct ArrRootFoldersView: View {
     @State private var showingAddSheet = false
     @State private var pendingDelete: (folder: ArrRootFolder, service: ArrServiceType)?
     @State private var isDeleting = false
+    @State private var showSettings = false
 
     var body: some View {
         Group {
@@ -17,10 +18,10 @@ struct ArrRootFoldersView: View {
                     description: Text("Connect Sonarr or Radarr to view root folders.")
                 )
             } else if !hasAnyConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: rootFolderServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else if sonarrFolders.isEmpty && radarrFolders.isEmpty {
                 ContentUnavailableView(
@@ -33,7 +34,7 @@ struct ArrRootFoldersView: View {
                     if !sonarrFolders.isEmpty {
                         Section("Sonarr") {
                             ForEach(sonarrFolders) { folder in
-                                rootFolderRow(folder, color: .purple)
+                                rootFolderRow(folder, color: ServiceIdentity.sonarr.brandColor)
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
                                             pendingDelete = (folder, .sonarr)
@@ -47,7 +48,7 @@ struct ArrRootFoldersView: View {
                     if !radarrFolders.isEmpty {
                         Section("Radarr") {
                             ForEach(radarrFolders) { folder in
-                                rootFolderRow(folder, color: .orange)
+                                rootFolderRow(folder, color: ServiceIdentity.radarr.brandColor)
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button(role: .destructive) {
                                             pendingDelete = (folder, .radarr)
@@ -81,6 +82,17 @@ struct ArrRootFoldersView: View {
                         Label("Add Root Folder", systemImage: "plus")
                     }
                 }
+            }
+        }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: rootFoldersSettingsService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
             }
         }
         .sheet(isPresented: $showingAddSheet) {
@@ -125,8 +137,27 @@ struct ArrRootFoldersView: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
+    private var rootFolderServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     private var hasAnyConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
+    }
+
+    private var isConnecting: Bool {
+        guard !hasAnyConnectedService else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr)
+    }
+
+    private var rootFoldersSettingsService: ArrServiceType {
+        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        return .radarr
     }
 
     private var sonarrFolders: [ArrRootFolder] {
@@ -219,6 +250,7 @@ private struct AddRootFolderSheet: View {
     @State private var path = ""
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var isSaving = false
+    @State private var showingBrowser = false
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -232,7 +264,22 @@ private struct AddRootFolderSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Add Root Folder",
+            confirmTitle: "Add",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: {
+                let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !trimmed.isEmpty else { return }
+                isSaving = true
+                Task {
+                    let success = await onAdd(trimmed, selectedService)
+                    isSaving = false
+                    if success { dismiss() }
+                }
+            }
+        ) {
             Form {
                 if availableServices.count > 1 {
                     Section {
@@ -246,43 +293,25 @@ private struct AddRootFolderSheet: View {
                 }
 
                 Section {
-                    TextField("/mnt/media/shows", text: $path)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
-                        .autocorrectionDisabled()
+                    HStack {
+                        TextField("/mnt/media/shows", text: $path)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
+
+                        Button {
+                            showingBrowser = true
+                        } label: {
+                            Label("Browse", systemImage: "folder")
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(browserSource == nil)
+                    }
                 } header: {
                     Text("Path")
                 } footer: {
-                    Text("Enter the full path to the folder on your \(selectedService.displayName) server.")
-                }
-            }
-            .navigationTitle("Add Root Folder")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: platformCancellationPlacement) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button("Add") {
-                            let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
-                            guard !trimmed.isEmpty else { return }
-                            isSaving = true
-                            Task {
-                                let success = await onAdd(trimmed, selectedService)
-                                isSaving = false
-                                if success {
-                                    dismiss()
-                                }
-                            }
-                        }
-                        .disabled(!canSave)
-                    }
+                    Text("Enter or browse to the full path on your \(selectedService.displayName) server or container.")
                 }
             }
             .onAppear {
@@ -290,6 +319,45 @@ private struct AddRootFolderSheet: View {
                     selectedService = first
                 }
             }
+            .sheet(isPresented: $showingBrowser) {
+                if let source = browserSource {
+                    NavigationStack {
+                        RemotePathBrowserView(
+                            title: "\(selectedService.displayName) Folders",
+                            source: source,
+                            initialPath: path,
+                            onClose: { showingBrowser = false }
+                        ) { selectedPath in
+                            path = selectedPath
+                        }
+                    }
+                }
+            }
         }
+    }
+
+    private var browserSource: RemotePathBrowserSource? {
+        switch selectedService {
+        case .sonarr:
+            guard let client = serviceManager.sonarrClient else { return nil }
+            return Self.source(serviceName: "Sonarr", client: client)
+        case .radarr:
+            guard let client = serviceManager.radarrClient else { return nil }
+            return Self.source(serviceName: "Radarr", client: client)
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {
+        RemotePathBrowserSource(
+            serviceName: serviceName,
+            loadRoots: {
+                try await client.getFileSystem(path: "", includeFiles: false).map(\.remotePathEntry)
+            },
+            loadChildren: { path in
+                try await client.getFileSystem(path: path, includeFiles: false).map(\.remotePathEntry)
+            }
+        )
     }
 }

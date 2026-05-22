@@ -11,7 +11,17 @@ struct SeerrJellyfinImportSheet: View {
     @State private var loadError: String?
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Import from Jellyfin",
+            subtitle: selectedIDs.isEmpty ? nil : "\(selectedIDs.count) selected",
+            confirmTitle: "Import",
+            isConfirmDisabled: selectedIDs.isEmpty,
+            onConfirm: {
+                onImport(Array(selectedIDs))
+                dismiss()
+            },
+            detents: [.medium, .large]
+        ) {
             Group {
                 if isLoading && availableUsers.isEmpty {
                     ProgressView("Fetching Jellyfin users…")
@@ -35,40 +45,11 @@ struct SeerrJellyfinImportSheet: View {
                     userList
                 }
             }
-            .navigationTitle("Import from Jellyfin")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text("Import from Jellyfin")
-                            .font(.headline)
-                        if !selectedIDs.isEmpty {
-                            Text("\(selectedIDs.count) selected")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .animation(.default, value: selectedIDs.count)
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Import") {
-                        onImport(Array(selectedIDs))
-                        dismiss()
-                    }
-                    .disabled(selectedIDs.isEmpty)
-                }
-            }
             .task {
                 if availableUsers.isEmpty { await loadUsers() }
             }
             .refreshable { await loadUsers() }
         }
-        .presentationDetents([.medium, .large])
     }
 
     private var userList: some View {

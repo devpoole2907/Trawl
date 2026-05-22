@@ -5,87 +5,71 @@ struct ArrMediaManagementView: View {
 
     var body: some View {
         List {
-            if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
-                namingSection
+            Section("Storage & Import") {
+                NavigationLink(value: MoreDestination.rootFolders) {
+                    NavigationMenuRow(
+                        icon: "folder.fill",
+                        color: MoreDestinationAccent.rootFolders.color,
+                        title: "Root Folders",
+                        subtitle: "Library paths across Sonarr and Radarr"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.manualImport) {
+                    NavigationMenuRow(
+                        icon: "tray.and.arrow.down.fill",
+                        color: MoreDestinationAccent.manualImport.color,
+                        title: "Manual Import",
+                        subtitle: "Browse and import files from root folders"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.diskSpace) {
+                    NavigationMenuRow(
+                        icon: "internaldrive.fill",
+                        color: MoreDestinationAccent.diskSpace.color,
+                        title: "Disk Space",
+                        subtitle: "Storage usage across Sonarr and Radarr"
+                    )
+                }
             }
 
-            filesSection
+            if serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance {
+                Section("Profiles & Naming") {
+                    NavigationLink(value: MoreDestination.arrNaming) {
+                        NavigationMenuRow(
+                            icon: "character.cursor.ibeam",
+                            color: MoreDestinationAccent.sonarrNaming.color,
+                            title: "Naming",
+                            subtitle: "Episode, series, and movie file name formats"
+                        )
+                    }
 
-            storageSection
+                    NavigationLink(value: MoreDestination.qualityProfiles) {
+                        NavigationMenuRow(
+                            icon: "slider.horizontal.3",
+                            color: MoreDestinationAccent.qualityProfiles.color,
+                            title: "Quality Profiles",
+                            subtitle: "Allowed qualities and upgrade rules"
+                        )
+                    }
+
+                    NavigationLink(value: MoreDestination.qualityDefinitions) {
+                        NavigationMenuRow(
+                            icon: "chart.bar.fill",
+                            color: MoreDestinationAccent.qualityDefinitions.color,
+                            title: "Quality Definitions",
+                            subtitle: "File size limits per quality level"
+                        )
+                    }
+                }
+            }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Media Management")
+        .navigationTitle("Media & Import")
         .moreDestinationBackground(.mediaManagement)
-    }
-
-    @ViewBuilder
-    private var namingSection: some View {
-        Section {
-            if serviceManager.hasSonarrInstance {
-                NavigationLink(value: MoreDestination.arrNamingConfig(service: .sonarr)) {
-                    NavigationMenuRow(
-                        icon: "tv.fill",
-                        color: .purple,
-                        title: "Sonarr Naming",
-                        subtitle: "Episode and series folder formats"
-                    )
-                }
-            }
-
-            if serviceManager.hasRadarrInstance {
-                NavigationLink(value: MoreDestination.arrNamingConfig(service: .radarr)) {
-                    NavigationMenuRow(
-                        icon: "film.fill",
-                        color: .orange,
-                        title: "Radarr Naming",
-                        subtitle: "Movie file and folder formats"
-                    )
-                }
-            }
-        } header: {
-            Text("Naming")
-        } footer: {
-            Text("Control whether files are renamed on import and how they are named.")
-        }
-    }
-
-    @ViewBuilder
-    private var filesSection: some View {
-        Section("Files") {
-            NavigationLink(value: MoreDestination.rootFolders) {
-                NavigationMenuRow(
-                    icon: "folder.fill",
-                    color: .indigo,
-                    title: "Root Folders",
-                    subtitle: "Library paths across Sonarr and Radarr"
-                )
-            }
-
-            NavigationLink(value: MoreDestination.manualImport) {
-                NavigationMenuRow(
-                    icon: "tray.and.arrow.down.fill",
-                    color: .blue,
-                    title: "Manual Import",
-                    subtitle: "Browse and import files from root folders"
-                )
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var storageSection: some View {
-        Section("Storage") {
-            NavigationLink(value: MoreDestination.diskSpace) {
-                NavigationMenuRow(
-                    icon: "internaldrive.fill",
-                    color: .teal,
-                    title: "Disk Space",
-                    subtitle: "Storage usage across Sonarr and Radarr"
-                )
-            }
-        }
     }
 
 }

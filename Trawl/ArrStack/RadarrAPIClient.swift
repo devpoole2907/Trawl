@@ -130,6 +130,14 @@ actor RadarrAPIClient: SharedArrClient {
         return try await base.post("/api/v3/command", jsonBody: params)
     }
 
+    func renameMovieFiles(movieId: Int) async throws -> ArrCommand {
+        let params: [String: Any] = [
+            "name": RadarrCommand.renameFiles.rawValue,
+            "movieIds": [movieId]
+        ]
+        return try await base.post("/api/v3/command", jsonBody: params)
+    }
+
     func searchAllMissing() async throws -> ArrCommand {
         try await base.postCommand(name: RadarrCommand.missingMoviesSearch.rawValue)
     }

@@ -14,6 +14,7 @@ struct TorrentListView: View {
     @State private var batchDeleteFiles = false
     @State private var editMode: SelectionMode = .inactive
     @State private var listScrollPosition: String?
+    @State private var isFilterSearchExpanded = false
     private let title: String
 
     init(title: String = "Trawl") {
@@ -32,7 +33,7 @@ struct TorrentListView: View {
     var body: some View {
         configuredContent
         #if os(iOS)
-        .toolbarTitleDisplayMode(.large)
+        .toolbarTitleDisplayMode(.inlineLarge)
         .environment(\.editMode, swiftUIEditMode)
         .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
         #endif
@@ -40,6 +41,23 @@ struct TorrentListView: View {
         .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
         .refreshable {
             await viewModel?.refresh()
+        }
+        .safeAreaInset(edge: .top) {
+            if let vm = viewModel, !editMode.isEditing {
+                TrawlSegmentBar(
+                    "Filter",
+                    selection: Binding(
+                        get: { vm.selectedFilter },
+                        set: { newFilter in withAnimation { vm.selectedFilter = newFilter } }
+                    ),
+                    items: TorrentFilter.allCases.map(\.segmentBarItem),
+                    searchText: torrentSearchText,
+                    searchHint: "Search torrents",
+                    isSearchExpanded: $isFilterSearchExpanded,
+                    searchPlacement: .leading
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .sheet(isPresented: $showAddSheet) {
             AddTorrentSheet()
@@ -99,6 +117,19 @@ struct TorrentListView: View {
                 await vm.loadAlternativeSpeedMode()
             }
         }
+        .onAppear {
+            viewModel?.startSync()
+        }
+        .onChange(of: ObjectIdentifier(syncService)) {
+            let vm = TorrentListViewModel(
+                syncService: syncService,
+                torrentService: torrentService,
+                notificationCenter: inAppNotificationCenter
+            )
+            viewModel = vm
+            vm.startSync()
+            Task { await vm.loadAlternativeSpeedMode() }
+        }
         .onChange(of: activeServerID) { _, _ in
             Task {
                 await viewModel?.loadAlternativeSpeedMode()
@@ -124,7 +155,12 @@ struct TorrentListView: View {
                 }
             }
             .scrollPosition(id: $listScrollPosition)
-            .listStyle(.plain)
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+            .scrollContentBackground(.hidden)
             .opacity(vm.filteredTorrents.isEmpty ? 0 : 1)
             .allowsHitTesting(!vm.filteredTorrents.isEmpty)
 
@@ -134,7 +170,6 @@ struct TorrentListView: View {
             }
         }
         .animation(.default, value: vm.filteredTorrents.map(\.id))
-        .searchable(text: torrentSearchText, prompt: "Search torrents")
         .onChange(of: vm.selectedFilter) {
             withAnimation { editMode = .inactive }
             vm.clearSelection()
@@ -287,22 +322,14 @@ struct TorrentListView: View {
             }
         } else {
             ToolbarItemGroup(placement: torrentLeadingToolbarPlacement) {
+            }
+
+            ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
                 if let vm = viewModel {
-                    Menu {
-                        ForEach(TorrentFilter.allCases) { filter in
-                            Button {
-                                withAnimation { vm.selectedFilter = filter }
-                            } label: {
-                                if vm.selectedFilter == filter {
-                                    Label(filterLabel(for: filter, vm: vm), systemImage: "checkmark")
-                                } else {
-                                    Text(filterLabel(for: filter, vm: vm))
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Filter", systemImage: filterIcon(for: vm.selectedFilter))
+                    Button("Add Torrent", systemImage: "plus") {
+                        showAddSheet = true
                     }
+                    .labelStyle(.iconOnly)
 
                     Menu {
                         ForEach(TorrentSortOrder.allCases) { order in
@@ -317,13 +344,9 @@ struct TorrentListView: View {
                             }
                         }
                     } label: {
-                        Label("Sort", systemImage: "arrow.up.arrow.down")
+                        Label("Sort", systemImage: vm.sortOrder != .addedDate ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
                     }
-                }
-            }
 
-            ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
-                if let vm = viewModel {
                     Menu {
                         Toggle(isOn: Binding(
                             get: { vm.isAlternativeSpeedEnabled },
@@ -342,15 +365,10 @@ struct TorrentListView: View {
                             Label("Select", systemImage: "checkmark.circle")
                         }
                     } label: {
-                        Label("More Actions", systemImage: "ellipsis.circle")
+                        Label("More Actions", systemImage: "ellipsis")
                     }
                     .accessibilityLabel("Torrent Actions")
                     .accessibilityHint("Shows more torrent list actions")
-
-                    Button("Add Torrent", systemImage: "plus") {
-                        showAddSheet = true
-                    }
-                    .labelStyle(.iconOnly)
                 } else {
                     Button("Add Torrent", systemImage: "plus") {
                         showAddSheet = true
@@ -375,6 +393,28 @@ struct TorrentListView: View {
         }
     }
 
+    private var backgroundGradient: some View {
+        ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+            LinearGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.18), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 260
+            )
+        }
+        .ignoresSafeArea()
+    }
+
     @ViewBuilder
     private var configuredContent: some View {
         let baseContent = Group {
@@ -385,6 +425,7 @@ struct TorrentListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(backgroundGradient)
         .navigationTitle(activeServerName)
         .navigationSubtitle(navigationSubtitleText)
 
@@ -441,29 +482,6 @@ struct TorrentListView: View {
         return count == 1 ? "Delete 1 Torrent?" : "Delete \(count) Torrents?"
     }
 
-    private func countForFilter(_ filter: TorrentFilter, vm: TorrentListViewModel) -> Int {
-        vm.filterCounts[filter] ?? 0
-    }
-
-    private func filterLabel(for filter: TorrentFilter, vm: TorrentListViewModel) -> String {
-        let count = countForFilter(filter, vm: vm)
-        if filter == .all {
-            return count == 1 ? "All (1)" : "All (\(count))"
-        }
-        return "\(filter.rawValue) (\(count))"
-    }
-
-    private func filterIcon(for filter: TorrentFilter) -> String {
-        switch filter {
-        case .all: "line.3.horizontal.decrease.circle"
-        case .downloading: "arrow.down.circle"
-        case .seeding: "arrow.up.circle"
-        case .paused: "pause.circle"
-        case .completed: "checkmark.circle"
-        case .errored: "exclamationmark.triangle"
-        }
-    }
-
     @ViewBuilder
     private func emptyState(for vm: TorrentListViewModel) -> some View {
         let query = vm.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -515,6 +533,12 @@ struct TorrentListView: View {
         case .completed: "checkmark.circle"
         case .errored: "exclamationmark.triangle"
         }
+    }
+}
+
+private extension TorrentFilter {
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(rawValue, value: self)
     }
 }
 

@@ -284,6 +284,13 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
+    private var calendarServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     var isConnected: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
@@ -317,10 +324,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     description: Text("Connect Sonarr or Radarr to see upcoming releases.")
                 )
             } else if !isConnected {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: calendarServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else {
                 ArrLoadingErrorEmptyView(
@@ -356,17 +363,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            Picker("Scope", selection: Binding(
+            TrawlSegmentBar("Scope", selection: Binding(
                 get: { scope },
                 set: { newValue in withAnimation { scope = newValue } }
-            )) {
-                ForEach(CalendarScope.allCases, id: \.self) { option in
-                    Text(option.title).tag(option)
-                }
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
+            ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable {
@@ -736,6 +736,10 @@ fileprivate enum CalendarScope: CaseIterable {
     case all, series, movies
     var title: String {
         switch self { case .all: "All"; case .series: "Series"; case .movies: "Movies" }
+    }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        TrawlSegmentBarItem(title, value: self)
     }
 }
 

@@ -135,7 +135,7 @@ struct ArrReleaseActionContent: View {
     private func statCellView(_ cell: StatCell) -> some View {
         HStack(spacing: 12) {
             ZStack {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 12)
                     .fill(cell.tint.opacity(0.2))
                     .frame(width: 36, height: 36)
                 Image(systemName: cell.systemImage)
@@ -156,7 +156,7 @@ struct ArrReleaseActionContent: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 14))
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
     private func rejectionsCard(_ rejections: [String]) -> some View {
@@ -194,22 +194,36 @@ struct ArrReleaseActionContent: View {
                 await onGrab()
             }
         } label: {
-            ZStack {
-                Label("Download Release", systemImage: "arrow.down.circle.fill")
-                    .font(.headline)
-                    .opacity(isGrabbing ? 0 : 1)
-                ProgressView()
-                    .tint(.white)
-                    .opacity(isGrabbing ? 1 : 0)
+            HStack(spacing: 12) {
+                if isGrabbing {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(.white)
+                } else {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.headline)
+                        .foregroundStyle(accentColor)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Download Release")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white)
+
+                    Text(release.indexer ?? release.qualityName)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 24)
+            .frame(maxWidth: .infinity, minHeight: 48)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .contentShape(Rectangle())
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(.borderedProminent)
-        .tint(accentColor)
-        .controlSize(.large)
+        .buttonStyle(.plain)
         .disabled(!canDownload)
-        .animation(.easeInOut(duration: 0.2), value: isGrabbing)
     }
 
     private func badge(text: String, systemImage: String, tint: Color) -> some View {
@@ -326,6 +340,8 @@ struct ArrReleaseRowView: View {
 
 struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
 
     let title: String
     let emptyDescription: String
@@ -343,6 +359,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @State private var searchText = ""
     @State private var releaseSort: ArrReleaseSort
     @State private var searchError: String?
+    @State private var replacementCandidate: ExistingTorrentReplacementCandidate?
 
     init(
         title: String,
@@ -414,6 +431,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         releases.count - sortedFilteredReleases.count
     }
 
+    private var qualityFilterItems: [TrawlSegmentBarItem<String>] {
+        [TrawlSegmentBarItem("All", value: "")]
+            + availableQualities.map { TrawlSegmentBarItem($0, value: $0) }
+    }
+
     private var releaseCountSubtitle: String {
         guard !releases.isEmpty else { return "" }
         let shown = displayedReleases.count
@@ -454,79 +476,122 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                         Button("Clear Filters") { clearFilters() }
                     }
                 } else {
-                    List {
-                        if isLoading && releases.isEmpty {
-                            Section {
-                                HStack(spacing: 10) {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text("Searching indexers…")
-                                            .font(.subheadline.weight(.semibold))
-                                        Text(loadingDescription)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .padding(.vertical, 4)
-                            }
-                        }
-
-                        ForEach(displayedReleases) { release in
-                            NavigationLink {
-                                destination(
-                                    release,
-                                    grabbingReleaseID == release.id,
-                                    { await grab(release: release) }
-                                )
-                            } label: {
-                                ArrReleaseRowView(release: release)
-                            }
-                        }
-                        .animation(.default, value: displayedReleases.map(\.id))
-
-                        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
-                            Section {
-                                EmptyView()
-                            } footer: {
-                                Label(
-                                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
-                                    systemImage: "line.3.horizontal.decrease.circle"
-                                )
-                                .font(.footnote)
-                                .foregroundStyle(.secondary)
-                                .frame(maxWidth: .infinity)
-                            }
-                        }
-                    }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #else
-                    .listStyle(.inset)
-                    #endif
+                    releaseList
                 }
             }
             .searchable(text: $searchText, prompt: "Search releases…")
+            .safeAreaInset(edge: .top) {
+                if !releases.isEmpty {
+                    qualityFilterBar
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
             .navigationTitle(title)
             .navigationSubtitle(releaseCountSubtitle)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    sortMenu
-                    filterMenu
-                }
-            }
+            .toolbar { browserToolbar }
             .task {
                 await loadReleases()
             }
             .onChange(of: releaseSort.option) { _, _ in
                 releaseSort.isAscending = false
             }
+            .alert(
+                "Replace Existing Torrent?",
+                isPresented: Binding(
+                    get: { replacementCandidate != nil },
+                    set: { if !$0 { replacementCandidate = nil } }
+                ),
+                presenting: replacementCandidate
+            ) { candidate in
+                Button("Remove Job and Retry", role: .destructive) {
+                    Task { await removeExistingTorrentAndRetry(candidate) }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: { candidate in
+                Text("qBittorrent already has \"\(candidate.torrent.name)\". Trawl can remove that qBittorrent job without deleting files, then retry this grab.")
+            }
+        }
+    }
+
+    private var releaseList: some View {
+        List {
+            loadingSection
+
+            ForEach(displayedReleases) { release in
+                releaseNavigationLink(for: release)
+            }
+            .animation(.default, value: displayedReleases.count)
+
+            hiddenReleasesFooter
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+    }
+
+    @ViewBuilder
+    private var loadingSection: some View {
+        if isLoading && releases.isEmpty {
+            Section {
+                HStack(spacing: 10) {
+                    ProgressView()
+                        .controlSize(.small)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Searching indexers…")
+                            .font(.subheadline.weight(.semibold))
+                        Text(loadingDescription)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
+        }
+    }
+
+    private func releaseNavigationLink(for release: ArrRelease) -> some View {
+        NavigationLink {
+            destination(
+                release,
+                grabbingReleaseID == release.id,
+                { await grab(release: release) }
+            )
+        } label: {
+            ArrReleaseRowView(release: release)
+        }
+    }
+
+    @ViewBuilder
+    private var hiddenReleasesFooter: some View {
+        if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
+            Section {
+                EmptyView()
+            } footer: {
+                Label(
+                    "\(hiddenByFiltersCount) release\(hiddenByFiltersCount == 1 ? "" : "s") hidden by filters",
+                    systemImage: "line.3.horizontal.decrease.circle"
+                )
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
+    private var browserToolbar: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Done") { dismiss() }
+        }
+
+        ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+            sortMenu
+            filterMenu
         }
     }
 
@@ -553,6 +618,21 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
+    private var qualityFilterBar: some View {
+        TrawlSegmentBar(
+            "Quality",
+            selection: Binding(
+                get: { releaseSort.quality },
+                set: { quality in
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        releaseSort.quality = quality
+                    }
+                }
+            ),
+            items: qualityFilterItems
+        )
+    }
+
     private var filterMenu: some View {
         Menu {
             if supportsSeasonPackFiltering {
@@ -570,17 +650,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     Text("All Indexers").tag("")
                     ForEach(availableIndexers, id: \.self) { indexer in
                         Text(indexer).tag(indexer)
-                    }
-                }
-                .pickerStyle(.inline)
-                .menuIndicator(.hidden)
-            }
-
-            if !availableQualities.isEmpty {
-                Picker("Quality", selection: $releaseSort.quality) {
-                    Text("All Qualities").tag("")
-                    ForEach(availableQualities, id: \.self) { quality in
-                        Text(quality).tag(quality)
                     }
                 }
                 .pickerStyle(.inline)
@@ -626,7 +695,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                     releases.append(contentsOf: batch)
                 }
-                try? await Task.sleep(nanoseconds: 18_000_000)
+                try? await Task.sleep(for: .milliseconds(18))
             }
             hasLoaded = true
         } catch is CancellationError {
@@ -646,13 +715,14 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         grabbingReleaseID = nil
 
         if didGrab {
-            InAppNotificationCenter.shared.showSuccess(
-                title: "Release Sent",
-                message: release.title ?? "The selected release was sent to the download client."
-            )
             dismiss()
-        } else if let error = currentErrorMessage(), !error.isEmpty {
-            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error)
+        } else if let error = currentErrorMessage(),
+                  shouldOfferExistingTorrentReplacement(for: error),
+                  let torrent = matchingExistingTorrent(for: release) {
+            replacementCandidate = ExistingTorrentReplacementCandidate(
+                release: release,
+                torrent: torrent
+            )
         }
     }
 
@@ -660,4 +730,48 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         let nsError = error as NSError
         return "\(error.localizedDescription)\n\nCode: \(nsError.domain) \(nsError.code)"
     }
+
+    private func shouldOfferExistingTorrentReplacement(for error: String) -> Bool {
+        let normalized = error.lowercased()
+        return normalized.contains("download client rejected this release") ||
+            normalized.contains("download client failed to add torrent")
+    }
+
+    private func matchingExistingTorrent(for release: ArrRelease) -> Torrent? {
+        guard let hash = release.torrentInfoHash?.lowercased() else { return nil }
+        if let direct = syncService.torrents[hash] { return direct }
+        return syncService.torrents.first { key, torrent in
+            key.lowercased() == hash || torrent.hash.lowercased() == hash
+        }?.value
+    }
+
+    private func removeExistingTorrentAndRetry(_ candidate: ExistingTorrentReplacementCandidate) async {
+        guard grabbingReleaseID == nil else { return }
+        replacementCandidate = nil
+        grabbingReleaseID = candidate.release.id
+        defer { grabbingReleaseID = nil }
+
+        do {
+            try await torrentService.deleteTorrents(hashes: [candidate.torrent.hash], deleteFiles: false)
+            await syncService.refreshNow()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Replace Failed",
+                message: error.localizedDescription
+            )
+            return
+        }
+
+        let didGrab = await grabAction(candidate.release)
+        if didGrab {
+            dismiss()
+        }
+    }
+}
+
+private struct ExistingTorrentReplacementCandidate: Identifiable {
+    let release: ArrRelease
+    let torrent: Torrent
+
+    var id: String { "\(release.id)|\(torrent.hash)" }
 }

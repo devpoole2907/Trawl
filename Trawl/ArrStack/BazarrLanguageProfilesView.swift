@@ -30,16 +30,17 @@ struct BazarrLanguageProfilesView: View {
                     description: Text("Add a Bazarr server in Settings to manage language profiles.")
                 )
             } else if client == nil {
-                ContentUnavailableView(
-                    "Bazarr Unreachable",
-                    systemImage: "network.slash",
-                    description: Text(serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server.")
+                ArrServiceConnectionStatusView(
+                    serviceType: .bazarr,
+                    title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                    message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
                 )
             } else {
                 contentView
             }
         }
         .navigationTitle("Language Profiles")
+        .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.large)
         #endif
@@ -55,14 +56,12 @@ struct BazarrLanguageProfilesView: View {
             }
         }
         .sheet(isPresented: $addSheetPresented) {
-            NavigationStack {
-                LanguageProfileEditorView(
-                    mode: .add,
-                    availableLanguages: availableLanguages
-                ) { draft in
-                    await save(draft: draft, existing: nil)
-                    addSheetPresented = false
-                }
+            LanguageProfileEditorView(
+                mode: .add,
+                availableLanguages: availableLanguages
+            ) { draft in
+                await save(draft: draft, existing: nil)
+                addSheetPresented = false
             }
         }
         .alert(
@@ -112,7 +111,7 @@ struct BazarrLanguageProfilesView: View {
                                 onSave: { draft in await save(draft: draft, existing: profile) }
                             )
                         } label: {
-                            LanguageProfileRowView(profile: profile)
+                            LanguageProfileRowView(profile: profile, availableLanguages: availableLanguages)
                         }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -146,7 +145,7 @@ struct BazarrLanguageProfilesView: View {
         Section("Profiles") {
             ForEach(0..<4, id: \.self) { _ in
                 HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 3)
+                    RoundedRectangle(cornerRadius: 4)
                         .fill(Color.secondary.opacity(0.2))
                         .frame(width: 4, height: 42)
                     VStack(alignment: .leading, spacing: 6) {
@@ -176,6 +175,11 @@ struct BazarrLanguageProfilesView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [MoreDestinationAccent.languageProfiles.color.opacity(0.10), Color.indigo.opacity(0.05), Color.clear],
                 startPoint: .top,
@@ -194,16 +198,30 @@ struct BazarrLanguageProfilesView: View {
     private func load() async {
         guard let client else {
             profiles = []
+            availableLanguages = []
             return
         }
         profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
+        availableLanguages = serviceManager.activeBazarrEntry?.languages ?? []
         isLoading = profiles.isEmpty
         errorMessage = nil
         do {
             async let profilesLoad = client.getLanguageProfiles()
             async let languagesLoad = client.getLanguages()
-            profiles = try await profilesLoad
-            availableLanguages = (try? await languagesLoad) ?? []
+            let fetchedProfiles = try await profilesLoad
+            var fetchedLanguages = availableLanguages
+            do {
+                fetchedLanguages = try await languagesLoad
+            } catch {
+                let message = "Language list could not be loaded: \(error.localizedDescription)"
+                errorMessage = message
+                InAppNotificationCenter.shared.showError(title: "Languages Unavailable", message: error.localizedDescription)
+            }
+            profiles = fetchedProfiles
+            availableLanguages = fetchedLanguages
+            if let id = serviceManager.activeBazarrEntry?.id {
+                serviceManager.updateBazarrLanguageProfiles(for: id, profiles: fetchedProfiles, languages: fetchedLanguages)
+            }
         } catch {
             if profiles.isEmpty {
                 errorMessage = error.localizedDescription
@@ -215,22 +233,44 @@ struct BazarrLanguageProfilesView: View {
     func save(draft: LanguageProfileDraft, existing: BazarrLanguageProfile?) async {
         guard let client else { return }
         do {
-            let itemsString: String?
-            if draft.items.isEmpty {
-                itemsString = "[]"
-            } else {
-                let items = draft.items.map {
-                    BazarrLanguageProfileItem(language: $0.language, hi: $0.hi, forced: $0.forced)
-                }
-                let data = try JSONEncoder().encode(items)
-                itemsString = String(data: data, encoding: .utf8)
+            // Send new items with bazarrId 0; the server assigns IDs on save.
+            let items: [BazarrLanguageProfileItem] = draft.items.map { item in
+                BazarrLanguageProfileItem(
+                    bazarrId: item.bazarrId,
+                    language: item.language,
+                    hi: item.hi,
+                    forced: item.forced,
+                    audioExclude: item.audioExclude,
+                    audioOnlyInclude: item.audioOnlyInclude
+                )
+            }
+            let itemsData = try JSONEncoder().encode(items)
+            guard let itemsString = String(data: itemsData, encoding: .utf8) else {
+                throw EncodingError.invalidValue(
+                    items,
+                    EncodingError.Context(
+                        codingPath: [],
+                        debugDescription: "Encoded language profile items were not valid UTF-8."
+                    )
+                )
             }
 
             let profileId = existing?.profileId ?? ((profiles.map(\.profileId).max() ?? 0) + 1)
+
+            // Resolve cutoff by language identity so it survives reordering/renumbering.
+            let cutoff: Int? = {
+                guard let existing,
+                      let existingCutoffId = existing.cutoff,
+                      let cutoffItem = existing.parsedItems.first(where: { $0.bazarrId == existingCutoffId })
+                else { return nil }
+                return items.first(where: {
+                    $0.language == cutoffItem.language && $0.hi == cutoffItem.hi && $0.forced == cutoffItem.forced
+                })?.bazarrId
+            }()
             let updated = BazarrLanguageProfile(
                 profileId: profileId,
                 name: draft.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                cutoff: existing?.cutoff,
+                cutoff: cutoff,
                 itemsJSON: itemsString,
                 mustContain: draft.mustContain.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
                 mustNotContain: draft.mustNotContain.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
@@ -276,12 +316,13 @@ struct BazarrLanguageProfilesView: View {
 
 private struct LanguageProfileRowView: View {
     let profile: BazarrLanguageProfile
+    let availableLanguages: [BazarrLanguage]
 
     private var subtitle: String {
         let items = profile.parsedItems
         guard !items.isEmpty else { return "No languages" }
         return items.map { item in
-            var label = item.language
+            var label = BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages)
             var flags: [String] = []
             if item.hi { flags.append("HI") }
             if item.forced { flags.append("Forced") }
@@ -292,7 +333,7 @@ private struct LanguageProfileRowView: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RoundedRectangle(cornerRadius: 3)
+            RoundedRectangle(cornerRadius: 4)
                 .fill(MoreDestinationAccent.languageProfiles.color)
                 .frame(width: 4, height: 42)
 
@@ -339,7 +380,7 @@ private struct LanguageProfileDetailView: View {
                 Section("Languages") {
                     ForEach(items) { item in
                         HStack {
-                            Text(item.language)
+                            Text(BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages))
                             Spacer()
                             HStack(spacing: 6) {
                                 if item.hi {
@@ -392,14 +433,12 @@ private struct LanguageProfileDetailView: View {
             }
         }
         .sheet(isPresented: $editSheetPresented) {
-            NavigationStack {
-                LanguageProfileEditorView(
-                    mode: .edit(profile),
-                    availableLanguages: availableLanguages
-                ) { draft in
-                    await onSave(draft)
-                    editSheetPresented = false
-                }
+            LanguageProfileEditorView(
+                mode: .edit(profile),
+                availableLanguages: availableLanguages
+            ) { draft in
+                await onSave(draft)
+                editSheetPresented = false
             }
         }
     }
@@ -420,19 +459,52 @@ struct LanguageProfileDraft {
         mustNotContain = []
     }
 
-    init(from profile: BazarrLanguageProfile) {
+    init(from profile: BazarrLanguageProfile, availableLanguages: [BazarrLanguage] = []) {
         name = profile.name
-        items = profile.parsedItems.map { EditableLanguageItem(language: $0.language, hi: $0.hi, forced: $0.forced) }
+        items = profile.parsedItems.map {
+            EditableLanguageItem(
+                bazarrId: $0.bazarrId,
+                language: BazarrLanguageProfileSupport.canonicalCode(for: $0.language, availableLanguages: availableLanguages),
+                hi: $0.hi,
+                forced: $0.forced,
+                audioExclude: $0.audioExclude,
+                audioOnlyInclude: $0.audioOnlyInclude
+            )
+        }
         mustContain = profile.mustContain ?? []
         mustNotContain = profile.mustNotContain ?? []
     }
 }
 
+enum BazarrLanguageProfileSupport {
+    static func canonicalCode(for language: String, availableLanguages: [BazarrLanguage]) -> String {
+        let trimmed = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return language }
+        if availableLanguages.contains(where: { $0.code2.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return trimmed
+        }
+        if let match = availableLanguages.first(where: { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }) {
+            return match.code2
+        }
+        return trimmed
+    }
+
+    static func displayName(for language: String, availableLanguages: [BazarrLanguage]) -> String {
+        if let match = availableLanguages.first(where: { $0.code2.caseInsensitiveCompare(language) == .orderedSame }) {
+            return match.name
+        }
+        return language
+    }
+}
+
 struct EditableLanguageItem: Identifiable {
     let id = UUID()
+    var bazarrId: Int = 0
     var language: String
     var hi: Bool
     var forced: Bool
+    var audioExclude: Bool = false
+    var audioOnlyInclude: Bool = false
 }
 
 private enum LanguageSubtitleVariant: CaseIterable, Identifiable, Equatable {
@@ -458,6 +530,15 @@ private enum LanguageSubtitleVariant: CaseIterable, Identifiable, Equatable {
         case .hearingImpaired: "Hearing impaired"
         case .forced: "Forced"
         case .forcedHearingImpaired: "Forced + HI"
+        }
+    }
+
+    var shortTitle: String {
+        switch self {
+        case .standard: "Std"
+        case .hearingImpaired: "HI"
+        case .forced: "Forced"
+        case .forcedHearingImpaired: "F+HI"
         }
     }
 
@@ -516,7 +597,7 @@ private struct LanguageProfileEditorView: View {
         case .add:
             _draft = State(initialValue: LanguageProfileDraft())
         case .edit(let profile):
-            _draft = State(initialValue: LanguageProfileDraft(from: profile))
+            _draft = State(initialValue: LanguageProfileDraft(from: profile, availableLanguages: availableLanguages))
         }
     }
 
@@ -525,6 +606,19 @@ private struct LanguageProfileEditorView: View {
     }
 
     var body: some View {
+        AppSheetShell(
+            title: mode.title,
+            confirmTitle: mode.saveLabel,
+            isConfirmDisabled: draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } }
+        ) {
+            editorContent
+        }
+    }
+
+    @ViewBuilder
+    private var editorContent: some View {
         Form {
             Section("Profile") {
                 LabeledContent("Name") {
@@ -535,10 +629,12 @@ private struct LanguageProfileEditorView: View {
 
             Section {
                 ForEach($draft.items) { $item in
-                    HStack(spacing: 12) {
-                        Text(item.language)
+                    HStack(spacing: 8) {
+                        Text(BazarrLanguageProfileSupport.displayName(for: item.language, availableLanguages: availableLanguages))
                             .font(.body)
-                        Spacer()
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 6)
                         Menu {
                             ForEach(LanguageSubtitleVariant.allCases) { variant in
                                 Button {
@@ -553,14 +649,18 @@ private struct LanguageProfileEditorView: View {
                                 }
                             }
                         } label: {
-                            HStack(spacing: 4) {
-                                Text(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).title)
+                            HStack(spacing: 3) {
+                                Text(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).shortTitle)
+                                    .font(.caption.weight(.semibold))
                                 Image(systemName: "chevron.up.chevron.down")
-                                    .font(.caption2.weight(.semibold))
+                                    .font(.system(size: 8).weight(.bold))
                             }
-                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Capsule().fill(Color.secondary.opacity(0.12)))
                         }
-                        .buttonStyle(.bordered)
+                        .accessibilityValue(LanguageSubtitleVariant(hi: item.hi, forced: item.forced).title)
                     }
                     .padding(.vertical, 4)
                 }
@@ -623,34 +723,15 @@ private struct LanguageProfileEditorView: View {
                 Text("Subtitle release info must not include any of these phrases.")
             }
         }
-        .navigationTitle(mode.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         #if os(iOS)
         .environment(\.editMode, .constant(.active))
         #endif
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                if isSaving {
-                    ProgressView()
-                } else {
-                    Button(mode.saveLabel) {
-                        Task { await save() }
-                    }
-                    .disabled(draft.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSaving)
-                }
-            }
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") { dismiss() }
-            }
-        }
         .sheet(isPresented: $languagePickerPresented) {
             LanguagePickerSheet(
                 languages: availableLanguages,
                 alreadyAdded: alreadyAddedCodes
-            ) { selected in
-                draft.items.append(EditableLanguageItem(language: selected, hi: false, forced: false))
+            ) { code in
+                draft.items.append(EditableLanguageItem(language: code, hi: false, forced: false))
                 languagePickerPresented = false
             }
         }
@@ -685,7 +766,7 @@ private struct LanguagePickerSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Add Language") {
             Group {
                 if filtered.isEmpty {
                     ContentUnavailableView(
@@ -695,31 +776,31 @@ private struct LanguagePickerSheet: View {
                 } else {
                     List(filtered) { language in
                         Button {
-                            onSelect(language.name)
+                            onSelect(language.code2)
                         } label: {
-                            HStack {
+                            HStack(alignment: .firstTextBaseline, spacing: 10) {
                                 Text(language.name)
-                                Spacer()
+                                    .lineLimit(2)
+                                    .truncationMode(.tail)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .layoutPriority(1)
                                 Text(language.code2.uppercased())
-                                    .font(.caption)
+                                    .font(.caption.weight(.semibold))
                                     .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(Color.secondary.opacity(0.12)))
+                                    .fixedSize()
                             }
                         }
                         .foregroundStyle(.primary)
                     }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #endif
                 }
             }
-            .navigationTitle("Add Language")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .listStyle(.insetGrouped)
-            #endif
             .searchable(text: $searchText, prompt: "Search languages")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-            }
         }
     }
 }

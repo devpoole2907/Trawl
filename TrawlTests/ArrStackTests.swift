@@ -3,6 +3,7 @@ import Foundation
 @testable import Trawl
 
 @Suite("ArrError Tests")
+@MainActor
 struct ArrErrorTests {
     @Test("Error Descriptions", arguments: [
         (ArrError.invalidAPIKey, "Invalid API key. Check your *arr service settings."),
@@ -47,9 +48,37 @@ struct ArrErrorTests {
         let error = ArrError.serverError(statusCode: statusCode, message: message)
         #expect(error.errorDescription == expected)
     }
+
+    @Test("Server Error Description Extracts Servarr JSON Message")
+    func serverErrorDescriptionExtractsServarrJSONMessage() {
+        let body = """
+        {
+          "message": "Download client failed to add torrent by url",
+          "description": "Download client failed to add torrent by url\\n   at NzbDrone.Core.Download.Clients.QBittorrent.QBittorrentProxyV2.AddTorrentFromUrl()"
+        }
+        """
+
+        let error = ArrError.serverError(statusCode: 500, message: body)
+
+        #expect(error.errorDescription == "Server error (500): The download client rejected this release. If it was already downloaded and deleted, remove the old torrent from your download client or choose another release, then try again.")
+    }
+
+    @Test("Server Error Description Strips Stack Trace From Description")
+    func serverErrorDescriptionStripsStackTraceFromDescription() {
+        let body = """
+        {
+          "description": "Indexer request failed\\n   at NzbDrone.Core.Indexers.Fetch()"
+        }
+        """
+
+        let error = ArrError.serverError(statusCode: 500, message: body)
+
+        #expect(error.errorDescription == "Server error (500): Indexer request failed")
+    }
 }
 
 @Suite("ArrServiceType Tests")
+@MainActor
 struct ArrServiceTypeTests {
     @Test("Properties", arguments: [
         (ArrServiceType.sonarr, "Sonarr", 8989, "tv", "sonarr"),
@@ -80,7 +109,74 @@ struct ArrServiceTypeTests {
     }
 }
 
+@Suite("Remote Filesystem Tests")
+@MainActor
+struct RemoteFileSystemTests {
+    @Test("Arr filesystem entries decode and map directories and files")
+    func arrFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "name": "Media", "path": "/media", "type": "folder", "isDirectory": true, "isFile": false },
+            { "name": "sample.mkv", "path": "/media/sample.mkv", "type": "file", "isDirectory": false, "isFile": true }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([ArrFileSystemEntry].self, from: data)
+
+        #expect(entries[0].remotePathEntry.name == "Media")
+        #expect(entries[0].remotePathEntry.path == "/media")
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[0].remotePathEntry.isDirectory)
+        #expect(entries[1].remotePathEntry.kind == .file)
+        #expect(!entries[1].remotePathEntry.isDirectory)
+    }
+
+    @Test("Arr filesystem query construction")
+    func arrFileSystemQueryItems() {
+        let items = ArrAPIClient.fileSystemQueryItems(path: "/media", includeFiles: false)
+        let values = Dictionary(uniqueKeysWithValues: items.map { ($0.name, $0.value ?? "") })
+
+        #expect(values["path"] == "/media")
+        #expect(values["allowFoldersWithoutTrailingSlashes"] == "true")
+        #expect(values["includeFiles"] == "false")
+    }
+
+    @Test("Jellyfin filesystem entries decode drive network directory and file cases")
+    func jellyfinFileSystemEntryDecode() throws {
+        let data = """
+        [
+            { "Name": "Media", "Path": "/media", "Type": "Directory" },
+            { "Name": "C:", "Path": "C:\\\\", "Type": "Drive" },
+            { "Name": "NAS", "Path": "\\\\\\\\nas\\\\media", "Type": "NetworkShare" },
+            { "Name": "sample.mkv", "Path": "/media/sample.mkv", "Type": "File" }
+        ]
+        """.data(using: .utf8)!
+
+        let entries = try JSONDecoder().decode([JellyfinFileSystemEntryInfo].self, from: data)
+
+        #expect(entries[0].remotePathEntry.kind == .directory)
+        #expect(entries[1].remotePathEntry.kind == .drive)
+        #expect(entries[2].remotePathEntry.kind == .networkShare)
+        #expect(entries[3].remotePathEntry.kind == .file)
+        #expect(!entries[3].remotePathEntry.isDirectory)
+    }
+
+    @Test("Jellyfin directory contents query construction")
+    func jellyfinDirectoryContentsQueryParams() {
+        let values = JellyfinAPIClient.directoryContentsParams(
+            path: "/media",
+            includeFiles: false,
+            includeDirectories: true
+        )
+
+        #expect(values["Path"] == "/media")
+        #expect(values["IncludeFiles"] == "false")
+        #expect(values["IncludeDirectories"] == "true")
+    }
+}
+
 @Suite("ArrQueueItem Computed Properties Tests")
+@MainActor
 struct ArrQueueItemTests {
     private func makeItem(
         id: Int = 1,
@@ -175,6 +271,7 @@ struct ArrQueueItemTests {
 }
 
 @Suite("ArrRelease Computed Properties Tests")
+@MainActor
 struct ArrReleaseTests {
     private func makeRelease(
         guid: String? = "test-guid",
@@ -293,9 +390,30 @@ struct ArrReleaseTests {
         let releaseStr = try JSONDecoder().decode(ArrRelease.self, from: dataStr)
         #expect(releaseStr.ageHours == 3.5)
     }
+
+    @Test("Torrent Info Hash Extracted From Magnet")
+    func torrentInfoHashExtractedFromMagnet() throws {
+        let hash = "0123456789abcdef0123456789abcdef01234567"
+        let json = #"{"magnetUrl":"magnet:?xt=urn:btih:\#(hash)&dn=Release","guid":"x","indexerId":1}"#
+        let data = try #require(json.data(using: .utf8))
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
+
+        #expect(release.torrentInfoHash == hash)
+    }
+
+    @Test("Torrent Info Hash Extracted From Encoded Guid")
+    func torrentInfoHashExtractedFromEncodedGuid() throws {
+        let hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+        let json = #"{"guid":"magnet%3A%3Fxt%3Durn%3Abtih%3A\#(hash)%26dn%3DRelease","indexerId":1}"#
+        let data = try #require(json.data(using: .utf8))
+        let release = try JSONDecoder().decode(ArrRelease.self, from: data)
+
+        #expect(release.torrentInfoHash == hash)
+    }
 }
 
 @Suite("ArrReleaseSort Tests")
+@MainActor
 struct ArrReleaseSortTests {
     @Test("Default and Active Status")
     func defaultStatus() {
@@ -345,6 +463,7 @@ struct ArrReleaseSortTests {
 }
 
 @Suite("ArrReleaseSortKey Tests")
+@MainActor
 struct ArrReleaseSortKeyTests {
     @Test("System Images", arguments: [
         (ArrReleaseSortKey.default, "square.stack"),
@@ -360,6 +479,7 @@ struct ArrReleaseSortKeyTests {
 }
 
 @Suite("ArrDiskSpace Tests")
+@MainActor
 struct ArrDiskSpaceTests {
     @Test("Initialization")
     func initialization() {
@@ -393,6 +513,7 @@ struct ArrDiskSpaceTests {
 }
 
 @Suite("ArrDiskSpaceSnapshot Tests")
+@MainActor
 struct ArrDiskSpaceSnapshotTests {
     @Test("ID Combines Service Type and Path")
     func idCombinesServiceTypeAndPath() {
@@ -417,6 +538,7 @@ struct ArrDiskSpaceSnapshotTests {
 }
 
 @Suite("ArrHealthCheck Tests")
+@MainActor
 struct ArrHealthCheckTests {
     @Test("ID Generation")
     func idGeneration() {
@@ -443,6 +565,7 @@ struct ArrHealthCheckTests {
 }
 
 @Suite("AnyCodableValue Tests")
+@MainActor
 struct AnyCodableValueTests {
     @Test("Decode String")
     func decodeString() throws {
@@ -558,6 +681,7 @@ struct AnyCodableValueTests {
 }
 
 @Suite("Prowlarr Tests")
+@MainActor
 struct ProwlarrTests {
     @Test("Protocol Properties", arguments: [
         (ProwlarrIndexerProtocol.usenet, "Usenet", false, "envelope.circle"),
@@ -730,6 +854,7 @@ struct ArrServiceManagerTests {
 }
 
 @Suite("Arr API Client Tests")
+@MainActor
 struct ArrAPIClientTests {
     @Test("Default Page Size")
     func defaultPageSize() {
@@ -750,6 +875,7 @@ struct ArrAPIClientTests {
 }
 
 @Suite("Miscellaneous Parsing Tests")
+@MainActor
 struct MiscellaneousParsingTests {
     @Test("Queue Item Coding Keys")
     func queueItemCodingKeys() throws {
@@ -788,6 +914,15 @@ struct MiscellaneousParsingTests {
         #expect(page.records?.first?.eventType == "grabbed")
     }
 
+    @Test("Arr History Event Display Names")
+    func historyEventDisplayNames() {
+        #expect(ArrHistoryEventFormatter.displayName(for: "indexerRssQuery") == "Indexer RSS Query")
+        #expect(ArrHistoryEventFormatter.displayName(for: "indexerQuery") == "Indexer Query")
+        #expect(ArrHistoryEventFormatter.displayName(for: "releaseGrabbed") == "Release Grabbed")
+        #expect(ArrHistoryEventFormatter.displayName(for: "customAPIEvent") == "Custom API Event")
+        #expect(ArrHistoryEventFormatter.displayName(for: nil) == "Event")
+    }
+
     @Test("ArrBlocklistPage Decoding")
     func blocklistPageDecoding() throws {
         let json = #"{"page": 1, "pageSize": 20, "totalRecords": 1, "records": [{"id": 5, "sourceTitle": "Bad.Release.HDTV"}]}"#
@@ -815,6 +950,72 @@ struct MiscellaneousParsingTests {
         #expect(profile.upgradeAllowed == true)
     }
 
+    @Test("ArrQualityProfile preserves group and format payload fields")
+    func qualityProfilePreservesSavePayloadFields() throws {
+        let json = #"""
+        {
+            "id": 1,
+            "name": "Any",
+            "upgradeAllowed": true,
+            "cutoff": 1000,
+            "items": [
+                {
+                    "id": 1000,
+                    "name": "WEB 1080p",
+                    "allowed": true,
+                    "items": [
+                        {
+                            "quality": {
+                                "id": 3,
+                                "name": "WEBDL-1080p",
+                                "source": "web",
+                                "resolution": 1080
+                            },
+                            "allowed": true
+                        }
+                    ]
+                }
+            ],
+            "minFormatScore": 10,
+            "cutoffFormatScore": 20,
+            "minUpgradeFormatScore": 5,
+            "formatItems": [
+                {
+                    "format": 7,
+                    "name": "HDR",
+                    "score": 100
+                }
+            ],
+            "language": {
+                "id": 1,
+                "name": "English"
+            }
+        }
+        """#
+        let data = try #require(json.data(using: .utf8))
+        let profile = try JSONDecoder().decode(ArrQualityProfile.self, from: data)
+        let group = try #require(profile.items?.first)
+        let formatItem = try #require(profile.formatItems?.first)
+
+        #expect(group.id == 1000)
+        #expect(group.name == "WEB 1080p")
+        #expect(formatItem.format == 7)
+        #expect(formatItem.score == 100)
+        #expect(profile.language?.name == "English")
+
+        let encoded = try JSONEncoder().encode(profile)
+        let payload = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let encodedItems = try #require(payload["items"] as? [[String: Any]])
+        let encodedGroup = try #require(encodedItems.first)
+        let encodedFormatItems = try #require(payload["formatItems"] as? [[String: Any]])
+        let encodedLanguage = try #require(payload["language"] as? [String: Any])
+
+        #expect(encodedGroup["id"] as? Int == 1000)
+        #expect(encodedGroup["name"] as? String == "WEB 1080p")
+        #expect(encodedFormatItems.first?["format"] as? Int == 7)
+        #expect(encodedLanguage["name"] as? String == "English")
+    }
+
     @Test("ArrRootFolder Decoding")
     func rootFolderDecoding() throws {
         let json = #"{"id": 1, "path": "/data/media/tv", "accessible": true, "freeSpace": 500000000000}"#
@@ -829,5 +1030,35 @@ struct MiscellaneousParsingTests {
         let data = try #require(json.data(using: .utf8))
         let tag = try JSONDecoder().decode(ArrTag.self, from: data)
         #expect(tag.label == "4k")
+    }
+
+    @Test("Bazarr page defaults total to data count when omitted")
+    func bazarrPageDefaultsMissingTotal() throws {
+        let json = #"""
+        {
+            "data": [
+                {
+                    "timestamp": "2026-05-18 09:30:00",
+                    "type": "INFO",
+                    "message": "Bazarr started"
+                }
+            ]
+        }
+        """#
+        let data = try #require(json.data(using: .utf8))
+        let page = try JSONDecoder().decode(BazarrPage<BazarrLogEntry>.self, from: data)
+
+        #expect(page.total == 1)
+        #expect(page.data.first?.message == "Bazarr started")
+    }
+
+    @Test("Bazarr page preserves explicit total")
+    func bazarrPagePreservesExplicitTotal() throws {
+        let json = #"{"data": [], "total": 42}"#
+        let data = try #require(json.data(using: .utf8))
+        let page = try JSONDecoder().decode(BazarrPage<BazarrLogEntry>.self, from: data)
+
+        #expect(page.total == 42)
+        #expect(page.data.isEmpty)
     }
 }

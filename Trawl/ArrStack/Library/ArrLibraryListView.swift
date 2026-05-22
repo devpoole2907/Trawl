@@ -55,6 +55,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
                 }
             }
             .listSectionIndexVisibility(.visible)
+            .scrollContentBackground(.hidden)
         } else {
             sectionedListWithoutIndex
         }
@@ -73,6 +74,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
                 }
             }
         }
+        .scrollContentBackground(.hidden)
     }
 
     private var flatList: some View {
@@ -81,5 +83,6 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
                 row(item, selectedIDs.contains(item.id))
             }
         }
+        .scrollContentBackground(.hidden)
     }
 }

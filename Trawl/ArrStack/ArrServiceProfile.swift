@@ -67,10 +67,10 @@ nonisolated public enum ArrServiceType: String, Codable, CaseIterable, Identifia
 
     public var systemImage: String {
         switch self {
-        case .sonarr: "tv"
-        case .radarr: "film"
-        case .prowlarr: "magnifyingglass.circle"
-        case .bazarr: "captions.bubble"
+        case .sonarr: "tv.fill"
+        case .radarr: "film.fill"
+        case .prowlarr: "magnifyingglass.circle.fill"
+        case .bazarr: "captions.bubble.fill"
         }
     }
 }

@@ -11,12 +11,12 @@ struct ArrItemDetailView<Item, BodyContent: View>: View {
     let item: Item?
     let title: String
     let backgroundURL: URL?
-    @ViewBuilder let bodyContent: () -> BodyContent
+    @ViewBuilder let bodyContent: (Item) -> BodyContent
 
     var body: some View {
         Group {
-            if item != nil {
-                bodyContent()
+            if let item {
+                bodyContent(item)
                     .environment(\.colorScheme, .dark)
                     .background {
                         ArrArtworkView(url: backgroundURL, contentMode: .fill) {

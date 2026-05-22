@@ -3,25 +3,29 @@ import SwiftUI
 struct ArrConnectingView: View {
     let profile: ArrServiceProfile?
     let editServer: () -> Void
+    var retry: (() -> Void)?
 
     var body: some View {
-        VStack(spacing: 16) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Connecting...")
-                .font(.headline)
-            if let profile {
-                VStack(spacing: 4) {
-                    Text(profile.displayName)
-                    Text(profile.hostURL)
-                        .foregroundStyle(.secondary)
-                }
-                .font(.subheadline)
-                .multilineTextAlignment(.center)
-            }
-            Button("Edit Server", systemImage: "server.rack", action: editServer)
+        ConnectionStatusCard(
+            identity: profile?.resolvedServiceType?.serviceIdentity,
+            title: title,
+            message: "Checking your configured service connection.",
+            isConnecting: true,
+            detailTitle: profile?.displayName,
+            detailSubtitle: profile?.hostURL,
+            retryTitle: "Retry Connection",
+            editTitle: profile == nil ? "Edit Servers" : "Edit Server",
+            presentation: .embedded,
+            onRetry: retry,
+            onEdit: editServer
+        )
+    }
+
+    private var title: String {
+        if let serviceType = profile?.resolvedServiceType {
+            return "Connecting to \(serviceType.displayName)"
         }
-        .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+        return "Connecting to Services"
     }
 }

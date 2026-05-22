@@ -15,61 +15,58 @@ enum ArrServiceError: Error, LocalizedError {
 
 @MainActor
 @Observable
-final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> {
+final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFilter, SonarrSortOrder> {
     // Library state
-    private(set) var series: [SonarrSeries] = [] { didSet { rebuildFilteredSeries() } }
+    private(set) var series: [SonarrSeries] = [] { didSet { rebuildFilteredItems() } }
     // Episode state (for detail views)
     private(set) var episodes: [Int: [SonarrEpisode]] = [:]  // seriesId -> episodes
     private(set) var isLoadingEpisodes: Bool = false
     private(set) var episodeFiles: [Int: [SonarrEpisodeFile]] = [:]  // seriesId -> files
-    private(set) var wantedEpisodes: [SonarrEpisode] = []
-    private(set) var isLoadingWantedMissing: Bool = false
-    private(set) var wantedMissingTotalRecords: Int = 0
-    private var wantedMissingLoader = PaginatedLoader<SonarrEpisode>(pageSize: 20)
 
-    // Search state
-    var searchText: String = "" { didSet { rebuildFilteredSeries() } }
-    private(set) var searchResults: [SonarrSeries] = []
-    private(set) var isSearching: Bool = false
-    private var searchTracker = StreamingSearchTracker<SonarrSeries>()
-
-    // Queue state
-    private(set) var queue: [ArrQueueItem] = []
-    private(set) var history: [ArrHistoryRecord] = []
-    private(set) var isLoadingHistory: Bool = false
-    private(set) var historyTotalRecords: Int = 0
-    private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
-
-    // Updates
-    private(set) var availableUpdates: [ArrUpdateInfo] = []
-    private(set) var isLoadingUpdates: Bool = false
-
-    // Filter & Sort
-    var selectedFilter: SonarrFilter = .all { didSet { rebuildFilteredSeries() } }
-    var sortOrder: SonarrSortOrder = .title { didSet { rebuildFilteredSeries() } }
-
-    init(serviceManager: ArrServiceManager) {
-        super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
+    init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.sonarrClient,
+            jellyfinManager: jellyfinManager,
+            defaultFilter: .all,
+            defaultSort: .title
+        )
     }
 
     /// Convenience init that pre-seeds the series list (used by Search to avoid a fresh empty load).
-    init(serviceManager: ArrServiceManager, preloadedSeries: [SonarrSeries]) {
-        super.init(serviceManager: serviceManager, client: serviceManager.sonarrClient)
+    init(serviceManager: ArrServiceManager, preloadedSeries: [SonarrSeries], jellyfinManager: JellyfinServiceManager? = nil) {
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.sonarrClient,
+            jellyfinManager: jellyfinManager,
+            defaultFilter: .all,
+            defaultSort: .title
+        )
         self.series = preloadedSeries
         setLibraryItems(preloadedSeries)
-        rebuildFilteredSeries()
+        rebuildFilteredItems()
     }
 
-    // MARK: - Filtered (cached, updated via didSet observers)
+    override var nounSingular: String { "series" }
+    override var nounPlural: String { "series" }
 
-    private(set) var filteredSeries: [SonarrSeries] = []
+    override func toggleMonitored(_ item: SonarrSeries) async { await toggleSeriesMonitored(item) }
 
-    func refreshFilters() {
-        rebuildFilteredSeries()
+    override func setLibraryItems(_ items: [SonarrSeries]) {
+        super.setLibraryItems(items)
+        self.series = items
     }
 
-    private func rebuildFilteredSeries() {
-        filteredSeries = FilterSortPipeline.apply(
+    // MARK: - Domain-named accessors (compat shims)
+    /// Episodes returned from the wanted/missing endpoint.
+    var wantedEpisodes: [SonarrEpisode] { wantedRecords }
+
+    override func onJellyfinLibraryCacheChanged() {
+        rebuildFilteredItems()
+    }
+
+    override func rebuildFilteredItems() {
+        filteredItems = FilterSortPipeline.apply(
             items: series,
             filter: selectedFilter,
             searchText: searchText,
@@ -94,6 +91,8 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
                     return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
                 case .subtitlesPresent:
                     return serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: series.id) == .allPresent
+                case .inJellyfinLibrary:
+                    return isInJellyfinLibrary(series)
                 }
             },
             areInIncreasingOrder: { a, b, sort in
@@ -151,6 +150,8 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
         do {
             let eps = try await client.getEpisodes(seriesId: seriesId)
             episodes[seriesId] = eps
+        } catch is CancellationError {
+            // ignore
         } catch {
             self.error = error.localizedDescription
         }
@@ -164,6 +165,8 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
             episodeFiles[seriesId] = files.sorted {
                 ($0.seasonNumber ?? 0, $0.relativePath ?? "") < ($1.seasonNumber ?? 0, $1.relativePath ?? "")
             }
+        } catch is CancellationError {
+            // ignore
         } catch {
             self.error = error.localizedDescription
         }
@@ -281,128 +284,34 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
     func interactiveSearch(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async throws -> [ArrRelease] {
         guard let client else { throw ArrError.noServiceConfigured }
         error = nil
+        #if DEBUG
         print("[InteractiveSearch][Sonarr] start episodeId=\(episodeId.map(String.init) ?? "nil") seriesId=\(seriesId.map(String.init) ?? "nil") seasonNumber=\(seasonNumber.map(String.init) ?? "nil")")
+        #endif
         do {
             let releases = try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+            #if DEBUG
             print("[InteractiveSearch][Sonarr] success releases=\(releases.count)")
+            #endif
             return releases
         } catch is CancellationError {
+            #if DEBUG
             print("[InteractiveSearch][Sonarr] cancelled")
+            #endif
             throw CancellationError()
         } catch {
             self.error = error.localizedDescription
             let nsError = error as NSError
+            #if DEBUG
             print("[InteractiveSearch][Sonarr] failed domain=\(nsError.domain) code=\(nsError.code) description=\(error.localizedDescription)")
+            #endif
             throw error
-        }
-    }
-
-    func grabRelease(_ release: ArrRelease) async -> Bool {
-        guard let client else { return false }
-        error = nil
-        do {
-            try await client.grabRelease(release)
-            InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
-            await loadQueue()
-            return true
-        } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
-            return false
-        }
-    }
-
-    func loadWantedMissing() async {
-        guard !isLoadingWantedMissing else { return }
-        guard let client else { return }
-        isLoadingWantedMissing = true
-        defer { isLoadingWantedMissing = false }
-        error = nil
-        do {
-            let page = try await client.getWantedMissing(page: 1, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.replace(
-                with: page.records ?? [],
-                page: page.page ?? 1,
-                totalRecords: page.totalRecords
-            )
-            wantedEpisodes = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadMoreWantedMissing() async {
-        guard !isLoadingWantedMissing && canLoadMoreWantedMissing else { return }
-        guard let client else { return }
-        isLoadingWantedMissing = true
-        defer { isLoadingWantedMissing = false }
-
-        let nextPage = wantedMissingLoader.page + 1
-        do {
-            let page = try await client.getWantedMissing(page: nextPage, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.append(
-                page.records ?? [],
-                page: page.page ?? nextPage,
-                totalRecords: page.totalRecords
-            )
-            wantedEpisodes = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
         }
     }
 
     // MARK: - Add Series
 
     func searchForNewSeries(term: String) async {
-        guard let client, !term.isEmpty else {
-            searchResults = []
-            searchTracker.cancel()
-            return
-        }
-
-        let requestToken = searchTracker.begin()
-        isSearching = true
-        searchResults = []
-        error = nil
-
-        do {
-            let results = try await client.lookupSeries(term: term)
-            guard !Task.isCancelled else { return }
-            guard searchTracker.isCurrent(requestToken) else {
-                return
-            }
-
-            await searchTracker.stream(results, token: requestToken) { item in
-                self.searchResults.append(item)
-            }
-
-            // Only turn off spinner if still the active request
-            if !Task.isCancelled && searchTracker.isCurrent(requestToken) {
-                isSearching = false
-            }
-        } catch is CancellationError {
-            if searchTracker.isCurrent(requestToken) {
-                isSearching = false
-            }
-            return
-        } catch {
-            guard !Task.isCancelled else { return }
-            guard searchTracker.isCurrent(requestToken) else {
-                return
-            }
-            self.error = error.localizedDescription
-            searchResults = []
-            isSearching = false
-        }
-    }
-
-    func clearSearchResults() {
-        searchResults = []
-        error = nil
-        isSearching = false
-        searchTracker.cancel()
+        await performLookup(term: term)
     }
 
     func addSeries(
@@ -569,18 +478,6 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
         }
     }
 
-    private static func bulkDeleteSuccessMessage(count: Int, singular: String, plural: String) -> String {
-        count == 1 ? "1 \(singular) removed." : "\(count) \(plural) removed."
-    }
-
-    private static func bulkDeleteFailureMessage(_ failures: [String], singular: String, plural: String) -> String {
-        let itemLabel = failures.count == 1 ? singular : plural
-        let visibleFailures = failures.prefix(3).joined(separator: "\n")
-        let remainingCount = failures.count - min(failures.count, 3)
-        let remainingMessage = remainingCount > 0 ? "\n...and \(remainingCount) more failed." : ""
-        return "\(failures.count) \(itemLabel) failed:\n\(visibleFailures)\(remainingMessage)"
-    }
-
     func deleteEpisodeFile(id: Int) async -> Bool {
         guard let client else { return false }
         let seriesId = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
@@ -602,108 +499,11 @@ final class SonarrViewModel: ArrLibraryViewModel<SonarrSeries, SonarrAPIClient> 
             return false
         }
     }
-
-    // MARK: - Queue
-
-    func loadQueue() async {
-        guard let client else { return }
-        do {
-            let page = try await client.getQueue(page: 1, pageSize: 250)
-            queue = page.records ?? []
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadHistory(page: Int = 1) async {
-        guard let client else { return }
-        guard !isLoadingHistory else { return }
-        isLoadingHistory = true
-        defer { isLoadingHistory = false }
-
-        do {
-            let historyPageResult = try await client.getHistory(page: page, pageSize: historyLoader.pageSize)
-            let records = historyPageResult.records ?? []
-
-            if page == 1 {
-                historyLoader.replace(
-                    with: records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            } else {
-                historyLoader.append(
-                    records,
-                    page: historyPageResult.page ?? page,
-                    totalRecords: historyPageResult.totalRecords
-                )
-            }
-
-            history = historyLoader.items
-            historyTotalRecords = historyLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func loadNextHistoryPage() async {
-        guard !isLoadingHistory && canLoadMoreHistory else { return }
-        await loadHistory(page: historyLoader.page + 1)
-    }
-
-    func removeQueueItem(id: Int, blocklist: Bool = false) async {
-        guard let client else { return }
-        do {
-            try await client.deleteQueueItem(id: id, blocklist: blocklist)
-            queue.removeAll { $0.id == id }
-            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
-        } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
-        }
-    }
-
-    func searchAllMissing() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.searchAllMissing()
-        InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for all missing episodes.")
-    }
-
-    func rssSync() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.rssSync()
-        InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
-    }
-
-    func checkForUpdates() async {
-        guard let client else { return }
-        isLoadingUpdates = true
-        defer { isLoadingUpdates = false }
-        do {
-            availableUpdates = try await client.getUpdates()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    func installUpdate() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.installUpdate()
-        InAppNotificationCenter.shared.showSuccess(title: "Update Started", message: "Application update command sent.")
-    }
-
-    var canLoadMoreWantedMissing: Bool {
-        wantedEpisodes.count < wantedMissingTotalRecords
-    }
-
-    var canLoadMoreHistory: Bool {
-        history.count < historyTotalRecords
-    }
 }
 
 // MARK: - Filter
 
-enum SonarrFilter: String, CaseIterable, Identifiable {
+nonisolated enum SonarrFilter: String, CaseIterable, Identifiable, Sendable {
     case all = "All"
     case monitored = "Monitored"
     case unmonitored = "Unmonitored"
@@ -711,11 +511,12 @@ enum SonarrFilter: String, CaseIterable, Identifiable {
     case ended = "Ended"
     case missing = "Missing"
     case subtitlesPresent = "Subtitles Present"
+    case inJellyfinLibrary = "In Jellyfin Library"
 
     var id: String { rawValue }
 }
 
-enum SonarrSortOrder: String, CaseIterable, Identifiable {
+nonisolated enum SonarrSortOrder: String, CaseIterable, Identifiable, Sendable {
     case title = "Title"
     case status = "Status"
     case progress = "Progress"

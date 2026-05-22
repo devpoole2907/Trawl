@@ -370,6 +370,7 @@ final class ProwlarrApplicationsViewModel {
     private(set) var availableTags: [ArrTag] = []
     private(set) var isLoadingApplications = false
     private(set) var isLoadingSchema = false
+    private(set) var isSyncingApplications = false
     private(set) var errorMessage: String?
 
     init(serviceManager: ArrServiceManager) {
@@ -480,6 +481,52 @@ final class ProwlarrApplicationsViewModel {
             errorMessage = error.localizedDescription
             return false
         }
+    }
+
+    func syncApplications() async throws {
+        guard let client else {
+            throw ArrError.noServiceConfigured
+        }
+
+        guard !isSyncingApplications else {
+            return
+        }
+        isSyncingApplications = true
+        defer { isSyncingApplications = false }
+
+        let linkedApplications = try await client.getApplications()
+            .filter { $0.linkedAppType == .sonarr || $0.linkedAppType == .radarr }
+        guard !linkedApplications.isEmpty else {
+            throw NSError(
+                domain: "ProwlarrSync",
+                code: 0,
+                userInfo: [NSLocalizedDescriptionKey: "Link Sonarr or Radarr in Prowlarr before running an indexer sync."]
+            )
+        }
+
+        let appNames = linkedApplications
+            .compactMap { $0.name ?? $0.linkedAppType?.displayName }
+            .sorted()
+        let targetSummary = appNames.formatted(.list(type: .and))
+
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Sync Started",
+            message: "Syncing Prowlarr indexers to \(targetSummary)."
+        )
+
+        let command = try await client.syncApplications()
+        guard command.succeeded else {
+            throw NSError(
+                domain: "ProwlarrSync",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: command.exception ?? "Prowlarr did not complete the application sync."]
+            )
+        }
+
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Sync Complete",
+            message: "Prowlarr indexers synced to \(targetSummary)."
+        )
     }
 
     func clearError() {

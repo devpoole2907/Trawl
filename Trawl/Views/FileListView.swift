@@ -78,6 +78,9 @@ struct FileListView: View {
         .task {
             await viewModel.loadFiles()
         }
+        .refreshable {
+            await viewModel.loadFiles()
+        }
     }
 
     #if os(iOS)

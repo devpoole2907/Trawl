@@ -49,14 +49,12 @@ struct BazarrBrowserView: View {
     var body: some View {
         Group {
             if !viewModel.isConnected {
-                if viewModel.isConnecting {
-                    ProgressView("Connecting to Bazarr...")
-                } else if let error = viewModel.connectionError {
-                    ContentUnavailableView {
-                        Label("Connection Error", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    }
+                if viewModel.isConnecting || viewModel.connectionError != nil {
+                    ArrServiceConnectionStatusView(
+                        serviceType: .bazarr,
+                        title: viewModel.isConnecting ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                        message: viewModel.connectionError ?? "Checking your configured Bazarr server."
+                    )
                 } else {
                     ContentUnavailableView {
                         Label("Bazarr Not Set Up", systemImage: "captions.bubble")
@@ -69,6 +67,7 @@ struct BazarrBrowserView: View {
             }
         }
         .navigationTitle("Subtitles")
+        .navigationSubtitle("Bazarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -80,14 +79,11 @@ struct BazarrBrowserView: View {
 
     private var contentView: some View {
         VStack(spacing: 0) {
-            Picker("Tab", selection: $selectedTab) {
-                ForEach(BazarrBrowserTab.allCases, id: \.self) { tab in
-                    Text(tab.rawValue).tag(tab)
-                }
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal)
-            .padding(.vertical, 8)
+            TrawlSegmentBar(
+                "Tab",
+                selection: $selectedTab,
+                items: BazarrBrowserTab.allCases.map { TrawlSegmentBarItem($0.rawValue, value: $0) }
+            )
 
             if selectedTab == .series {
                 seriesList
@@ -130,35 +126,6 @@ struct BazarrBrowserView: View {
         }
     }
 
-    private var seriesFilterBar: some View {
-        HStack(spacing: 12) {
-            Toggle(isOn: $viewModel.showMonitoredOnly) {
-                Text("Monitored")
-            }
-            .toggleStyle(.button)
-            .buttonStyle(.bordered)
-            .tint(.orange)
-
-            Toggle(isOn: $viewModel.showMissingOnly) {
-                Text("Missing")
-            }
-            .toggleStyle(.button)
-            .buttonStyle(.bordered)
-            .tint(.red)
-
-            Spacer()
-
-            Button {
-                viewModel.sortNewestFirst.toggle()
-            } label: {
-                Image(systemName: viewModel.sortNewestFirst ? "arrow.down" : "arrow.up")
-            }
-            .buttonStyle(.bordered)
-        }
-        .font(.caption)
-        .padding(.vertical, 4)
-    }
-
     private func seriesRow(_ series: BazarrSeries) -> some View {
         let status = BazarrViewModel.subtitleStatus(for: series)
         return HStack(spacing: 12) {
@@ -167,8 +134,8 @@ struct BazarrBrowserView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 44, height: 66)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(width: 50, height: 75)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(series.title)
@@ -192,7 +159,7 @@ struct BazarrBrowserView: View {
                 .foregroundStyle(status == .allPresent ? .teal : .secondary)
                 .font(.caption)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Movies List
@@ -235,8 +202,8 @@ struct BazarrBrowserView: View {
                     .font(.title3)
                     .foregroundStyle(.secondary)
             }
-            .frame(width: 44, height: 66)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .frame(width: 50, height: 75)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(movie.title)
@@ -262,6 +229,6 @@ struct BazarrBrowserView: View {
                 .foregroundStyle(status == .allPresent ? .teal : .secondary)
                 .font(.caption)
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 4)
     }
 }

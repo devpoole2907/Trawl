@@ -42,12 +42,31 @@ nonisolated struct ArrQualityProfile: Codable, Identifiable, Sendable {
     var upgradeAllowed: Bool?
     var cutoff: Int?
     var items: [ArrQualityProfileItem]?
+    var minFormatScore: Int?
+    var cutoffFormatScore: Int?
+    var minUpgradeFormatScore: Int?
+    var formatItems: [ArrQualityProfileFormatItem]?
+    var language: ArrQualityProfileLanguage?
 }
 
 nonisolated struct ArrQualityProfileItem: Codable, Sendable {
+    var id: Int?
+    var name: String?
     var quality: ArrQuality?
     var allowed: Bool?
     var items: [ArrQualityProfileItem]?
+}
+
+nonisolated struct ArrQualityProfileFormatItem: Codable, Sendable {
+    var id: Int?
+    var format: Int?
+    var name: String?
+    var score: Int?
+}
+
+nonisolated struct ArrQualityProfileLanguage: Codable, Sendable {
+    var id: Int?
+    var name: String?
 }
 
 nonisolated struct ArrQuality: Codable, Sendable {
@@ -65,6 +84,84 @@ struct ArrRootFolder: Codable, Identifiable, Sendable {
     let accessible: Bool?
     let freeSpace: Int64?
     let totalSpace: Int64?
+}
+
+nonisolated struct ArrFileSystemEntry: Decodable, Identifiable, Sendable {
+    let name: String?
+    let path: String
+    let type: String?
+    let isFile: Bool?
+    let isDirectory: Bool?
+
+    var id: String { path }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        path = try container.decode(String.self, forKey: .path)
+        isFile = try container.decodeIfPresent(Bool.self, forKey: .isFile)
+        isDirectory = try container.decodeIfPresent(Bool.self, forKey: .isDirectory)
+        if let stringType = try? container.decodeIfPresent(String.self, forKey: .type) {
+            type = stringType
+        } else if let intType = try? container.decodeIfPresent(Int.self, forKey: .type) {
+            type = Self.mapIntType(intType)
+        } else {
+            type = nil
+        }
+    }
+
+    var remotePathEntry: RemotePathEntry {
+        let directory = isDirectory ?? !(isFile ?? false)
+        let kind: RemotePathEntryKind = if directory {
+            .directory
+        } else {
+            .file
+        }
+        return RemotePathEntry(
+            name: displayName,
+            path: path,
+            kind: kind,
+            isDirectory: directory
+        )
+    }
+
+    private static func mapIntType(_ value: Int) -> String? {
+        switch value {
+        case 0: "folder"
+        case 1: "file"
+        case 2: "drive"
+        case 3: "parent"
+        default: "unknown"
+        }
+    }
+
+    private var displayName: String {
+        if let name, !name.isEmpty { return name }
+        let trimmed = path.trimmingCharacters(in: CharacterSet(charactersIn: "/\\"))
+        return trimmed.split(whereSeparator: { $0 == "/" || $0 == "\\" }).last.map(String.init) ?? path
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case name, path, type, isFile, isDirectory
+    }
+}
+
+nonisolated struct ArrFileSystemResponse: Decodable {
+    let entries: [ArrFileSystemEntry]
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let array = try? container.decode([ArrFileSystemEntry].self) {
+            entries = array
+            return
+        }
+        let nested = try container.decode(ArrFileSystemV3Response.self)
+        entries = nested.directories ?? []
+    }
+}
+
+nonisolated struct ArrFileSystemV3Response: Decodable {
+    let directories: [ArrFileSystemEntry]?
 }
 
 // MARK: - Tag
@@ -540,6 +637,71 @@ nonisolated struct ArrRelease: Codable, Identifiable, Sendable {
         }
         return nil
     }
+
+    var torrentInfoHash: String? {
+        Self.infoHashCandidates(from: [magnetUrl, guid, downloadUrl, infoUrl])
+            .first
+    }
+
+    private static func infoHashCandidates(from values: [String?]) -> [String] {
+        var candidates: [String] = []
+        for value in values {
+            guard let value else { continue }
+            candidates.append(contentsOf: infoHashes(in: value))
+        }
+        return candidates.uniqued()
+    }
+
+    private static func infoHashes(in value: String) -> [String] {
+        let decodedValue = value.removingPercentEncoding ?? value
+        let regex = #"(?:btih:|/|=|^)([A-Fa-f0-9]{40}|[A-Z2-7a-z]{32})(?:[&#/?]|$)"#
+        guard let expression = try? NSRegularExpression(pattern: regex) else { return [] }
+        let range = NSRange(decodedValue.startIndex..<decodedValue.endIndex, in: decodedValue)
+        return expression.matches(in: decodedValue, range: range).compactMap { match in
+            guard let matchRange = Range(match.range(at: 1), in: decodedValue) else { return nil }
+            let rawHash = String(decodedValue[matchRange])
+            if rawHash.count == 40 {
+                return rawHash.lowercased()
+            }
+            return base32InfoHashToHex(rawHash)
+        }
+    }
+
+    private static func base32InfoHashToHex(_ value: String) -> String? {
+        let alphabet = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+        let lookup = Dictionary(uniqueKeysWithValues: alphabet.enumerated().map { ($0.element, $0.offset) })
+        var buffer = 0
+        var bitsLeft = 0
+        var bytes: [UInt8] = []
+
+        for character in value.uppercased() {
+            guard let next = lookup[character] else { return nil }
+            buffer = (buffer << 5) | next
+            bitsLeft += 5
+
+            if bitsLeft >= 8 {
+                bitsLeft -= 8
+                bytes.append(UInt8((buffer >> bitsLeft) & 0xff))
+            }
+        }
+
+        guard bytes.count == 20 else { return nil }
+        return bytes.map { String($0, radix: 16).leftPadded(to: 2, with: "0") }.joined()
+    }
+}
+
+private nonisolated extension Array where Element: Hashable {
+    func uniqued() -> [Element] {
+        var seen = Set<Element>()
+        return filter { seen.insert($0).inserted }
+    }
+}
+
+private nonisolated extension String {
+    func leftPadded(to length: Int, with character: Character) -> String {
+        guard count < length else { return self }
+        return String(repeating: String(character), count: length - count) + self
+    }
 }
 
 struct ArrReleaseQuality: Codable, Sendable {
@@ -667,6 +829,9 @@ struct ArrHistoryRecord: Codable, Identifiable, Sendable {
     let sourceTitle: String?
     let quality: ArrHistoryQuality?
     let downloadId: String?
+    let indexerId: Int?
+    let successful: Bool?
+    let data: [String: String]?
 
     // Sonarr
     let seriesId: Int?
@@ -674,10 +839,96 @@ struct ArrHistoryRecord: Codable, Identifiable, Sendable {
 
     // Radarr
     let movieId: Int?
+
+    var eventDisplayName: String {
+        ArrHistoryEventFormatter.displayName(for: eventType)
+    }
+}
+
+nonisolated enum ArrHistoryEventFormatter {
+    static func displayName(for eventType: String?) -> String {
+        guard let eventType else { return "Event" }
+
+        let trimmed = eventType.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Event" }
+
+        let normalized = trimmed
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: "-", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            .lowercased()
+
+        switch normalized {
+        case "indexerrssquery":
+            return "Indexer RSS Query"
+        case "indexerquery":
+            return "Indexer Query"
+        case "releasegrabbed":
+            return "Release Grabbed"
+        case "downloadfolderimported":
+            return "Imported"
+        case "downloadfailed":
+            return "Download Failed"
+        case "grabbed":
+            return "Grabbed"
+        default:
+            return readableName(from: trimmed)
+        }
+    }
+
+    private static func readableName(from value: String) -> String {
+        let spaced = value
+            .replacingOccurrences(
+                of: "([a-z0-9])([A-Z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+            .replacingOccurrences(
+                of: "([A-Z]+)([A-Z][a-z])",
+                with: "$1 $2",
+                options: .regularExpression
+            )
+
+        let words = spaced
+            .split { !$0.isLetter && !$0.isNumber }
+            .map(String.init)
+
+        guard !words.isEmpty else { return "Event" }
+
+        let acronyms: Set<String> = ["rss", "id", "url", "api"]
+        return words
+            .map { word in
+                let lowercased = word.lowercased()
+                if acronyms.contains(lowercased) {
+                    return lowercased.uppercased()
+                }
+                return String(lowercased.prefix(1)).uppercased() + String(lowercased.dropFirst())
+            }
+            .joined(separator: " ")
+    }
 }
 
 struct ArrHistoryQuality: Codable, Sendable {
     let quality: ArrQuality?
+}
+
+// MARK: - Log
+
+nonisolated struct ArrLogPage: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+    let totalRecords: Int?
+    let records: [ArrLogRecord]?
+}
+
+struct ArrLogRecord: Codable, Identifiable, Sendable {
+    let id: Int
+    let time: String?
+    let level: String?          // "trace", "debug", "info", "warn", "error", "fatal"
+    let logger: String?
+    let message: String?
+    let exception: String?
+    let exceptionType: String?
 }
 
 // MARK: - Calendar (shared shape, content type differs)
@@ -714,6 +965,71 @@ nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
         status == "completed" || status == "failed" || status == "aborted" || status == "cancelled" || status == "orphaned"
     }
     var succeeded: Bool { status == "completed" }
+}
+
+// MARK: - Quality Definitions
+
+struct ArrQualityDefinition: Codable, Identifiable, Sendable {
+    let id: Int
+    let quality: ArrQuality?
+    let title: String?
+    let weight: Int?
+    var minSize: Double?        // MB/min, 0 = no minimum
+    var maxSize: Double?        // MB/min, 0 = unlimited
+    var preferredSize: Double?  // MB/min, 0 = no preference
+}
+
+// MARK: - Scheduled Tasks
+
+struct ArrScheduledTask: Codable, Identifiable, Sendable {
+    let id: String
+    let name: String?
+    let taskName: String?
+    let interval: Int?          // minutes
+    let lastExecution: String?
+    let lastDuration: String?
+    let nextExecution: String?
+    let lastStartMessage: String?
+    let isRunning: Bool?
+
+    private enum CodingKeys: String, CodingKey {
+        case name, taskName, interval, lastExecution, lastDuration, nextExecution, lastStartMessage, isRunning
+    }
+
+    init(
+        id: String? = nil,
+        name: String?,
+        taskName: String?,
+        interval: Int?,
+        lastExecution: String?,
+        lastDuration: String?,
+        nextExecution: String?,
+        lastStartMessage: String?,
+        isRunning: Bool?
+    ) {
+        self.id = id ?? taskName ?? name ?? UUID().uuidString
+        self.name = name
+        self.taskName = taskName
+        self.interval = interval
+        self.lastExecution = lastExecution
+        self.lastDuration = lastDuration
+        self.nextExecution = nextExecution
+        self.lastStartMessage = lastStartMessage
+        self.isRunning = isRunning
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        taskName = try container.decodeIfPresent(String.self, forKey: .taskName)
+        interval = try container.decodeIfPresent(Int.self, forKey: .interval)
+        lastExecution = try container.decodeIfPresent(String.self, forKey: .lastExecution)
+        lastDuration = try container.decodeIfPresent(String.self, forKey: .lastDuration)
+        nextExecution = try container.decodeIfPresent(String.self, forKey: .nextExecution)
+        lastStartMessage = try container.decodeIfPresent(String.self, forKey: .lastStartMessage)
+        isRunning = try container.decodeIfPresent(Bool.self, forKey: .isRunning)
+        id = taskName ?? name ?? UUID().uuidString
+    }
 }
 
 // MARK: - Blocklist
@@ -980,7 +1296,7 @@ enum ArrError: LocalizedError, Sendable {
         case .decodingError(let error):
             "Failed to parse response: \(error.localizedDescription)"
         case .serverError(let code, let msg):
-            "Server error (\(code)): \(msg ?? "Unknown")"
+            "Server error (\(code)): \(Self.serverErrorDisplayMessage(from: msg) ?? "Unknown")"
         case .noServiceConfigured:
             "No service configured."
         case .connectionFailed:
@@ -998,6 +1314,70 @@ enum ArrError: LocalizedError, Sendable {
                 "Command \(commandId ?? -1) did not finish within the timeout period."
             }
         }
+    }
+
+    private static func serverErrorDisplayMessage(from rawMessage: String?) -> String? {
+        guard let rawMessage else { return nil }
+        let trimmed = rawMessage.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let payloadMessage = serverErrorPayloadMessage(from: trimmed) {
+            return releaseGrabFailureMessage(for: payloadMessage)
+        }
+
+        return releaseGrabFailureMessage(for: firstUsefulLine(in: trimmed) ?? trimmed)
+    }
+
+    private static func serverErrorPayloadMessage(from body: String) -> String? {
+        guard let data = body.data(using: .utf8),
+              let json = try? JSONSerialization.jsonObject(with: data) else {
+            return nil
+        }
+
+        if let object = json as? [String: Any] {
+            return serverErrorMessage(from: object)
+        }
+
+        if let objects = json as? [[String: Any]] {
+            return objects.compactMap(serverErrorMessage(from:)).first
+        }
+
+        return nil
+    }
+
+    private static func serverErrorMessage(from object: [String: Any]) -> String? {
+        for key in ["message", "errorMessage", "description", "error"] {
+            if let value = object[key] as? String,
+               let message = firstUsefulLine(in: value) {
+                return message
+            }
+        }
+
+        if let errors = object["errors"] as? [[String: Any]] {
+            return errors.compactMap(serverErrorMessage(from:)).first
+        }
+
+        return nil
+    }
+
+    private static func firstUsefulLine(in message: String) -> String? {
+        message
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { line in
+                !line.isEmpty &&
+                !line.hasPrefix("at ") &&
+                !line.hasPrefix("---")
+            }
+    }
+
+    private static func releaseGrabFailureMessage(for message: String) -> String {
+        let normalized = message.lowercased()
+        guard normalized.contains("download client failed to add torrent") else {
+            return message
+        }
+
+        return "The download client rejected this release. If it was already downloaded and deleted, remove the old torrent from your download client or choose another release, then try again."
     }
 }
 
@@ -1144,4 +1524,15 @@ nonisolated struct RadarrNamingConfig: Codable, Sendable, ArrAPIOptionalIdentifi
             colonReplacementFormat = nil
         }
     }
+}
+
+// MARK: - Backup
+
+nonisolated struct ArrBackup: Codable, Identifiable, Sendable {
+    let id: Int
+    let name: String
+    let type: String   // "manual", "scheduled", "update"
+    let time: String   // ISO 8601
+    let size: Int?
+    let path: String?
 }

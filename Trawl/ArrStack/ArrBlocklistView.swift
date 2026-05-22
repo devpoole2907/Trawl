@@ -5,6 +5,7 @@ struct ArrBlocklistView: View {
     @State private var scope: BlocklistScope = .all
     @State private var showClearConfirm = false
     @State private var entryToDelete: BlocklistEntry?
+    @State private var showSettings = false
 
     enum BlocklistScope: String, CaseIterable, Identifiable {
         case all = "All"
@@ -43,8 +44,27 @@ struct ArrBlocklistView: View {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
+    private var blocklistServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
     private var hasConnected: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
+    }
+
+    private var isConnecting: Bool {
+        guard !hasConnected else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr)
+    }
+
+    private var blocklistSettingsService: ArrServiceType {
+        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        return .radarr
     }
 
     private var allEntries: [BlocklistEntry] {
@@ -70,10 +90,10 @@ struct ArrBlocklistView: View {
                     description: Text("Connect Sonarr or Radarr to manage the blocklist.")
                 )
             } else if !hasConnected {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: blocklistServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else {
                 ArrLoadingErrorEmptyView(
@@ -83,7 +103,7 @@ struct ArrBlocklistView: View {
                     emptyTitle: "Blocklist Empty",
                     emptyIcon: "checkmark.shield",
                     emptyDescription: "No blocked releases for the selected scope.",
-                    onRetry: nil
+                    onRetry: { Task { await serviceManager.loadBlocklist() } }
                 ) {
                     blocklistContent
                 }
@@ -133,6 +153,17 @@ struct ArrBlocklistView: View {
         }
         .refreshable { await serviceManager.loadBlocklist() }
         .task { await serviceManager.loadBlocklist() }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: blocklistSettingsService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
+        }
     }
 
     @ViewBuilder
@@ -161,6 +192,11 @@ struct ArrBlocklistView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.red.opacity(0.16), Color.clear],
                 startPoint: .top,

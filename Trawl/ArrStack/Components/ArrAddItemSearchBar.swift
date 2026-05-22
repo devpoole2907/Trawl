@@ -19,7 +19,7 @@ struct ArrAddItemSearchBar: View {
         }
         .padding(10)
         .background(.quaternary)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .clipShape(RoundedRectangle(cornerRadius: 12))
         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
         .listRowBackground(Color.clear)
     }

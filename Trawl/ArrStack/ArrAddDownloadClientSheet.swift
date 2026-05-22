@@ -65,7 +65,14 @@ struct ArrDownloadClientEditorSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: isEditing ? "Edit \(existingClient?.name ?? "Download Client")" : "Add qBittorrent",
+            confirmTitle: isEditing ? "Update" : "Save",
+            isConfirmDisabled: !canSave,
+            isConfirmLoading: isSaving,
+            onConfirm: { Task { await save() } },
+            detents: [.medium, .large]
+        ) {
             Form {
                 Section("General") {
                     LabeledContent("Name") {
@@ -158,25 +165,6 @@ struct ArrDownloadClientEditorSheet: View {
                     }
                 }
             }
-            .navigationTitle(isEditing ? "Edit \(existingClient?.name ?? "Download Client")" : "Add qBittorrent")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    if isSaving {
-                        ProgressView()
-                    } else {
-                        Button(isEditing ? "Update" : "Save") {
-                            Task { await save() }
-                        }
-                        .disabled(!canSave)
-                    }
-                }
-            }
             .task {
                 await loadInitialState()
             }
@@ -185,7 +173,6 @@ struct ArrDownloadClientEditorSheet: View {
                 Task { await applySelectedProfile() }
             }
         }
-        .presentationDetents([.medium, .large])
     }
 
     // MARK: - Loading

@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 
 // MARK: - Series
 
@@ -461,8 +462,12 @@ enum SonarrCommand: String, Sendable {
     case episodeSearch = "EpisodeSearch"
     case seasonSearch = "SeasonSearch"
     case seriesSearch = "SeriesSearch"
+    case renameFiles = "RenameFiles"
     case missingEpisodeSearch = "missingEpisodeSearch"
     case rssSync = "RssSync"
     case backup = "Backup"
     case applicationUpdate = "ApplicationUpdate"
 }
+
+// BadgeRenderable conformance for SonarrSeries lives in ArrDetailSharedTypes.swift
+// (Trawl-only target) so the widget / share extensions can still compile this file.

@@ -23,7 +23,7 @@ struct BazarrSeriesDetailView: View {
             item: series,
             title: series?.title ?? "Series",
             backgroundURL: series?.poster.flatMap(URL.init(string:))
-        ) {
+        ) { _ in
             ArrLoadingErrorEmptyView(
                 isLoading: isLoading,
                 error: error,
@@ -48,12 +48,14 @@ struct BazarrSeriesDetailView: View {
                             }
                         }
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "ellipsis")
                     }
+                    .accessibilityLabel("Subtitle Actions")
                 }
             }
         }
         .task(id: serviceManager.activeBazarrProfileID) { await load() }
+        .refreshable { await load() }
     }
 
     private var contentView: some View {
@@ -165,7 +167,12 @@ struct BazarrSeriesDetailView: View {
     }
 
     private var profilePickerSheet: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: "Language Profile",
+            confirmTitle: "Save",
+            onConfirm: { showProfilePicker = false; Task { await updateProfile() } },
+            detents: [.medium]
+        ) {
             List {
                 Picker("Profile", selection: $selectedProfileId) {
                     Text("None").tag(nil as Int?)
@@ -175,20 +182,7 @@ struct BazarrSeriesDetailView: View {
                 }
                 .pickerStyle(.inline)
             }
-            .navigationTitle("Language Profile")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        showProfilePicker = false
-                        Task { await updateProfile() }
-                    }
-                }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { showProfilePicker = false }
-                }
-            }
         }
-        .presentationDetents([.medium])
     }
 
     // MARK: - Actions
@@ -229,13 +223,22 @@ struct BazarrSeriesDetailView: View {
 
     private func updateProfile() async {
         guard series != nil else { return }
+        guard let client = serviceManager.activeBazarrEntry?.client else {
+            inAppNotificationCenter.showError(title: "Failed", message: "Bazarr is not configured.")
+            return
+        }
+        var apiError: Error?
         do {
-            guard let client = serviceManager.activeBazarrEntry?.client else { throw ArrError.noServiceConfigured }
-            try await client.updateSeriesProfile(seriesIds: [seriesId], profileIds: [selectedProfileId.map(String.init) ?? "none"])
-            await load()
-            inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated.")
+            try await client.updateSeriesProfile(seriesIds: [seriesId], profileIds: [selectedProfileId.map(String.init)])
         } catch {
-            inAppNotificationCenter.showError(title: "Failed", message: error.localizedDescription)
+            apiError = error
+        }
+
+        await load()
+        if let apiError {
+            inAppNotificationCenter.showError(title: "Failed", message: apiError.localizedDescription)
+        } else {
+            inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated.")
         }
     }
 }
@@ -333,7 +336,7 @@ private struct BazarrSeasonView: View {
                     .lineLimit(1)
                 if !episode.subtitles.isEmpty {
                     HStack(spacing: 4) {
-                        ForEach(episode.subtitles.prefix(4), id: \.self) { sub in
+                        ForEach(Array(episode.subtitles.prefix(4).enumerated()), id: \.offset) { _, sub in
                             Text(sub.name)
                                 .font(.caption2)
                                 .padding(.horizontal, 5)
@@ -460,8 +463,8 @@ private struct BazarrEpisodeDetailView: View {
 
             if !episode.subtitles.isEmpty {
                 Section("Current Subtitles") {
-                    ForEach(episode.subtitles, id: \.self) { sub in
-                        subtitleRow(sub)
+                    ForEach(Array(episode.subtitles.enumerated()), id: \.offset) { _, sub in
+                        BazarrSubtitleListRow(subtitle: sub)
                             .swipeActions(edge: .trailing) {
                                 if sub.path != nil {
                                     Button(role: .destructive) {
@@ -477,7 +480,7 @@ private struct BazarrEpisodeDetailView: View {
 
             if !episode.missingSubtitles.isEmpty {
                 Section("Missing Languages") {
-                    ForEach(episode.missingSubtitles, id: \.self) { lang in
+                    ForEach(Array(episode.missingSubtitles.enumerated()), id: \.offset) { _, lang in
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(lang.name)
@@ -515,35 +518,6 @@ private struct BazarrEpisodeDetailView: View {
                 viewModel: viewModel,
                 onDownloaded: { await onRefresh() }
             )
-        }
-    }
-
-    private func subtitleRow(_ sub: BazarrSubtitle) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(sub.name).font(.body)
-                if let path = sub.path {
-                    Text(path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            Spacer()
-            HStack(spacing: 4) {
-                if sub.hi {
-                    Text("HI")
-                        .font(.caption2)
-                        .padding(.horizontal, 4)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.blue.opacity(0.15)))
-                }
-                if sub.forced {
-                    Text("Forced")
-                        .font(.caption2)
-                        .padding(.horizontal, 4)
-                        .background(RoundedRectangle(cornerRadius: 4).fill(Color.orange.opacity(0.15)))
-                }
-            }
         }
     }
 

@@ -15,6 +15,7 @@ final class InAppNotificationCenter {
     private(set) var currentBanner: InAppBannerItem?
     private(set) var recentNotifications: [NotificationLogEntry] = InAppNotificationCenter.loadPersistedNotifications()
     private(set) var lastReadDate: Date = InAppNotificationCenter.loadLastReadDate()
+    var isPresentingRecentNotifications = false
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
     var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }
 
@@ -24,6 +25,10 @@ final class InAppNotificationCenter {
     #if os(iOS)
     private let notificationGenerator = UINotificationFeedbackGenerator()
     private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
+
+    private var hapticsEnabled: Bool {
+        UserDefaults.standard.object(forKey: "hapticsEnabled") as? Bool ?? true
+    }
     #endif
 
     func showDownloadCompleted(name: String) {
@@ -61,7 +66,7 @@ final class InAppNotificationCenter {
         appendLog(title: trimmedTitle, message: trimmedMessage, style: .success, source: source)
 
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.success)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -92,14 +97,14 @@ final class InAppNotificationCenter {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
-                notificationGenerator.notificationOccurred(.success)
+                if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
             #endif
             presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .success, action: action), requeueCurrent: false)
             return
         }
         // Use updated trimmed values
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.success)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.success) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -121,7 +126,7 @@ final class InAppNotificationCenter {
         appendLog(title: trimmedTitle, message: trimmedMessage, style: .error, source: source)
 
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.error)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -147,14 +152,14 @@ final class InAppNotificationCenter {
         removeQueuedBanner(matching: key)
         if currentBanner?.key == key {
             #if os(iOS)
-                notificationGenerator.notificationOccurred(.error)
+                if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
             #endif
             presentImmediately(makeBanner(title: trimmedTitle, message: trimmedMessage, style: .error, action: nil), requeueCurrent: false)
             return
         }
         // Use updated trimmed values
         #if os(iOS)
-        notificationGenerator.notificationOccurred(.error)
+        if hapticsEnabled { notificationGenerator.notificationOccurred(.error) }
         #endif
 
         enqueue(InAppBannerItem(
@@ -192,7 +197,7 @@ final class InAppNotificationCenter {
 
     func triggerImpact() {
         #if os(iOS)
-        impactGenerator.impactOccurred()
+        if hapticsEnabled { impactGenerator.impactOccurred() }
         #endif
     }
 
@@ -233,6 +238,10 @@ final class InAppNotificationCenter {
         let action = currentBanner?.action
         dismissCurrentBanner()
         action?.handler()
+    }
+
+    func showRecentNotifications() {
+        isPresentingRecentNotifications = true
     }
 
     private func enqueue(_ banner: InAppBannerItem) {
@@ -278,7 +287,7 @@ final class InAppNotificationCenter {
             return
         }
         dismissTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(3.5))
+            try? await Task.sleep(for: .seconds(4.5))
             guard !Task.isCancelled else { return }
             self?.dismissCurrentBanner()
         }

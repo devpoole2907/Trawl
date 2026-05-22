@@ -37,6 +37,7 @@ struct QBittorrentCategoriesAndTagsView: View {
         }
         .moreDestinationBackground(.categoriesAndTags)
         .navigationTitle(selectedTab == 0 ? "Categories" : "Tags")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -55,10 +56,10 @@ struct QBittorrentCategoriesAndTagsView: View {
                 .disabled(isSubmitting)
             }
         }
-        .alert("Create Category", isPresented: $showCreateCategoryAlert) {
+        .alert("Add Category", isPresented: $showCreateCategoryAlert) {
             TextField("Name", text: $newCategoryName)
             TextField("Save Path (Optional)", text: $newCategorySavePath)
-            Button("Create") {
+            Button("Add") {
                 Task { await createCategory() }
             }
             .disabled(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
@@ -79,9 +80,9 @@ struct QBittorrentCategoriesAndTagsView: View {
         } message: {
             Text("This removes the category \"\(categoryPendingDeletion ?? "")\" from qBittorrent.")
         }
-        .alert("Create Tag", isPresented: $showCreateTagAlert) {
+        .alert("Add Tag", isPresented: $showCreateTagAlert) {
             TextField("Name", text: $newTagName)
-            Button("Create") {
+            Button("Add") {
                 Task { await createTag() }
             }
             .disabled(newTagName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isSubmitting)
@@ -106,17 +107,17 @@ struct QBittorrentCategoriesAndTagsView: View {
         .task {
             await syncService.refreshNow()
         }
+        .refreshable {
+            await syncService.refreshNow()
+        }
         .safeAreaInset(edge: .top) {
-            Picker("View", selection: Binding(
+            TrawlSegmentBar("View", selection: Binding(
                 get: { selectedTab },
                 set: { newValue in withAnimation { selectedTab = newValue } }
-            )) {
-                Text("Categories").tag(0)
-                Text("Tags").tag(1)
-            }
-            .pickerStyle(.segmented)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .padding(.horizontal, 48)
+            ), items: [
+                TrawlSegmentBarItem("Categories", value: 0),
+                TrawlSegmentBarItem("Tags", value: 1)
+            ], alignment: .center)
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
     }

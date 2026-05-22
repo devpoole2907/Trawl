@@ -2,6 +2,8 @@ import SwiftUI
 
 struct ArrActivityView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
     @State private var mode: ArrActivityMode = .queue
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var sonarrQueue: [ArrQueueItem] = []
@@ -9,8 +11,10 @@ struct ArrActivityView: View {
     @State private var bazarrTasks: [BazarrTask] = []
     @State private var isLoading = false
     @State private var selectedItem: ActivityItem?
+    @State private var itemPendingRemoval: ActivityItem?
     @State private var manualImportPath: String?
     @State private var manualImportService: ArrServiceType = .sonarr
+    @State private var showActivitySettings = false
 
     private var activityRows: [ActivityRow] {
         var rows: [ActivityRow] = []
@@ -58,6 +62,8 @@ struct ArrActivityView: View {
         .onChange(of: mode) { _, newMode in
             if newMode == .history && serviceFilter == .bazarr {
                 serviceFilter = .all
+            } else if newMode == .queue && serviceFilter == .prowlarr {
+                serviceFilter = .all
             }
         }
         .sheet(item: $selectedItem) { activity in
@@ -82,10 +88,51 @@ struct ArrActivityView: View {
                 }
             }
         }
+        .alert("Remove Queue Item?", isPresented: removeConfirmationPresented) {
+            Button("Remove", role: .destructive) {
+                if let itemPendingRemoval {
+                    Task { await removeItem(itemPendingRemoval) }
+                }
+                itemPendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) {
+                itemPendingRemoval = nil
+            }
+        } message: {
+            Text("This removes the item from the Arr activity queue.")
+        }
+        .sheet(isPresented: $showActivitySettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected ? .sonarr : serviceManager.hasRadarrInstance && !serviceManager.radarrConnected ? .radarr : .sonarr)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showActivitySettings = false }
+                        }
+                    }
+            }
+        }
     }
 
     private var hasConfiguredService: Bool {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
+    }
+
+    private var isQueueConnecting: Bool {
+        let noneConnected = !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.hasAnyConnectedBazarrInstance
+        guard noneConnected else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr) ||
+            serviceManager.isConnecting(.bazarr)
+    }
+
+    private var queueServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        if serviceManager.hasBazarrInstance { services.append(.bazarr) }
+        return services
     }
 
     @ViewBuilder
@@ -105,10 +152,10 @@ struct ArrActivityView: View {
                 description: Text("Connect Sonarr, Radarr, or Bazarr to view service activity.")
             )
         } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.hasAnyConnectedBazarrInstance {
-            ContentUnavailableView(
-                "Services Unreachable",
-                systemImage: "network.slash",
-                description: Text("Unable to reach your configured services.")
+            ArrServicesConnectionStatusView(
+                services: queueServices,
+                title: "Services Unreachable",
+                message: "Unable to reach your configured services."
             )
         } else {
             ArrLoadingErrorEmptyView(
@@ -124,29 +171,64 @@ struct ArrActivityView: View {
                     ForEach(activityRows) { row in
                         switch row {
                         case .queue(let activityItem):
-                            Button {
-                                selectedItem = activityItem
-                            } label: {
-                                QueueItemRow(item: activityItem.item, source: activityItem.source)
-                            }
-                            .buttonStyle(.plain)
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    Task { await removeItem(activityItem) }
+                            let linkedTorrent = linkedTorrent(for: activityItem.item)
+
+                            if let linkedTorrent {
+                                NavigationLink {
+                                    TorrentDetailView(torrentHash: linkedTorrent.hash)
+                                        .environment(syncService)
+                                        .environment(torrentService)
                                 } label: {
-                                    Label("Remove", systemImage: "trash")
+                                    QueueItemRow(
+                                        item: activityItem.item,
+                                        source: activityItem.source,
+                                        linkedTorrent: linkedTorrent
+                                    )
                                 }
-                            }
-                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                if let path = activityItem.item.outputPath,
-                                   activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
-                                    Button {
-                                        manualImportService = activityItem.source
-                                        manualImportPath = path
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        itemPendingRemoval = activityItem
                                     } label: {
-                                        Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        Label("Remove", systemImage: "trash")
                                     }
-                                    .tint(.blue)
+                                }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    if let path = activityItem.item.outputPath,
+                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                        Button {
+                                            manualImportService = activityItem.source
+                                            manualImportPath = path
+                                        } label: {
+                                            Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        }
+                                        .tint(.blue)
+                                    }
+                                }
+                            } else {
+                                Button {
+                                    selectedItem = activityItem
+                                } label: {
+                                    QueueItemRow(item: activityItem.item, source: activityItem.source)
+                                }
+                                .buttonStyle(.plain)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    Button(role: .destructive) {
+                                        itemPendingRemoval = activityItem
+                                    } label: {
+                                        Label("Remove", systemImage: "trash")
+                                    }
+                                }
+                                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                    if let path = activityItem.item.outputPath,
+                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                        Button {
+                                            manualImportService = activityItem.source
+                                            manualImportPath = path
+                                        } label: {
+                                            Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                                        }
+                                        .tint(.blue)
+                                    }
                                 }
                             }
                         case .bazarrTask(let task):
@@ -167,6 +249,11 @@ struct ArrActivityView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.indigo.opacity(0.2), Color.clear],
                 startPoint: .top,
@@ -190,6 +277,13 @@ struct ArrActivityView: View {
         Binding(
             get: { manualImportPath != nil },
             set: { if !$0 { manualImportPath = nil } }
+        )
+    }
+
+    private var removeConfirmationPresented: Binding<Bool> {
+        Binding(
+            get: { itemPendingRemoval != nil },
+            set: { if !$0 { itemPendingRemoval = nil } }
         )
     }
 
@@ -271,6 +365,17 @@ struct ArrActivityView: View {
             break
         }
     }
+
+    private func linkedTorrent(for item: ArrQueueItem) -> Torrent? {
+        guard let downloadId = item.downloadId?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !downloadId.isEmpty else {
+            return nil
+        }
+
+        return syncService.torrents[downloadId]
+            ?? syncService.torrents[downloadId.lowercased()]
+            ?? syncService.torrents[downloadId.uppercased()]
+    }
 }
 
 // MARK: - Supporting types
@@ -314,6 +419,15 @@ private enum ArrActivityMode: String, CaseIterable, Identifiable {
         switch self {
         case .queue:   "Queue"
         case .history: "History"
+        }
+    }
+
+    var segmentBarItem: TrawlSegmentBarItem<Self> {
+        switch self {
+        case .queue:
+            TrawlSegmentBarItem(title, value: self)
+        case .history:
+            TrawlSegmentBarItem(title, value: self)
         }
     }
 }
@@ -362,13 +476,16 @@ private struct ActivityFilterMenu: View {
             Picker("Filter", selection: $serviceFilter) {
                 Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
                 if serviceManager.hasSonarrInstance {
-                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                    Label("Sonarr", systemImage: ServiceIdentity.sonarr.systemImage).tag(ArrServiceFilter.sonarr)
                 }
                 if serviceManager.hasRadarrInstance {
-                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                    Label("Radarr", systemImage: ServiceIdentity.radarr.systemImage).tag(ArrServiceFilter.radarr)
+                }
+                if serviceManager.hasProwlarrInstance && isHistoryMode {
+                    Label("Prowlarr", systemImage: ServiceIdentity.prowlarr.systemImage).tag(ArrServiceFilter.prowlarr)
                 }
                 if serviceManager.hasBazarrInstance && !isHistoryMode {
-                    Label("Bazarr", systemImage: "captions.bubble").tag(ArrServiceFilter.bazarr)
+                    Label("Bazarr", systemImage: ServiceIdentity.bazarr.systemImage).tag(ArrServiceFilter.bazarr)
                 }
             }
         } label: {
@@ -383,17 +500,10 @@ private struct ActivityModePicker: View {
     @Binding var mode: ArrActivityMode
 
     var body: some View {
-        Picker("Section", selection: Binding(
+        TrawlSegmentBar("Section", selection: Binding(
             get: { mode },
             set: { newMode in withAnimation { mode = newMode } }
-        )) {
-            ForEach(ArrActivityMode.allCases) { mode in
-                Text(mode.title).tag(mode)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
+        ), items: ArrActivityMode.allCases.map(\.segmentBarItem), alignment: .center)
         .transition(.opacity.combined(with: .move(edge: .top)))
     }
 }
@@ -407,13 +517,13 @@ private struct HealthFilterMenu: View {
             Picker("Filter", selection: $serviceFilter) {
                 Label("All", systemImage: "square.grid.2x2").tag(ArrServiceFilter.all)
                 if serviceManager.sonarrConnected {
-                    Label("Sonarr", systemImage: "tv").tag(ArrServiceFilter.sonarr)
+                    Label("Sonarr", systemImage: ServiceIdentity.sonarr.systemImage).tag(ArrServiceFilter.sonarr)
                 }
                 if serviceManager.radarrConnected {
-                    Label("Radarr", systemImage: "film").tag(ArrServiceFilter.radarr)
+                    Label("Radarr", systemImage: ServiceIdentity.radarr.systemImage).tag(ArrServiceFilter.radarr)
                 }
                 if serviceManager.prowlarrConnected {
-                    Label("Prowlarr", systemImage: "magnifyingglass.circle").tag(ArrServiceFilter.prowlarr)
+                    Label("Prowlarr", systemImage: ServiceIdentity.prowlarr.systemImage).tag(ArrServiceFilter.prowlarr)
                 }
             }
         } label: {
@@ -455,6 +565,7 @@ private extension ArrQueueItem {
 private struct QueueItemRow: View {
     let item: ArrQueueItem
     let source: ArrServiceType
+    var linkedTorrent: Torrent?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -474,9 +585,14 @@ private struct QueueItemRow: View {
                             .capitalized)
                             .foregroundStyle(statusColor)
                     }
-                    if let eta = item.shortETA {
+                    if let linkedTorrent {
                         Text("·")
-                        Label(eta, systemImage: "clock")
+                        Label(ByteFormatter.formatSpeed(bytesPerSecond: linkedTorrent.dlspeed), systemImage: "arrow.down")
+                            .foregroundStyle(.blue)
+                    }
+                    if let torrentETA {
+                        Text("·")
+                        Label(torrentETA, systemImage: "clock")
                     }
                     if let msg = item.statusMessages?.compactMap(\.messages).flatMap({ $0 }).first,
                        !msg.isEmpty {
@@ -497,6 +613,13 @@ private struct QueueItemRow: View {
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
+    }
+
+    private var torrentETA: String? {
+        if let linkedTorrent, !linkedTorrent.state.isCompleted, linkedTorrent.eta > 0, linkedTorrent.eta < 8_640_000 {
+            return ByteFormatter.formatETA(seconds: linkedTorrent.eta)
+        }
+        return item.shortETA
     }
 
     private var statusColor: Color {
@@ -683,6 +806,7 @@ struct ArrHealthView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var selectedItem: HealthItem?
+    @State private var showSettings = false
 
     private var allChecks: [HealthItem] {
         (
@@ -727,6 +851,17 @@ struct ArrHealthView: View {
                 .presentationDetents([.medium])
                 .presentationDragIndicator(.visible)
         }
+        .sheet(isPresented: $showSettings) {
+            NavigationStack {
+                ArrServiceSettingsView(serviceType: healthSettingsService)
+                    .environment(serviceManager)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done") { showSettings = false }
+                        }
+                    }
+            }
+        }
     }
 
     private var hasConfiguredService: Bool {
@@ -737,22 +872,42 @@ struct ArrHealthView: View {
         serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected
     }
 
+    private var healthServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
+        return services
+    }
+
+    private var isHealthConnecting: Bool {
+        guard !hasConnectedService else { return false }
+        return serviceManager.isInitializing ||
+            serviceManager.isConnecting(.sonarr) ||
+            serviceManager.isConnecting(.radarr) ||
+            serviceManager.isConnecting(.prowlarr)
+    }
+
+    private var healthSettingsService: ArrServiceType {
+        if serviceManager.hasSonarrInstance && !serviceManager.sonarrConnected { return .sonarr }
+        if serviceManager.hasRadarrInstance && !serviceManager.radarrConnected { return .radarr }
+        if serviceManager.hasProwlarrInstance && !serviceManager.prowlarrConnected { return .prowlarr }
+        return .sonarr
+    }
+
     @ViewBuilder
     private var contentView: some View {
-        if serviceManager.isLoadingHealth && allChecks.isEmpty {
-            ProgressView("Loading health checks...")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !hasConfiguredService {
+        if !hasConfiguredService {
             ContentUnavailableView(
                 "No Services Configured",
                 systemImage: "heart.text.square",
                 description: Text("Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.")
             )
         } else if !hasConnectedService {
-            ContentUnavailableView(
-                "Services Unreachable",
-                systemImage: "network.slash",
-                description: Text("Unable to reach your configured servers.")
+            ArrServicesConnectionStatusView(
+                services: healthServices,
+                title: "Services Unreachable",
+                message: "Unable to reach your configured servers."
             )
         } else if filteredChecks.isEmpty {
             ContentUnavailableView(
@@ -780,6 +935,11 @@ struct ArrHealthView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.pink.opacity(0.18), Color.clear],
                 startPoint: .top,

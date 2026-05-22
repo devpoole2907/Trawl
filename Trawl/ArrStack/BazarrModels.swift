@@ -1,10 +1,27 @@
 import Foundation
+import OSLog
 
 // MARK: - Generic Page
 
 nonisolated struct BazarrPage<T: Codable & Sendable>: Codable, Sendable {
     let data: [T]
     let total: Int
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case total
+    }
+
+    init(data: [T], total: Int) {
+        self.data = data
+        self.total = total
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        data = try container.decode([T].self, forKey: .data)
+        total = try container.decodeIfPresent(Int.self, forKey: .total) ?? data.count
+    }
 }
 
 // MARK: - Subtitle Types
@@ -317,6 +334,8 @@ nonisolated struct BazarrLanguage: Codable, Identifiable, Sendable {
 }
 
 nonisolated struct BazarrLanguageProfile: Codable, Identifiable, Sendable {
+    private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "BazarrModels")
+
     let profileId: Int
     let name: String
     let cutoff: Int?
@@ -378,7 +397,14 @@ nonisolated struct BazarrLanguageProfile: Codable, Identifiable, Sendable {
 
     var parsedItems: [BazarrLanguageProfileItem] {
         guard let json = itemsJSON, let data = json.data(using: .utf8) else { return [] }
-        return (try? JSONDecoder().decode([BazarrLanguageProfileItem].self, from: data)) ?? []
+        do {
+            return try JSONDecoder().decode([BazarrLanguageProfileItem].self, from: data)
+        } catch {
+            Self.logger.error(
+                "Failed to decode Bazarr language profile items for profile \(profileId): \(error.localizedDescription, privacy: .public)"
+            )
+            return []
+        }
     }
 }
 
@@ -406,11 +432,112 @@ private nonisolated extension KeyedDecodingContainer where Key == BazarrLanguage
 }
 
 nonisolated struct BazarrLanguageProfileItem: Codable, Identifiable, Sendable {
-    let language: String
-    let hi: Bool
-    let forced: Bool
+    var bazarrId: Int
+    var language: String
+    var hi: Bool
+    var forced: Bool
+    var audioExclude: Bool
+    var audioOnlyInclude: Bool
 
-    var id: String { language + (hi ? ":hi" : "") + (forced ? ":forced" : "") }
+    var id: String {
+        let suffix = "\(language):\(hi ? "1" : "0"):\(forced ? "1" : "0")"
+        return bazarrId > 0 ? "\(bazarrId):\(suffix)" : suffix
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case bazarrId = "id"
+        case language
+        case hi
+        case forced
+        case audioExclude = "audio_exclude"
+        case audioOnlyInclude = "audio_only_include"
+    }
+
+    init(
+        bazarrId: Int = 0,
+        language: String,
+        hi: Bool = false,
+        forced: Bool = false,
+        audioExclude: Bool = false,
+        audioOnlyInclude: Bool = false
+    ) {
+        self.bazarrId = bazarrId
+        self.language = language
+        self.hi = hi
+        self.forced = forced
+        self.audioExclude = audioExclude
+        self.audioOnlyInclude = audioOnlyInclude
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bazarrId = try Self.decodeRequiredBazarrId(container)
+        language = try Self.decodeRequiredLanguage(container)
+        hi = Self.decodePythonBool(container, key: .hi)
+        forced = Self.decodePythonBool(container, key: .forced)
+        audioExclude = Self.decodePythonBool(container, key: .audioExclude)
+        audioOnlyInclude = Self.decodePythonBool(container, key: .audioOnlyInclude)
+    }
+
+    // Bazarr's /api/system/settings expects Python-style "True"/"False" string booleans
+    // (see Bazarr dict_converter). Do not change to native JSON booleans.
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(bazarrId, forKey: .bazarrId)
+        try container.encode(language, forKey: .language)
+        try container.encode(hi ? "True" : "False", forKey: .hi)
+        try container.encode(forced ? "True" : "False", forKey: .forced)
+        try container.encode(audioExclude ? "True" : "False", forKey: .audioExclude)
+        try container.encode(audioOnlyInclude ? "True" : "False", forKey: .audioOnlyInclude)
+    }
+
+    private static func decodePythonBool(_ container: KeyedDecodingContainer<CodingKeys>, key: CodingKeys) -> Bool {
+        if let bool = try? container.decodeIfPresent(Bool.self, forKey: key) {
+            return bool
+        }
+        if let string = try? container.decodeIfPresent(String.self, forKey: key) {
+            switch string.lowercased() {
+            case "true", "1", "yes": return true
+            default: return false
+            }
+        }
+        return false
+    }
+
+    private static func decodeRequiredBazarrId(_ container: KeyedDecodingContainer<CodingKeys>) throws -> Int {
+        if let value = try? container.decodeIfPresent(Int.self, forKey: .bazarrId) {
+            return value
+        }
+        if let string = try? container.decodeIfPresent(String.self, forKey: .bazarrId),
+           let value = Int(string) {
+            return value
+        }
+        throw DecodingError.dataCorruptedError(
+            forKey: .bazarrId,
+            in: container,
+            debugDescription: "Language profile item is missing a valid Bazarr ID."
+        )
+    }
+
+    private static func decodeRequiredLanguage(_ container: KeyedDecodingContainer<CodingKeys>) throws -> String {
+        guard let language = try container.decodeIfPresent(String.self, forKey: .language) else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .language,
+                in: container,
+                debugDescription: "Language profile item is missing a language."
+            )
+        }
+
+        let trimmedLanguage = language.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedLanguage.isEmpty else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .language,
+                in: container,
+                debugDescription: "Language profile item has an empty language."
+            )
+        }
+        return trimmedLanguage
+    }
 }
 
 // MARK: - Providers
@@ -421,6 +548,28 @@ nonisolated struct BazarrProvider: Codable, Identifiable, Sendable {
     let retry: String?
 
     var id: String { name }
+}
+
+// MARK: - Logs
+
+nonisolated struct BazarrLogEntry: Codable, Identifiable, Sendable {
+    let id = UUID()
+    let level: String
+    let timestamp: String
+    let message: String
+
+    enum CodingKeys: String, CodingKey {
+        case level = "type"
+        case timestamp
+        case message
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        level = (try? c.decodeIfPresent(String.self, forKey: .level)) ?? "info"
+        timestamp = (try? c.decodeIfPresent(String.self, forKey: .timestamp)) ?? ""
+        message = (try? c.decodeIfPresent(String.self, forKey: .message)) ?? ""
+    }
 }
 
 // MARK: - History

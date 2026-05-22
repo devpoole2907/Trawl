@@ -10,6 +10,7 @@ struct ByteFormatterTests {
         (Int64(1048576), "1 MB"),
         (Int64(1073741824), "1 GB")
     ])
+    @MainActor
     func formatBytes(bytes: Int64, expected: String) {
         #expect(ByteFormatter.format(bytes: bytes) == expected)
     }
@@ -20,6 +21,7 @@ struct ByteFormatterTests {
         (Int64(1024), "1 KB/s"),
         (Int64(1536), "2 KB/s")
     ])
+    @MainActor
     func formatSpeed(bytesPerSecond: Int64, expected: String) {
         #expect(ByteFormatter.formatSpeed(bytesPerSecond: bytesPerSecond) == expected)
     }
@@ -33,6 +35,7 @@ struct ByteFormatterTests {
         (3720, "1h 2m"),
         (90000, "1d 1h")
     ])
+    @MainActor
     func formatETA(seconds: Int, expected: String) {
         #expect(ByteFormatter.formatETA(seconds: seconds) == expected)
     }

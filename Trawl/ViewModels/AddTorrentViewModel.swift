@@ -117,6 +117,10 @@ final class AddTorrentViewModel {
                 await persistSavePath(path, modelContext: modelContext)
             }
 
+            // Force a sync so the new torrent is in the list immediately rather
+            // than waiting up to one polling interval.
+            await syncService.refreshNow()
+
             isSubmitting = false
             return true
         } catch {

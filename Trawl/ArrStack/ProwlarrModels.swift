@@ -502,11 +502,13 @@ nonisolated enum ProwlarrLinkedAppType: String, CaseIterable, Identifiable, Send
     }
 
     var systemImage: String {
+        serviceIdentity.systemImage
+    }
+
+    var serviceIdentity: ServiceIdentity {
         switch self {
-        case .sonarr:
-            "tv"
-        case .radarr:
-            "film"
+        case .sonarr: .sonarr
+        case .radarr: .radarr
         }
     }
 }

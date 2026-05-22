@@ -22,6 +22,7 @@ final class TorrentListViewModel {
     private let torrentService: TorrentService
     private let notificationCenter: InAppNotificationCenter
     private var filterTask: Task<Void, Never>?
+    @ObservationIgnored private var observationGeneration = 0
 
     init(
         syncService: SyncService,
@@ -67,11 +68,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.pauseTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Paused", message: "\(hashes.count) torrents paused.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Pause Torrents", message: error.localizedDescription)
@@ -83,11 +85,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.resumeTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Resumed", message: "\(hashes.count) torrents resumed.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Resume Torrents", message: error.localizedDescription)
@@ -99,11 +102,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.recheckTorrents(hashes: hashes)
             notificationCenter.showSuccess(title: "Rechecking", message: "\(hashes.count) torrents queued for recheck.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Recheck Torrents", message: error.localizedDescription)
@@ -115,11 +119,12 @@ final class TorrentListViewModel {
         let hashes = Array(selectedHashes)
         hashes.forEach { processingHashes.insert($0) }
         clearSelection()
-        
+
         do {
             try await torrentService.deleteTorrents(hashes: hashes, deleteFiles: deleteFiles)
             notificationCenter.showSuccess(title: "Deleted", message: "\(hashes.count) torrents removed.")
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -134,11 +139,14 @@ final class TorrentListViewModel {
 
     func startSync() {
         scheduleFilterUpdate()
-        registerObservation()
+        observationGeneration += 1
+        let gen = observationGeneration
+        registerObservation(generation: gen)
     }
 
     func stopSync() {
         filterTask?.cancel()
+        observationGeneration += 1
     }
 
     func refresh() async {
@@ -182,7 +190,7 @@ final class TorrentListViewModel {
 
     /// Re-registers after each change so we react to every future update.
     @MainActor
-    private func registerObservation() {
+    private func registerObservation(generation: Int) {
         withObservationTracking {
             _ = syncService.torrents
             _ = selectedFilter
@@ -190,9 +198,9 @@ final class TorrentListViewModel {
             _ = sortOrder
         } onChange: { [weak self] in
             Task { @MainActor [weak self] in
-                guard let self else { return }
+                guard let self, self.observationGeneration == generation else { return }
                 self.scheduleFilterUpdate()
-                self.registerObservation()
+                self.registerObservation(generation: generation)
             }
         }
     }
@@ -291,6 +299,7 @@ final class TorrentListViewModel {
             try await torrentService.pauseTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Paused", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -307,6 +316,7 @@ final class TorrentListViewModel {
             try await torrentService.resumeTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Resumed", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -323,6 +333,7 @@ final class TorrentListViewModel {
             try await torrentService.recheckTorrents(hashes: [torrent.hash])
             notificationCenter.showSuccess(title: "Rechecking", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(
@@ -339,6 +350,7 @@ final class TorrentListViewModel {
             try await torrentService.deleteTorrents(hashes: [torrent.hash], deleteFiles: deleteFiles)
             notificationCenter.showSuccess(title: "Deleted", message: torrent.name)
             actionErrorAlert = nil
+            await syncService.refreshNow()
         } catch {
             notificationCenter.showError(title: "Error", message: error.localizedDescription)
             actionErrorAlert = ErrorAlertItem(

@@ -3,6 +3,7 @@ import SwiftUI
 struct TorrentDetailView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.dismiss) private var dismiss
     @State private var viewModel: TorrentDetailViewModel?
 
@@ -41,7 +42,7 @@ struct TorrentDetailView: View {
         }
         .task {
             if viewModel == nil {
-                let vm = TorrentDetailViewModel(torrentHash: torrentHash, torrentService: torrentService, syncService: syncService)
+                let vm = TorrentDetailViewModel(torrentHash: torrentHash, torrentService: torrentService, syncService: syncService, notificationCenter: inAppNotificationCenter)
                 viewModel = vm
                 async let properties: Void = vm.loadProperties()
                 async let files: Void = vm.loadFiles()
@@ -87,6 +88,13 @@ struct TorrentDetailView: View {
         #else
         .listStyle(.inset)
         #endif
+        .refreshable {
+            await syncService.refreshNow()
+            async let properties: Void = vm.loadProperties()
+            async let files: Void = vm.loadFiles()
+            async let trackers: Void = vm.loadTrackers()
+            _ = await (properties, files, trackers)
+        }
         .alert("Delete Torrent?", isPresented: $showDeleteAlert) {
             Button("Delete and Remove Files", role: .destructive) {
                 Task {
@@ -267,41 +275,45 @@ struct TorrentDetailView: View {
             Divider()
 
             Menu {
-                Picker(
-                    "Download Limit",
-                    selection: Binding(
-                        get: { selectedDownloadLimit },
-                        set: { newVal in
-                            selectedDownloadLimit = newVal
-                            Task { await vm.setTorrentDownloadLimit(newVal) }
+                Menu {
+                    Picker(
+                        "Download Limit",
+                        selection: Binding(
+                            get: { selectedDownloadLimit },
+                            set: { newVal in
+                                selectedDownloadLimit = newVal
+                                Task { await vm.setTorrentDownloadLimit(newVal) }
+                            }
+                        )
+                    ) {
+                        ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
+                            Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
                         }
-                    )
-                ) {
-                    ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
-                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
                     }
+                } label: {
+                    Label("Download", systemImage: "arrow.down.circle")
                 }
-            } label: {
-                Label("Download Limit", systemImage: "arrow.down.circle")
-            }
 
-            Menu {
-                Picker(
-                    "Upload Limit",
-                    selection: Binding(
-                        get: { selectedUploadLimit },
-                        set: { newVal in
-                            selectedUploadLimit = newVal
-                            Task { await vm.setTorrentUploadLimit(newVal) }
+                Menu {
+                    Picker(
+                        "Upload Limit",
+                        selection: Binding(
+                            get: { selectedUploadLimit },
+                            set: { newVal in
+                                selectedUploadLimit = newVal
+                                Task { await vm.setTorrentUploadLimit(newVal) }
+                            }
+                        )
+                    ) {
+                        ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
+                            Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
                         }
-                    )
-                ) {
-                    ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
-                        Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
                     }
+                } label: {
+                    Label("Upload", systemImage: "arrow.up.circle")
                 }
             } label: {
-                Label("Upload Limit", systemImage: "arrow.up.circle")
+                Label("Speed Limits", systemImage: "speedometer")
             }
 
             Divider()
@@ -312,8 +324,9 @@ struct TorrentDetailView: View {
                 Label("Delete Torrent", systemImage: "trash")
             }
         } label: {
-            Image(systemName: "ellipsis.circle")
+            Image(systemName: "ellipsis")
         }
+        .accessibilityLabel("Torrent Actions")
     }
 
     @ViewBuilder
@@ -433,7 +446,7 @@ private struct TorrentTagsSheet: View {
     @Bindable var viewModel: TorrentDetailViewModel
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(title: "Tags", cancelTitle: "Done") {
             List {
                 if viewModel.availableTags.isEmpty {
                     ContentUnavailableView(
@@ -458,17 +471,6 @@ private struct TorrentTagsSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
-                    }
-                }
-            }
-            .navigationTitle("Tags")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
                     }
                 }
             }

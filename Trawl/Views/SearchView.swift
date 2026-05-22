@@ -4,53 +4,16 @@ import SwiftData
 struct SearchView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(\.horizontalSizeClass) private var hSizeClass
     let appServices: AppServices?
 
-    @State private var searchText = ""
-    @State private var isSearchPresented = false
-    @State private var scope: SearchScope = .arr
-    @State private var filter: ResultKind = .all
+    @State private var viewModel = SearchViewModel()
     @State private var showClearConfirmation = false
-    @State private var actionErrorAlert: ErrorAlertItem?
-    @State private var arrAddInFlightIDs: Set<String> = []
 
     @Namespace private var trendingTransition
 
-    // Loaded library
-    @State private var sonarrSeries: [SonarrSeries] = []
-    @State private var radarrMovies: [RadarrMovie] = []
-    @State private var isLoadingLibrary = false
-
-    // Arr lookup
-    @State private var sonarrLookupVM: SonarrViewModel?
-    @State private var radarrLookupVM: RadarrViewModel?
-    @State private var arrFilter: ArrResultKind = .all
-    @State private var hasSearchedArr = false
-    @State private var arrLookupTask: Task<Void, Never>?
-    @State private var activeArrLookupTerm = ""
-    @State private var lastCompletedArrLookupTerm = ""
-    @State private var sonarrLookupContextKey = ""
-    @State private var radarrLookupContextKey = ""
-
-    // TMDb trending
-    @State private var tmdbAPIKey: String = ""
-    @State private var trendingMovies: [TMDbItem] = []
-    @State private var trendingTV: [TMDbItem] = []
-    @State private var isLoadingTrending = false
-    @State private var trendingError: String?
-
-    // Pre-fetched Arr matches for trending items (keyed by TMDb ID)
-    @State private var movieMatches: [Int: RadarrMovie] = [:]
-    @State private var seriesMatches: [Int: SonarrSeries] = [:]
-
     // Recents
     @AppStorage("search.recents") private var recentsStorage: String = "[]"
-
-    // Incremental Library Matches
-    @State private var matchedTorrents: [Torrent] = []
-    @State private var matchedSeries: [SonarrSeries] = []
-    @State private var matchedMovies: [RadarrMovie] = []
-    @State private var librarySearchTask: Task<Void, Never>?
 
     // MARK: - Body
 
@@ -60,20 +23,19 @@ struct SearchView: View {
                 content
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
 
-                if isSearchPresented && searchText.isEmpty {
-                    Picker("Scope", selection: $scope) { 
-                        Text("Discover").tag(SearchScope.arr)
-                        Text("Library").tag(SearchScope.library)
-                    }
-                    .pickerStyle(.segmented)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                    .padding(.horizontal, 48)
+                if viewModel.isSearchPresented && viewModel.searchText.isEmpty {
+                    TrawlSegmentBar(
+                        "Scope",
+                        selection: $viewModel.scope,
+                        items: SearchScope.segmentBarItems,
+                        alignment: .center
+                    )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: isSearchPresented)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: scope)
-            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: searchText.isEmpty)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isSearchPresented)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.scope)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.searchText.isEmpty)
             .navigationTitle("")
             .navigationDestination(for: String.self) { hash in
                 if let services = appServices {
@@ -95,7 +57,7 @@ struct SearchView: View {
                 }
             }
             .navigationDestination(for: ArrSeriesLookupDestination.self) { dest in
-                if let vm = sonarrLookupVM {
+                if let vm = viewModel.sonarrLookupVM {
                     SonarrSeriesDetailView(
                         series: dest.series,
                         viewModel: vm,
@@ -110,7 +72,7 @@ struct SearchView: View {
                 }
             }
             .navigationDestination(for: ArrMovieLookupDestination.self) { dest in
-                if let vm = radarrLookupVM {
+                if let vm = viewModel.radarrLookupVM {
                     RadarrMovieDetailView(
                         movie: dest.movie,
                         viewModel: vm,
@@ -126,26 +88,26 @@ struct SearchView: View {
             }
         }
         .searchable(
-            text: $searchText,
-            isPresented: $isSearchPresented,
+            text: $viewModel.searchText,
+            isPresented: $viewModel.isSearchPresented,
             placement: .automatic,
             prompt: searchPrompt
         )
         .onSubmit(of: .search) {
-            recordRecent(searchText)
-            if scope == .arr {
+            recordRecent(viewModel.searchText)
+            if viewModel.scope == .arr {
                 startArrLookup(immediate: true)
             }
         }
-        .onChange(of: scope) { _, newScope in
+        .onChange(of: viewModel.scope) { _, newScope in
             if newScope == .arr {
                 startArrLookup(immediate: true)
             } else {
-                arrLookupTask?.cancel()
+                viewModel.arrLookupTask?.cancel()
             }
         }
-        .onChange(of: searchText) { _, newValue in
-            if scope == .arr {
+        .onChange(of: viewModel.searchText) { _, newValue in
+            if viewModel.scope == .arr {
                 let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                 if trimmed.isEmpty {
                     resetArrLookup()
@@ -157,30 +119,31 @@ struct SearchView: View {
             }
         }
         .task {
-            // Load TMDb API key from Keychain first
-            if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-                tmdbAPIKey = key
-            }
-            await loadTrending()
+            await viewModel.loadStoredTMDbAPIKeyAndTrending(arrServiceManager: arrServiceManager)
         }
         .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
             await refreshLibrary()
             createLookupViewModels()
             await reconcileTrendingMatches()
         }
-        .errorAlert(item: $actionErrorAlert)
+        .refreshable {
+            await loadTrending()
+            await refreshLibrary()
+            await reconcileTrendingMatches()
+        }
+        .errorAlert(item: $viewModel.actionErrorAlert)
     }
 
     // MARK: - Content routing
 
     @ViewBuilder
     private var content: some View {
-        if isSearchPresented && searchText.isEmpty {
+        if viewModel.isSearchPresented && viewModel.searchText.isEmpty {
             recentSearchesContent
-        } else if searchText.isEmpty {
+        } else if viewModel.searchText.isEmpty {
             popularThisWeekContent
         } else {
-            switch scope {
+            switch viewModel.scope {
             case .library:
                 resultsContent
             case .arr:
@@ -206,8 +169,8 @@ struct SearchView: View {
                 Section {
                     ForEach(recents, id: \.self) { term in
                         Button {
-                            searchText = term
-                            if scope == .arr {
+                            viewModel.searchText = term
+                            if viewModel.scope == .arr {
                                 startArrLookup(immediate: true)
                             }
                         } label: {
@@ -265,10 +228,10 @@ struct SearchView: View {
 
     @ViewBuilder
     private var popularThisWeekContent: some View {
-        let hasContent = !trendingMovies.isEmpty || !trendingTV.isEmpty
+        let hasContent = !viewModel.trendingMovies.isEmpty || !viewModel.trendingTV.isEmpty
 
         ScrollView {
-            if isLoadingTrending && !hasContent {
+            if viewModel.isLoadingTrending && !hasContent {
                 VStack(spacing: 16) {
                     Spacer(minLength: 80)
                     ProgressView()
@@ -277,14 +240,14 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
-            } else if tmdbAPIKey.isEmpty {
+            } else if viewModel.tmdbAPIKey.isEmpty {
                 ContentUnavailableView {
                     Label("Popular This Week", systemImage: "flame")
                 } description: {
                     Text("Add a TMDb API key in Settings to see trending movies and TV shows.")
                 }
                 .padding(.top, 60)
-            } else if let error = trendingError, !hasContent {
+            } else if let error = viewModel.trendingError, !hasContent {
                 ContentUnavailableView {
                     Label("Couldn't Load Trending", systemImage: "exclamationmark.triangle")
                 } description: {
@@ -293,11 +256,11 @@ struct SearchView: View {
                 .padding(.top, 60)
             } else if hasContent {
                 LazyVStack(alignment: .leading, spacing: 24) {
-                    if !trendingMovies.isEmpty {
-                        trendingSection(title: "Trending Movies", icon: "film", items: trendingMovies)
+                    if !viewModel.trendingMovies.isEmpty {
+                        trendingSection(title: "Trending Movies", icon: "film", items: viewModel.trendingMovies)
                     }
-                    if !trendingTV.isEmpty {
-                        trendingSection(title: "Trending TV Shows", icon: "tv", items: trendingTV)
+                    if !viewModel.trendingTV.isEmpty {
+                        trendingSection(title: "Trending TV Shows", icon: "tv", items: viewModel.trendingTV)
                     }
                 }
                 .padding(.top, 8)
@@ -334,7 +297,7 @@ struct SearchView: View {
     private func trendingCard(item: TMDbItem) -> some View {
         let inLibrary = isInLibrary(item)
 
-        if item.isMovie, let match = movieMatches[item.id] {
+        if item.isMovie, let match = viewModel.movieMatches[item.id] {
             let dest = ArrMovieLookupDestination(movie: match)
             NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
@@ -343,7 +306,7 @@ struct SearchView: View {
                     #endif
             }
             .buttonStyle(.plain)
-        } else if !item.isMovie, let match = seriesMatches[item.id] {
+        } else if !item.isMovie, let match = viewModel.seriesMatches[item.id] {
             let dest = ArrSeriesLookupDestination(series: match)
             NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
@@ -355,12 +318,12 @@ struct SearchView: View {
         } else {
             Button {
                 if let year = item.year {
-                    searchText = "\(item.displayTitle) \(year)"
+                    viewModel.searchText = "\(item.displayTitle) \(year)"
                 } else {
-                    searchText = item.displayTitle
+                    viewModel.searchText = item.displayTitle
                 }
-                isSearchPresented = true
-                scope = .arr
+                viewModel.isSearchPresented = true
+                viewModel.scope = .arr
                 startArrLookup(immediate: true)
             } label: {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
@@ -382,7 +345,7 @@ struct SearchView: View {
                                 .foregroundStyle(.tertiary)
                         }
                 }
-                .frame(width: 140, height: 210)
+                .frame(width: hSizeClass == .regular ? 180 : 140, height: hSizeClass == .regular ? 270 : 210)
                 .clipShape(RoundedRectangle(cornerRadius: 12))
 
                 if inLibrary {
@@ -421,34 +384,25 @@ struct SearchView: View {
         }
     }
 
-    private func isInLibrary(_ item: TMDbItem) -> Bool {
-        if item.isMovie {
-            return radarrMovies.contains { $0.tmdbId == item.id }
-        } else {
-            let title = item.displayTitle.lowercased()
-            return sonarrSeries.contains { $0.title.lowercased() == title }
-        }
-    }
-
     // MARK: - Library results
 
     @ViewBuilder
     private var resultsContent: some View {
-        let totalCount = matchedTorrents.count + matchedSeries.count + matchedMovies.count
+        let totalCount = viewModel.matchedTorrents.count + viewModel.matchedSeries.count + viewModel.matchedMovies.count
 
         VStack(spacing: 0) {
-            filterPills(torrents: matchedTorrents.count,
-                        series: matchedSeries.count,
-                        movies: matchedMovies.count)
+            filterPills(torrents: viewModel.matchedTorrents.count,
+                        series: viewModel.matchedSeries.count,
+                        movies: viewModel.matchedMovies.count)
 
             if totalCount == 0 {
-                ContentUnavailableView.search(text: searchText)
+                ContentUnavailableView.search(text: viewModel.searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 List {
-                    if shouldShow(.torrents), !matchedTorrents.isEmpty {
+                    if shouldShow(.torrents), !viewModel.matchedTorrents.isEmpty {
                         Section("Torrents") {
-                            ForEach(matchedTorrents) { torrent in
+                            ForEach(viewModel.matchedTorrents) { torrent in
                                 NavigationLink(value: torrent.hash) {
                                     TorrentRowView(torrent: torrent)
                                 }
@@ -456,9 +410,9 @@ struct SearchView: View {
                         }
                     }
 
-                    if shouldShow(.series), !matchedSeries.isEmpty {
+                    if shouldShow(.series), !viewModel.matchedSeries.isEmpty {
                         Section("Series") {
-                            ForEach(matchedSeries) { series in
+                            ForEach(viewModel.matchedSeries) { series in
                                 let isMonitored = series.monitored ?? true
                                 NavigationLink(value: SeriesDestination(id: series.id)) {
                                     SonarrSeriesRow(series: series, hasIssue: false)
@@ -469,7 +423,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                 }
@@ -479,7 +433,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                     .tint(isMonitored ? .orange : .green)
@@ -488,9 +442,9 @@ struct SearchView: View {
                         }
                     }
 
-                    if shouldShow(.movies), !matchedMovies.isEmpty {
+                    if shouldShow(.movies), !viewModel.matchedMovies.isEmpty {
                         Section("Movies") {
-                            ForEach(matchedMovies) { movie in
+                            ForEach(viewModel.matchedMovies) { movie in
                                 let isMonitored = movie.monitored ?? true
                                 NavigationLink(value: MovieDestination(id: movie.id)) {
                                     RadarrMovieRow(movie: movie, hasIssue: false)
@@ -501,7 +455,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                 }
@@ -511,7 +465,7 @@ struct SearchView: View {
                                     } label: {
                                         Label(
                                             isMonitored ? "Unmonitor" : "Monitor",
-                                            systemImage: isMonitored ? "eye.slash" : "eye"
+                                            systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                         )
                                     }
                                     .tint(isMonitored ? .orange : .green)
@@ -521,7 +475,7 @@ struct SearchView: View {
                     }
                 }
                 .listStyle(.plain)
-                .animation(.default, value: filter)
+                .animation(.default, value: viewModel.filter)
             }
         }
     }
@@ -549,10 +503,10 @@ struct SearchView: View {
     }
 
     private func pill(kind: ResultKind, title: String, icon: String, count: Int) -> some View {
-        let isSelected = filter == kind
+        let isSelected = viewModel.filter == kind
         return Button {
             withAnimation(.snappy) {
-                filter = kind
+                viewModel.filter = kind
             }
         } label: {
             HStack(spacing: 6) {
@@ -573,24 +527,24 @@ struct SearchView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial))
-            .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+            .background(isSelected ? Color.accentColor : Color(uiColor: .secondarySystemGroupedBackground))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
 
     private func shouldShow(_ kind: ResultKind) -> Bool {
-        filter == .all || filter == kind
+        viewModel.filter == .all || viewModel.filter == kind
     }
 
     // MARK: - Arr results
 
     @ViewBuilder
     private var arrResultsContent: some View {
-        let seriesResults = sonarrLookupVM?.searchResults ?? []
-        let movieResults = radarrLookupVM?.searchResults ?? []
-        let isSearching = (sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false)
+        let seriesResults = viewModel.sonarrLookupVM?.searchResults ?? []
+        let movieResults = viewModel.radarrLookupVM?.searchResults ?? []
+        let isSearching = (viewModel.sonarrLookupVM?.isSearching ?? false) || (viewModel.radarrLookupVM?.isSearching ?? false)
         let totalCount = seriesResults.count + movieResults.count
         let lookupErrors = arrLookupErrors
 
@@ -607,9 +561,9 @@ struct SearchView: View {
                     Spacer()
                 }
                 .frame(maxWidth: .infinity)
-            } else if totalCount == 0 && hasSearchedArr {
+            } else if totalCount == 0 && viewModel.hasSearchedArr {
                 if lookupErrors.isEmpty {
-                    ContentUnavailableView.search(text: searchText)
+                    ContentUnavailableView.search(text: viewModel.searchText)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ContentUnavailableView {
@@ -650,8 +604,8 @@ struct SearchView: View {
                     if arrShouldShow(.series), !seriesResults.isEmpty {
                         Section("Series") {
                             ForEach(seriesResults) { series in
-                                let existsInLibrary = sonarrSeries.contains(where: { $0.tvdbId == series.tvdbId })
-                                let libraryMatch = sonarrSeries.first(where: { $0.tvdbId == series.tvdbId })
+                                let existsInLibrary = viewModel.sonarrSeries.contains(where: { $0.tvdbId == series.tvdbId })
+                                let libraryMatch = viewModel.sonarrSeries.first(where: { $0.tvdbId == series.tvdbId })
                                 NavigationLink(value: ArrSeriesLookupDestination(series: series)) {
                                     ArrSeriesResultRow(
                                         series: series,
@@ -667,7 +621,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                         }
@@ -688,7 +642,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                             .tint(isMonitored ? .orange : .green)
@@ -709,8 +663,8 @@ struct SearchView: View {
                     if arrShouldShow(.movies), !movieResults.isEmpty {
                         Section("Movies") {
                             ForEach(movieResults) { movie in
-                                let existsInLibrary = radarrMovies.contains(where: { $0.tmdbId == movie.tmdbId })
-                                let libraryMatch = radarrMovies.first(where: { $0.tmdbId == movie.tmdbId })
+                                let existsInLibrary = viewModel.radarrMovies.contains(where: { $0.tmdbId == movie.tmdbId })
+                                let libraryMatch = viewModel.radarrMovies.first(where: { $0.tmdbId == movie.tmdbId })
                                 NavigationLink(value: ArrMovieLookupDestination(movie: movie)) {
                                     ArrMovieResultRow(
                                         movie: movie,
@@ -726,7 +680,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                         }
@@ -747,7 +701,7 @@ struct SearchView: View {
                                             } label: {
                                                 Label(
                                                     isMonitored ? "Unmonitor" : "Monitor",
-                                                    systemImage: isMonitored ? "eye.slash" : "eye"
+                                                    systemImage: isMonitored ? "bookmark.slash" : "bookmark.fill"
                                                 )
                                             }
                                             .tint(isMonitored ? .orange : .green)
@@ -770,22 +724,9 @@ struct SearchView: View {
         }
     }
 
-    private var arrLookupErrors: [ArrLookupError] {
-        var errors: [ArrLookupError] = []
+    private var arrLookupErrors: [ArrLookupError] { viewModel.arrLookupErrors }
 
-        if let error = sonarrLookupVM?.error, !error.isEmpty {
-            errors.append(ArrLookupError(service: "Sonarr", message: error))
-        }
-
-        if let error = radarrLookupVM?.error, !error.isEmpty {
-            errors.append(ArrLookupError(service: "Radarr", message: error))
-        }
-
-        return errors
-    }
-
-
-    // MARK: - Arr filter pills
+    private var searchPrompt: String { viewModel.searchPrompt }
 
     @ViewBuilder
     private func arrFilterPills(series: Int, movies: Int) -> some View {
@@ -807,9 +748,9 @@ struct SearchView: View {
     }
 
     private func arrPill(kind: ArrResultKind, title: String, icon: String, count: Int) -> some View {
-        let isSelected = arrFilter == kind
+        let isSelected = viewModel.arrFilter == kind
         return Button {
-            arrFilter = kind
+            viewModel.arrFilter = kind
         } label: {
             HStack(spacing: 6) {
                 Image(systemName: icon)
@@ -829,15 +770,15 @@ struct SearchView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 7)
-            .background(isSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.regularMaterial))
-            .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+            .background(isSelected ? Color.accentColor : Color(uiColor: .secondarySystemGroupedBackground))
+            .foregroundStyle(isSelected ? Color.white : Color.primary)
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
 
     private func arrShouldShow(_ kind: ArrResultKind) -> Bool {
-        arrFilter == .all || arrFilter == kind
+        viewModel.arrFilter == .all || viewModel.arrFilter == kind
     }
 
     @ViewBuilder
@@ -857,7 +798,7 @@ struct SearchView: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
     }
 
     @ViewBuilder
@@ -873,473 +814,60 @@ struct SearchView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Arr lookup
+    private func isInLibrary(_ item: TMDbItem) -> Bool {
+        viewModel.isInLibrary(item)
+    }
 
     private func createLookupViewModels() {
-        let nextSonarrKey = sonarrLookupKey(
-            isConnected: arrServiceManager.sonarrConnected,
-            series: sonarrSeries
-        )
-        if !arrServiceManager.sonarrConnected {
-            sonarrLookupVM = nil
-            sonarrLookupContextKey = nextSonarrKey
-        } else if sonarrLookupVM == nil || sonarrLookupContextKey != nextSonarrKey {
-            sonarrLookupVM = SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: sonarrSeries)
-            sonarrLookupContextKey = nextSonarrKey
-        }
-
-        let nextRadarrKey = radarrLookupKey(
-            isConnected: arrServiceManager.radarrConnected,
-            movies: radarrMovies
-        )
-        if !arrServiceManager.radarrConnected {
-            radarrLookupVM = nil
-            radarrLookupContextKey = nextRadarrKey
-        } else if radarrLookupVM == nil || radarrLookupContextKey != nextRadarrKey {
-            radarrLookupVM = RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: radarrMovies)
-            radarrLookupContextKey = nextRadarrKey
-        }
+        viewModel.createLookupViewModels(arrServiceManager: arrServiceManager)
     }
 
     private func reconcileTrendingMatches() async {
-        guard !trendingMovies.isEmpty || !trendingTV.isEmpty else {
-            movieMatches.removeAll()
-            seriesMatches.removeAll()
-            return
-        }
-
-        if arrServiceManager.radarrConnected || arrServiceManager.sonarrConnected {
-            await resolveTrendingMatches(movies: trendingMovies, tv: trendingTV)
-        } else {
-            movieMatches.removeAll()
-            seriesMatches.removeAll()
-        }
+        await viewModel.reconcileTrendingMatches(arrServiceManager: arrServiceManager)
     }
 
     private func startArrLookup(immediate: Bool = false) {
-        let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !term.isEmpty else {
-            resetArrLookup()
-            return
-        }
-
-        let isCurrentlySearchingTerm = activeArrLookupTerm == term
-            && ((sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false))
-        if isCurrentlySearchingTerm || (lastCompletedArrLookupTerm == term && !immediate) {
-            return
-        }
-
-        arrLookupTask?.cancel()
-        arrLookupTask = Task {
-            if !immediate {
-                try? await Task.sleep(for: .milliseconds(300))
-            }
-            guard !Task.isCancelled else { return }
-            await performArrLookup(term: term)
-        }
-    }
-
-    private func performArrLookup(term: String) async {
-        guard sonarrLookupVM != nil || radarrLookupVM != nil else {
-            hasSearchedArr = false
-            activeArrLookupTerm = ""
-            return
-        }
-
-        hasSearchedArr = true
-        activeArrLookupTerm = term
-        sonarrLookupVM?.clearSearchResults()
-        radarrLookupVM?.clearSearchResults()
-
-        defer {
-            if activeArrLookupTerm == term {
-                activeArrLookupTerm = ""
-                lastCompletedArrLookupTerm = term
-            }
-        }
-
-        await withTaskGroup(of: Void.self) { group in
-            if let sonarrLookupVM {
-                group.addTask {
-                    await sonarrLookupVM.searchForNewSeries(term: term)
-                }
-            }
-            if let radarrLookupVM {
-                group.addTask {
-                    await radarrLookupVM.searchForNewMovies(term: term)
-                }
-            }
-        }
+        viewModel.startArrLookup(arrServiceManager: arrServiceManager, immediate: immediate)
     }
 
     private func resetArrLookup() {
-        arrLookupTask?.cancel()
-        activeArrLookupTerm = ""
-        lastCompletedArrLookupTerm = ""
-        hasSearchedArr = false
-        sonarrLookupVM?.clearSearchResults()
-        radarrLookupVM?.clearSearchResults()
+        viewModel.resetArrLookup()
     }
-
-    private func sonarrLookupKey(isConnected: Bool, series: [SonarrSeries]) -> String {
-        guard isConnected else { return "disconnected" }
-        let fingerprint = series
-            .sorted { $0.id < $1.id }
-            .map {
-                [
-                    String($0.id),
-                    $0.title,
-                    $0.status ?? "",
-                    $0.monitored.map(String.init) ?? "",
-                    $0.qualityProfileId.map(String.init) ?? "",
-                    $0.rootFolderPath ?? "",
-                    $0.path ?? ""
-                ].joined(separator: "|")
-            }
-            .joined(separator: ",")
-        return "connected:\(fingerprint)"
-    }
-
-    private func radarrLookupKey(isConnected: Bool, movies: [RadarrMovie]) -> String {
-        guard isConnected else { return "disconnected" }
-        let fingerprint = movies
-            .sorted { $0.id < $1.id }
-            .map {
-                [
-                    String($0.id),
-                    $0.title,
-                    $0.status ?? "",
-                    $0.monitored.map(String.init) ?? "",
-                    $0.qualityProfileId.map(String.init) ?? "",
-                    $0.rootFolderPath ?? "",
-                    $0.path ?? ""
-                ].joined(separator: "|")
-            }
-            .joined(separator: ",")
-        return "connected:\(fingerprint)"
-    }
-
-
-    // MARK: - Search prompt
-
-    private var searchPrompt: String {
-        switch scope {
-        case .library: "Your library"
-        case .arr:     "Sonarr & Radarr"
-        }
-    }
-
-    // MARK: - Library search implementation
 
     private func startLibrarySearch() {
-        librarySearchTask?.cancel()
-        
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        if query.isEmpty {
-            matchedTorrents = []
-            matchedSeries = []
-            matchedMovies = []
-            return
-        }
-
-        librarySearchTask = Task {
-            // Torrents
-            if let syncService = appServices?.syncService {
-                let torrents = syncService.torrents.values
-                    .filter { $0.name.lowercased().contains(query) }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-                
-                matchedTorrents = []
-                for chunk in torrents.chunked(into: 5) {
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.spring(response: 0.3)) {
-                        matchedTorrents.append(contentsOf: chunk)
-                    }
-                    try? await Task.sleep(for: .milliseconds(10))
-                }
-            }
-
-            // Series
-            let series = sonarrSeries
-                .filter { $0.title.lowercased().contains(query) }
-                .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
-            
-            matchedSeries = []
-            for chunk in series.chunked(into: 5) {
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.3)) {
-                    matchedSeries.append(contentsOf: chunk)
-                }
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-
-            // Movies
-            let movies = radarrMovies
-                .filter { $0.title.lowercased().contains(query) }
-                .sorted { ($0.sortTitle ?? $0.title) < ($1.sortTitle ?? $1.title) }
-            
-            matchedMovies = []
-            for chunk in movies.chunked(into: 5) {
-                guard !Task.isCancelled else { return }
-                withAnimation(.spring(response: 0.3)) {
-                    matchedMovies.append(contentsOf: chunk)
-                }
-                try? await Task.sleep(for: .milliseconds(10))
-            }
-        }
+        viewModel.startLibrarySearch(appServices: appServices)
     }
-
-    // MARK: - Library loading
 
     private func refreshLibrary() async {
-        isLoadingLibrary = true
-        defer { isLoadingLibrary = false }
-        let sonarrClient = arrServiceManager.sonarrClient
-        let radarrClient = arrServiceManager.radarrClient
-        let existingSonarrSeries = sonarrSeries
-        let existingRadarrMovies = radarrMovies
-
-        async let sonarrTask: [SonarrSeries] = {
-            guard let client = sonarrClient else { return [] }
-            do {
-                return try await client.getSeries()
-            } catch {
-                return existingSonarrSeries
-            }
-        }()
-        async let radarrTask: [RadarrMovie] = {
-            guard let client = radarrClient else { return [] }
-            do {
-                return try await client.getMovies()
-            } catch {
-                return existingRadarrMovies
-            }
-        }()
-
-        let (series, movies) = await (sonarrTask, radarrTask)
-        sonarrSeries = series
-        radarrMovies = movies
-        createLookupViewModels()
+        await viewModel.refreshLibrary(arrServiceManager: arrServiceManager)
     }
-
-    // MARK: - TMDb trending
 
     private func loadTrending() async {
-        guard !tmdbAPIKey.isEmpty else {
-            trendingMovies = []
-            trendingTV = []
-            return
-        }
-        isLoadingTrending = true
-        trendingError = nil
-        defer { isLoadingTrending = false }
-
-        let client = TMDbClient(apiKey: tmdbAPIKey)
-        do {
-            async let moviesTask = client.trendingMovies()
-            async let tvTask = client.trendingTV()
-            let (movies, tv) = try await (moviesTask, tvTask)
-            trendingMovies = movies
-            trendingTV = tv
-            await resolveTrendingMatches(movies: movies, tv: tv)
-        } catch {
-            trendingError = error.localizedDescription
-        }
-    }
-
-    /// Resolve TMDb trending items to their Radarr/Sonarr representations in the background.
-    private func resolveTrendingMatches(movies: [TMDbItem], tv: [TMDbItem]) async {
-        let radarrClient = arrServiceManager.radarrClient
-        let sonarrClient = arrServiceManager.sonarrClient
-
-        // Movies: use Radarr's TMDb ID lookup (fast, one call per movie)
-        if let radarrClient {
-            // Clear stale entries for items being refreshed
-            for item in movies.prefix(20) {
-                movieMatches.removeValue(forKey: item.id)
-            }
-
-            await withTaskGroup(of: (Int, RadarrMovie?).self) { group in
-                for item in movies.prefix(20) {
-                    group.addTask {
-                        let match = try? await radarrClient.lookupMovieByTmdb(tmdbId: item.id)
-                        return (item.id, match)
-                    }
-                }
-                for await (tmdbId, match) in group {
-                    if let match {
-                        movieMatches[tmdbId] = match
-                    }
-                }
-            }
-        } else {
-            // Clear all movie matches if radarrClient is nil
-            for item in movies.prefix(20) {
-                movieMatches.removeValue(forKey: item.id)
-            }
-        }
-
-        // TV: use Sonarr term search, prefer year match over first result
-        if let sonarrClient {
-            // Clear stale entries for items being refreshed
-            let tvItems = Array(tv.prefix(20).map { (id: $0.id, title: $0.displayTitle, year: $0.year) })
-            for item in tvItems {
-                seriesMatches.removeValue(forKey: item.id)
-            }
-
-            await withTaskGroup(of: (Int, SonarrSeries?).self) { group in
-                for item in tvItems {
-                    group.addTask {
-                        guard let results = try? await sonarrClient.lookupSeries(term: item.title),
-                              !results.isEmpty else { return (item.id, nil) }
-                        // Prefer exact year match to avoid e.g. "Euphoria 2019" → "Euphoria 2011"
-                        if let yearStr = item.year, let year = Int(yearStr) {
-                            if let yearMatch = results.first(where: { $0.year == year }) {
-                                return (item.id, yearMatch)
-                            }
-                        }
-                        return (item.id, results.first)
-                    }
-                }
-                for await (tmdbId, match) in group {
-                    if let match {
-                        seriesMatches[tmdbId] = match
-                    }
-                }
-            }
-        } else {
-            // Clear all series matches if sonarrClient is nil
-            for item in tv.prefix(20) {
-                seriesMatches.removeValue(forKey: item.id)
-            }
-        }
+        await viewModel.loadTrending(arrServiceManager: arrServiceManager)
     }
 
     private func makeSonarrViewModel() -> SonarrViewModel? {
-        guard arrServiceManager.sonarrConnected else { return nil }
-        return SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: sonarrSeries)
+        viewModel.makeSonarrViewModel(arrServiceManager: arrServiceManager)
     }
 
     private func makeRadarrViewModel() -> RadarrViewModel? {
-        guard arrServiceManager.radarrConnected else { return nil }
-        return RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: radarrMovies)
+        viewModel.makeRadarrViewModel(arrServiceManager: arrServiceManager)
     }
 
     private func toggleLibrarySeriesMonitored(_ series: SonarrSeries) async {
-        guard let viewModel = makeSonarrViewModel() else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Update Series", message: "Sonarr is not connected.")
-            return
-        }
-
-        await viewModel.toggleSeriesMonitored(series)
-        await refreshLibrary()
-
-        if let error = viewModel.error, !error.isEmpty {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Update Series", message: error)
-        }
+        await viewModel.toggleLibrarySeriesMonitored(series, arrServiceManager: arrServiceManager)
     }
 
     private func toggleLibraryMovieMonitored(_ movie: RadarrMovie) async {
-        guard let viewModel = makeRadarrViewModel() else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Update Movie", message: "Radarr is not connected.")
-            return
-        }
-
-        await viewModel.toggleMovieMonitored(movie)
-        await refreshLibrary()
-
-        if let error = viewModel.error, !error.isEmpty {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Update Movie", message: error)
-        }
+        await viewModel.toggleLibraryMovieMonitored(movie, arrServiceManager: arrServiceManager)
     }
 
     private func quickAddSeries(_ series: SonarrSeries) async {
-        guard let viewModel = sonarrLookupVM else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "Sonarr is not connected.")
-            return
-        }
-        guard let tvdbId = series.tvdbId else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "This search result is missing a TVDB ID.")
-            return
-        }
-
-        let flightID = "series-\(tvdbId)"
-        guard !arrAddInFlightIDs.contains(flightID) else { return }
-        arrAddInFlightIDs.insert(flightID)
-        defer { arrAddInFlightIDs.remove(flightID) }
-
-        guard let titleSlug = series.titleSlug, !titleSlug.isEmpty else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "This search result is missing a title slug.")
-            return
-        }
-        guard let qualityProfileId = viewModel.qualityProfiles.first?.id else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "No Sonarr quality profile is available.")
-            return
-        }
-        guard let rootFolderPath = viewModel.rootFolders.first?.path else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "No Sonarr root folder is configured.")
-            return
-        }
-
-        let wasAdded = await viewModel.addSeries(
-            tvdbId: tvdbId,
-            title: series.title,
-            titleSlug: titleSlug,
-            images: series.images ?? [],
-            seasons: series.seasons ?? [],
-            qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath
-        )
-
-        if wasAdded {
-            await refreshLibrary()
-        } else {
-            actionErrorAlert = ErrorAlertItem(
-                title: "Couldn't Add Series",
-                message: viewModel.error ?? "Sonarr rejected the add request."
-            )
-        }
+        await viewModel.quickAddSeries(series, arrServiceManager: arrServiceManager)
     }
 
     private func quickAddMovie(_ movie: RadarrMovie) async {
-        guard let viewModel = radarrLookupVM else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "Radarr is not connected.")
-            return
-        }
-        guard let tmdbId = movie.tmdbId else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "This search result is missing a TMDb ID.")
-            return
-        }
-
-        let flightID = "movie-\(tmdbId)"
-        guard !arrAddInFlightIDs.contains(flightID) else { return }
-        arrAddInFlightIDs.insert(flightID)
-        defer { arrAddInFlightIDs.remove(flightID) }
-
-        guard let qualityProfileId = viewModel.qualityProfiles.first?.id else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "No Radarr quality profile is available.")
-            return
-        }
-        guard let rootFolderPath = viewModel.rootFolders.first?.path else {
-            actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "No Radarr root folder is configured.")
-            return
-        }
-
-        let wasAdded = await viewModel.addMovie(
-            title: movie.title,
-            tmdbId: tmdbId,
-            qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath
-        )
-
-        if wasAdded {
-            await refreshLibrary()
-        } else {
-            actionErrorAlert = ErrorAlertItem(
-                title: "Couldn't Add Movie",
-                message: viewModel.error ?? "Radarr rejected the add request."
-            )
-        }
+        await viewModel.quickAddMovie(movie, arrServiceManager: arrServiceManager)
     }
 
     // MARK: - Recents persistence
@@ -1382,7 +910,7 @@ struct SearchView: View {
 
 // MARK: - Arr result rows
 
-private struct ArrLookupError: Identifiable {
+struct ArrLookupError: Identifiable {
     let service: String
     let message: String
 
@@ -1473,16 +1001,23 @@ private struct ArrMovieResultRow: View {
 enum SearchScope: Hashable {
     case library
     case arr
+
+    static var segmentBarItems: [TrawlSegmentBarItem<SearchScope>] {
+        [
+            TrawlSegmentBarItem("Discover", value: .arr),
+            TrawlSegmentBarItem("Library", value: .library)
+        ]
+    }
 }
 
-private enum ResultKind: Hashable {
+enum ResultKind: Hashable {
     case all
     case torrents
     case series
     case movies
 }
 
-private enum ArrResultKind: Hashable {
+enum ArrResultKind: Hashable {
     case all
     case series
     case movies

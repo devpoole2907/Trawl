@@ -86,9 +86,17 @@ final class SeerrSetupViewModel {
                         existing.isEnabled = originalEnabledStates[existing.id] ?? existing.isEnabled
                     }
                     if let originalSessionCookie {
-                        try? await KeychainHelper.shared.save(key: sessionCookieKey, value: originalSessionCookie)
+                        do {
+                            try await KeychainHelper.shared.save(key: sessionCookieKey, value: originalSessionCookie)
+                        } catch {
+                            InAppNotificationCenter.shared.showError(title: "Failed to Restore Session", message: error.localizedDescription)
+                        }
                     } else {
-                        try? await KeychainHelper.shared.delete(key: sessionCookieKey)
+                        do {
+                            try await KeychainHelper.shared.delete(key: sessionCookieKey)
+                        } catch {
+                            InAppNotificationCenter.shared.showError(title: "Failed to Delete Session", message: error.localizedDescription)
+                        }
                     }
                 }
                 throw error

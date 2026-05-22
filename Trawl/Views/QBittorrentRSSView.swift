@@ -39,6 +39,7 @@ struct QBittorrentRSSView: View {
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
         .navigationTitle("RSS Feeds")
+        .navigationSubtitle("qBittorrent")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
@@ -81,6 +82,9 @@ struct QBittorrentRSSView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
+            await loadRSSItems()
+        }
+        .refreshable {
             await loadRSSItems()
         }
     }
@@ -175,6 +179,11 @@ struct QBittorrentRSSView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.cyan.opacity(0.18), Color.clear],
                 startPoint: .top,

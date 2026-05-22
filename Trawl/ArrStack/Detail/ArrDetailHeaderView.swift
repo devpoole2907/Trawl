@@ -9,6 +9,7 @@ struct ArrDetailHeaderView: View {
     let year: Int?
     let runtime: Int?
     let badges: [ArrDetailBadge]
+    let genres: [String]
 
     var body: some View {
         VStack(spacing: 14) {
@@ -40,6 +41,11 @@ struct ArrDetailHeaderView: View {
                 .minimumScaleFactor(0.8)
 
                 ArrDetailBadgeSection(badges: badges)
+
+                if !genres.isEmpty {
+                    ArrDetailGenreChips(genres: genres)
+                        .padding(.top, 2)
+                }
             }
         }
         .frame(maxWidth: .infinity)

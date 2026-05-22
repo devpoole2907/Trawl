@@ -26,6 +26,14 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/series/lookup", queryItems: params)
     }
 
+    func lookupSeriesByTvdb(tvdbId: Int) async throws -> SonarrSeries {
+        let results = try await lookupSeries(term: "tvdb:\(tvdbId)")
+        if let exact = results.first(where: { $0.tvdbId == tvdbId }) {
+            return exact
+        }
+        throw ArrError.serverError(statusCode: 404, message: "No Sonarr lookup result found for TVDb \(tvdbId).")
+    }
+
     /// Add a new series to Sonarr
     func addSeries(_ body: SonarrAddSeriesBody) async throws -> SonarrSeries {
         try await base.postCodable("/api/v3/series", body: body)
@@ -164,6 +172,17 @@ actor SonarrAPIClient: SharedArrClient {
         let params: [String: Any] = [
             "name": SonarrCommand.seriesSearch.rawValue,
             "seriesId": seriesId
+        ]
+        return try await base.post("/api/v3/command", jsonBody: params)
+    }
+
+    func renameSeriesFiles(seriesId: Int) async throws -> ArrCommand {
+        let files = try await getEpisodeFiles(seriesId: seriesId)
+        let fileIds = files.compactMap { $0.id }
+        let params: [String: Any] = [
+            "name": SonarrCommand.renameFiles.rawValue,
+            "seriesId": seriesId,
+            "files": fileIds
         ]
         return try await base.post("/api/v3/command", jsonBody: params)
     }

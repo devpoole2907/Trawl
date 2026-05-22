@@ -15,10 +15,10 @@ struct ArrDiskSpaceView: View {
                     description: Text("Connect Sonarr or Radarr to inspect storage usage.")
                 )
             } else if !hasConnectedService {
-                ContentUnavailableView(
-                    "Services Unreachable",
-                    systemImage: "network.slash",
-                    description: Text("Unable to reach your configured Sonarr or Radarr servers.")
+                ArrServicesConnectionStatusView(
+                    services: diskSpaceServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
             } else if isLoading && snapshots.isEmpty {
                 ProgressView("Loading disk space...")
@@ -33,11 +33,11 @@ struct ArrDiskSpaceView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 20) {
                         if !sonarrSnapshots.isEmpty {
-                            serviceSection(title: "Sonarr", color: .purple, snapshots: sonarrSnapshots)
+                            serviceSection(title: "Sonarr", color: ServiceIdentity.sonarr.brandColor, snapshots: sonarrSnapshots)
                         }
 
                         if !radarrSnapshots.isEmpty {
-                            serviceSection(title: "Radarr", color: .orange, snapshots: radarrSnapshots)
+                            serviceSection(title: "Radarr", color: ServiceIdentity.radarr.brandColor, snapshots: radarrSnapshots)
                         }
                     }
                     .padding(16)
@@ -56,6 +56,13 @@ struct ArrDiskSpaceView: View {
 
     private var hasConfiguredService: Bool {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+    }
+
+    private var diskSpaceServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
     }
 
     private var hasConnectedService: Bool {
@@ -113,6 +120,11 @@ struct ArrDiskSpaceView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.teal.opacity(0.24), Color.clear],
                 startPoint: .top,
@@ -183,7 +195,7 @@ private struct DiskSpaceCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func progressTint(totalSpace: Int64, freeSpace: Int64) -> Color {

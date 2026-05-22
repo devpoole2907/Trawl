@@ -33,7 +33,7 @@ struct SonarrAddSeriesSheet: View {
                     Section {
                         HStack {
                             Spacer()
-                            ProgressView("Searching...")
+                            ProgressView("Searching…")
                             Spacer()
                         }
                     }

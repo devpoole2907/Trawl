@@ -6,6 +6,6 @@ struct TorrentRowView: View {
 
     var body: some View {
         TorrentSummaryView(torrent: torrent, isProcessing: isProcessing)
-        .padding(.vertical, 6)
+        .padding(.vertical, 4)
     }
 }

@@ -157,12 +157,12 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
 
     func setSeriesProfile(seriesId: Int, profileId: Int?) async throws {
         guard let client else { throw ArrError.noServiceConfigured }
-        try await client.updateSeriesProfile(seriesIds: [seriesId], profileIds: [profileId.map(String.init) ?? "none"])
+        try await client.updateSeriesProfile(seriesIds: [seriesId], profileIds: [profileId.map(String.init)])
     }
 
     func setMovieProfile(radarrId: Int, profileId: Int?) async throws {
         guard let client else { throw ArrError.noServiceConfigured }
-        try await client.updateMovieProfile(radarrIds: [radarrId], profileIds: [profileId.map(String.init) ?? "none"])
+        try await client.updateMovieProfile(radarrIds: [radarrId], profileIds: [profileId.map(String.init)])
     }
 
     func downloadEpisodeSubtitles(seriesId: Int, episodeId: Int, language: String, forced: Bool, hi: Bool) async throws {

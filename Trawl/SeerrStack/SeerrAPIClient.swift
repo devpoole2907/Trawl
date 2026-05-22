@@ -2,31 +2,64 @@ import Foundation
 
 /// Core Seerr HTTP client for Trawl's admin features.
 actor SeerrAPIClient {
-    nonisolated let baseURL: String
-    private let session: URLSession
-    private var sessionCookie: String?
-    private let trustPolicy: ServerTrustPolicy
+    nonisolated var baseURL: String { transport.baseURL }
+    private let transport: HTTPTransport
     private var onCookieUpdate: (@Sendable (String) -> Void)?
 
     init(baseURL: String, sessionCookie: String? = nil, allowsUntrustedTLS: Bool = false) {
-        var url = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
-        if url.hasSuffix("/") { url = String(url.dropLast()) }
-        self.baseURL = url
-        self.sessionCookie = sessionCookie
-        self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
+        let mapper = HTTPErrorMapper(
+            badURL: { SeerrAPIError.badURL },
+            transport: { error in
+                if let urlError = error as? URLError { return SeerrAPIError.transport(urlError) }
+                return SeerrAPIError.transport(URLError(.unknown))
+            },
+            unauthorized: { SeerrAPIError.unauthorized },
+            http: { code, body in SeerrAPIError.http(status: code, body: body) },
+            decode: { error in SeerrAPIError.decode(reason: String(describing: error)) },
+            invalidResponse: { SeerrAPIError.invalidResponse },
+            unauthorizedStatusCodes: [401, 403]
+        )
 
         let config = URLSessionConfiguration.ephemeral
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+
+        self.transport = HTTPTransport(
+            baseURL: baseURL,
+            auth: .mutable(name: "Cookie", format: { value in
+                guard let value, !value.isEmpty else { return nil }
+                return "connect.sid=\(value)"
+            }),
+            initialMutableAuthValue: sessionCookie,
+            allowsUntrustedTLS: allowsUntrustedTLS,
+            sessionConfiguration: config,
+            errorMapper: mapper
+        )
     }
 
     /// Registers a handler invoked whenever Seerr issues a fresh `connect.sid` cookie
     /// on a response. The owner can persist the updated cookie so future launches use
     /// the latest value rather than the original one captured at sign-in.
-    func setCookieUpdateHandler(_ handler: @escaping @Sendable (String) -> Void) {
+    func setCookieUpdateHandler(_ handler: @escaping @Sendable (String) -> Void) async {
         self.onCookieUpdate = handler
+        // Capture rolling cookies via a transport response observer.
+        // The closure does not retain `self` (it captures it weakly), which avoids
+        // a retain cycle with the transport.
+        let observerCallback: @Sendable (HTTPURLResponse) -> Void = { [weak self] response in
+            guard let updated = Self.extractSessionCookie(from: response), !updated.isEmpty else { return }
+            Task { [weak self] in
+                await self?.handleRollingCookie(updated)
+            }
+        }
+        await transport.setResponseObserver(observerCallback)
+    }
+
+    private func handleRollingCookie(_ updated: String) async {
+        let current = await transport.currentMutableAuthValue()
+        guard current != updated else { return }
+        await transport.setMutableAuthValue(updated)
+        onCookieUpdate?(updated)
     }
 
     // MARK: - Auth
@@ -35,7 +68,7 @@ actor SeerrAPIClient {
         let body: [String: String] = ["username": username, "password": password]
         let (data, response) = try await postRaw("/api/v1/auth/jellyfin", jsonBody: body)
 
-        captureRollingCookie(from: response)
+        await captureRollingCookie(from: response)
 
         guard response.statusCode == 200 else {
             if response.statusCode == 401 || response.statusCode == 403 {
@@ -53,11 +86,11 @@ actor SeerrAPIClient {
 
     func logout() async throws {
         _ = try? await postVoid("/api/v1/auth/logout", jsonBody: [:] as [String: String])
-        sessionCookie = nil
+        await transport.setMutableAuthValue(nil)
     }
 
-    func getSessionCookie() -> String? { sessionCookie }
-    func setSessionCookie(_ cookie: String) { sessionCookie = cookie }
+    func getSessionCookie() async -> String? { await transport.currentMutableAuthValue() }
+    func setSessionCookie(_ cookie: String) async { await transport.setMutableAuthValue(cookie) }
 
     // MARK: - Admin Endpoints (Users)
 
@@ -184,6 +217,18 @@ actor SeerrAPIClient {
         return try await get(path)
     }
 
+    func getJobs() async throws -> [SeerrJob] {
+        try await get("/api/v1/settings/jobs")
+    }
+
+    func runJob(id: String) async throws {
+        try await postVoid("/api/v1/settings/jobs/\(id)/run", jsonBody: [String: String]())
+    }
+
+    func cancelJob(id: String) async throws {
+        try await postVoid("/api/v1/settings/jobs/\(id)/cancel", jsonBody: [String: String]())
+    }
+
     func getLogs(take: Int = 100, skip: Int = 0, filter: String = "debug", search: String? = nil) async throws -> [SeerrServerLogEntry] {
         var params = [
             "take": String(take),
@@ -204,113 +249,38 @@ actor SeerrAPIClient {
     // MARK: - HTTP Infrastructure
 
     private func get<T: Decodable>(_ path: String, params: [String: String] = [:]) async throws -> T {
-        let request = try buildRequest(path: path, method: "GET", queryParams: params)
-        return try await perform(request)
+        try await transport.get(path, queryItems: Self.queryItems(from: params))
     }
 
-    private func post<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await perform(request)
+    private func post<T: Decodable, B: Encodable>(_ path: String, body: sending B) async throws -> T {
+        try await transport.postCodable(path, body: body)
     }
 
-    private func put<T: Decodable, B: Encodable>(_ path: String, body: B) async throws -> T {
-        var request = try buildRequest(path: path, method: "PUT")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        return try await perform(request)
+    private func put<T: Decodable, B: Encodable>(_ path: String, body: sending B) async throws -> T {
+        try await transport.putCodable(path, body: body)
     }
 
-    private func postVoid<B: Encodable>(_ path: String, jsonBody: B) async throws {
-        var request = try buildRequest(path: path, method: "POST")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(jsonBody)
-        try await performVoid(request)
+    private func postVoid<B: Encodable>(_ path: String, jsonBody: sending B) async throws {
+        try await transport.postVoidCodable(path, body: jsonBody)
     }
 
     private func postRaw(_ path: String, jsonBody: [String: String]) async throws -> (Data, HTTPURLResponse) {
-        var request = try buildRequest(path: path, method: "POST")
+        var request = try await transport.buildRequest(path: path, method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: jsonBody)
-
-        let (data, response) = try await sessionData(for: request)
-        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
-        return (data, http)
+        return try await transport.performRaw(request)
     }
 
     private func deleteVoid(_ path: String) async throws {
-        let request = try buildRequest(path: path, method: "DELETE")
-        try await performVoid(request)
+        try await transport.delete(path)
     }
 
-    private func buildRequest(path: String, method: String, queryParams: [String: String] = [:]) throws -> URLRequest {
-        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
-            throw SeerrAPIError.badURL
-        }
-        if !queryParams.isEmpty {
-            components.queryItems = queryParams.map { URLQueryItem(name: $0.key, value: $0.value) }
-        }
-        guard let url = components.url else {
-            throw SeerrAPIError.badURL
-        }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        if let cookie = sessionCookie {
-            request.setValue("connect.sid=\(cookie)", forHTTPHeaderField: "Cookie")
-        }
-        return request
-    }
-
-    private func sessionData(for request: URLRequest) async throws -> (Data, URLResponse) {
-        do {
-            return try await session.data(for: request)
-        } catch is CancellationError {
-            throw CancellationError()
-        } catch let urlError as URLError {
-            if urlError.code == .cancelled { throw CancellationError() }
-            throw SeerrAPIError.transport(urlError)
-        } catch {
-            throw SeerrAPIError.transport(URLError(.unknown))
-        }
-    }
-
-    private func perform<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await sessionData(for: request)
-
-        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
-
-        captureRollingCookie(from: http)
-
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw SeerrAPIError.unauthorized
-        }
-
-        guard (200..<400).contains(http.statusCode) else {
-            throw SeerrAPIError.http(status: http.statusCode, body: bodyString(from: data))
-        }
-
-        do {
-            return try JSONDecoder().decode(T.self, from: data)
-        } catch {
-            throw SeerrAPIError.decode(reason: String(describing: error))
-        }
-    }
-
-    private func performVoid(_ request: URLRequest) async throws {
-        let (data, response) = try await sessionData(for: request)
-
-        guard let http = response as? HTTPURLResponse else { throw SeerrAPIError.invalidResponse }
-
-        captureRollingCookie(from: http)
-
-        if http.statusCode == 401 || http.statusCode == 403 {
-            throw SeerrAPIError.unauthorized
-        }
-
-        guard (200..<400).contains(http.statusCode) else {
-            throw SeerrAPIError.http(status: http.statusCode, body: bodyString(from: data))
-        }
+    private func captureRollingCookie(from response: HTTPURLResponse) async {
+        guard
+            let updated = Self.extractSessionCookie(from: response),
+            !updated.isEmpty
+        else { return }
+        await handleRollingCookie(updated)
     }
 
     private func decode<T: Decodable>(_ type: T.Type, from data: Data) throws -> T {
@@ -326,26 +296,91 @@ actor SeerrAPIClient {
         return String(data: data, encoding: .utf8)
     }
 
-    /// Parse `Set-Cookie` headers using `HTTPCookie` so multi-cookie responses and
-    /// header field name casing variations are handled correctly.
-    private func extractSessionCookie(from response: HTTPURLResponse) -> String? {
+    /// Parse every exposed `Set-Cookie` value so multi-cookie responses do not lose
+    /// `connect.sid` before Foundation's cookie parser can inspect it.
+    private nonisolated static func extractSessionCookie(from response: HTTPURLResponse) -> String? {
         guard let url = response.url else { return nil }
-        let headers = response.allHeaderFields.reduce(into: [String: String]()) { result, pair in
-            if let key = pair.key as? String, let value = pair.value as? String {
-                result[key] = value
+
+        for headerValue in setCookieHeaderValues(from: response) {
+            let cookies = HTTPCookie.cookies(withResponseHeaderFields: ["Set-Cookie": headerValue], for: url)
+            if let value = cookies.first(where: { $0.name == "connect.sid" })?.value {
+                return value
+            }
+            if let value = sessionCookieValue(fromSetCookieHeader: headerValue) {
+                return value
             }
         }
-        let cookies = HTTPCookie.cookies(withResponseHeaderFields: headers, for: url)
-        return cookies.first { $0.name == "connect.sid" }?.value
+        return nil
     }
 
-    private func captureRollingCookie(from response: HTTPURLResponse) {
-        guard
-            let updated = extractSessionCookie(from: response),
-            !updated.isEmpty,
-            updated != sessionCookie
-        else { return }
-        sessionCookie = updated
-        onCookieUpdate?(updated)
+    private nonisolated static func setCookieHeaderValues(from response: HTTPURLResponse) -> [String] {
+        var values: [String] = []
+        for (rawKey, rawValue) in response.allHeaderFields {
+            guard let key = rawKey as? String,
+                  key.caseInsensitiveCompare("Set-Cookie") == .orderedSame
+            else { continue }
+            appendSetCookieHeaderValues(rawValue, to: &values)
+        }
+
+        if values.isEmpty, let fallback = response.value(forHTTPHeaderField: "Set-Cookie") {
+            appendSetCookieHeader(fallback, to: &values)
+        }
+        return values
+    }
+
+    private nonisolated static func appendSetCookieHeaderValues(_ rawValue: Any, to values: inout [String]) {
+        if let value = rawValue as? String {
+            appendSetCookieHeader(value, to: &values)
+        } else if let valueList = rawValue as? [String] {
+            valueList.forEach { appendSetCookieHeader($0, to: &values) }
+        } else if let valueList = rawValue as? NSArray {
+            valueList.compactMap { $0 as? String }.forEach { appendSetCookieHeader($0, to: &values) }
+        }
+    }
+
+    private nonisolated static func appendSetCookieHeader(_ value: String, to values: inout [String]) {
+        let lines = value
+            .split(whereSeparator: \.isNewline)
+            .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if lines.isEmpty {
+            let trimmedValue = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmedValue.isEmpty {
+                values.append(trimmedValue)
+            }
+        } else {
+            values.append(contentsOf: lines)
+        }
+    }
+
+    private nonisolated static func sessionCookieValue(fromSetCookieHeader header: String) -> String? {
+        let marker = "connect.sid="
+        var searchRange = header.startIndex..<header.endIndex
+        while let markerRange = header.range(of: marker, options: [.caseInsensitive], range: searchRange) {
+            if isCookieBoundary(before: markerRange.lowerBound, in: header) {
+                let valueStart = markerRange.upperBound
+                let valueEnd = header[valueStart...].firstIndex { character in
+                    character == ";" || character == "," || character.isNewline
+                } ?? header.endIndex
+                let value = header[valueStart..<valueEnd].trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty {
+                    return value
+                }
+            }
+            searchRange = markerRange.upperBound..<header.endIndex
+        }
+        return nil
+    }
+
+    private nonisolated static func isCookieBoundary(before index: String.Index, in header: String) -> Bool {
+        guard index > header.startIndex else { return true }
+        let previous = header[..<index].last { !$0.isWhitespace }
+        return previous == ","
+    }
+
+    private nonisolated static func queryItems(from params: [String: String]) -> [URLQueryItem] {
+        guard !params.isEmpty else { return [] }
+        return params.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
 }

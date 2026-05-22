@@ -23,8 +23,29 @@ new_files = [
     "ArrStack/Library/ArrConnectingView.swift",
     "ArrStack/Library/ArrEmptyStateView.swift",
     "ArrStack/Library/ArrLibraryListView.swift",
+    "ArrStack/Library/ArrMediaListView.swift",
+    "ArrStack/ArrMediaListView.swift",
     "ArrStack/Library/InstanceDisplayNameResolver.swift",
-    "ArrStack/Library/TitleSectioning.swift"
+    "ArrStack/Library/TitleSectioning.swift",
+    "JellyfinStack/JellyfinAPIClient.swift",
+    "JellyfinStack/JellyfinAPIError.swift",
+    "JellyfinStack/JellyfinActivityLogView.swift",
+    "JellyfinStack/JellyfinAdminView.swift",
+    "JellyfinStack/JellyfinAuthHeader.swift",
+    "JellyfinStack/JellyfinServiceManager.swift",
+    "JellyfinStack/JellyfinLibrariesView.swift",
+    "JellyfinStack/JellyfinPluginsView.swift",
+    "JellyfinStack/JellyfinScheduledTasksView.swift",
+    "JellyfinStack/JellyfinSessionsView.swift",
+    "JellyfinStack/JellyfinSetupSheet.swift",
+    "JellyfinStack/JellyfinSetupViewModel.swift",
+    "JellyfinStack/JellyfinSharedModels.swift",
+    "JellyfinStack/JellyfinSystemInfoView.swift",
+    "JellyfinStack/JellyfinUserEditorView.swift",
+    "JellyfinStack/JellyfinUserEditorViewModel.swift",
+    "JellyfinStack/JellyfinUserManagementView.swift",
+    "JellyfinStack/JellyfinUserManagementViewModel.swift",
+    "SeerrStack/SeerrMediaRequestCard.swift"
 ]
 
 def insert_exceptions(target_block, files):
@@ -34,13 +55,23 @@ def insert_exceptions(target_block, files):
         return target_block
     
     existing = match.group(1)
-    lines = [line.strip() for line in existing.split('\n') if line.strip()]
+    paths = set()
+    for line in existing.split('\n'):
+        path = line.strip().rstrip(',')
+        if path.startswith('"') and path.endswith('"'):
+            path = path[1:-1]
+        if path:
+            paths.add(path)
     
     for f in files:
-        if f + "," not in lines and '"' + f + '",' not in lines:
-            lines.append('"' + f + '",')
-            
-    lines.sort()
+        paths.add(f)
+
+    lines = []
+    for path in sorted(paths):
+        if any(char in path for char in (' ', '-')):
+            lines.append(f'"{path}",')
+        else:
+            lines.append(f'{path},')
     
     new_exceptions = "\n\t\t\t\t".join(lines)
     if new_exceptions:
@@ -61,7 +92,13 @@ if section_start != -1 and section_end != -1:
     blocks = re.split(r'(?=\t\t[A-F0-9]{24} /\* Exceptions)', section_content)
     
     for i in range(len(blocks)):
-        if ("TrawlShare" in blocks[i] and "Trawl/" in blocks[i]) or ("TrawlWidgets" in blocks[i] and "Trawl/" in blocks[i]):
+        if (
+            'Exceptions for "Trawl" folder' in blocks[i]
+            and (
+                'target = CC000003CC000003CC000003 /* TrawlShare */;' in blocks[i]
+                or 'target = FF000003FF000003FF000003 /* TrawlWidgets */;' in blocks[i]
+            )
+        ):
             blocks[i] = insert_exceptions(blocks[i], new_files)
             
     new_section_content = "".join(blocks)

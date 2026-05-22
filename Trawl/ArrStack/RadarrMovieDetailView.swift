@@ -12,9 +12,13 @@ struct RadarrMovieDetailView: View {
     private let discoverMovie: RadarrMovie?
     private let onAdded: (() async -> Void)?
 
+    @State private var showRenameFilesAlert = false
+    @State private var isRenamingFiles = false
     @State private var showDeleteAlert = false
     @State private var deleteFiles = false
     @State private var showEditSheet = false
+    @State private var showRootFolderAlert = false
+    @State private var rootFolderText = ""
     @State private var showDeleteFileAlert = false
     @State private var movieFileToDelete: Int?
     @State private var isFilesExpanded = false
@@ -66,30 +70,34 @@ struct RadarrMovieDetailView: View {
         return viewModel.movies.contains { $0.tmdbId == tmdbId }
     }
 
+    private var layoutAnimationKey: Int {
+        var hasher = Hasher()
+        hasher.combine(movie?.hasFile)
+        hasher.combine(movie?.monitored)
+        hasher.combine(isInLibrary)
+        hasher.combine(viewModel.queue.count)
+        hasher.combine(viewModel.movieFiles.count)
+        return hasher.finalize()
+    }
+
     var body: some View {
         ArrItemDetailView(
             item: movie,
             title: movie?.title ?? "Movie",
             backgroundURL: movie?.posterURL ?? movie?.fanartURL
-        ) {
-            if let movie {
-                ScrollView {
-                    VStack(alignment: .center, spacing: 20) {
-                        heroSection(movie)
-                        cardsSection(movie)
-                    }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 44)
-                    .frame(maxWidth: 720)
-                    .frame(maxWidth: .infinity)
+        ) { movie in
+            ScrollView {
+                VStack(alignment: .center, spacing: 20) {
+                    heroSection(movie)
+                    cardsSection(movie)
                 }
+                .padding(.horizontal, 16)
+                .padding(.bottom, 44)
+                .frame(maxWidth: 720)
+                .frame(maxWidth: .infinity)
             }
         }
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie?.hasFile)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie?.monitored)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: isInLibrary)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.queue.map(\.id))
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: viewModel.movieFiles.map(\.id))
+        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
         .task(id: movie?.id) {
             bazarrMovieSubtitles = nil
             guard let movie, let client = serviceManager.activeBazarrEntry?.client else { return }
@@ -99,7 +107,26 @@ struct RadarrMovieDetailView: View {
                 bazarrMovieSubtitles = fetched.subtitles
             }
         }
+        .refreshable {
+            await refreshMovieDetailState()
+        }
         .toolbar { toolbarContent }
+        .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
+            TextField("Root folder", text: $rootFolderText)
+            Button("Move Existing Files") {
+                if let movie {
+                    Task { await updateMovieRootFolder(movie, moveFiles: true) }
+                }
+            }
+            Button("Update Only") {
+                if let movie {
+                    Task { await updateMovieRootFolder(movie, moveFiles: false) }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Enter the root folder Radarr should use for this movie.")
+        }
         .alert("Delete Movie?", isPresented: $showDeleteAlert) {
             Button("Delete & Remove Files", role: .destructive) {
                 if let id = resolvedLibraryId {
@@ -182,7 +209,12 @@ struct RadarrMovieDetailView: View {
                 )
             }
         }
-        .sheet(isPresented: $showInteractiveSearchSheet) {
+        .sheet(
+            isPresented: $showInteractiveSearchSheet,
+            onDismiss: {
+                Task { await refreshMovieDetailState() }
+            }
+        ) {
             if let movie, isInLibrary {
                 RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
             }
@@ -190,15 +222,32 @@ struct RadarrMovieDetailView: View {
         .task(id: resolvedLibraryId) {
             guard let id = resolvedLibraryId else { return }
             await viewModel.loadMovieFiles(movieId: id)
+            await viewModel.loadMovies()
             var knownQueueIds = Set(viewModel.queue.map(\.id))
-            while !Task.isCancelled {
-                await viewModel.loadQueue()
-                let currentIds = Set(viewModel.queue.map(\.id))
-                if currentIds != knownQueueIds {
-                    await viewModel.loadMovieFiles(movieId: id)
+            do {
+                while true {
+                    try Task.checkCancellation()
+                    await viewModel.loadQueue()
+                    try Task.checkCancellation()
+
+                    let currentIds = Set(viewModel.queue.map(\.id))
+                    let hasActive = viewModel.queue.contains { $0.movieId == id && isActiveQueueItem($0) }
+                    if currentIds != knownQueueIds || hasActive {
+                        await viewModel.loadMovieFiles(movieId: id)
+                        try Task.checkCancellation()
+                        await viewModel.loadMovies()
+                        try Task.checkCancellation()
+                    }
+                    knownQueueIds = currentIds
+
+                    // Adaptive polling: fast (2s) if active queue items, slow (30s) otherwise
+                    let pollInterval = hasActive ? 2 : 30
+                    try await Task.sleep(for: .seconds(pollInterval))
                 }
-                knownQueueIds = currentIds
-                try? await Task.sleep(for: .seconds(2))
+            } catch is CancellationError {
+                // task was cancelled — exit cleanly
+            } catch {
+                // ignore transient errors
             }
         }
     }
@@ -237,6 +286,52 @@ struct RadarrMovieDetailView: View {
         guard let error = viewModel.error else { return }
         InAppNotificationCenter.shared.showError(title: "Couldn't Delete Movie File", message: error)
     }
+
+    private func updateMovieRootFolder(_ movie: RadarrMovie, moveFiles: Bool) async {
+        let rootFolderPath = rootFolderText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rootFolderPath.isEmpty else { return }
+        guard let qualityProfileId = movie.qualityProfileId else {
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: "Movie quality profile is missing.")
+            return
+        }
+
+        _ = await viewModel.updateMovie(
+            movie,
+            monitored: movie.monitored ?? false,
+            qualityProfileId: qualityProfileId,
+            minimumAvailability: movie.minimumAvailability ?? "released",
+            rootFolderPath: rootFolderPath,
+            tags: movie.tags ?? [],
+            moveFiles: moveFiles
+        )
+    }
+
+    private func renameMovieFiles() async {
+        guard let id = resolvedLibraryId,
+              let client = serviceManager.radarrClient else { return }
+        isRenamingFiles = true
+        defer { isRenamingFiles = false }
+        do {
+            try await client.renameMovieFiles(movieId: id)
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Rename Queued",
+                message: "Radarr is renaming the movie file in the background."
+            )
+        } catch {
+            InAppNotificationCenter.shared.showError(title: "Rename Failed", message: error.localizedDescription)
+        }
+    }
+
+    private func refreshMovieDetailState() async {
+        guard let id = resolvedLibraryId else {
+            await viewModel.loadMovies()
+            return
+        }
+        await viewModel.loadQueue()
+        await viewModel.loadMovieFiles(movieId: id)
+        await viewModel.loadMovies()
+    }
+
     private var queueItems: [ArrQueueItem] {
         guard let id = resolvedLibraryId else { return [] }
         return viewModel.queue
@@ -252,36 +347,6 @@ struct RadarrMovieDetailView: View {
         queueItems.filter { !isActiveQueueItem($0) && $0.isImportIssueQueueItem }
     }
 
-    // MARK: - Background
-
-    private func artBackground(url: URL?) -> some View {
-        ArrArtworkView(url: url, contentMode: .fill) {
-            Rectangle().fill(Color.orange.opacity(0.5))
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .scaleEffect(1.4)
-        .blur(radius: 60)
-        .saturation(1.6)
-        .overlay(Color.black.opacity(0.55))
-        .ignoresSafeArea()
-    }
-
-    // MARK: - Scroll content
-
-    private func scrollContent(_ movie: RadarrMovie) -> some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: 20) {
-                heroSection(movie)
-                cardsSection(movie)
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 44)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-        }
-        .environment(\.colorScheme, .dark)
-    }
-
     // MARK: - Hero
 
     private func heroSection(_ movie: RadarrMovie) -> some View {
@@ -293,50 +358,14 @@ struct RadarrMovieDetailView: View {
             networkOrStudio: movie.studio,
             year: movie.year,
             runtime: movie.runtime,
-            badges: movieBadges(movie)
+            badges: movie.detailBadges(context: ArrBadgeContext(
+                queue: viewModel.queue,
+                isInLibrary: isInLibrary,
+                hasBazarr: serviceManager.hasAnyConnectedBazarrInstance,
+                radarrBazarrStatus: serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
+            )),
+            genres: movie.genres ?? []
         )
-    }
-
-    private func movieBadges(_ movie: RadarrMovie) -> [ArrDetailBadge] {
-        var badges: [ArrDetailBadge] = []
-        let hasFile = movie.hasFile == true
-
-        badges.append(
-            ArrDetailBadge(
-                icon: hasFile ? "checkmark.circle.fill" : "clock",
-                label: movie.displayStatus,
-                color: hasFile ? .green : .orange
-            )
-        )
-
-        if let cert = movie.certification, !cert.isEmpty {
-            badges.append(ArrDetailBadge(icon: "shield", label: cert, color: .white.opacity(0.8)))
-        }
-
-        if isInLibrary && movie.monitored == true {
-            badges.append(ArrDetailBadge(icon: "bookmark.fill", label: "Monitored", color: .blue))
-        }
-
-        if let q = viewModel.queue.first(where: { $0.movieId == movie.id }) {
-            let isIssue = q.isImportIssueQueueItem
-            let isDownloading = q.isDownloadingQueueItem
-            badges.append(ArrDetailBadge(
-                icon: isIssue ? "exclamationmark.triangle.fill" : (isDownloading ? "arrow.down.circle.fill" : "clock.arrow.circlepath"),
-                label: isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
-                color: isIssue ? .orange : .purple
-            ))
-        }
-
-        if serviceManager.hasAnyConnectedBazarrInstance,
-           let status = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) {
-            badges.append(ArrDetailBadge(
-                icon: "captions.bubble.fill",
-                label: status == .allPresent ? "Complete" : "None",
-                color: status == .allPresent ? .teal : .white.opacity(0.6)
-            ))
-        }
-
-        return badges
     }
 
     // MARK: - Cards section
@@ -357,14 +386,34 @@ struct RadarrMovieDetailView: View {
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
         }
 
+        if isInLibrary {
+            searchActionsCard(movie)
+        }
+
+        if let ratings = movie.ratings {
+            ratingsCard(ratings)
+        }
+
         if let overview = movie.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
         }
 
         statsCard(movie)
 
+        JellyfinMediaAvailabilityCard(
+            media: .movie(
+                title: movie.title,
+                year: movie.year,
+                tmdbId: movie.tmdbId,
+                imdbId: movie.imdbId
+            )
+        )
+
+        if let tmdbId = movie.tmdbId {
+            SeerrMediaRequestCard(media: .movie(tmdbId: tmdbId, title: movie.title))
+        }
+
         if isInLibrary {
-            searchActionsCard(movie)
             BazarrSubtitleStatusCard(media: .movie(radarrId: movie.id, title: movie.title))
         }
 
@@ -389,14 +438,6 @@ struct RadarrMovieDetailView: View {
                     onSetPendingAction: { pendingQueueAction = $0 }
                 )
             }
-        }
-
-        if let genres = movie.genres, !genres.isEmpty {
-            ArrDetailGenreChips(genres: genres)
-        }
-
-        if let ratings = movie.ratings {
-            ratingsCard(ratings)
         }
 
         releaseDatesCard(movie)
@@ -523,7 +564,8 @@ struct RadarrMovieDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
-        .padding(12)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -717,7 +759,13 @@ struct RadarrMovieDetailView: View {
 
                 if isFilesExpanded {
                     ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
-                        fileRow(file, subtitles: bazarrMovieSubtitles)
+                        ArrMediaFileRow(config: file.arrMediaFileConfig(
+                            subtitles: bazarrMovieSubtitles,
+                            onDelete: {
+                                movieFileToDelete = file.id
+                                showDeleteFileAlert = true
+                            }
+                        ))
                         if index < files.count - 1 {
                             Divider().padding(.leading, 16)
                         }
@@ -727,107 +775,6 @@ struct RadarrMovieDetailView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         }
-    }
-
-    private func fileRow(_ file: RadarrMovieFile, subtitles: [BazarrSubtitle]?) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 8) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(file.relativePath ?? "Unknown File")
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(2)
-                        .truncationMode(.middle)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(ByteFormatter.format(bytes: file.size ?? 0))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Menu {
-                    Button(role: .destructive) {
-                        movieFileToDelete = file.id
-                        showDeleteFileAlert = true
-                    } label: {
-                        Label("Delete File", systemImage: "trash")
-                    }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                        .padding(4)
-                }
-            }
-
-            let info: [String] = [
-                file.mediaInfo?.resolution,
-                file.mediaInfo?.videoCodec,
-                file.mediaInfo?.videoDynamicRangeType,
-                file.mediaInfo?.audioCodec,
-                file.edition
-            ].compactMap { $0 }.filter { !$0.isEmpty }
-
-            if !info.isEmpty {
-                Text(info.joined(separator: " • "))
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            if let subtitles, !subtitles.isEmpty {
-                subtitleFilesView(subtitles)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            Button(role: .destructive) {
-                movieFileToDelete = file.id
-                showDeleteFileAlert = true
-            } label: {
-                Label("Delete", systemImage: "trash")
-            }
-        }
-    }
-
-    private func subtitleFilesView(_ subtitles: [BazarrSubtitle]) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                Image(systemName: "captions.bubble.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.teal)
-                ForEach(subtitles, id: \.self) { sub in
-                    HStack(spacing: 3) {
-                        Text(sub.code2)
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(.teal)
-                        if sub.hi {
-                            Text("HI")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.blue)
-                        }
-                        if sub.forced {
-                            Text("Forced")
-                                .font(.system(size: 7).weight(.bold))
-                                .foregroundStyle(.orange)
-                        }
-                        if let size = sub.fileSize {
-                            Text(ByteFormatter.format(bytes: Int64(size)))
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.horizontal, 5)
-                    .padding(.vertical, 2)
-                    .background(Capsule().fill(Color.teal.opacity(0.12)))
-                    .overlay(Capsule().strokeBorder(Color.teal.opacity(0.25)))
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Shared rows card
@@ -885,17 +832,30 @@ struct RadarrMovieDetailView: View {
             .foregroundStyle(.white)
     }
 
-    private func formatDateString(_ string: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: string) ?? ISO8601DateFormatter().date(from: string) {
-            return date.formatted(date: .abbreviated, time: .omitted)
-        }
+    private static let fractionalISOFormatter: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+
+    private static let standardISOFormatter = ISO8601DateFormatter()
+
+    private static let fallbackDateFormatter: DateFormatter = {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
+        return df
+    }()
+
+    private func formatDateString(_ string: String) -> String {
+        if let date = Self.fractionalISOFormatter.date(from: string) ?? Self.standardISOFormatter.date(from: string) {
+            return date.formatted(date: .abbreviated, time: .omitted)
+        }
+        let df = Self.fallbackDateFormatter
         if let date = df.date(from: string) {
-            df.dateStyle = .medium; df.dateFormat = nil
-            return df.string(from: date)
+            let outputFormatter = DateFormatter()
+            outputFormatter.dateStyle = .medium
+            outputFormatter.timeStyle = .none
+            return outputFormatter.string(from: date)
         }
         return string
     }
@@ -915,6 +875,13 @@ struct RadarrMovieDetailView: View {
                         }
 
                         Button {
+                            rootFolderText = movie.rootFolderPath ?? ""
+                            showRootFolderAlert = true
+                        } label: {
+                            Label("Change Root Folder", systemImage: "folder")
+                        }
+
+                        Button {
                             Task { await viewModel.toggleMovieMonitored(movie) }
                         } label: {
                             Label(
@@ -928,6 +895,14 @@ struct RadarrMovieDetailView: View {
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
+
+                        Button {
+                            showRenameFilesAlert = true
+                        } label: {
+                            Label("Rename Files", systemImage: "pencil.and.list.clipboard")
+                        }
+                        .disabled(isRenamingFiles)
+
                         Divider()
                         Button(role: .destructive) {
                             showDeleteAlert = true
@@ -935,556 +910,16 @@ struct RadarrMovieDetailView: View {
                             Label("Delete", systemImage: "trash")
                         }
                     } label: {
-                        Label("More", systemImage: "ellipsis.circle")
+                        Label("More", systemImage: "ellipsis")
+                    }
+                    .alert("Rename Movie File?", isPresented: $showRenameFilesAlert) {
+                        Button("Rename") { Task { await renameMovieFiles() } }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("The movie file will be renamed on disk to match the current naming format configured in Radarr.")
                     }
                 }
             }
-        }
-    }
-}
-
-// MARK: - Add to Library Sheet
-
-private struct RadarrAddToLibrarySheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var viewModel: RadarrViewModel
-    let movie: RadarrMovie
-    let onAdded: () async -> Void
-
-    @State private var selectedQualityProfileId: Int?
-    @State private var selectedRootFolderPath: String?
-    @State private var minimumAvailability = "released"
-    @State private var monitorOption = "movieOnly"
-    @State private var searchForMovie = true
-    @State private var isAdding = false
-
-    var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack(spacing: 14) {
-                        ArrArtworkView(url: movie.posterURL) {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.orange.opacity(0.3))
-                                .overlay(Image(systemName: "film").foregroundStyle(.secondary))
-                        }
-                        .frame(width: 52, height: 78)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(movie.title)
-                                .font(.headline)
-                                .lineLimit(2)
-                            HStack(spacing: 4) {
-                                if let year = movie.year { Text(String(year)) }
-                                if let runtime = movie.runtime, runtime > 0 { Text("· \(runtime)m") }
-                            }
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                        }
-                    }
-                    .padding(.vertical, 4)
-                }
-
-                Section("Library Settings") {
-                    ArrQualityProfilePicker(
-                        selection: $selectedQualityProfileId,
-                        profiles: viewModel.qualityProfiles,
-                        showInfoButton: false
-                    )
-
-                    ArrRootFolderPicker(
-                        selection: $selectedRootFolderPath,
-                        folders: viewModel.rootFolders
-                    )
-
-                    Picker("Minimum Availability", selection: $minimumAvailability) {
-                        ForEach(RadarrDiscoverMinimumAvailability.allCases) { option in
-                            Text(option.title).tag(option.rawValue)
-                        }
-                    }
-
-                    Picker("Monitor", selection: $monitorOption) {
-                        ForEach(RadarrDiscoverMonitorOption.allCases) { option in
-                            Text(option.title).tag(option.rawValue)
-                        }
-                    }
-
-                    Toggle("Search Immediately", isOn: $searchForMovie)
-                }
-
-                if let error = viewModel.error, !error.isEmpty {
-                    Section {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .foregroundStyle(.orange)
-                            .font(.footnote)
-                    }
-                }
-            }
-            .navigationTitle("Add to Radarr")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            #endif
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button {
-                        Task { await addMovie() }
-                    } label: {
-                        if isAdding {
-                            ProgressView()
-                        } else {
-                            Text("Add")
-                        }
-                    }
-                    .disabled(!canAdd)
-                }
-            }
-            .task {
-                await refreshConfigurationAndDefaults()
-            }
-        }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
-        .preferredColorScheme(.dark)
-    }
-
-    private var canAdd: Bool {
-        !isAdding &&
-        selectedQualityProfileId != nil &&
-        selectedRootFolderPath != nil &&
-        movie.tmdbId != nil
-    }
-
-    private func refreshConfigurationAndDefaults() async {
-        await viewModel.refreshConfiguration()
-        if selectedQualityProfileId == nil {
-            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
-        }
-        if selectedRootFolderPath == nil {
-            selectedRootFolderPath = viewModel.rootFolders.first?.path
-        }
-    }
-
-    private func addMovie() async {
-        guard !isAdding else { return }
-        guard let tmdbId = movie.tmdbId,
-              let qualityProfileId = selectedQualityProfileId,
-              let rootFolderPath = selectedRootFolderPath else { return }
-
-        isAdding = true
-        defer { isAdding = false }
-        let success = await viewModel.addMovie(
-            title: movie.title,
-            tmdbId: tmdbId,
-            qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath,
-            minimumAvailability: minimumAvailability,
-            monitorOption: monitorOption,
-            searchForMovie: searchForMovie
-        )
-
-        if success {
-            await onAdded()
-            dismiss()
-        }
-    }
-}
-
-// MARK: - Supporting enums
-
-private enum RadarrDiscoverMinimumAvailability: String, CaseIterable, Identifiable {
-    case announced, inCinemas, released
-    case preDB = "preDB"
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .announced: "Announced"
-        case .inCinemas: "In Cinemas"
-        case .released: "Released"
-        case .preDB: "Predb"
-        }
-    }
-}
-
-private enum RadarrDiscoverMonitorOption: String, CaseIterable, Identifiable {
-    case movieOnly, movieAndCollection, none
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .movieOnly: "Movie Only"
-        case .movieAndCollection: "Movie and Collection"
-        case .none: "None"
-        }
-    }
-}
-
-struct RadarrMovieSearchView: View {
-    private struct AutomaticSearchFeedback: Equatable {
-        enum Kind {
-            case searching
-            case found
-            case noResults
-        }
-
-        let kind: Kind
-        let message: String
-
-        var title: String {
-            switch kind {
-            case .searching: "Searching"
-            case .found: "Result Found"
-            case .noResults: "No Results Seen"
-            }
-        }
-
-        var icon: String {
-            switch kind {
-            case .searching: "magnifyingglass.circle.fill"
-            case .found: "checkmark.circle.fill"
-            case .noResults: "exclamationmark.circle.fill"
-            }
-        }
-
-        var tint: Color {
-            switch kind {
-            case .searching: .blue
-            case .found: .green
-            case .noResults: .orange
-            }
-        }
-    }
-
-    @Bindable var viewModel: RadarrViewModel
-    @Environment(ArrServiceManager.self) private var serviceManager
-    let movie: RadarrMovie
-
-    @State private var isDispatchingAutomaticSearch = false
-    @State private var showInteractiveSearchSheet = false
-    @State private var automaticSearchFeedback: AutomaticSearchFeedback?
-    @State private var automaticSearchMonitorTask: Task<Void, Never>?
-
-    private var queueItem: ArrQueueItem? {
-        viewModel.queue.first { $0.movieId == movie.id }
-    }
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .center, spacing: 20) {
-                movieSearchHero
-
-                VStack(spacing: 14) {
-                    automaticSearchSection
-                    interactiveSearchButton
-                }
-
-                movieSearchInfoCard(title: "Status", icon: "info.circle") {
-                    VStack(alignment: .leading, spacing: 8) {
-                        HStack(spacing: 12) {
-                            movieStatusBadge(movie.hasFile == true ? "Downloaded" : "Missing", tint: movie.hasFile == true ? .green : .orange, systemImage: movie.hasFile == true ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
-                            movieStatusBadge(movie.monitored == true ? "Monitored" : "Unmonitored", tint: .blue, systemImage: movie.monitored == true ? "bookmark.fill" : "bookmark.slash")
-
-                            if let q = queueItem {
-                                let isIssue = q.isImportIssueQueueItem
-                                movieStatusBadge(
-                                    isIssue ? "Import Issue" : (q.status?.capitalized ?? "Downloading"),
-                                    tint: isIssue ? .orange : .purple,
-                                    systemImage: isIssue ? "exclamationmark.triangle.fill" : (q.isDownloadingQueueItem ? "arrow.down.circle.fill" : "clock.arrow.circlepath")
-                                )
-                            }
-
-                            if serviceManager.hasAnyConnectedBazarrInstance,
-                               let status = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) {
-                                movieStatusBadge(
-                                    status == .allPresent ? "Complete" : "None",
-                                    tint: status == .allPresent ? .teal : .secondary,
-                                    systemImage: "captions.bubble.fill"
-                                )
-                            }
-                        }
-
-                        if let overview = movie.overview, !overview.isEmpty {
-                            Text(overview)
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.92))
-                                .fixedSize(horizontal: false, vertical: true)
-                                .padding(.top, 4)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 44)
-            .frame(maxWidth: 720)
-            .frame(maxWidth: .infinity)
-        }
-        .background {
-            ArrArtworkView(url: movie.posterURL ?? movie.fanartURL, contentMode: .fill) {
-                Rectangle().fill(Color.orange.opacity(0.5))
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .scaleEffect(1.4)
-            .blur(radius: 60)
-            .saturation(1.6)
-            .overlay(Color.black.opacity(0.55))
-            .ignoresSafeArea()
-        }
-        .navigationTitle("Search")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
-        #endif
-        .environment(\.colorScheme, .dark)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie.hasFile)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: movie.monitored)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: queueItem?.id)
-        .animation(.spring(response: 0.32, dampingFraction: 0.86), value: automaticSearchFeedback)
-        .sheet(isPresented: $showInteractiveSearchSheet) {
-            RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
-        }
-        .onDisappear {
-            automaticSearchMonitorTask?.cancel()
-        }
-    }
-
-    private var movieSearchHero: some View {
-        VStack(spacing: 14) {
-            ArrArtworkView(url: movie.posterURL, contentMode: .fill) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 16).fill(Color.orange.opacity(0.3))
-                    Image(systemName: "film").font(.largeTitle).foregroundStyle(.white.opacity(0.5))
-                }
-            }
-            .frame(width: 160, height: 240)
-            .clipShape(RoundedRectangle(cornerRadius: 16))
-            .shadow(color: .black.opacity(0.6), radius: 24, y: 10)
-
-            VStack(spacing: 6) {
-                Text(movie.title)
-                    .font(.title2.bold())
-                    .foregroundStyle(.white)
-                    .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                Text(movie.year.map(String.init) ?? movie.displayStatus)
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 16)
-    }
-
-    private var automaticSearchButton: some View {
-        Button {
-            guard !isDispatchingAutomaticSearch else { return }
-            isDispatchingAutomaticSearch = true
-            Task {
-                let baselineQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
-                withAnimation(.snappy) {
-                    automaticSearchFeedback = AutomaticSearchFeedback(
-                        kind: .searching,
-                        message: "Radarr is searching indexers for \(movie.title)."
-                    )
-                }
-
-                let didStart = await viewModel.searchMovie(movieId: movie.id)
-                isDispatchingAutomaticSearch = false
-
-                if !didStart {
-                    withAnimation(.snappy) { automaticSearchFeedback = nil }
-                    let message = viewModel.error ?? "Could not start search."
-                    InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
-                } else {
-                    InAppNotificationCenter.shared.showSuccess(
-                        title: "Search Queued",
-                        message: "\(movie.title) was sent to Radarr for automatic search."
-                    )
-
-                    automaticSearchMonitorTask?.cancel()
-                    automaticSearchMonitorTask = Task {
-                        for _ in 0..<6 {
-                            try? await Task.sleep(for: .seconds(3))
-                            guard !Task.isCancelled else { return }
-                            await viewModel.loadQueue()
-
-                            let currentQueueIDs = Set(viewModel.queue.filter { $0.movieId == movie.id }.map(\.id))
-                            if !currentQueueIDs.subtracting(baselineQueueIDs).isEmpty {
-                                await MainActor.run {
-                                    withAnimation(.snappy) {
-                                        automaticSearchFeedback = AutomaticSearchFeedback(
-                                            kind: .found,
-                                            message: "A result was queued in Radarr. Check the queue or import status for progress."
-                                        )
-                                    }
-                                }
-                                return
-                            }
-                        }
-
-                        guard !Task.isCancelled else { return }
-                        await MainActor.run {
-                            withAnimation(.snappy) {
-                                automaticSearchFeedback = AutomaticSearchFeedback(
-                                    kind: .noResults,
-                                    message: "No queued result showed up for this automatic search. Try Interactive Search if you want to inspect releases manually."
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        } label: {
-            movieSearchActionRow(
-                title: "Automatic Search",
-                subtitle: "Ask Radarr to search indexers using its normal rules.",
-                systemImage: "magnifyingglass",
-                isLoading: isDispatchingAutomaticSearch
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    private var automaticSearchSection: some View {
-        if let automaticSearchFeedback {
-            movieSearchInfoCard(title: automaticSearchFeedback.title, icon: automaticSearchFeedback.icon) {
-                Text(automaticSearchFeedback.message)
-                    .font(.subheadline)
-                    .foregroundStyle(automaticSearchFeedback.tint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        } else {
-            automaticSearchButton
-                .frame(maxWidth: .infinity)
-        }
-    }
-
-    private var interactiveSearchButton: some View {
-        Button {
-            showInteractiveSearchSheet = true
-        } label: {
-            movieSearchActionRow(
-                title: "Interactive Search",
-                subtitle: "Browse releases yourself and choose exactly what to grab.",
-                systemImage: "person.fill",
-                trailingSystemImage: "arrow.up.forward.square"
-            )
-        }
-        .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
-    }
-
-    private func movieSearchActionRow(
-        title: String,
-        subtitle: String,
-        systemImage: String,
-        isLoading: Bool = false,
-        trailingSystemImage: String = "arrow.right"
-    ) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: systemImage)
-                .font(.title3)
-                .foregroundStyle(.orange)
-                .frame(width: 28)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            if isLoading {
-                ProgressView()
-                    .tint(.white)
-                    .frame(width: 18, height: 18)
-            } else {
-                Image(systemName: trailingSystemImage)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 18, height: 18)
-            }
-        }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .padding(12)
-        .contentShape(Rectangle())
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func movieSearchInfoCard<Content: View>(title: String, icon: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label(title, systemImage: icon)
-                .font(.headline)
-                .foregroundStyle(.white)
-
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    private func movieStatusBadge(_ text: String, tint: Color, systemImage: String? = nil) -> some View {
-        HStack(spacing: 4) {
-            if let systemImage {
-                Image(systemName: systemImage)
-                    .font(.caption2.weight(.bold))
-            }
-            Text(text)
-                .font(.caption.weight(.semibold))
-        }
-        .foregroundStyle(tint)
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .background(tint.opacity(0.14))
-        .clipShape(Capsule())
-    }
-}
-
-struct RadarrInteractiveSearchSheet: View {
-    @Bindable var viewModel: RadarrViewModel
-    let movie: RadarrMovie
-
-    var body: some View {
-        ArrInteractiveSearchBrowser(
-            title: movie.title,
-            emptyDescription: "Radarr didn't return any manual search results for this movie.",
-            loadingDescription: "Results will appear here as soon as Radarr returns them.",
-            loadAction: {
-                guard movie.id > 0 else { return [] }
-                return try await viewModel.interactiveSearchMovie(movieId: movie.id)
-            },
-            grabAction: { release in
-                await viewModel.grabRelease(release)
-            },
-            currentErrorMessage: {
-                viewModel.error
-            }
-        ) { release, isGrabbing, onGrab in
-            ArrReleaseActionContent(
-                release: release,
-                artURL: movie.posterURL ?? movie.fanartURL,
-                accentColor: .orange,
-                isGrabbing: isGrabbing,
-                onGrab: onGrab
-            )
         }
     }
 }

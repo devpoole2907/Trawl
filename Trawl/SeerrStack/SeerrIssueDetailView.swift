@@ -20,9 +20,7 @@ struct SeerrIssueDetailView: View {
         List {
             Section("Issue") {
                 HStack(alignment: .top, spacing: 12) {
-                    AsyncImage(url: viewModel.issue.media?.posterURL) { image in
-                        image.resizable().aspectRatio(contentMode: .fill)
-                    } placeholder: {
+                    ArrArtworkView(url: viewModel.issue.media?.posterURL) {
                         Image(systemName: "photo")
                             .foregroundStyle(.secondary)
                     }
@@ -32,7 +30,7 @@ struct SeerrIssueDetailView: View {
 
                     VStack(alignment: .leading, spacing: 6) {
                         Text(viewModel.issue.media?.displayTitle ?? "Unknown Media")
-                            .font(.headline)
+                            .font(.title2.bold())
 
                         if let issueType = viewModel.issue.issueKind {
                             Label(issueType.title, systemImage: issueType.symbolName)
@@ -70,7 +68,7 @@ struct SeerrIssueDetailView: View {
 
             Section("Comments") {
                 if viewModel.isLoadingComments && viewModel.comments.isEmpty {
-                    ProgressView("Loading comments...")
+                    ProgressView("Loading comments…")
                         .frame(maxWidth: .infinity, alignment: .center)
                 } else if viewModel.comments.isEmpty {
                     Text("No comments yet.")
@@ -97,6 +95,7 @@ struct SeerrIssueDetailView: View {
             }
         }
         .navigationTitle("Issue #\(viewModel.issue.id)")
+        .navigationSubtitle(viewModel.issue.media?.displayTitle ?? viewModel.issue.issueKind?.title ?? "")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .scrollDismissesKeyboard(.interactively)
@@ -151,6 +150,7 @@ struct SeerrIssueDetailView: View {
             .background(.ultraThinMaterial)
         }
         .task { await viewModel.loadComments() }
+        .refreshable { await viewModel.loadComments() }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
             guard let message else { return }

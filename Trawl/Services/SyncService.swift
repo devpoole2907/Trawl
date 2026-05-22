@@ -289,8 +289,13 @@ final class SyncService {
         }
 
         if !completedTorrentNames.isEmpty {
-            for name in completedTorrentNames {
-                InAppNotificationCenter.shared.showDownloadCompleted(name: name)
+            if completedTorrentNames.count == 1 {
+                InAppNotificationCenter.shared.showDownloadCompleted(name: completedTorrentNames[0])
+            } else {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Downloads Complete",
+                    message: "\(completedTorrentNames.count) downloads completed."
+                )
             }
         }
     }

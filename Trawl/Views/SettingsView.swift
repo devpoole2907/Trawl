@@ -15,6 +15,9 @@ struct SettingsView: View {
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
+    @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
+    @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
+    @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @State private var tmdbAPIKey: String = ""
     @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
     @State private var didLoadTmdbAPIKey = false
@@ -27,6 +30,9 @@ struct SettingsView: View {
     @Environment(\.navigateToSeerrSettings) private var navigateToSeerrSettings
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Query private var seerrProfiles: [SeerrServiceProfile]
+    @Environment(\.navigateToJellyfinSettings) private var navigateToJellyfinSettings
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -61,7 +67,7 @@ struct SettingsView: View {
             .onChange(of: tmdbAPIKey) { _, newValue in
                 guard didLoadTmdbAPIKey else { return }
                 tmdbAPIKeySaveTask?.cancel()
-                tmdbAPIKeySaveTask = Task {
+                tmdbAPIKeySaveTask = Task { @MainActor in
                     try? await Task.sleep(for: .milliseconds(400))
                     guard !Task.isCancelled else { return }
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -119,6 +125,10 @@ struct SettingsView: View {
         seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
     }
 
+    private var jellyfinProfile: JellyfinServiceProfile? {
+        jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
+    }
+
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map {
@@ -135,7 +145,7 @@ struct SettingsView: View {
             Section("Services") {
                 Button(action: navigateToQbittorrentSettings) {
                     serviceRow(
-                        icon: "arrow.down.circle.fill", color: .blue,
+                        icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
                         name: activeServer?.displayName ?? "qBittorrent",
                         url: activeServer?.hostURL,
                         isConnected: syncService.isPolling,
@@ -147,7 +157,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToSonarrSettings) {
                     serviceRow(
-                        icon: "tv.fill", color: .purple,
+                        icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
                         name: serviceRowTitle(defaultName: "Sonarr", profile: sonarrProfile, count: sonarrProfiles.count),
                         url: serviceRowSubtitle(profile: sonarrProfile, count: sonarrProfiles.count),
                         isConnected: arrServiceManager.sonarrConnected,
@@ -159,7 +169,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToRadarrSettings) {
                     serviceRow(
-                        icon: "film.fill", color: .orange,
+                        icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
                         name: serviceRowTitle(defaultName: "Radarr", profile: radarrProfile, count: radarrProfiles.count),
                         url: serviceRowSubtitle(profile: radarrProfile, count: radarrProfiles.count),
                         isConnected: arrServiceManager.radarrConnected,
@@ -171,7 +181,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToProwlarrSettings) {
                     serviceRow(
-                        icon: "magnifyingglass.circle.fill", color: .yellow,
+                        icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
                         name: prowlarrProfile?.displayName ?? "Prowlarr",
                         url: prowlarrProfile?.hostURL,
                         isConnected: arrServiceManager.prowlarrConnected,
@@ -183,7 +193,7 @@ struct SettingsView: View {
 
                 Button(action: navigateToBazarrSettings) {
                     serviceRow(
-                        icon: "captions.bubble.fill", color: .teal,
+                        icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
                         name: serviceRowTitle(defaultName: "Bazarr", profile: bazarrProfile, count: bazarrProfiles.count),
                         url: serviceRowSubtitle(profile: bazarrProfile, count: bazarrProfiles.count),
                         isConnected: arrServiceManager.hasAnyConnectedBazarrInstance,
@@ -195,11 +205,23 @@ struct SettingsView: View {
 
                 Button(action: navigateToSeerrSettings) {
                     serviceRow(
-                        icon: "eye.fill", color: .indigo,
+                        icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
                         name: seerrProfile?.displayName ?? "Seerr",
                         url: seerrProfile?.hostURL,
                         isConnected: seerrServiceManager.isConnected,
                         isConfigured: seerrProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToJellyfinSettings) {
+                    serviceRow(
+                        icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
+                        name: jellyfinProfile?.displayName ?? "Jellyfin",
+                        url: jellyfinProfile?.hostURL,
+                        isConnected: jellyfinServiceManager.isConnected,
+                        isConfigured: jellyfinProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -296,6 +318,22 @@ struct SettingsView: View {
                 Text("Lock Trawl behind \(appLockController.biometryName) when the app opens or returns from the background.")
             }
             #endif
+
+            Section("Appearance") {
+                Picker("Startup Tab", selection: $startupTab) {
+                    ForEach(RootTab.allCases, id: \.self) { tab in
+                        Text(tab.displayName).tag(tab.displayName)
+                    }
+                }
+
+                Picker("Theme", selection: $themeOverride) {
+                    ForEach(ThemeOverride.allCases, id: \.self) { theme in
+                        Text(theme.displayName).tag(theme)
+                    }
+                }
+
+                Toggle("Haptic Feedback", isOn: $hapticsEnabled)
+            }
 
             Section("Storage") {
                 LabeledContent("Arr Artwork Cache") {
@@ -586,6 +624,23 @@ struct QBittorrentSettingsView: View {
         .errorAlert(item: $speedLimitErrorAlert)
     }
 
+    private var hasKnownQBittorrentConnectionFailure: Bool {
+        if !syncService.isPolling {
+            return true
+        }
+
+        guard let lastError = syncService.lastError else {
+            return false
+        }
+
+        switch lastError {
+        case .authFailed, .networkError, .noServerConfigured, .connectionTestFailed:
+            return true
+        case .invalidResponse, .decodingError, .serverError:
+            return false
+        }
+    }
+
     private func loadSpeedLimitSettings() async {
         do {
             async let downloadLimit = torrentService.getGlobalDownloadLimit()
@@ -604,6 +659,11 @@ struct QBittorrentSettingsView: View {
             await Task.yield()
             didLoadSpeedLimits = true
         } catch {
+            guard !hasKnownQBittorrentConnectionFailure else {
+                speedLimitErrorAlert = nil
+                return
+            }
+
             speedLimitErrorAlert = ErrorAlertItem(
                 title: "Couldn't Load Speed Limits",
                 message: error.localizedDescription
@@ -843,6 +903,10 @@ private struct NavigateToSeerrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToJellyfinSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -882,5 +946,10 @@ extension EnvironmentValues {
     var navigateToSeerrSettings: () -> Void {
         get { self[NavigateToSeerrSettingsKey.self] }
         set { self[NavigateToSeerrSettingsKey.self] = newValue }
+    }
+
+    var navigateToJellyfinSettings: () -> Void {
+        get { self[NavigateToJellyfinSettingsKey.self] }
+        set { self[NavigateToJellyfinSettingsKey.self] = newValue }
     }
 }

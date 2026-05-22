@@ -17,13 +17,18 @@ struct SeerrIssueListView: View {
         }
         .background(backgroundGradient)
         .navigationTitle("Issue Management")
+        .navigationSubtitle("Seerr")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
 #endif
         .task { await viewModel.loadIfNeeded() }
         .refreshable { await viewModel.loadIssues() }
         .safeAreaInset(edge: .top) {
-            SeerrIssueFilterPicker(filter: $viewModel.selectedFilter)
+            TrawlSegmentBar("Status", selection: Binding(
+                get: { viewModel.selectedFilter },
+                set: { newFilter in withAnimation { viewModel.selectedFilter = newFilter } }
+            ), items: SeerrIssueFilter.allCases.map(\.segmentBarItem), alignment: .center)
+            .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
@@ -83,6 +88,11 @@ struct SeerrIssueListView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.orange.opacity(0.2), Color.clear],
                 startPoint: .top,
@@ -99,22 +109,6 @@ struct SeerrIssueListView: View {
     }
 }
 
-private struct SeerrIssueFilterPicker: View {
-    @Binding var filter: SeerrIssueFilter
-
-    var body: some View {
-        Picker("Status", selection: $filter) {
-            ForEach(SeerrIssueFilter.allCases) { filter in
-                Text(filter.rawValue).tag(filter)
-            }
-        }
-        .pickerStyle(.segmented)
-        .glassEffect(.regular.interactive(), in: Capsule())
-        .padding(.horizontal, 48)
-        .transition(.opacity.combined(with: .move(edge: .top)))
-    }
-}
-
 private struct SeerrIssueRow: View {
     let issue: SeerrIssue
 
@@ -125,7 +119,7 @@ private struct SeerrIssueRow: View {
                     .overlay(Image(systemName: "exclamationmark.bubble").foregroundStyle(.secondary))
             }
             .frame(width: 50, height: 75)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(issue.media?.displayTitle ?? "Unknown Media")
