@@ -175,6 +175,11 @@ struct BazarrLanguageProfilesView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [MoreDestinationAccent.languageProfiles.color.opacity(0.10), Color.indigo.opacity(0.05), Color.clear],
                 startPoint: .top,

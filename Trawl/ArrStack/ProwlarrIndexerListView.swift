@@ -822,6 +822,11 @@ struct ProwlarrIndexerListView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.yellow.opacity(0.08), Color.blue.opacity(0.06), Color.orange.opacity(0.04), Color.clear],
                 startPoint: .top,

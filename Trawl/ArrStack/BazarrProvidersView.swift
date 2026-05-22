@@ -219,6 +219,11 @@ struct BazarrProvidersView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [MoreDestinationAccent.providers.color.opacity(0.10), Color.orange.opacity(0.05), Color.clear],
                 startPoint: .top,

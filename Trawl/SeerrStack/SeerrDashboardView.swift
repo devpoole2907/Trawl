@@ -205,6 +205,11 @@ struct SeerrDashboardView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [ServiceIdentity.seerr.brandColor.opacity(0.11), Color.teal.opacity(0.06), Color.clear],
                 startPoint: .top,

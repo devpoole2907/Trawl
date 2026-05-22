@@ -249,6 +249,11 @@ struct ArrActivityView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.indigo.opacity(0.2), Color.clear],
                 startPoint: .top,
@@ -930,6 +935,11 @@ struct ArrHealthView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.pink.opacity(0.18), Color.clear],
                 startPoint: .top,

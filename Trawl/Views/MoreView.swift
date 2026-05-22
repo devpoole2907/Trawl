@@ -140,12 +140,23 @@ struct MoreView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-    @State private var showingNotificationsSheet = false
     @State private var subtitleBadgeCount = 0
     @State private var moreSearchText = ""
     @State private var connectionEditSheet: ConnectionEditSheet?
 
     private var hasQBittorrentServer: Bool { !servers.isEmpty }
+
+    private var configuredServiceIdentities: [ServiceIdentity] {
+        var identities: [ServiceIdentity] = []
+        if hasQBittorrentServer { identities.append(.qbittorrent) }
+        if arrServiceManager.hasSonarrInstance { identities.append(.sonarr) }
+        if arrServiceManager.hasRadarrInstance { identities.append(.radarr) }
+        if arrServiceManager.hasProwlarrInstance { identities.append(.prowlarr) }
+        if arrServiceManager.hasBazarrInstance { identities.append(.bazarr) }
+        if !seerrProfiles.isEmpty { identities.append(.seerr) }
+        if !jellyfinProfiles.isEmpty { identities.append(.jellyfin) }
+        return identities
+    }
 
     private var seerrProfile: SeerrServiceProfile? {
         seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
@@ -512,34 +523,13 @@ struct MoreView: View {
             #else
             .listStyle(.inset)
             #endif
+            .scrollContentBackground(.hidden)
+            .background(MoreServicesGradientBackground(services: configuredServiceIdentities))
             .navigationTitle("More")
             .searchable(text: $moreSearchText, placement: .automatic, prompt: "Search settings and features")
             #if os(iOS)
             .toolbarTitleDisplayMode(.inlineLarge)
             #endif
-            .toolbar {
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    Button {
-                        showingNotificationsSheet.toggle()
-                    } label: {
-                        Image(systemName: "bell.fill")
-                            .symbolRenderingMode(.hierarchical)
-                            .overlay(alignment: .topTrailing) {
-                                if inAppNotificationCenter.unreadCount > 0 {
-                                    Image(systemName: "circle.fill")
-                                        .font(.system(size: 8))
-                                        .foregroundStyle(.red)
-                                        .offset(x: 2, y: -2)
-                                }
-                            }
-                    }
-                    .accessibilityLabel(inAppNotificationCenter.unreadCount > 0 ? "Recent Notifications, Unread" : "Recent Notifications")
-                }
-            }
-            .sheet(isPresented: $showingNotificationsSheet) {
-                RecentNotificationsSheet()
-                    .environment(inAppNotificationCenter)
-            }
             .sheet(item: $connectionEditSheet) { sheet in
                 connectionEditSheetView(for: sheet)
             }
@@ -2700,11 +2690,63 @@ private struct JellyfinManagementView: View {
     }
 }
 
+private struct MoreServicesGradientBackground: View {
+    let services: [ServiceIdentity]
+
+    var body: some View {
+        ZStack {
+            groupedBackgroundColor
+
+            if !services.isEmpty {
+                MeshGradient(
+                    width: 3,
+                    height: 3,
+                    points: meshPoints,
+                    colors: meshColors,
+                    background: .clear,
+                    smoothsColors: true
+                )
+            }
+        }
+        .ignoresSafeArea()
+    }
+
+    private var meshPoints: [SIMD2<Float>] {
+        [
+            SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
+            SIMD2<Float>(0.0, 0.5), SIMD2<Float>(0.5, 0.5), SIMD2<Float>(1.0, 0.5),
+            SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0)
+        ]
+    }
+
+    private var meshColors: [Color] {
+        [
+            serviceColor(at: 0, opacity: 0.20), serviceColor(at: 1, opacity: 0.14), serviceColor(at: 2, opacity: 0.18),
+            serviceColor(at: 3, opacity: 0.10), serviceColor(at: 4, opacity: 0.08), serviceColor(at: 5, opacity: 0.10),
+            serviceColor(at: 6, opacity: 0.05), serviceColor(at: 0, opacity: 0.04), serviceColor(at: 1, opacity: 0.05)
+        ]
+    }
+
+    private func serviceColor(at index: Int, opacity: Double) -> Color {
+        services[index % services.count].brandColor.opacity(opacity)
+    }
+
+    private var groupedBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(uiColor: .systemGroupedBackground)
+        #endif
+    }
+}
+
 struct MoreDestinationGradientBackground: View {
     let accent: MoreDestinationAccent
 
     var body: some View {
         ZStack {
+            groupedBackgroundColor
+
             LinearGradient(
                 colors: [accent.color.opacity(0.18), Color.clear],
                 startPoint: .top,
@@ -2719,6 +2761,14 @@ struct MoreDestinationGradientBackground: View {
             )
         }
         .ignoresSafeArea()
+    }
+
+    private var groupedBackgroundColor: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(uiColor: .systemGroupedBackground)
+        #endif
     }
 }
 
@@ -2762,7 +2812,8 @@ struct RecentNotificationsSheet: View {
             subtitle: notificationCount > 0 ? "\(notificationCount) notification\(notificationCount == 1 ? "" : "s")" : nil,
             confirmTitle: notificationCount > 0 ? "Clear" : nil,
             onConfirm: notificationCount > 0 ? { showClearConfirmation = true } : nil,
-            detents: [.medium, .large]
+            detents: [.medium, .large],
+            dragIndicator: .visible
         ) {
             Group {
                 if inAppNotificationCenter.recentNotifications.isEmpty {
@@ -3067,4 +3118,24 @@ private struct BazarrMovieDestination: View {
     var body: some View {
         BazarrMovieDetailView(radarrId: radarrId, viewModel: viewModel)
     }
+}
+
+#Preview("All services") {
+    MoreServicesGradientBackground(services: ServiceIdentity.allCases)
+}
+
+#Preview("No services") {
+    MoreServicesGradientBackground(services: [])
+}
+
+#Preview("Arr only") {
+    MoreServicesGradientBackground(services: [.qbittorrent, .sonarr, .radarr, .prowlarr, .bazarr])
+}
+
+#Preview("Jellyfin + Seerr only") {
+    MoreServicesGradientBackground(services: [.jellyfin, .seerr])
+}
+
+#Preview("Single service") {
+    MoreServicesGradientBackground(services: [.sonarr])
 }

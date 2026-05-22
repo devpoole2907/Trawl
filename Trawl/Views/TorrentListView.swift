@@ -160,6 +160,7 @@ struct TorrentListView: View {
             #else
             .listStyle(.inset)
             #endif
+            .scrollContentBackground(.hidden)
             .opacity(vm.filteredTorrents.isEmpty ? 0 : 1)
             .allowsHitTesting(!vm.filteredTorrents.isEmpty)
 
@@ -392,6 +393,28 @@ struct TorrentListView: View {
         }
     }
 
+    private var backgroundGradient: some View {
+        ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+            LinearGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.18), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 260
+            )
+        }
+        .ignoresSafeArea()
+    }
+
     @ViewBuilder
     private var configuredContent: some View {
         let baseContent = Group {
@@ -402,6 +425,7 @@ struct TorrentListView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        .background(backgroundGradient)
         .navigationTitle(activeServerName)
         .navigationSubtitle(navigationSubtitleText)
 

@@ -220,7 +220,9 @@ struct ManualImportScanView: View {
             }
             await viewModel.loadLibraryIfNeeded()
             await viewModel.loadInLibraryStatus()
-            viewModel.startAutoIdentify()
+            if !viewModel.userPausedAutoIdentify {
+                viewModel.startAutoIdentify()
+            }
         }
         .onDisappear {
             viewModel.stopAutoIdentify()
@@ -276,7 +278,7 @@ struct ManualImportScanView: View {
                     Spacer(minLength: 0)
                     Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
                         if viewModel.isAutoIdentifying {
-                            viewModel.stopAutoIdentify()
+                            viewModel.stopAutoIdentify(userInitiated: true)
                         } else {
                             viewModel.startAutoIdentify()
                         }

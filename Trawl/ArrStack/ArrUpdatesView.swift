@@ -96,10 +96,6 @@ struct ArrUpdatesView: View {
                 }
             }
         }
-        .refreshable {
-            guard let service = selectedService else { return }
-            await viewModel.load(service: service, serviceManager: serviceManager)
-        }
         .confirmationDialog(
             "Install Update",
             isPresented: Binding(
@@ -132,20 +128,18 @@ struct ArrUpdatesView: View {
         let data = viewModel.allUpdates[service]
         let isLoading = viewModel.loadingServices.contains(service)
 
-        if isLoading && data == nil {
+        if let data, data.error == nil {
+            changelogList(data: data, service: service)
+        } else if isLoading || data == nil {
             ProgressView()
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let data {
-            if let error = data.error {
-                ContentUnavailableView(
-                    "Could Not Load Updates",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
-                )
-            } else {
-                changelogList(data: data, service: service)
-            }
+        } else if let error = data?.error {
+            ContentUnavailableView(
+                "Could Not Load Updates",
+                systemImage: "exclamationmark.triangle",
+                description: Text(error)
+            )
         }
     }
 
@@ -180,6 +174,7 @@ struct ArrUpdatesView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
+        .refreshable { await viewModel.load(service: service, serviceManager: serviceManager) }
         .animation(.default, value: data.allVersions.map(\.id))
     }
 }
@@ -332,6 +327,7 @@ final class ArrUpdatesViewModel {
         }
 
         guard let client else {
+            guard !serviceManager.isInitializing, !serviceManager.isConnecting(service) else { return }
             allUpdates[service] = ServiceUpdatesData(
                 currentVersion: nil, allVersions: [], isDocker: false, error: "Not connected"
             )

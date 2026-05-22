@@ -192,6 +192,11 @@ struct ArrBlocklistView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.red.opacity(0.16), Color.clear],
                 startPoint: .top,

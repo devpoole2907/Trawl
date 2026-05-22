@@ -120,6 +120,11 @@ struct ArrDiskSpaceView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.teal.opacity(0.24), Color.clear],
                 startPoint: .top,

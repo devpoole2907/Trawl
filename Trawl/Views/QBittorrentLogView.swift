@@ -103,6 +103,11 @@ struct QBittorrentLogView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.blue.opacity(0.15), Color.clear],
                 startPoint: .top,

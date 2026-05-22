@@ -36,6 +36,7 @@ struct SonarrSeriesListView: View {
                     .navigationTitle("Series")
             }
         }
+        .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
             let activeID = serviceManager.activeSonarrInstanceID
             guard serviceManager.sonarrConnected else {
@@ -48,6 +49,28 @@ struct SonarrSeriesListView: View {
                 viewModelInstanceID = activeID
             }
         }
+    }
+
+    private var backgroundGradient: some View {
+        ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+            LinearGradient(
+                colors: [ServiceIdentity.sonarr.brandColor.opacity(0.18), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [ServiceIdentity.sonarr.brandColor.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 260
+            )
+        }
+        .ignoresSafeArea()
     }
 
     @ViewBuilder

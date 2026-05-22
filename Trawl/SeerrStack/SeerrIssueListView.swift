@@ -88,6 +88,11 @@ struct SeerrIssueListView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.orange.opacity(0.2), Color.clear],
                 startPoint: .top,

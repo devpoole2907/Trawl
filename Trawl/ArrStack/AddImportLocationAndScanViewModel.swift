@@ -156,6 +156,7 @@ final class ManualImportScanViewModel {
     var isAutoIdentifying = false
     var autoIdentifyCurrentFileName: String?
     var autoIdentifyEnabled = true
+    var userPausedAutoIdentify = false
     var autoIdentifyProcessedCount = 0
     var autoIdentifyLastMatchedTitle: String?
     var autoIdentifyLastOutcomeMessage: String?
@@ -724,6 +725,7 @@ final class ManualImportScanViewModel {
     }
 
     func startAutoIdentify() {
+        userPausedAutoIdentify = false
         autoIdentifyEnabled = true
         guard autoIdentifyTask == nil else { return }
         autoIdentifyLastMatchedTitle = nil
@@ -734,7 +736,8 @@ final class ManualImportScanViewModel {
         }
     }
 
-    func stopAutoIdentify() {
+    func stopAutoIdentify(userInitiated: Bool = false) {
+        if userInitiated { userPausedAutoIdentify = true }
         autoIdentifyEnabled = false
         autoIdentifyTask?.cancel()
         autoIdentifyTask = nil

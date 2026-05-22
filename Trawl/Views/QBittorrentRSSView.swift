@@ -179,6 +179,11 @@ struct QBittorrentRSSView: View {
 
     private var backgroundGradient: some View {
         ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
             LinearGradient(
                 colors: [Color.cyan.opacity(0.18), Color.clear],
                 startPoint: .top,
