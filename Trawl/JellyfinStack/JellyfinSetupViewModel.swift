@@ -189,6 +189,15 @@ final class JellyfinSetupViewModel {
                 modelContext: modelContext
             )
             await restoreToken(originalToken, key: tokenKey)
+            if isNewProfile {
+                modelContext.rollback()
+            } else {
+                do {
+                    try modelContext.save()
+                } catch {
+                    Self.logger.error("Model context save failed during rollback: \(error)")
+                }
+            }
             throw error
         }
 
@@ -227,10 +236,9 @@ final class JellyfinSetupViewModel {
     ) {
         if isNewProfile {
             modelContext.delete(profile)
-            return
+        } else {
+            originalSnapshot?.restore(on: profile)
         }
-
-        originalSnapshot?.restore(on: profile)
         for existing in allProfiles {
             existing.isEnabled = originalEnabledStates[existing.id] ?? existing.isEnabled
         }
