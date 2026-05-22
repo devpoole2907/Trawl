@@ -99,6 +99,14 @@ actor SonarrAPIClient: SharedArrClient {
         return try await base.get("/api/v3/calendar", queryItems: params)
     }
 
+    func iCalFeedURL() async throws -> URL {
+        try await base.authenticatedFeedURL("/feed/v3/calendar/sonarr.ics")
+    }
+
+    func webcalFeedURL() async throws -> URL {
+        try webcalURL(from: try await iCalFeedURL())
+    }
+
     func getReleases(episodeId: Int? = nil, seriesId: Int? = nil, seasonNumber: Int? = nil) async throws -> [ArrRelease] {
         var params: [URLQueryItem] = []
         if let episodeId {

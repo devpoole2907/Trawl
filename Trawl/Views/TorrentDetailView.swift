@@ -12,7 +12,6 @@ struct TorrentDetailView: View {
     @State private var renameText = ""
     @State private var showLocationAlert = false
     @State private var locationText = ""
-    @State private var showTagsSheet = false
     @State private var selectedDownloadLimit: Int64 = 0
     @State private var selectedUploadLimit: Int64 = 0
 
@@ -134,9 +133,6 @@ struct TorrentDetailView: View {
                 dismissButton: .default(Text("OK"))
             )
         }
-        .sheet(isPresented: $showTagsSheet) {
-            TorrentTagsSheet(viewModel: vm)
-        }
     }
 
     // MARK: - Sections
@@ -158,15 +154,6 @@ struct TorrentDetailView: View {
                         }
                     }
                 }
-            } else if !vm.availableTags.isEmpty {
-                Button {
-                    showTagsSheet = true
-                } label: {
-                    Label("Add Tags", systemImage: "number")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.cyan)
-                }
-                .buttonStyle(.plain)
             }
         }
     }
@@ -244,76 +231,87 @@ struct TorrentDetailView: View {
                 Label("Category", systemImage: "tag")
             }
 
-            Button {
-                showTagsSheet = true
+            Menu {
+                if vm.availableTags.isEmpty {
+                    Text("No tags available")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(vm.availableTags, id: \.self) { tag in
+                        tagMenuButton(title: tag, viewModel: vm)
+                    }
+                }
             } label: {
                 Label("Tags", systemImage: "number")
             }
 
-            Toggle(
-                "Sequential Download",
-                isOn: Binding(
-                    get: { vm.isSequentialDownloadEnabled },
-                    set: { enabled in
-                        Task { await vm.setSequentialDownload(enabled) }
-                    }
-                )
-            )
-            .disabled(vm.isUpdatingSequentialDownload)
-
-            Toggle(
-                "First and Last Pieces First",
-                isOn: Binding(
-                    get: { vm.isFirstLastPiecePriorityEnabled },
-                    set: { enabled in
-                        Task { await vm.setFirstLastPiecePriority(enabled) }
-                    }
-                )
-            )
-            .disabled(vm.isUpdatingFirstLastPiecePriority)
-
             Divider()
 
             Menu {
-                Menu {
-                    Picker(
-                        "Download Limit",
-                        selection: Binding(
-                            get: { selectedDownloadLimit },
-                            set: { newVal in
-                                selectedDownloadLimit = newVal
-                                Task { await vm.setTorrentDownloadLimit(newVal) }
-                            }
-                        )
-                    ) {
-                        ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
-                            Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
+                Toggle(
+                    "Sequential Download",
+                    isOn: Binding(
+                        get: { vm.isSequentialDownloadEnabled },
+                        set: { enabled in
+                            Task { await vm.setSequentialDownload(enabled) }
                         }
-                    }
-                } label: {
-                    Label("Download", systemImage: "arrow.down.circle")
-                }
+                    )
+                )
+                .disabled(vm.isUpdatingSequentialDownload)
+
+                Toggle(
+                    "First and Last Pieces First",
+                    isOn: Binding(
+                        get: { vm.isFirstLastPiecePriorityEnabled },
+                        set: { enabled in
+                            Task { await vm.setFirstLastPiecePriority(enabled) }
+                        }
+                    )
+                )
+                .disabled(vm.isUpdatingFirstLastPiecePriority)
 
                 Menu {
-                    Picker(
-                        "Upload Limit",
-                        selection: Binding(
-                            get: { selectedUploadLimit },
-                            set: { newVal in
-                                selectedUploadLimit = newVal
-                                Task { await vm.setTorrentUploadLimit(newVal) }
+                    Menu {
+                        Picker(
+                            "Download Limit",
+                            selection: Binding(
+                                get: { selectedDownloadLimit },
+                                set: { newVal in
+                                    selectedDownloadLimit = newVal
+                                    Task { await vm.setTorrentDownloadLimit(newVal) }
+                                }
+                            )
+                        ) {
+                            ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
+                                Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
                             }
-                        )
-                    ) {
-                        ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
-                            Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
                         }
+                    } label: {
+                        Label("Download", systemImage: "arrow.down.circle")
+                    }
+
+                    Menu {
+                        Picker(
+                            "Upload Limit",
+                            selection: Binding(
+                                get: { selectedUploadLimit },
+                                set: { newVal in
+                                    selectedUploadLimit = newVal
+                                    Task { await vm.setTorrentUploadLimit(newVal) }
+                                }
+                            )
+                        ) {
+                            ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
+                                Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
+                            }
+                        }
+                    } label: {
+                        Label("Upload", systemImage: "arrow.up.circle")
                     }
                 } label: {
-                    Label("Upload", systemImage: "arrow.up.circle")
+                    Label("Speed Limits", systemImage: "speedometer")
                 }
             } label: {
-                Label("Speed Limits", systemImage: "speedometer")
+                Label("Download Options", systemImage: "arrow.down")
             }
 
             Divider()
@@ -368,6 +366,19 @@ struct TorrentDetailView: View {
             Task { await viewModel?.setCategory(category) }
         } label: {
             if normalizedCategory(currentCategory) == normalizedCategory(category) {
+                Label(title, systemImage: "checkmark")
+            } else {
+                Text(title)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func tagMenuButton(title: String, viewModel: TorrentDetailViewModel) -> some View {
+        Button {
+            Task { await viewModel.toggleTag(title) }
+        } label: {
+            if viewModel.currentTags.contains(where: { $0.caseInsensitiveCompare(title) == .orderedSame }) {
                 Label(title, systemImage: "checkmark")
             } else {
                 Text(title)
@@ -441,43 +452,3 @@ private struct DetailTagChip: View {
     }
 }
 
-private struct TorrentTagsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Bindable var viewModel: TorrentDetailViewModel
-
-    var body: some View {
-        AppSheetShell(title: "Tags", cancelTitle: "Done") {
-            List {
-                if viewModel.availableTags.isEmpty {
-                    ContentUnavailableView(
-                        "No Tags",
-                        systemImage: "number",
-                        description: Text("Create tags in More before assigning them to this torrent.")
-                    )
-                    .listRowBackground(Color.clear)
-                } else {
-                    Section("Assigned Tags") {
-                        ForEach(viewModel.availableTags, id: \.self) { tag in
-                            Button {
-                                Task { await viewModel.toggleTag(tag) }
-                            } label: {
-                                HStack(spacing: 12) {
-                                    Image(systemName: isSelected(tag) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(isSelected(tag) ? .cyan : .secondary)
-                                    Text(tag)
-                                        .foregroundStyle(.primary)
-                                    Spacer()
-                                }
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private func isSelected(_ tag: String) -> Bool {
-        viewModel.currentTags.contains { $0.caseInsensitiveCompare(tag) == .orderedSame }
-    }
-}

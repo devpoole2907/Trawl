@@ -719,7 +719,6 @@ struct SonarrSeasonSearchView: View {
             )
         }
         .buttonStyle(.plain)
-        .frame(maxWidth: .infinity)
         .disabled(series == nil || sortedEpisodes.isEmpty)
     }
 
@@ -731,18 +730,19 @@ struct SonarrSeasonSearchView: View {
         trailingSystemImage: String = "arrow.right",
         accentColor: Color = .purple
     ) -> some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: systemImage)
-                .font(.title3)
+                .font(.headline)
                 .foregroundStyle(accentColor)
-                .frame(width: 28)
+                .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
+
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -751,6 +751,7 @@ struct SonarrSeasonSearchView: View {
 
             if isLoading {
                 ProgressView()
+                    .controlSize(.small)
                     .tint(.white)
                     .frame(width: 18, height: 18)
             } else {
@@ -947,6 +948,8 @@ struct SonarrEpisodeSearchView: View {
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
     @State private var isTogglingMonitored = false
+    @State private var queueActionInFlightIDs: Set<Int> = []
+    @State private var pendingQueueAction: ArrDetailPendingQueueAction?
 
     @State private var isDispatchingBazarrSearch = false
     @State private var showBazarrInteractiveSearchSheet = false
@@ -1023,6 +1026,27 @@ struct SonarrEpisodeSearchView: View {
         }
     }
 
+    private func handleQueueAction(for item: ArrQueueItem, blocklist: Bool) async {
+        queueActionInFlightIDs.insert(item.id)
+        defer { queueActionInFlightIDs.remove(item.id) }
+
+        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
+
+        if wasRemoved {
+            if blocklist {
+                await serviceManager.loadBlocklist()
+            }
+            InAppNotificationCenter.shared.showSuccess(
+                title: blocklist ? "Blocked" : "Removed",
+                message: blocklist
+                    ? "The queue item was removed and blocklisted."
+                    : "The queue item was removed from Sonarr."
+            )
+        } else if let error = viewModel.error, !error.isEmpty {
+            InAppNotificationCenter.shared.showError(title: "Queue Action Failed", message: error)
+        }
+    }
+
     var body: some View {
         ScrollView {
             VStack(alignment: .center, spacing: 20) {
@@ -1042,7 +1066,11 @@ struct SonarrEpisodeSearchView: View {
 
                 if let q = queueItem {
                     ArrDetailQueueCard(items: [q]) { item in
-                        ArrDetailQueueItemRow(item: item)
+                        ArrDetailQueueItemRow(
+                            item: item,
+                            isRemoving: queueActionInFlightIDs.contains(item.id),
+                            onSetPendingAction: { pendingQueueAction = $0 }
+                        )
                     }
                 }
 
@@ -1179,6 +1207,30 @@ struct SonarrEpisodeSearchView: View {
         } message: {
             Text("This removes the selected episode file from Sonarr.")
         }
+        .alert(
+            pendingQueueAction?.blocklist == true ? "Blocklist Queue Item?" : "Remove Queue Item?",
+            isPresented: pendingQueueActionPresented
+        ) {
+            Button(pendingQueueAction?.blocklist == true ? "Blocklist" : "Remove", role: .destructive) {
+                guard let pendingQueueAction else { return }
+                let action = pendingQueueAction
+                self.pendingQueueAction = nil
+                Task {
+                    if let item = viewModel.queue.first(where: { $0.id == action.itemID }) {
+                        await handleQueueAction(for: item, blocklist: action.blocklist)
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {
+                pendingQueueAction = nil
+            }
+        } message: {
+            Text(
+                pendingQueueAction?.blocklist == true
+                    ? "This will remove \"\(pendingQueueAction?.title ?? "this item")\" from the queue and add it to Sonarr's blocklist."
+                    : "This will remove \"\(pendingQueueAction?.title ?? "this item")\" from the Sonarr queue."
+            )
+        }
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: currentEpisode)
@@ -1208,6 +1260,13 @@ struct SonarrEpisodeSearchView: View {
             await viewModel.loadHistory()
             await refreshBazarrEpisode()
         }
+    }
+
+    private var pendingQueueActionPresented: Binding<Bool> {
+        Binding(
+            get: { pendingQueueAction != nil },
+            set: { if !$0 { pendingQueueAction = nil } }
+        )
     }
 
     @ViewBuilder
@@ -1388,18 +1447,19 @@ struct SonarrEpisodeSearchView: View {
         trailingSystemImage: String = "arrow.right",
         accentColor: Color = .purple
     ) -> some View {
-        HStack(spacing: 14) {
+        HStack(alignment: .top, spacing: 12) {
             Image(systemName: systemImage)
-                .font(.title3)
+                .font(.headline)
                 .foregroundStyle(accentColor)
-                .frame(width: 28)
+                .padding(.top, 2)
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
+
                 Text(subtitle)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
             }
@@ -1408,6 +1468,7 @@ struct SonarrEpisodeSearchView: View {
 
             if isLoading {
                 ProgressView()
+                    .controlSize(.small)
                     .tint(.white)
                     .frame(width: 18, height: 18)
             } else {

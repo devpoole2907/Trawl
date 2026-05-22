@@ -3,48 +3,44 @@ import SwiftUI
 struct ArrHistoryView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
-    let embedded: Bool
-    let serviceFilter: ArrServiceFilter
+    @State private var serviceFilter: ArrServiceFilter = .all
     @State private var showSettings = false
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
     @State private var prowlarrViewModel: ProwlarrViewModel?
     @State private var historyRefreshGeneration = 0
 
-    init(embedded: Bool = false, serviceFilter: ArrServiceFilter = .all) {
-        self.embedded = embedded
-        self.serviceFilter = serviceFilter
+    private var historyFilters: [ArrServiceFilter] {
+        var filters: [ArrServiceFilter] = [.all]
+        if serviceManager.hasSonarrInstance { filters.append(.sonarr) }
+        if serviceManager.hasRadarrInstance { filters.append(.radarr) }
+        if serviceManager.hasProwlarrInstance { filters.append(.prowlarr) }
+        return filters
     }
 
     var body: some View {
-        Group {
-            if embedded {
-                historyContent
-            } else {
-                historyContent
-                    .navigationTitle("History")
+        historyContent
+            .moreDestinationBackground(.activity)
+            .navigationTitle("History")
+            .safeAreaInset(edge: .top) {
+                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: historyFilters, alignment: .leading)
             }
-        }
-        .task(id: reloadKey) {
-            await initializeIfNeeded()
-            await reloadHistory()
-            historyRefreshGeneration += 1
-        }
-        .refreshable {
-            await reloadHistory()
-            historyRefreshGeneration += 1
-        }
-        .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                ArrServiceSettingsView(serviceType: settingsServiceType)
-                    .environment(serviceManager)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
+            .task(id: reloadKey) {
+                await initializeIfNeeded()
+                await reloadHistory()
+                historyRefreshGeneration += 1
+            }
+            .sheet(isPresented: $showSettings) {
+                NavigationStack {
+                    ArrServiceSettingsView(serviceType: settingsServiceType)
+                        .environment(serviceManager)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showSettings = false }
+                            }
                         }
-                    }
+                }
             }
-        }
     }
 
     @ViewBuilder
@@ -111,6 +107,10 @@ struct ArrHistoryView: View {
                 .listStyle(.inset)
                 #endif
                 .scrollContentBackground(.hidden)
+                .refreshable {
+                    await reloadHistory()
+                    historyRefreshGeneration += 1
+                }
             }
         }
     }
@@ -347,49 +347,13 @@ private struct HistoryRow: View {
     let item: HistoryItem
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: serviceSymbol)
-                .foregroundStyle(serviceColor)
-                .frame(width: 20)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayTitle)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-
-                HStack(spacing: 6) {
-                    if let indexerName = item.indexerName, !indexerName.isEmpty {
-                        HStack(spacing: 4) {
-                            Image(systemName: "magnifyingglass")
-                            Text(indexerName)
-                        }
-                    }
-                    if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
-                        Text(quality)
-                    }
-                    if item.source == .prowlarr, let query = item.record.data?["query"], !query.isEmpty {
-                        Text(query)
-                    }
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                Text(timeLabel)
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-            }
-
-            Spacer(minLength: 8)
-
-            Text(eventLabel)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(iconColor)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(iconColor.opacity(0.14))
-                .clipShape(Capsule())
-        }
-        .padding(.vertical, 4)
+        ArrInfoRowView(
+            icon: (serviceSymbol, serviceColor),
+            title: displayTitle,
+            subtitleLeading: serviceName,
+            subtitleTrailing: timeLabel,
+            chips: chips
+        )
     }
 
     private var eventType: String {
@@ -436,12 +400,43 @@ private struct HistoryRow: View {
         item.sortDate.formatted(date: .omitted, time: .shortened)
     }
 
+    private var chips: [ArrReleaseInfoChip] {
+        var chips = [
+            ArrReleaseInfoChip(eventLabel, color: iconColor, isProminent: true)
+        ]
+
+        if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
+            chips.append(ArrReleaseInfoChip(quality, color: .primary))
+        }
+
+        if let indexerName = item.indexerName, !indexerName.isEmpty {
+            chips.append(ArrReleaseInfoChip(indexerName, color: .secondary))
+        }
+
+        if item.source == .prowlarr,
+           let query = item.record.data?["query"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !query.isEmpty {
+            chips.append(ArrReleaseInfoChip(query, color: .secondary))
+        }
+
+        return chips
+    }
+
     private var serviceColor: Color {
         switch item.source {
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
         case .bazarr: .secondary
+        }
+    }
+
+    private var serviceName: String {
+        switch item.source {
+        case .sonarr: "Sonarr"
+        case .radarr: "Radarr"
+        case .prowlarr: "Prowlarr"
+        case .bazarr: "Bazarr"
         }
     }
 

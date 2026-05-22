@@ -798,6 +798,10 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
         return normalizedStatus == "warning" || normalizedStatus == "error"
     }
 
+    var canBeBlocklisted: Bool {
+        movieId != nil || seriesId != nil || episodeId != nil
+    }
+
     var primaryStatusMessage: String? {
         statusMessages?
             .compactMap(\.messages)
@@ -843,6 +847,58 @@ struct ArrHistoryRecord: Codable, Identifiable, Sendable {
     var eventDisplayName: String {
         ArrHistoryEventFormatter.displayName(for: eventType)
     }
+
+    enum CodingKeys: String, CodingKey {
+        case id, eventType, date, sourceTitle, quality, downloadId
+        case indexerId, successful, data
+        case seriesId, episodeId, movieId
+    }
+
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(Int.self, forKey: .id)
+        eventType = try container.decodeIfPresent(String.self, forKey: .eventType)
+        date = try container.decodeIfPresent(String.self, forKey: .date)
+        sourceTitle = try container.decodeIfPresent(String.self, forKey: .sourceTitle)
+        quality = try container.decodeIfPresent(ArrHistoryQuality.self, forKey: .quality)
+        downloadId = try container.decodeIfPresent(String.self, forKey: .downloadId)
+        indexerId = try container.decodeIfPresent(Int.self, forKey: .indexerId)
+        successful = try container.decodeIfPresent(Bool.self, forKey: .successful)
+        seriesId = try container.decodeIfPresent(Int.self, forKey: .seriesId)
+        episodeId = try container.decodeIfPresent(Int.self, forKey: .episodeId)
+        movieId = try container.decodeIfPresent(Int.self, forKey: .movieId)
+
+        // The `data` field is documented as Dictionary<string, string>, but Sonarr/Radarr
+        // emit numeric, boolean, and null values inside it (e.g. preferredWordScore,
+        // customFormatScore). Decode permissively and stringify primitive values so
+        // one stray int doesn't kill the entire response.
+        if container.contains(.data),
+           let nested = try? container.nestedContainer(keyedBy: ArrHistoryDataKey.self, forKey: .data) {
+            var dict: [String: String] = [:]
+            for key in nested.allKeys {
+                if let value = try? nested.decode(String.self, forKey: key) {
+                    dict[key.stringValue] = value
+                } else if let value = try? nested.decode(Bool.self, forKey: key) {
+                    dict[key.stringValue] = value ? "true" : "false"
+                } else if let value = try? nested.decode(Int64.self, forKey: key) {
+                    dict[key.stringValue] = String(value)
+                } else if let value = try? nested.decode(Double.self, forKey: key) {
+                    dict[key.stringValue] = String(value)
+                }
+                // Skip null / nested object / array — not useful as a [String: String] entry.
+            }
+            data = dict.isEmpty ? nil : dict
+        } else {
+            data = nil
+        }
+    }
+}
+
+private struct ArrHistoryDataKey: CodingKey {
+    var stringValue: String
+    var intValue: Int? { nil }
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { nil }
 }
 
 nonisolated enum ArrHistoryEventFormatter {
@@ -1061,6 +1117,35 @@ struct ArrBlocklistQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
+// MARK: - Import List Exclusions
+
+nonisolated struct ArrImportListExclusionPage: Codable, Sendable {
+    let page: Int?
+    let pageSize: Int?
+    let totalRecords: Int?
+    let records: [ArrImportListExclusion]?
+}
+
+struct ArrImportListExclusion: Codable, Identifiable, Sendable {
+    let id: Int
+    let tvdbId: Int?
+    let tmdbId: Int?
+    let title: String?
+    let movieTitle: String?
+    let movieYear: Int?
+
+    var displayTitle: String {
+        let candidates = [title, movieTitle]
+        return candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty } ?? "Unknown Item"
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, tvdbId, tmdbId, title, movieTitle, movieYear
+    }
+}
+
 // MARK: - Disk Space
 
 struct ArrDiskSpace: Codable, Identifiable, Sendable {
@@ -1265,6 +1350,20 @@ nonisolated struct ArrRemotePathMapping: Codable, Identifiable, Sendable {
     var host: String
     var remotePath: String
     var localPath: String
+}
+
+// MARK: - Calendar Feed
+
+nonisolated struct ArrICalFeedLink: Identifiable, Sendable {
+    let serviceType: ArrServiceType
+    let profileID: UUID
+    let displayName: String
+    let url: URL
+    let webcalURL: URL
+
+    var id: String { "\(serviceType.rawValue)-\(profileID.uuidString)" }
+    var copyURLString: String { url.absoluteString }
+    var subscribeURLString: String { webcalURL.absoluteString }
 }
 
 // MARK: - Arr Error

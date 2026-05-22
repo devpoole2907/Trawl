@@ -53,6 +53,7 @@ struct ContentView: View {
     #if os(iOS)
     @Namespace private var notificationTransitionNamespace
     @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
+    @State private var isTabChromeHidden = false
     #endif
 
     var body: some View {
@@ -565,7 +566,7 @@ struct ContentView: View {
             }
 
             Tab(value: RootTab.search, role: .search) {
-                SearchView(appServices: appServices)
+                SearchView()
                     .environment(arrServiceManager)
                     .environment(services.syncService)
                     .environment(services.torrentService)
@@ -615,23 +616,30 @@ struct ContentView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
-        .tabViewBottomAccessory {
+        .tabViewBottomAccessory(isEnabled: !isTabChromeHidden) {
             NotificationTabBarAccessory()
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .overlay(alignment: .bottom) {
-            // Source view for the notification sheet zoom transition.
-            // Lives in the main view hierarchy (not inside tabViewBottomAccessory)
-            // because matched transitions can't resolve views bridged through the
-            // liquid-glass tab bar. The view is rendered (non-zero opacity) so
-            // SwiftUI registers its frame, but visually imperceptible.
-            Rectangle()
-                .fill(Color.primary.opacity(0.001))
-                .frame(width: 320, height: 56)
-                .matchedTransitionSource(id: notificationSheetTransitionID, in: notificationTransitionNamespace)
-                .padding(.bottom, 96)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+            if !isTabChromeHidden {
+                // Source view for the notification sheet zoom transition.
+                // Lives in the main view hierarchy (not inside tabViewBottomAccessory)
+                // because matched transitions can't resolve views bridged through the
+                // liquid-glass tab bar. The view is rendered (non-zero opacity) so
+                // SwiftUI registers its frame, but visually imperceptible.
+                Rectangle()
+                    .fill(Color.primary.opacity(0.001))
+                    .frame(width: 320, height: 56)
+                    .matchedTransitionSource(id: notificationSheetTransitionID, in: notificationTransitionNamespace)
+                    .padding(.bottom, 96)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .environment(\.setTabChromeHidden) { isHidden in
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                isTabChromeHidden = isHidden
+            }
         }
         #endif
         .sheet(item: $magnetDeepLink) { link in
@@ -866,6 +874,17 @@ struct ContentView: View {
 }
 
 #if os(iOS)
+struct SetTabChromeHiddenKey: EnvironmentKey {
+    static let defaultValue: (Bool) -> Void = { _ in }
+}
+
+extension EnvironmentValues {
+    var setTabChromeHidden: (Bool) -> Void {
+        get { self[SetTabChromeHiddenKey.self] }
+        set { self[SetTabChromeHiddenKey.self] = newValue }
+    }
+}
+
 private struct NotificationTabBarAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter

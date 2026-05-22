@@ -3,6 +3,7 @@ import Foundation
 /// Radarr-specific API methods. Wraps ArrAPIClient for type-safe Radarr operations.
 actor RadarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
+    let importListExclusionsPath = "/api/v3/exclusions"
 
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
         self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
@@ -81,6 +82,14 @@ actor RadarrAPIClient: SharedArrClient {
         ].compactMap { $0 }
         params.append(URLQueryItem(name: "unmonitored", value: String(unmonitored)))
         return try await base.get("/api/v3/calendar", queryItems: params)
+    }
+
+    func iCalFeedURL() async throws -> URL {
+        try await base.authenticatedFeedURL("/feed/v3/calendar/radarr.ics")
+    }
+
+    func webcalFeedURL() async throws -> URL {
+        try webcalURL(from: try await iCalFeedURL())
     }
 
     func getReleases(movieId: Int) async throws -> [ArrRelease] {

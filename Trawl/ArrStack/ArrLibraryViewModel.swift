@@ -137,8 +137,10 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
             history = historyLoader.items
             historyTotalRecords = historyLoader.totalRecords
+        } catch is CancellationError {
+            return
         } catch {
-            self.error = error.localizedDescription
+            captureAndNotify(error, title: "History Load Failed")
         }
     }
 
@@ -384,15 +386,17 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         }
     }
 
-    func removeQueueItem(id: Int, blocklist: Bool = false) async {
-        guard let client else { return }
+    @discardableResult
+    func removeQueueItem(id: Int, blocklist: Bool = false) async -> Bool {
+        guard let client else { return false }
         do {
             try await client.deleteQueueItem(id: id, blocklist: blocklist)
             queue.removeAll { $0.id == id }
-            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
+            error = nil
+            return true
         } catch {
             self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
+            return false
         }
     }
 

@@ -107,6 +107,7 @@ struct RadarrMovieRow: View {
     let movie: RadarrMovie
     let hasIssue: Bool
     var bazarrStatus: BazarrSubtitleStatus? = nil
+    var showTypeLabel: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -123,11 +124,14 @@ struct RadarrMovieRow: View {
                     .fontWeight(.medium)
                     .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    if let year = movie.year { Text(String(year)).font(.caption2) }
-                    if let runtime = movie.runtime, runtime > 0 {
-                        Text("• \(runtime)m").font(.caption2)
+                HStack(spacing: 4) {
+                    ForEach(Array(metadataItems.enumerated()), id: \.offset) { index, item in
+                        if index > 0 {
+                            Text("•")
+                        }
+                        Text(item)
                     }
+                    .font(.caption2)
                 }
                 .foregroundStyle(.secondary)
 
@@ -170,5 +174,19 @@ struct RadarrMovieRow: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var metadataItems: [String] {
+        var items: [String] = []
+        if let year = movie.year {
+            items.append(String(year))
+        }
+        if showTypeLabel {
+            items.append("Movie")
+        }
+        if let runtime = movie.runtime, runtime > 0 {
+            items.append("\(runtime)m")
+        }
+        return items
     }
 }

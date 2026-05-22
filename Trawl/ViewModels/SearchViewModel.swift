@@ -8,7 +8,7 @@ final class SearchViewModel {
     var searchText = ""
     var isSearchPresented = false
     var scope: SearchScope = .arr
-    var filter: ResultKind = .all
+    var filter: SearchResultFilter = .all
     var actionErrorAlert: ErrorAlertItem?
     var arrAddInFlightIDs: Set<String> = []
 
@@ -22,7 +22,6 @@ final class SearchViewModel {
     // Arr lookup
     var sonarrLookupVM: SonarrViewModel?
     var radarrLookupVM: RadarrViewModel?
-    var arrFilter: ArrResultKind = .all
     var hasSearchedArr = false
     var arrLookupTask: Task<Void, Never>?
     private var activeArrLookupTerm = ""
@@ -42,7 +41,6 @@ final class SearchViewModel {
     var seriesMatches: [Int: SonarrSeries] = [:]
 
     // Incremental Library Matches
-    var matchedTorrents: [Torrent] = []
     var matchedSeries: [SonarrSeries] = []
     var matchedMovies: [RadarrMovie] = []
     var librarySearchTask: Task<Void, Never>?
@@ -183,12 +181,11 @@ final class SearchViewModel {
         radarrLookupVM?.clearSearchResults()
     }
 
-    func startLibrarySearch(appServices: AppServices?) {
+    func startLibrarySearch() {
         librarySearchTask?.cancel()
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if query.isEmpty {
-            matchedTorrents = []
             matchedSeries = []
             matchedMovies = []
             return
@@ -196,24 +193,8 @@ final class SearchViewModel {
 
         let sonarrTitleIndex = sonarrTitleIndex
         let radarrTitleIndex = radarrTitleIndex
-        let syncService = appServices?.syncService
 
         librarySearchTask = Task { @MainActor in
-            if let syncService {
-                let torrents = syncService.torrents.values
-                    .filter { $0.name.lowercased().contains(query) }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-                matchedTorrents = []
-                for chunk in torrents.chunked(into: 5) {
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.spring(response: 0.3)) {
-                        matchedTorrents.append(contentsOf: chunk)
-                    }
-                    try? await Task.sleep(for: .milliseconds(10))
-                }
-            }
-
             let series = sonarrTitleIndex
                 .filter { $0.lower.contains(query) }
                 .map(\.series)

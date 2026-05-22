@@ -1,6 +1,12 @@
 import SwiftUI
 import Observation
 
+#if os(iOS)
+import UIKit
+#elseif os(macOS)
+import AppKit
+#endif
+
 // MARK: - Calendar View Model
 
 @MainActor
@@ -30,6 +36,14 @@ final class ArrCalendarViewModel {
     
     init(serviceManager: ArrServiceManager) {
         self.serviceManager = serviceManager
+    }
+
+    func iCalFeedLinks() async throws -> [ArrICalFeedLink] {
+        try await serviceManager.iCalFeedLinks()
+    }
+
+    func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink {
+        try await serviceManager.iCalFeedLink(for: serviceType)
     }
     
     func initialize() async {
@@ -94,8 +108,10 @@ final class ArrCalendarViewModel {
         let lookup = seriesLookup
         switch await fetchMonthData(next, lookup: lookup) {
         case let .success((month, data)):
-            monthLoadErrors[month] = nil
-            mergeMonth(month, data: data)
+            withAnimation {
+                monthLoadErrors[month] = nil
+                mergeMonth(month, data: data)
+            }
         case let .failure(error):
             if let monthError = error as? CalendarMonthLoadError {
                 monthLoadErrors[monthError.month] = monthError.localizedDescription
@@ -103,7 +119,7 @@ final class ArrCalendarViewModel {
         }
         isLoadingMore = false
     }
-    
+
     func loadPreviousMonth() async {
         guard !isLoadingEarlier, let earliest = loadedMonths.first else { return }
         isLoadingEarlier = true
@@ -111,8 +127,10 @@ final class ArrCalendarViewModel {
         let lookup = seriesLookup
         switch await fetchMonthData(prev, lookup: lookup) {
         case let .success((month, data)):
-            monthLoadErrors[month] = nil
-            mergeMonth(month, data: data, insertAtStart: true)
+            withAnimation {
+                monthLoadErrors[month] = nil
+                mergeMonth(month, data: data, insertAtStart: true)
+            }
         case let .failure(error):
             if let monthError = error as? CalendarMonthLoadError {
                 monthLoadErrors[monthError.month] = monthError.localizedDescription
@@ -127,17 +145,17 @@ final class ArrCalendarViewModel {
         (sonarrSeries, radarrMovies) = await (seriesTask, moviesTask)
         seriesLookup = Dictionary(uniqueKeysWithValues: sonarrSeries.map { ($0.id, $0) })
     }
-    
+
     private func fetchMonthData(_ month: YearMonth, lookup: [Int: SonarrSeries]) async -> Result<(YearMonth, [Date: [CalendarEvent]]), Error> {
         let start = month.startDate
         let end = month.endDate
-        
+
         let results: Result<[Date: [CalendarEvent]], Error> = await withTaskGroup(of: Result<[Date: [CalendarEvent]], Error>.self) { group in
             if let client = serviceManager.sonarrClient {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
                     do {
-                        let episodes = try await client.getCalendar(start: start, end: end, unmonitored: false, includeSeries: true)
+                        let episodes = try await client.getCalendar(start: start, end: end, unmonitored: true, includeSeries: true)
                         for ep in episodes {
                             guard let seriesId = ep.seriesId,
                                   let date = ArrDateParser.parse(ep.airDateUtc) ?? ArrDateParser.parseDay(ep.airDate) else { continue }
@@ -150,12 +168,12 @@ final class ArrCalendarViewModel {
                     }
                 }
             }
-            
+
             if let client = serviceManager.radarrClient {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
                     do {
-                        let movies = try await client.getCalendar(start: start, end: end, unmonitored: false)
+                        let movies = try await client.getCalendar(start: start, end: end, unmonitored: true)
                         for movie in movies {
                             let releases = [
                                 (movie.digitalRelease, MovieReleaseKind.digital),
@@ -175,12 +193,14 @@ final class ArrCalendarViewModel {
                     }
                 }
             }
-            
+
             var combined: [Date: [CalendarEvent]] = [:]
             var errors: [String] = []
+            var successes = 0
             for await result in group {
                 switch result {
                 case let .success(dict):
+                    successes += 1
                     for (day, events) in dict {
                         combined[day, default: []].append(contentsOf: events)
                     }
@@ -189,7 +209,8 @@ final class ArrCalendarViewModel {
                 }
             }
 
-            if errors.isEmpty {
+            // Keep partial data: only fail if every service errored and produced no data.
+            if successes > 0 || errors.isEmpty {
                 return Result.success(combined)
             } else {
                 return Result.failure(CalendarMonthLoadError(month: month, messages: errors))
@@ -216,6 +237,11 @@ final class ArrCalendarViewModel {
     fileprivate var nextMonthErrorMessage: String? {
         guard let latest = loadedMonths.last else { return nil }
         return monthLoadErrors[latest.advanced(by: 1)]
+    }
+
+    fileprivate var previousMonthErrorMessage: String? {
+        guard let earliest = loadedMonths.first else { return nil }
+        return monthLoadErrors[earliest.advanced(by: -1)]
     }
 
     private func mergeMonth(_ month: YearMonth, data: [Date: [CalendarEvent]], insertAtStart: Bool = false) {
@@ -257,6 +283,9 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(\.dismiss) private var dismiss
+    #if os(iOS)
+    @Environment(\.setTabChromeHidden) private var setTabChromeHidden
+    #endif
     
     let showsCloseButton: Bool
     let seriesNavigationValue: (Int) -> SeriesDest
@@ -273,9 +302,11 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     }
     
     @State private var scope: CalendarScope = .all
+    @State private var showMonitoredOnly = false
     @State private var scrollView: ScrollViewProxy?
     @State private var hideCalendarView = true
     @State private var didInitialScroll = false
+    @State private var showiCalAlert = false
     
     private let today = Calendar.current.startOfDay(for: .now)
     private let firstWeekday = Calendar.current.firstWeekday
@@ -288,6 +319,13 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
         if serviceManager.hasRadarrInstance { services.append(.radarr) }
+        return services
+    }
+
+    private var subscribableServices: [ArrServiceType] {
+        var services: [ArrServiceType] = []
+        if serviceManager.sonarrConnected { services.append(.sonarr) }
+        if serviceManager.radarrConnected { services.append(.radarr) }
         return services
     }
 
@@ -346,6 +384,9 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         .moreDestinationBackground(.calendar)
         .navigationTitle("Calendar")
         .navigationSubtitle(navigationSubtitleText)
+        #if os(iOS)
+        .toolbarVisibility(.hidden, for: .tabBar)
+        #endif
         .toolbar {
             if showsCloseButton {
                 ToolbarItem(placement: platformCancellationPlacement) {
@@ -356,9 +397,29 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     }
                 }
             }
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Button("Today") {
                     scrollToToday()
+                }
+            }
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                Menu {
+                    Picker("Show", selection: $showMonitoredOnly) {
+                        Text("All").tag(false)
+                        Text("Monitored Only").tag(true)
+                    }
+                } label: {
+                    Image(systemName: showMonitoredOnly
+                        ? "line.3.horizontal.decrease.circle.fill"
+                        : "line.3.horizontal.decrease.circle")
+                }
+            }
+            if isConnected {
+                ToolbarItem(placement: .bottomBar) {
+                    Button("Subscribe") {
+                        showiCalAlert = true
+                    }
                 }
             }
         }
@@ -378,6 +439,16 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             await serviceManager.calendarViewModel.initialize()
             await revealCalendarIfNeeded(forceScrollToToday: !didInitialScroll)
         }
+        .onAppear {
+            #if os(iOS)
+            setTabChromeHidden(true)
+            #endif
+        }
+        .onDisappear {
+            #if os(iOS)
+            setTabChromeHidden(false)
+            #endif
+        }
         .navigationDestination(for: Int.self) { seriesId in
             SonarrSeriesDetailView(seriesId: seriesId, viewModel: SonarrViewModel(serviceManager: serviceManager, preloadedSeries: serviceManager.calendarViewModel!.sonarrSeries))
                 .environment(syncService)
@@ -386,6 +457,9 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             RadarrMovieDetailView(movieId: Int(movieId), viewModel: RadarrViewModel(serviceManager: serviceManager, preloadedMovies: serviceManager.calendarViewModel!.radarrMovies))
                 .environment(syncService)
         }
+        .sheet(isPresented: $showiCalAlert) {
+            ICalSubscribeSheet(availableServices: subscribableServices)
+        }
     }
     
     @ViewBuilder
@@ -393,6 +467,34 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 0) {
+                    Group {
+                        if viewModel.isLoadingEarlier {
+                            ProgressView()
+                                .tint(.secondary)
+                        } else if let loadEarlierError = viewModel.previousMonthErrorMessage {
+                            VStack(spacing: 8) {
+                                Text(loadEarlierError)
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                Button("Retry Load Earlier") {
+                                    Task { await viewModel.loadPreviousMonth() }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.secondary)
+                            }
+                        } else if !visibleDays.isEmpty {
+                            Button("Load Earlier") {
+                                Task { await viewModel.loadPreviousMonth() }
+                            }
+                            .buttonStyle(.bordered)
+                            .tint(.secondary)
+                        }
+                    }
+                    .padding(.top, 8)
+                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity)
+
                     ForEach(visibleDays, id: \.self) { day in
                         if Calendar.current.component(.weekday, from: day) == firstWeekday {
                             CalendarWeekRange(date: day)
@@ -447,6 +549,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     private func filteredEvents(for day: Date) -> [CalendarEvent] {
         guard let all = viewModel.eventsByDay[day] else { return [] }
         return all.filter { event in
+            if showMonitoredOnly && !event.monitored { return false }
             switch scope {
             case .all: return true
             case .series: if case .episode = event { return true }; return false
@@ -538,7 +641,7 @@ private struct CalendarDayRow<Link: View>: View {
             
             VStack(alignment: .leading, spacing: 0) {
                 if events.isEmpty {
-                    Spacer()
+                Spacer()
                         .frame(height: 50)
                 } else {
                     ForEach(events) { event in
@@ -730,6 +833,13 @@ fileprivate enum CalendarEvent: Identifiable {
         case .movie(let m, _, _): m.hasFile == true
         }
     }
+
+    var monitored: Bool {
+        switch self {
+        case .episode(let ep, _, _): ep.monitored ?? true
+        case .movie(let m, _, _): m.monitored ?? true
+        }
+    }
 }
 
 fileprivate enum CalendarScope: CaseIterable {
@@ -818,5 +928,471 @@ fileprivate enum ArrDateParser {
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.timeZone = TimeZone(secondsFromGMT: 0)
         return formatter.date(from: string)
+    }
+}
+
+// MARK: - iCal Subscribe Sheet
+
+fileprivate enum ICalReleaseType: String, CaseIterable, Identifiable {
+    case cinema = "cinemaRelease"
+    case digital = "digitalRelease"
+    case physical = "physicalRelease"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .cinema: "Cinema"
+        case .digital: "Digital"
+        case .physical: "Physical"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .cinema: "popcorn.fill"
+        case .digital: "play.rectangle.fill"
+        case .physical: "opticaldisc.fill"
+        }
+    }
+
+    var sortOrder: Int {
+        switch self {
+        case .cinema: 0
+        case .digital: 1
+        case .physical: 2
+        }
+    }
+}
+
+fileprivate struct ICalFeedConfiguration: Equatable {
+    var includeUnmonitored = false
+    var showAsAllDayEvents = false
+    var tagIDs: Set<Int> = []
+    var releaseTypes: Set<ICalReleaseType> = Set(ICalReleaseType.allCases)
+
+    func queryItems(for service: ArrServiceType) -> [URLQueryItem] {
+        var items = [
+            URLQueryItem(name: "unmonitored", value: String(includeUnmonitored)),
+            URLQueryItem(name: "asAllDay", value: String(showAsAllDayEvents))
+        ]
+
+        if !tagIDs.isEmpty {
+            let tagValue = tagIDs.sorted().map(String.init).joined(separator: ",")
+            items.append(URLQueryItem(name: "tags", value: tagValue))
+        }
+
+        if service == .radarr && releaseTypes.count < ICalReleaseType.allCases.count && !releaseTypes.isEmpty {
+            let releaseTypeValue = releaseTypes
+                .sorted { $0.sortOrder < $1.sortOrder }
+                .map(\.rawValue)
+                .joined(separator: ",")
+            items.append(URLQueryItem(name: "releaseTypes", value: releaseTypeValue))
+        }
+
+        return items
+    }
+}
+
+private struct ICalSubscribeSheet: View {
+    let availableServices: [ArrServiceType]
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(InAppNotificationCenter.self) private var notificationCenter
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    @State private var selectedService: ArrServiceType?
+    @State private var feedLink: ArrICalFeedLink?
+    @State private var feedErrorMessage: String?
+    @State private var includeUnmonitored = false
+    @State private var showAsAllDayEvents = false
+    @State private var selectedTagIDs: Set<Int> = []
+    @State private var selectedReleaseTypes: Set<ICalReleaseType> = Set(ICalReleaseType.allCases)
+
+    private var configuration: ICalFeedConfiguration {
+        ICalFeedConfiguration(
+            includeUnmonitored: includeUnmonitored,
+            showAsAllDayEvents: showAsAllDayEvents,
+            tagIDs: selectedTagIDs,
+            releaseTypes: selectedReleaseTypes
+        )
+    }
+
+    private var accentColor: Color {
+        selectedService?.serviceIdentity.brandColor ?? .secondary
+    }
+
+    private var availableTags: [ArrTag] {
+        guard let selectedService else { return [] }
+        let tags: [ArrTag] = switch selectedService {
+        case .sonarr: serviceManager.sonarrTags
+        case .radarr: serviceManager.radarrTags
+        case .prowlarr, .bazarr: []
+        }
+        return tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    private var configuredCopyURL: URL? {
+        guard let feedLink, let selectedService else { return nil }
+        return configuredURL(from: feedLink.url, service: selectedService)
+    }
+
+    private var configuredSubscribeURL: URL? {
+        guard let feedLink, let selectedService else { return nil }
+        return configuredURL(from: feedLink.webcalURL, service: selectedService)
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    header
+                    servicePicker
+                    optionsSection
+
+                    if selectedService == .radarr {
+                        releaseTypesSection
+                    }
+
+                    tagsSection
+                    feedSection
+                }
+                .padding(.horizontal, 24)
+                .padding(.top, 32)
+                .padding(.bottom, 132)
+            }
+            .scrollIndicators(.hidden)
+
+            openInCalendarButton
+                .padding(.horizontal, 24)
+                .padding(.bottom, 24)
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        .onAppear {
+            if selectedService == nil, availableServices.count == 1 {
+                selectedService = availableServices.first
+            }
+        }
+        .task(id: selectedService) {
+            await loadFeedLink()
+        }
+    }
+
+    private var header: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Subscribe to iCal")
+                .font(.title2.bold())
+            Text("Configure the feed URL, copy it to another client, or open the webcal subscription in Calendar.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var servicePicker: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionTitle("Service")
+
+            VStack(spacing: 12) {
+                ForEach(availableServices) { service in
+                    serviceRow(service)
+                }
+            }
+        }
+    }
+
+    private var optionsSection: some View {
+        sheetCard {
+            VStack(alignment: .leading, spacing: 16) {
+                sectionTitle("Options")
+
+                Toggle(isOn: $includeUnmonitored) {
+                    optionLabel(
+                        title: "Include Unmonitored",
+                        subtitle: "Include releases for unmonitored items in the feed."
+                    )
+                }
+
+                Divider()
+
+                Toggle(isOn: $showAsAllDayEvents) {
+                    optionLabel(
+                        title: "Show as All-Day Events",
+                        subtitle: "Calendar entries appear without a specific time."
+                    )
+                }
+            }
+        }
+    }
+
+    private var releaseTypesSection: some View {
+        sheetCard {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionTitle("Release Types")
+                    Text("Include only movies with specific release types. If unspecified, all options are used.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                ForEach(ICalReleaseType.allCases) { releaseType in
+                    if releaseType != ICalReleaseType.allCases.first {
+                        Divider()
+                    }
+
+                    Toggle(isOn: releaseTypeBinding(for: releaseType)) {
+                        Label(releaseType.title, systemImage: releaseType.systemImage)
+                    }
+                }
+            }
+        }
+    }
+
+    private var tagsSection: some View {
+        sheetCard {
+            VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionTitle("Tags")
+                    Text(tagSectionSubtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if availableTags.isEmpty {
+                    Text("No tags available")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(availableTags) { tag in
+                        if tag.id != availableTags.first?.id {
+                            Divider()
+                        }
+
+                        Toggle(isOn: tagBinding(for: tag.id)) {
+                            Text(tag.label)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var feedSection: some View {
+        sheetCard {
+            VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    sectionTitle("iCal Feed")
+                    Text("Copy this URL to your clients or click to subscribe if your browser supports webcal.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                if let feedErrorMessage {
+                    Text(feedErrorMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else if let configuredCopyURL {
+                    HStack(spacing: 10) {
+                        Text(configuredCopyURL.absoluteString)
+                            .font(.system(.caption, design: .monospaced))
+                            .lineLimit(3)
+                            .truncationMode(.middle)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+
+                        Button {
+                            copyFeedURL()
+                        } label: {
+                            Image(systemName: "doc.on.doc")
+                                .font(.headline)
+                        }
+                        .buttonStyle(.glass(.regular.tint(accentColor)))
+                        .help("Copy iCal Feed URL")
+                    }
+                    .padding(12)
+                    .background(Color.secondary.opacity(0.08))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                } else {
+                    HStack(spacing: 10) {
+                        ProgressView()
+                        Text(selectedService == nil ? "Select a service to generate a feed URL." : "Generating feed URL...")
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var openInCalendarButton: some View {
+        Button {
+            if let configuredSubscribeURL {
+                openURL(configuredSubscribeURL)
+                dismiss()
+            }
+        } label: {
+            Label("Open in Calendar", systemImage: "calendar.badge.plus")
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 15)
+        }
+        .buttonStyle(.glass(.regular.tint(accentColor)))
+        .disabled(configuredSubscribeURL == nil)
+    }
+
+    private var tagSectionSubtitle: String {
+        switch selectedService {
+        case .radarr: "Applies to movies with at least one matching tag."
+        case .sonarr: "Applies to series with at least one matching tag."
+        case .prowlarr, .bazarr, nil: "Select a service to choose matching tags."
+        }
+    }
+
+    private func serviceRow(_ service: ArrServiceType) -> some View {
+        let brand = service.serviceIdentity.brandColor
+        let isSelected = selectedService == service
+        return Button {
+            withAnimation {
+                selectedService = service
+                selectedTagIDs.removeAll()
+                selectedReleaseTypes = Set(ICalReleaseType.allCases)
+            }
+        } label: {
+            HStack(spacing: 16) {
+                Image(systemName: service.systemImage)
+                    .font(.title3)
+                    .foregroundStyle(brand)
+                    .frame(width: 30)
+
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(service.displayName)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                    Text(service == .sonarr ? "Upcoming episodes" : "Upcoming movie releases")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? brand : .secondary)
+                    .font(.title3)
+            }
+            .padding(.vertical, 16)
+            .padding(.horizontal, 18)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(isSelected ? brand.opacity(0.13) : Color.secondary.opacity(0.08))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(isSelected ? brand : Color.clear, lineWidth: 1.5)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func sheetCard<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(18)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.08))
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.headline)
+            .foregroundStyle(.primary)
+    }
+
+    private func optionLabel(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.subheadline.weight(.semibold))
+            Text(subtitle)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func releaseTypeBinding(for releaseType: ICalReleaseType) -> Binding<Bool> {
+        Binding(
+            get: { selectedReleaseTypes.contains(releaseType) },
+            set: { isSelected in
+                if isSelected {
+                    selectedReleaseTypes.insert(releaseType)
+                } else if selectedReleaseTypes.count > 1 {
+                    selectedReleaseTypes.remove(releaseType)
+                }
+            }
+        )
+    }
+
+    private func tagBinding(for tagID: Int) -> Binding<Bool> {
+        Binding(
+            get: { selectedTagIDs.contains(tagID) },
+            set: { isSelected in
+                if isSelected {
+                    selectedTagIDs.insert(tagID)
+                } else {
+                    selectedTagIDs.remove(tagID)
+                }
+            }
+        )
+    }
+
+    private func loadFeedLink() async {
+        guard let selectedService else {
+            feedLink = nil
+            feedErrorMessage = nil
+            return
+        }
+
+        feedLink = nil
+        feedErrorMessage = nil
+
+        do {
+            let link = try await serviceManager.iCalFeedLink(for: selectedService)
+            guard self.selectedService == selectedService else { return }
+            feedLink = link
+        } catch {
+            guard self.selectedService == selectedService else { return }
+            feedErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func configuredURL(from url: URL, service: ArrServiceType) -> URL? {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else { return nil }
+        let optionNames: Set<String> = ["unmonitored", "asAllDay", "tags", "releaseTypes"]
+        var preservedItems = (components.queryItems ?? []).filter { !optionNames.contains($0.name) }
+        let apiKeyItems = preservedItems.filter { $0.name == "apikey" }
+        preservedItems.removeAll { $0.name == "apikey" }
+        preservedItems.append(contentsOf: configuration.queryItems(for: service))
+        preservedItems.append(contentsOf: apiKeyItems)
+        components.queryItems = preservedItems.isEmpty ? nil : preservedItems
+        return components.url
+    }
+
+    private func copyFeedURL() {
+        guard let urlString = configuredCopyURL?.absoluteString else { return }
+
+        #if os(iOS)
+        UIPasteboard.general.string = urlString
+        #elseif os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(urlString, forType: .string)
+        #endif
+
+        notificationCenter.showSuccess(title: "Copied", message: "iCal feed URL copied.")
     }
 }

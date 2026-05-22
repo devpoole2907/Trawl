@@ -161,6 +161,8 @@ struct ArrDetailImportIssuesCard<Row: View>: View {
 struct ArrDetailQueueItemRow: View {
     @Environment(SyncService.self) private var syncService
     let item: ArrQueueItem
+    var isRemoving = false
+    var onSetPendingAction: ((ArrDetailPendingQueueAction) -> Void)?
 
     private var linkedTorrent: Torrent? {
         arrDetailLinkedTorrent(for: item.downloadId, in: syncService.torrents)
@@ -215,6 +217,40 @@ struct ArrDetailQueueItemRow: View {
             }
             .font(.caption)
             .foregroundStyle(.secondary)
+
+            if let onSetPendingAction {
+                HStack(spacing: 10) {
+                    Button {
+                        onSetPendingAction(ArrDetailPendingQueueAction(
+                            itemID: item.id,
+                            title: title,
+                            blocklist: false
+                        ))
+                    } label: {
+                        Label("Remove", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+
+                    if item.canBeBlocklisted {
+                        Button {
+                            onSetPendingAction(ArrDetailPendingQueueAction(
+                                itemID: item.id,
+                                title: title,
+                                blocklist: true
+                            ))
+                        } label: {
+                            Label("Blocklist", systemImage: "hand.raised.fill")
+                                .frame(maxWidth: .infinity)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+                }
+                .font(.caption.weight(.semibold))
+                .disabled(isRemoving)
+            }
 
             if let t = torrent {
                 NavigationLink {
@@ -389,18 +425,20 @@ struct ArrDetailQueueIssueRow: View {
                 .accessibilityLabel("Remove from Queue")
                 .disabled(isRemoving)
 
-                Button {
-                    onSetPendingAction(ArrDetailPendingQueueAction(
-                        itemID: item.id,
-                        title: torrent?.name ?? item.title ?? "Queue Item",
-                        blocklist: true
-                    ))
-                } label: {
-                    arrDetailIssueActionIcon(systemName: "hand.raised.fill", tint: .orange)
+                if item.canBeBlocklisted {
+                    Button {
+                        onSetPendingAction(ArrDetailPendingQueueAction(
+                            itemID: item.id,
+                            title: torrent?.name ?? item.title ?? "Queue Item",
+                            blocklist: true
+                        ))
+                    } label: {
+                        arrDetailIssueActionIcon(systemName: "hand.raised.fill", tint: .orange)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Blocklist")
+                    .disabled(isRemoving)
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel("Blocklist")
-                .disabled(isRemoving)
             }
 
             Text("Use Edit \(editNoun) to change the root folder or other import-related settings before retrying.")

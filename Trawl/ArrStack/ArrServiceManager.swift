@@ -87,8 +87,13 @@ final class ArrServiceManager {
     private(set) var prowlarrHealthChecks: [ArrHealthCheck] = []
     private(set) var sonarrBlocklist: [ArrBlocklistItem] = []
     private(set) var radarrBlocklist: [ArrBlocklistItem] = []
+    private(set) var sonarrImportListExclusions: [ArrImportListExclusion] = []
+    private(set) var radarrImportListExclusions: [ArrImportListExclusion] = []
     private(set) var isLoadingHealth = false
     private(set) var isLoadingBlocklist = false
+    private(set) var isLoadingImportListExclusions = false
+    private(set) var blocklistError: String?
+    private(set) var importListExclusionsError: String?
 
     // MARK: - Persistent ViewModels
     public private(set) var calendarViewModel: ArrCalendarViewModel!
@@ -136,6 +141,69 @@ final class ArrServiceManager {
 
     func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
         bazarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func iCalFeedLinks() async throws -> [ArrICalFeedLink] {
+        var links: [ArrICalFeedLink] = []
+
+        if let entry = activeSonarrEntry, entry.isConnected, let client = entry.client {
+            let url = try await client.iCalFeedURL()
+            links.append(try ArrICalFeedLink(
+                serviceType: .sonarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            ))
+        }
+
+        if let entry = activeRadarrEntry, entry.isConnected, let client = entry.client {
+            let url = try await client.iCalFeedURL()
+            links.append(try ArrICalFeedLink(
+                serviceType: .radarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            ))
+        }
+
+        if links.isEmpty {
+            throw ArrError.noServiceConfigured
+        }
+
+        return links
+    }
+
+    func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink {
+        switch serviceType {
+        case .sonarr:
+            guard let entry = activeSonarrEntry, entry.isConnected, let client = entry.client else {
+                throw ArrError.noServiceConfigured
+            }
+            let url = try await client.iCalFeedURL()
+            return try ArrICalFeedLink(
+                serviceType: .sonarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            )
+        case .radarr:
+            guard let entry = activeRadarrEntry, entry.isConnected, let client = entry.client else {
+                throw ArrError.noServiceConfigured
+            }
+            let url = try await client.iCalFeedURL()
+            return try ArrICalFeedLink(
+                serviceType: .radarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            )
+        case .prowlarr, .bazarr:
+            throw ArrError.noServiceConfigured
+        }
     }
 
     func isConnected(_ serviceType: ArrServiceType) -> Bool {
@@ -650,6 +718,10 @@ final class ArrServiceManager {
         prowlarrHealthChecks = []
         sonarrBlocklist = []
         radarrBlocklist = []
+        sonarrImportListExclusions = []
+        radarrImportListExclusions = []
+        blocklistError = nil
+        importListExclusionsError = nil
     }
 
     /// Disconnect a single service and clear any cached state.
@@ -784,15 +856,36 @@ final class ArrServiceManager {
         guard sonarrConnected || radarrConnected else {
             sonarrBlocklist = []
             radarrBlocklist = []
+            blocklistError = nil
             return
         }
         isLoadingBlocklist = true
         defer { isLoadingBlocklist = false }
-        async let s = fetchBlocklist(sonarrClient)
-        async let r = fetchBlocklist(radarrClient)
+        async let s = fetchBlocklist(sonarrClient, serviceName: "Sonarr")
+        async let r = fetchBlocklist(radarrClient, serviceName: "Radarr")
         let (sv, rv) = await (s, r)
-        sonarrBlocklist = sv
-        radarrBlocklist = rv
+        sonarrBlocklist = sv.items
+        radarrBlocklist = rv.items
+        let errors = [sv.error, rv.error].compactMap { $0 }
+        blocklistError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    func loadImportListExclusions() async {
+        guard sonarrConnected || radarrConnected else {
+            sonarrImportListExclusions = []
+            radarrImportListExclusions = []
+            importListExclusionsError = nil
+            return
+        }
+        isLoadingImportListExclusions = true
+        defer { isLoadingImportListExclusions = false }
+        async let s = fetchImportListExclusions(sonarrClient, serviceName: "Sonarr")
+        async let r = fetchImportListExclusions(radarrClient, serviceName: "Radarr")
+        let (sv, rv) = await (s, r)
+        sonarrImportListExclusions = sv.items
+        radarrImportListExclusions = rv.items
+        let errors = [sv.error, rv.error].compactMap { $0 }
+        importListExclusionsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
     func removeBlocklistItem(id: Int, source: ArrServiceType) async {
@@ -821,14 +914,63 @@ final class ArrServiceManager {
         radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
     }
 
+    func removeImportListExclusion(id: Int, source: ArrServiceType) async {
+        switch source {
+        case .sonarr:
+            try? await sonarrClient?.deleteImportListExclusion(id: id)
+            sonarrImportListExclusions.removeAll { $0.id == id }
+        case .radarr:
+            try? await radarrClient?.deleteImportListExclusion(id: id)
+            radarrImportListExclusions.removeAll { $0.id == id }
+        case .prowlarr, .bazarr:
+            break
+        }
+    }
+
+    func clearImportListExclusions(sonarrIDs: [Int], radarrIDs: [Int]) async {
+        await withTaskGroup(of: Void.self) { group in
+            if let client = sonarrClient {
+                for id in sonarrIDs {
+                    group.addTask { try? await client.deleteImportListExclusion(id: id) }
+                }
+            }
+            if let client = radarrClient {
+                for id in radarrIDs {
+                    group.addTask { try? await client.deleteImportListExclusion(id: id) }
+                }
+            }
+        }
+        sonarrImportListExclusions.removeAll { sonarrIDs.contains($0.id) }
+        radarrImportListExclusions.removeAll { radarrIDs.contains($0.id) }
+    }
+
     private func fetchHealth<C: SharedArrClient>(_ client: C?) async -> [ArrHealthCheck] {
         guard let client else { return [] }
         return (try? await client.getHealth()) ?? []
     }
 
-    private func fetchBlocklist<C: SharedArrClient>(_ client: C?) async -> [ArrBlocklistItem] {
-        guard let client else { return [] }
-        return (try? await client.getBlocklist().records) ?? []
+    private func fetchBlocklist<C: SharedArrClient>(
+        _ client: C?,
+        serviceName: String
+    ) async -> (items: [ArrBlocklistItem], error: String?) {
+        guard let client else { return ([], nil) }
+        do {
+            return (try await client.getBlocklist().records ?? [], nil)
+        } catch {
+            return ([], "\(serviceName): \(error.localizedDescription)")
+        }
+    }
+
+    private func fetchImportListExclusions<C: SharedArrClient>(
+        _ client: C?,
+        serviceName: String
+    ) async -> (items: [ArrImportListExclusion], error: String?) {
+        guard let client else { return ([], nil) }
+        do {
+            return (try await client.getImportListExclusions(pageSize: 100).records ?? [], nil)
+        } catch {
+            return ([], "\(serviceName): \(error.localizedDescription)")
+        }
     }
 
     private func applyConfigurationUpdate<C: SharedArrClient>(

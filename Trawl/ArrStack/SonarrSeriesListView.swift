@@ -107,6 +107,7 @@ struct SonarrSeriesRow: View {
     let series: SonarrSeries
     let hasIssue: Bool
     var bazarrStatus: BazarrSubtitleStatus? = nil
+    var showTypeLabel: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -178,6 +179,9 @@ struct SonarrSeriesRow: View {
         var items: [SeriesRowMetadataItem] = []
         if let year = series.year {
             items.append(.init(title: String(year), color: .secondary))
+        }
+        if showTypeLabel {
+            items.append(.init(title: "Series", color: .secondary))
         }
         if let network = series.network, !network.isEmpty {
             items.append(.init(title: network, color: .secondary))

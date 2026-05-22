@@ -11,6 +11,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
+    #if os(iOS)
+    @Environment(\.setTabChromeHidden) private var setTabChromeHidden
+    #endif
     @Query private var profiles: [ArrServiceProfile]
 
     @Bindable var viewModel: VM
@@ -38,7 +41,11 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     private var swiftUIEditMode: Binding<EditMode> {
         Binding(
             get: { editMode.isEditing ? .active : .inactive },
-            set: { editMode = $0.isEditing ? .active : .inactive }
+            set: { newMode in
+                withAnimation {
+                    editMode = newMode.isEditing ? .active : .inactive
+                }
+            }
         )
     }
     #endif
@@ -54,6 +61,16 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
             #endif
             .toolbar { toolbarContent }
             .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
+            .onChange(of: editMode.isEditing) { _, isEditing in
+                #if os(iOS)
+                setTabChromeHidden(isEditing)
+                #endif
+            }
+            .onDisappear {
+                #if os(iOS)
+                setTabChromeHidden(false)
+                #endif
+            }
             .modifier(ArrMediaListViewAlertsAndSheets(
                 serviceType: serviceType,
                 nounSingular: nounSingular,
@@ -218,18 +235,22 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     }
 
     private func toggleSelection(_ item: Item) {
-        if selectedIDs.contains(item.id) {
-            selectedIDs.remove(item.id)
-        } else {
-            selectedIDs.insert(item.id)
+        withAnimation {
+            if selectedIDs.contains(item.id) {
+                selectedIDs.remove(item.id)
+            } else {
+                selectedIDs.insert(item.id)
+            }
         }
     }
 
     private func bulkDeleteItems(deleteFiles: Bool) {
         let ids = selectedIDs
         guard !ids.isEmpty else { return }
-        selectedIDs = []
-        withAnimation { editMode = .inactive }
+        withAnimation {
+            selectedIDs = []
+            editMode = .inactive
+        }
         Task {
             await viewModel.deleteItems(ids: ids, deleteFiles: deleteFiles)
         }
@@ -238,20 +259,14 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if editMode.isEditing {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    withAnimation { editMode = .inactive }
-                    selectedIDs = []
+            ToolbarItem(placement: platformTopBarLeadingPlacement) {
+                Button(selectAllButtonTitle) {
+                    toggleAllItems()
                 }
+                .disabled(viewModel.filteredItems.isEmpty)
             }
+
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button(selectedIDs.count == viewModel.filteredItems.count ? "Deselect All" : "Select All") {
-                    if selectedIDs.count == viewModel.filteredItems.count {
-                        selectedIDs = []
-                    } else {
-                        selectedIDs = Set(viewModel.filteredItems.map(\.id))
-                    }
-                }
                 Button(role: .destructive) {
                     showBulkDeleteAlert = true
                 } label: {
@@ -259,16 +274,27 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                 }
                 .tint(.red)
                 .disabled(selectedIDs.isEmpty)
+
+                Button("Done") {
+                    withAnimation {
+                        editMode = .inactive
+                        selectedIDs = []
+                    }
+                }
             }
         } else {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Button("Calendar", systemImage: "calendar") {
-                    showCalendar = true
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                        showCalendar = true
+                    }
                 }
                 #if os(iOS)
                 .matchedTransitionSource(id: "calendar", in: namespace)
                 #endif
-
+            }
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Menu {
                     ForEach(Array(VM.Sort.allCases)) { order in
                         Button {
@@ -348,6 +374,24 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
         }
         let count = viewModel.filteredItems.count
         return count == 1 ? "1 \(nounSingular.lowercased())" : "\(count) \(nounPlural.lowercased())"
+    }
+
+    private var areAllItemsSelected: Bool {
+        !viewModel.filteredItems.isEmpty && selectedIDs.count == viewModel.filteredItems.count
+    }
+
+    private var selectAllButtonTitle: String {
+        areAllItemsSelected ? "Deselect All" : "Select All"
+    }
+
+    private func toggleAllItems() {
+        withAnimation {
+            if areAllItemsSelected {
+                selectedIDs = []
+            } else {
+                selectedIDs = Set(viewModel.filteredItems.map(\.id))
+            }
+        }
     }
 
     private func runCommand(action: @escaping () async throws -> Void) async {

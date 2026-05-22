@@ -261,61 +261,151 @@ struct ArrReleaseActionContent: View {
     }
 }
 
-struct ArrReleaseRowView: View {
-    let release: ArrRelease
+struct ArrReleaseInfoChip: Identifiable {
+    let id = UUID()
+    let label: String
+    let color: Color
+    let isProminent: Bool
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(release.title ?? "Unknown Release")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
+    init(_ label: String, color: Color, isProminent: Bool = false) {
+        self.label = label
+        self.color = color
+        self.isProminent = isProminent
+    }
+}
 
-            HStack(spacing: 6) {
-                Text(release.indexer ?? "Unknown Indexer")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+struct ArrInfoRowView: View {
+    let icon: (systemImage: String, color: Color)?
+    let title: String
+    let subtitleLeading: String
+    let subtitleLeadingColor: Color
+    let subtitleTrailing: String?
+    let chips: [ArrReleaseInfoChip]
+    let message: (text: String, color: Color)?
 
-                if let age = release.ageDescription {
-                    Text("·")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                    Text(age)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    if release.approved != true {
-                        releaseChip(release.rejected == true ? "Rejected" : "Not Approved", color: .orange)
-                    }
-                    releaseChip(release.qualityName, color: .primary)
-                    if let size = release.size, size > 0 {
-                        releaseChip(ByteFormatter.format(bytes: size), color: .secondary)
-                    }
-                    releaseChip(release.protocolName, color: .secondary)
-                    if let seederLabel {
-                        releaseChip(seederLabel, color: seederColor(for: release.seeders ?? 0), isProminent: true)
-                    }
-                }
-            }
-        }
-        .padding(.vertical, 4)
+    init(
+        icon: (systemImage: String, color: Color)? = nil,
+        title: String,
+        subtitleLeading: String,
+        subtitleLeadingColor: Color = .secondary,
+        subtitleTrailing: String? = nil,
+        chips: [ArrReleaseInfoChip] = [],
+        message: (text: String, color: Color)? = nil
+    ) {
+        self.icon = icon
+        self.title = title
+        self.subtitleLeading = subtitleLeading
+        self.subtitleLeadingColor = subtitleLeadingColor
+        self.subtitleTrailing = subtitleTrailing
+        self.chips = chips
+        self.message = message
     }
 
-    private var seederLabel: String? {
-        switch (release.seeders, release.leechers) {
-        case let (seeders?, leechers?):
-            "S:\(seeders) L:\(leechers)"
-        case let (seeders?, nil):
-            "S:\(seeders)"
-        case let (nil, leechers?):
-            "L:\(leechers)"
-        case (nil, nil):
-            nil
+    init(release: ArrRelease) {
+        self.icon = nil
+        self.title = release.title ?? "Unknown Release"
+        self.subtitleLeading = release.indexer ?? "Unknown Indexer"
+        self.subtitleLeadingColor = .secondary
+        self.subtitleTrailing = release.ageDescription
+        self.chips = Self.releaseChips(from: release)
+        self.message = nil
+    }
+
+    init(blocklistItem item: ArrBlocklistItem, source: ArrServiceType) {
+        self.icon = (
+            systemImage: source == .sonarr ? "tv" : "film",
+            color: source == .sonarr ? .purple : .orange
+        )
+        self.title = item.sourceTitle ?? "Unknown Release"
+        self.subtitleLeading = item.indexer ?? "Unknown Indexer"
+        self.subtitleLeadingColor = .secondary
+        self.subtitleTrailing = item.date.flatMap { Self.parseBlocklistDate($0) }
+        var chips: [ArrReleaseInfoChip] = []
+        if let quality = item.quality?.quality?.name, !quality.isEmpty {
+            chips.append(ArrReleaseInfoChip(quality, color: .primary))
         }
+        self.chips = chips
+        if let msg = item.message, !msg.isEmpty {
+            self.message = (msg, .orange)
+        } else {
+            self.message = nil
+        }
+    }
+
+    init(queueItem item: ArrQueueItem, source: ArrServiceType, linkedTorrent: Torrent? = nil) {
+        let progress = linkedTorrent?.progress ?? item.progress
+        let primaryStatus = linkedTorrent?.state.displayName ?? item.trackedDownloadState ?? item.status ?? "queued"
+
+        self.init(
+            icon: Self.queueIcon(for: source),
+            title: Self.queueTitle(for: item),
+            subtitleLeading: Self.displayStatus(primaryStatus),
+            subtitleLeadingColor: Self.queueStatusColor(for: item),
+            subtitleTrailing: Self.nonBlank(item.downloadClient),
+            chips: Self.queueChips(for: item, linkedTorrent: linkedTorrent, progress: progress),
+            message: item.primaryStatusMessage.map { ($0, Self.queueStatusColor(for: item)) }
+        )
+    }
+
+    private static func parseBlocklistDate(_ value: String) -> String? {
+        let fractionalISO = ISO8601DateFormatter()
+        fractionalISO.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let date = fractionalISO.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+        return date?.formatted(Date.FormatStyle.dateTime.day(.twoDigits).month(.abbreviated).year(.defaultDigits))
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            if let icon {
+                Image(systemName: icon.systemImage)
+                    .foregroundStyle(icon.color)
+                    .frame(width: 20)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                subtitleRow
+
+                if let message {
+                    Text(message.text)
+                        .font(.caption)
+                        .foregroundStyle(message.color)
+                        .lineLimit(2)
+                }
+
+                if !chips.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(chips) { chip in
+                                releaseChip(chip.label, color: chip.color, isProminent: chip.isProminent)
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
+    }
+
+    private var subtitleRow: some View {
+        HStack(spacing: 6) {
+            Text(subtitleLeading)
+                .foregroundStyle(subtitleLeadingColor)
+            if let trailing = subtitleTrailing {
+                Text("·")
+                    .foregroundStyle(.tertiary)
+                Text(trailing)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption)
     }
 
     private func releaseChip(_ label: String, color: Color, isProminent: Bool = false) -> some View {
@@ -328,12 +418,160 @@ struct ArrReleaseRowView: View {
             .clipShape(Capsule())
     }
 
-    private func seederColor(for seeders: Int) -> Color {
+    private static func releaseChips(from release: ArrRelease) -> [ArrReleaseInfoChip] {
+        var chips: [ArrReleaseInfoChip] = []
+        if release.approved != true {
+            chips.append(ArrReleaseInfoChip(release.rejected == true ? "Rejected" : "Not Approved", color: .orange))
+        }
+        chips.append(ArrReleaseInfoChip(release.qualityName, color: .primary))
+        if let size = release.size, size > 0 {
+            chips.append(ArrReleaseInfoChip(ByteFormatter.format(bytes: size), color: .secondary))
+        }
+        chips.append(ArrReleaseInfoChip(release.protocolName, color: .secondary))
+        if let seederLabel = ArrInfoRowView.seederLabel(for: release) {
+            chips.append(ArrReleaseInfoChip(seederLabel, color: ArrInfoRowView.seederColor(for: release.seeders ?? 0), isProminent: true))
+        }
+        return chips
+    }
+
+    private static func seederLabel(for release: ArrRelease) -> String? {
+        switch (release.seeders, release.leechers) {
+        case let (seeders?, leechers?):
+            "S:\(seeders) L:\(leechers)"
+        case let (seeders?, nil):
+            "S:\(seeders)"
+        case let (nil, leechers?):
+            "L:\(leechers)"
+        case (nil, nil):
+            nil
+        }
+    }
+
+    private static func seederColor(for seeders: Int) -> Color {
         switch seeders {
         case 50...: .green
         case 10...: .mint
         case 1...: .orange
         default: .red
+        }
+    }
+
+    private static func queueIcon(for source: ArrServiceType) -> (systemImage: String, color: Color) {
+        switch source {
+        case .sonarr:
+            ("tv", .purple)
+        case .radarr:
+            ("film", .orange)
+        case .prowlarr:
+            ("magnifyingglass.circle", .yellow)
+        case .bazarr:
+            ("captions.bubble", .teal)
+        }
+    }
+
+    private static func queueTitle(for item: ArrQueueItem) -> String {
+        if let title = item.title, !title.isEmpty { return title }
+        if let statusTitle = item.statusMessages?.first?.title, !statusTitle.isEmpty { return statusTitle }
+        return "Unknown"
+    }
+
+    private static func displayStatus(_ status: String) -> String {
+        status
+            .replacingOccurrences(of: "([a-z])([A-Z])", with: "$1 $2", options: .regularExpression)
+            .capitalized
+    }
+
+    private static func queueETA(for item: ArrQueueItem, linkedTorrent: Torrent?) -> String? {
+        if let linkedTorrent,
+           !linkedTorrent.state.isCompleted,
+           linkedTorrent.eta > 0,
+           linkedTorrent.eta < 8_640_000 {
+            return ByteFormatter.formatETA(seconds: linkedTorrent.eta)
+        }
+
+        guard let timeleft = item.timeleft, !timeleft.isEmpty, timeleft != "00:00:00" else { return nil }
+        let parts = timeleft.split(separator: ":").map(String.init)
+        guard parts.count == 3 else { return timeleft }
+        let hours = Int(parts[0]) ?? 0
+        let minutes = parts[1]
+        let seconds = parts[2]
+        if hours > 0 { return "\(hours)h \(minutes)m" }
+        let minuteValue = Int(minutes) ?? 0
+        if minuteValue > 0 { return "\(minuteValue)m \(seconds)s" }
+        return "\(seconds)s"
+    }
+
+    private static func queueChips(for item: ArrQueueItem, linkedTorrent: Torrent?, progress: Double) -> [ArrReleaseInfoChip] {
+        var chips: [ArrReleaseInfoChip] = [
+            ArrReleaseInfoChip(
+                "\(Int(progress * 100))%",
+                color: queueProgressColor(for: item, progress: progress),
+                isProminent: true
+            )
+        ]
+
+        if let linkedTorrent {
+            chips.append(ArrReleaseInfoChip(
+                ByteFormatter.formatSpeed(bytesPerSecond: linkedTorrent.dlspeed),
+                color: .blue,
+                isProminent: linkedTorrent.dlspeed > 0
+            ))
+        }
+
+        if let eta = queueETA(for: item, linkedTorrent: linkedTorrent) {
+            chips.append(ArrReleaseInfoChip("ETA \(eta)", color: .secondary))
+        }
+
+        if let sizeChip = queueSizeChip(for: item, linkedTorrent: linkedTorrent) {
+            chips.append(ArrReleaseInfoChip(sizeChip, color: .secondary))
+        }
+
+        if let protocolName = nonBlank(item.protocol_) {
+            chips.append(ArrReleaseInfoChip(protocolName.capitalized, color: .secondary))
+        }
+
+        return chips
+    }
+
+    private static func nonBlank(_ value: String?) -> String? {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed?.isEmpty == false ? trimmed : nil
+    }
+
+    private static func queueSizeChip(for item: ArrQueueItem, linkedTorrent: Torrent?) -> String? {
+        if let linkedTorrent, linkedTorrent.totalSize > 0 {
+            let downloaded = max(0, linkedTorrent.totalSize - linkedTorrent.amountLeft)
+            return "\(ByteFormatter.format(bytes: downloaded)) / \(ByteFormatter.format(bytes: linkedTorrent.totalSize))"
+        }
+
+        guard let size = item.size, size > 0 else { return nil }
+        let total = Int64(size)
+        if let sizeleft = item.sizeleft {
+            let downloaded = max(0, total - Int64(sizeleft))
+            return "\(ByteFormatter.format(bytes: downloaded)) / \(ByteFormatter.format(bytes: total))"
+        }
+        return ByteFormatter.format(bytes: total)
+    }
+
+    private static func queueStatusColor(for item: ArrQueueItem) -> Color {
+        switch item.trackedDownloadStatus {
+        case "warning":
+            .orange
+        case "error":
+            .red
+        default:
+            .secondary
+        }
+    }
+
+    private static func queueProgressColor(for item: ArrQueueItem, progress: Double) -> Color {
+        switch item.trackedDownloadStatus {
+        case "warning":
+            .orange
+        case "error":
+            .red
+        default:
+            progress >= 1 ? .green : .primary
         }
     }
 }
@@ -562,7 +800,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 { await grab(release: release) }
             )
         } label: {
-            ArrReleaseRowView(release: release)
+            ArrInfoRowView(release: release)
         }
     }
 

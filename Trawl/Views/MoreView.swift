@@ -3,6 +3,8 @@ import SwiftData
 
 enum MoreDestination: Hashable {
     case activity
+    case activityQueue
+    case activityHistory
     case categoriesAndTags
     case rssFeeds
     case diskSpace
@@ -65,6 +67,7 @@ enum MoreDestination: Hashable {
 }
 
 enum MoreDestinationAccent {
+    case activity
     case calendar
     case manualImport
     case categoriesAndTags
@@ -95,6 +98,7 @@ enum MoreDestinationAccent {
 
     var color: Color {
         switch self {
+        case .activity: return .indigo
         case .calendar: return .purple
         case .manualImport: return .blue
         case .categoriesAndTags: return .brown
@@ -422,7 +426,7 @@ struct MoreView: View {
 
                         NavigationLink(value: MoreDestination.blocklist) {
                             moreRow(icon: "nosign", color: .red,
-                                    title: "Blocklist", subtitle: "Releases blocked from being grabbed")
+                                    title: "Blocked & Excluded", subtitle: "Blocked releases and import-list exclusions")
                         }
                     }
 
@@ -536,7 +540,13 @@ struct MoreView: View {
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .activity:
-                    ArrActivityView()
+                    ArrActivityHubView()
+                        .moreDestinationTitleStyle()
+                case .activityQueue:
+                    ArrActivityQueueView()
+                        .moreDestinationTitleStyle()
+                case .activityHistory:
+                    ArrHistoryView()
                         .moreDestinationTitleStyle()
                 case .categoriesAndTags:
                     qbittorrentCategoriesAndTagsDestination
@@ -1308,10 +1318,10 @@ private enum MoreSearchIndex {
                 destination: .blocklist,
                 icon: "nosign",
                 color: .red,
-                title: "Blocklist",
-                subtitle: "Releases blocked from being grabbed",
+                title: "Blocked & Excluded",
+                subtitle: "Blocked releases and import-list exclusions",
                 category: "Monitoring",
-                keywords: ["blocked", "blacklist", "failed", "grabbed", "release"]
+                keywords: ["blocked", "blacklist", "failed", "grabbed", "release", "exclusion", "import list"]
             ),
             .init(
                 id: "media-management",
@@ -2581,6 +2591,54 @@ private struct LogsAndEventsHubView: View {
         #endif
         .navigationTitle("Logs")
         .moreDestinationBackground(.logsAndEvents)
+    }
+}
+
+private struct ArrActivityHubView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+
+    private var hasAnyActivitySource: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasProwlarrInstance ||
+            arrServiceManager.hasBazarrInstance
+    }
+
+    var body: some View {
+        List {
+            if hasAnyActivitySource {
+                Section {
+                    NavigationLink(value: MoreDestination.activityQueue) {
+                        NavigationMenuRow(
+                            icon: "arrow.down.circle.fill",
+                            color: MoreDestinationAccent.activity.color,
+                            title: "Queue",
+                            subtitle: "Downloads, imports, and background tasks"
+                        )
+                    }
+
+                    NavigationLink(value: MoreDestination.activityHistory) {
+                        NavigationMenuRow(
+                            icon: "clock.arrow.circlepath",
+                            color: MoreDestinationAccent.activity.color,
+                            title: "History",
+                            subtitle: "Past grabs, imports, and indexer events"
+                        )
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "No Services Configured",
+                    systemImage: "server.rack",
+                    description: Text("Connect Sonarr, Radarr, Prowlarr, or Bazarr to view activity.")
+                )
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Activity")
+        .moreDestinationBackground(.activity)
     }
 }
 
