@@ -10,6 +10,9 @@ struct JellyfinSystemInfoView: View {
     @State private var errorMessage: String?
     @State private var showRestartConfirmation = false
     @State private var showShutdownConfirmation = false
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     var body: some View {
         List {
@@ -71,7 +74,12 @@ struct JellyfinSystemInfoView: View {
         .navigationTitle("System Info")
         .navigationSubtitle("Jellyfin")
         .refreshable { await loadSystemInfo() }
-        .task { await loadSystemInfo() }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            await loadSystemInfo()
+        }
         .confirmationDialog("Restart Server", isPresented: $showRestartConfirmation, titleVisibility: .visible) {
             Button("Restart", role: .destructive) {
                 Task { await restartServer() }
@@ -158,3 +166,47 @@ struct JellyfinSystemInfoView: View {
         }
     }
 }
+
+#if DEBUG
+extension JellyfinSystemInfoView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewSystemInfo: JellyfinSystemInfo? = .preview,
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._systemInfo = State(initialValue: previewSystemInfo)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self.isPreview = true
+    }
+}
+
+#Preview("Jellyfin System Info - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinSystemInfoView(previewSystemInfo: .preview)
+        }
+    }
+}
+
+#Preview("Jellyfin System Info - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinSystemInfoView(previewSystemInfo: nil, isLoading: true)
+        }
+    }
+}
+
+#Preview("Jellyfin System Info - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to reach Jellyfin."))) {
+        NavigationStack {
+            JellyfinSystemInfoView(
+                previewSystemInfo: nil,
+                errorMessage: "The server returned 401 Unauthorized."
+            )
+        }
+    }
+}
+#endif

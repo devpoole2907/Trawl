@@ -750,3 +750,33 @@ extension RadarrMovie: JellyfinMatchable {
     var jellyfinNumericProviderId: Int? { tmdbId }
     var jellyfinImdbProviderId: String? { imdbId }
 }
+
+#if DEBUG
+extension ArrLibraryViewModel {
+    func setPreviewHistory(
+        _ records: [ArrHistoryRecord],
+        totalRecords: Int? = nil,
+        isLoading: Bool = false,
+        error: String? = nil
+    ) {
+        history = records
+        historyTotalRecords = totalRecords ?? records.count
+        isLoadingHistory = isLoading
+        self.error = error
+    }
+}
+
+extension ArrMediaLibraryViewModel {
+    func setPreviewWantedRecords(
+        _ records: [WantedRecord],
+        totalRecords: Int? = nil,
+        isLoading: Bool = false,
+        error: String? = nil
+    ) {
+        wantedRecords = records
+        wantedMissingTotalRecords = totalRecords ?? records.count
+        isLoadingWantedMissing = isLoading
+        self.error = error
+    }
+}
+#endif

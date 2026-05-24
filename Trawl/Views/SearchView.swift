@@ -13,6 +13,11 @@ struct SearchView: View {
 
     // Recents
     @AppStorage("search.recents") private var recentsStorage: String = "[]"
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     // MARK: - Body
 
@@ -117,9 +122,15 @@ struct SearchView: View {
             }
         }
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             await viewModel.loadStoredTMDbAPIKeyAndTrending(arrServiceManager: arrServiceManager)
         }
         .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             await refreshLibrary()
             createLookupViewModels()
             await reconcileTrendingMatches()
@@ -994,3 +1005,65 @@ private struct SeriesDestination: Hashable { let id: Int }
 private struct MovieDestination: Hashable { let id: Int }
 private struct ArrSeriesLookupDestination: Hashable { let series: SonarrSeries }
 private struct ArrMovieLookupDestination: Hashable { let movie: RadarrMovie }
+
+#if DEBUG
+extension SearchView {
+    init(previewViewModel: SearchViewModel) {
+        self.init()
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Popular This Week") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        SearchView(previewViewModel: SearchViewModel())
+    }
+}
+
+#Preview("Library Results") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        SearchView(previewViewModel: SearchViewModel(
+            previewSearchText: "d",
+            isSearchPresented: true,
+            scope: .library,
+            matchedSeries: SonarrSeries.previewList,
+            matchedMovies: RadarrMovie.previewList
+        ))
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        SearchView(previewViewModel: SearchViewModel(
+            trendingMovies: [],
+            trendingTV: [],
+            isLoadingTrending: true
+        ))
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        SearchView(previewViewModel: SearchViewModel(
+            trendingMovies: [],
+            trendingTV: [],
+            trendingError: "TMDb returned 401 Unauthorized."
+        ))
+    }
+}
+
+#Preview("Nothing Configured") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        SearchView(previewViewModel: SearchViewModel(
+            previewSearchText: "blade runner",
+            isSearchPresented: true,
+            scope: .arr,
+            trendingMovies: [],
+            trendingTV: [],
+            hasSearchedArr: true,
+            tmdbAPIKey: ""
+        ))
+    }
+}
+#endif

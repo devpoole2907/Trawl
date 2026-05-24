@@ -162,3 +162,23 @@ private var trackerRefreshToolbarPlacement: ToolbarItemPlacement {
     .primaryAction
     #endif
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    let vm = TorrentDetailViewModel(trackers: TorrentTracker.previewList)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TrackerListView(viewModel: vm)
+        }
+    }
+}
+
+#Preview("Empty") {
+    let vm = TorrentDetailViewModel(trackers: [])
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TrackerListView(viewModel: vm)
+        }
+    }
+}
+#endif

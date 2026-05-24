@@ -22,6 +22,19 @@ struct ArrSetupSheet: View {
         self.onComplete = onComplete
     }
 
+    #if DEBUG
+    init(
+        previewViewModel: ArrSetupViewModel,
+        initialServiceType: ArrServiceType? = nil,
+        existingProfile: ArrServiceProfile? = nil
+    ) {
+        self.initialServiceType = initialServiceType
+        self.existingProfile = existingProfile
+        self.onComplete = {}
+        _viewModel = State(initialValue: previewViewModel)
+    }
+    #endif
+
     var body: some View {
         NavigationStack {
             Group {
@@ -53,6 +66,9 @@ struct ArrSetupSheet: View {
                 saveTask?.cancel()
             }
             .task(id: existingProfile?.id) {
+                #if DEBUG
+                if ArrPreviewRuntime.isActive, viewModel != nil { return }
+                #endif
                 let vm = ArrSetupViewModel(serviceManager: serviceManager)
                 if let existingProfile {
                     await vm.loadExisting(existingProfile)
@@ -148,3 +164,29 @@ struct ArrSetupSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Setup - New Sonarr") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .blank(.sonarr)))
+    }
+}
+
+#Preview("Setup - Validating") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .validating(.radarr)))
+    }
+}
+
+#Preview("Setup - Error") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .error(.prowlarr, "Connection failed: API key rejected.")))
+    }
+}
+
+#Preview("Setup - Connected") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .connected(.sonarr)))
+    }
+}
+#endif

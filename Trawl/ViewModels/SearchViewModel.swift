@@ -514,3 +514,106 @@ final class SearchViewModel {
         return "connected:\(fingerprint)"
     }
 }
+
+#if DEBUG
+extension SearchViewModel {
+    convenience init(
+        previewSearchText: String = "",
+        isSearchPresented: Bool = false,
+        scope: SearchScope = .arr,
+        filter: SearchResultFilter = .all,
+        sonarrSeries: [SonarrSeries] = SonarrSeries.previewList,
+        radarrMovies: [RadarrMovie] = RadarrMovie.previewList,
+        matchedSeries: [SonarrSeries] = [],
+        matchedMovies: [RadarrMovie] = [],
+        trendingMovies: [TMDbItem] = TMDbItem.previewMovies,
+        trendingTV: [TMDbItem] = TMDbItem.previewTV,
+        isLoadingLibrary: Bool = false,
+        hasSearchedArr: Bool = false,
+        isLoadingTrending: Bool = false,
+        trendingError: String? = nil,
+        tmdbAPIKey: String = "preview-key",
+        actionErrorAlert: ErrorAlertItem? = nil
+    ) {
+        self.init()
+        self.searchText = previewSearchText
+        self.isSearchPresented = isSearchPresented
+        self.scope = scope
+        self.filter = filter
+        self.sonarrSeries = sonarrSeries
+        self.radarrMovies = radarrMovies
+        self.sonarrTitleIndex = sonarrSeries.map { (lower: $0.title.lowercased(), series: $0) }
+        self.radarrTitleIndex = radarrMovies.map { (lower: $0.title.lowercased(), movie: $0) }
+        self.matchedSeries = matchedSeries
+        self.matchedMovies = matchedMovies
+        self.trendingMovies = trendingMovies
+        self.trendingTV = trendingTV
+        self.isLoadingLibrary = isLoadingLibrary
+        self.hasSearchedArr = hasSearchedArr
+        self.isLoadingTrending = isLoadingTrending
+        self.trendingError = trendingError
+        self.tmdbAPIKey = tmdbAPIKey
+        self.actionErrorAlert = actionErrorAlert
+    }
+}
+
+extension TMDbItem {
+    static let previewMovies: [TMDbItem] = [
+        TMDbItem(
+            id: 693134,
+            title: "Dune: Part Two",
+            name: nil,
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "Paul Atreides unites with Chani and the Fremen.",
+            voteAverage: 8.2,
+            releaseDate: "2024-03-01",
+            firstAirDate: nil,
+            mediaType: "movie",
+            genreIds: [878, 12]
+        ),
+        TMDbItem(
+            id: 872585,
+            title: "Oppenheimer",
+            name: nil,
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "The story of J. Robert Oppenheimer and the atomic bomb.",
+            voteAverage: 8.1,
+            releaseDate: "2023-07-21",
+            firstAirDate: nil,
+            mediaType: "movie",
+            genreIds: [18, 36]
+        )
+    ]
+
+    static let previewTV: [TMDbItem] = [
+        TMDbItem(
+            id: 95396,
+            title: nil,
+            name: "Severance",
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "Employees split their memories between work and home.",
+            voteAverage: 8.4,
+            releaseDate: nil,
+            firstAirDate: "2022-02-18",
+            mediaType: "tv",
+            genreIds: [18, 9648]
+        ),
+        TMDbItem(
+            id: 136315,
+            title: nil,
+            name: "The Bear",
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "A young chef returns home to run his family's sandwich shop.",
+            voteAverage: 8.3,
+            releaseDate: nil,
+            firstAirDate: "2022-06-23",
+            mediaType: "tv",
+            genreIds: [18, 35]
+        )
+    ]
+}
+#endif

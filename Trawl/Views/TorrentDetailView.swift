@@ -16,6 +16,13 @@ struct TorrentDetailView: View {
     @State private var selectedUploadLimit: Int64 = 0
 
     let torrentHash: String
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init(torrentHash: String) {
+        self.torrentHash = torrentHash
+    }
 
     var body: some View {
         Group {
@@ -40,6 +47,9 @@ struct TorrentDetailView: View {
             }
         }
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             if viewModel == nil {
                 let vm = TorrentDetailViewModel(torrentHash: torrentHash, torrentService: torrentService, syncService: syncService, notificationCenter: inAppNotificationCenter)
                 viewModel = vm
@@ -458,3 +468,67 @@ private struct DetailTagChip: View {
     }
 }
 
+#if DEBUG
+extension TorrentDetailView {
+    init(
+        torrentHash: String,
+        previewViewModel: TorrentDetailViewModel?,
+        skipsAutomaticLoading: Bool = true
+    ) {
+        self.torrentHash = torrentHash
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = skipsAutomaticLoading
+    }
+}
+
+#Preview("Typical") {
+    let vm = TorrentDetailViewModel(previewTorrent: .previewDownloading)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentDetailView(torrentHash: Torrent.previewDownloading.hash, previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Long Name") {
+    let vm = TorrentDetailViewModel(previewTorrent: .previewLongName)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentDetailView(torrentHash: Torrent.previewLongName.hash, previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Errored") {
+    let vm = TorrentDetailViewModel(
+        previewTorrent: .previewError,
+        error: "Tracker returned an unreachable host error."
+    )
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentDetailView(torrentHash: Torrent.previewError.hash, previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentDetailView(torrentHash: Torrent.preview.hash, previewViewModel: nil)
+        }
+    }
+}
+
+#Preview("Missing Torrent") {
+    let vm = TorrentDetailViewModel(
+        torrentHash: "missing",
+        torrentService: .preview(),
+        syncService: .preview()
+    )
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentDetailView(torrentHash: "missing", previewViewModel: vm)
+        }
+    }
+}
+#endif

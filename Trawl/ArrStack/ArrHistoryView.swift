@@ -10,6 +10,30 @@ struct ArrHistoryView: View {
     @State private var prowlarrViewModel: ProwlarrViewModel?
     @State private var historyRefreshGeneration = 0
 
+    #if DEBUG
+    init(
+        previewSonarrHistory: [ArrHistoryRecord] = [],
+        previewRadarrHistory: [ArrHistoryRecord] = [],
+        previewProwlarrHistory: [ArrHistoryRecord] = [],
+        serviceManager: ArrServiceManager = .preview(.allConfigured),
+        serviceFilter: ArrServiceFilter = .all
+    ) {
+        let sonarrVM = SonarrViewModel(serviceManager: serviceManager)
+        sonarrVM.setPreviewHistory(previewSonarrHistory)
+
+        let radarrVM = RadarrViewModel(serviceManager: serviceManager)
+        radarrVM.setPreviewHistory(previewRadarrHistory)
+
+        let prowlarrVM = ProwlarrViewModel(serviceManager: serviceManager)
+        prowlarrVM.setPreviewHistory(previewProwlarrHistory)
+
+        _sonarrViewModel = State(initialValue: sonarrVM)
+        _radarrViewModel = State(initialValue: radarrVM)
+        _prowlarrViewModel = State(initialValue: prowlarrVM)
+        _serviceFilter = State(initialValue: serviceFilter)
+    }
+    #endif
+
     private var historyFilters: [ArrServiceFilter] {
         var filters: [ArrServiceFilter] = [.all]
         if serviceManager.hasSonarrInstance { filters.append(.sonarr) }
@@ -26,6 +50,9 @@ struct ArrHistoryView: View {
                 ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: historyFilters, alignment: .leading)
             }
             .task(id: reloadKey) {
+                #if DEBUG
+                if ArrPreviewRuntime.isActive { return }
+                #endif
                 await initializeIfNeeded()
                 await reloadHistory()
                 historyRefreshGeneration += 1
@@ -470,3 +497,47 @@ private enum HistoryDateParser {
         return formatter.date(from: value)
     }
 }
+
+#if DEBUG
+#Preview("History - Loaded") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrHistoryView(
+                previewSonarrHistory: ArrHistoryRecord.previewList,
+                previewRadarrHistory: [
+                    ArrHistoryRecord.makePreview(
+                        id: 30,
+                        eventType: "downloadFolderImported",
+                        sourceTitle: "The.Shawshank.Redemption.1994.1080p",
+                        successful: true,
+                        seriesId: nil,
+                        movieId: 278
+                    )
+                ],
+                previewProwlarrHistory: [
+                    ArrHistoryRecord.makePreview(
+                        id: 40,
+                        eventType: "indexerQuery",
+                        sourceTitle: "Query: dune part two",
+                        successful: true,
+                        seriesId: nil,
+                        movieId: nil,
+                        indexerId: 1
+                    )
+                ],
+                serviceManager: manager
+            )
+        }
+    }
+}
+
+#Preview("History - Empty") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrHistoryView(serviceManager: manager)
+        }
+    }
+}
+#endif

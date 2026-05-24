@@ -182,6 +182,29 @@ struct RadarrAddMovieSheet: View {
     }
 }
 
+#if DEBUG
+extension RadarrAddMovieSheet {
+    init(
+        previewViewModel viewModel: RadarrViewModel,
+        searchQuery: String = "",
+        selectedMovie: RadarrMovie? = nil,
+        optionsExpanded: Bool = false,
+        isAdding: Bool = false
+    ) {
+        self.viewModel = viewModel
+        let previewRootFolder = viewModel.rootFolders.first {
+            $0.path.localizedCaseInsensitiveContains("movie")
+        }?.path ?? viewModel.rootFolders.first?.path
+        _searchQuery = State(initialValue: searchQuery)
+        _selectedMovie = State(initialValue: selectedMovie)
+        _selectedQualityProfileId = State(initialValue: viewModel.qualityProfiles.first?.id)
+        _selectedRootFolderPath = State(initialValue: previewRootFolder)
+        _optionsExpanded = State(initialValue: optionsExpanded)
+        _isAdding = State(initialValue: isAdding)
+    }
+}
+#endif
+
 private enum RadarrMinimumAvailabilityOption: String, CaseIterable, Identifiable {
     case announced
     case inCinemas
@@ -199,6 +222,55 @@ private enum RadarrMinimumAvailabilityOption: String, CaseIterable, Identifiable
         }
     }
 }
+
+#if DEBUG
+#Preview("Search Empty") {
+    let vm = RadarrViewModel(previewMovies: RadarrMovie.previewList)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrAddMovieSheet(previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("No Results") {
+    let vm = RadarrViewModel(previewMovies: RadarrMovie.previewList)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrAddMovieSheet(previewViewModel: vm, searchQuery: "zzzzzzzz")
+        }
+    }
+}
+
+#Preview("Selected Movie") {
+    let vm = RadarrViewModel(previewMovies: [])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrAddMovieSheet(
+                previewViewModel: vm,
+                searchQuery: "avatar",
+                selectedMovie: .previewAnnounced,
+                optionsExpanded: true
+            )
+        }
+    }
+}
+
+#Preview("Already In Library") {
+    let movie = RadarrMovie.preview
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrAddMovieSheet(
+                previewViewModel: vm,
+                searchQuery: movie.title,
+                selectedMovie: movie,
+                optionsExpanded: true
+            )
+        }
+    }
+}
+#endif
 
 private enum RadarrMonitorOption: String, CaseIterable, Identifiable {
     case movieOnly

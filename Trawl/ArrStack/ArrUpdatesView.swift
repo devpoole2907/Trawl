@@ -9,6 +9,15 @@ struct ArrUpdatesView: View {
     @State private var confirmingInstall: ArrServiceType?
     @State private var showSettings = false
 
+    #if DEBUG
+    init(previewUpdates: [ArrServiceType: ArrUpdatesViewModel.ServiceUpdatesData] = [:], selectedService: ArrServiceType? = .sonarr) {
+        let previewVM = ArrUpdatesViewModel()
+        previewVM.setPreviewUpdates(previewUpdates)
+        _viewModel = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
@@ -316,6 +325,9 @@ final class ArrUpdatesViewModel {
     private(set) var installingServices: Set<ArrServiceType> = []
 
     func load(service: ArrServiceType, serviceManager: ArrServiceManager) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         loadingServices.insert(service)
         defer { loadingServices.remove(service) }
 
@@ -378,3 +390,37 @@ final class ArrUpdatesViewModel {
         }
     }
 }
+
+#if DEBUG
+extension ArrUpdatesViewModel {
+    func setPreviewUpdates(_ data: [ArrServiceType: ServiceUpdatesData]) {
+        allUpdates = data
+        loadingServices = []
+        installingServices = []
+    }
+}
+
+#Preview("Updates - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrUpdatesView(previewUpdates: [
+                .sonarr: .init(currentVersion: "4.0.12.2823", allVersions: ArrUpdateInfo.previewList, isDocker: true, error: nil),
+                .radarr: .init(currentVersion: "5.4.6.8723", allVersions: ArrUpdateInfo.previewList, isDocker: false, error: nil),
+            ])
+        }
+    }
+}
+
+#Preview("Updates - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrUpdatesView(
+                previewUpdates: [
+                    .sonarr: .init(currentVersion: nil, allVersions: [], isDocker: false, error: "Update feed unavailable.")
+                ],
+                selectedService: .sonarr
+            )
+        }
+    }
+}
+#endif

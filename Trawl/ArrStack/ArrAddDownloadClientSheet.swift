@@ -36,6 +36,30 @@ struct ArrDownloadClientEditorSheet: View {
         self.onComplete = onComplete
     }
 
+    #if DEBUG
+    init(
+        serviceType: ArrServiceType,
+        previewClient: ArrDownloadClient? = nil,
+        previewSchema: ArrDownloadClient? = .preview,
+        errorMessage: String? = nil
+    ) {
+        self.serviceType = serviceType
+        self.existingClient = previewClient
+        self.onComplete = { _ in }
+
+        let seed = previewClient ?? previewSchema
+        _name = State(initialValue: seed?.name ?? "qBittorrent")
+        _category = State(initialValue: serviceType == .sonarr ? "tv-sonarr" : "radarr")
+        _host = State(initialValue: seed?.hostDisplayValue ?? "qbit.local")
+        _port = State(initialValue: seed?.portDisplayValue ?? "8080")
+        _username = State(initialValue: "admin")
+        _password = State(initialValue: "preview-password")
+        _schemaTemplate = State(initialValue: previewSchema)
+        _errorMessage = State(initialValue: errorMessage)
+        _hasLoadedInitialState = State(initialValue: true)
+    }
+    #endif
+
     private var isEditing: Bool { existingClient != nil }
 
     private var isQBittorrent: Bool {
@@ -375,3 +399,27 @@ struct ArrDownloadClientEditorSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Download Client Editor - Add") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(serviceType: .sonarr, previewSchema: .preview)
+    }
+}
+
+#Preview("Download Client Editor - Edit") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(serviceType: .sonarr, previewClient: .preview, previewSchema: .preview)
+    }
+}
+
+#Preview("Download Client Editor - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(
+            serviceType: .sonarr,
+            previewSchema: .preview,
+            errorMessage: "qBittorrent schema is unavailable."
+        )
+    }
+}
+#endif

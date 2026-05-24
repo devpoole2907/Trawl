@@ -33,6 +33,9 @@ struct SettingsView: View {
     @Environment(\.navigateToJellyfinSettings) private var navigateToJellyfinSettings
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
     
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -52,6 +55,9 @@ struct SettingsView: View {
                 }
             }
             .task {
+                #if DEBUG
+                guard !skipsAutomaticLoading else { return }
+                #endif
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
 
@@ -465,6 +471,11 @@ struct QBittorrentSettingsView: View {
     @State private var speedLimitErrorAlert: ErrorAlertItem?
     @State private var isUpdatingAlternativeSpeed = false
     @State private var isUpdatingDefaultSavePath = false
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     var body: some View {
         Form {
@@ -617,6 +628,9 @@ struct QBittorrentSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             viewModel.configure(torrentService: torrentService, syncService: syncService)
             await viewModel.loadSettings(modelContext: modelContext)
             await loadSpeedLimitSettings()
@@ -953,3 +967,89 @@ extension EnvironmentValues {
         set { self[NavigateToJellyfinSettingsKey.self] = newValue }
     }
 }
+
+#if DEBUG
+extension SettingsView {
+    init(
+        previewViewModel: SettingsViewModel,
+        showsDoneButton: Bool = true,
+        tmdbAPIKey: String = "preview-tmdb-key"
+    ) {
+        self.init(showsDoneButton: showsDoneButton)
+        self._viewModel = State(initialValue: previewViewModel)
+        self._tmdbAPIKey = State(initialValue: tmdbAPIKey)
+        self._didLoadTmdbAPIKey = State(initialValue: true)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+extension QBittorrentSettingsView {
+    init(
+        previewViewModel: SettingsViewModel,
+        globalDownloadLimit: Int64 = 0,
+        globalUploadLimit: Int64 = 5_242_880,
+        alternativeSpeedEnabled: Bool = true,
+        defaultSavePath: String = "/downloads"
+    ) {
+        self.init()
+        self._viewModel = State(initialValue: previewViewModel)
+        self._globalDownloadLimit = State(initialValue: globalDownloadLimit)
+        self._globalUploadLimit = State(initialValue: globalUploadLimit)
+        self._alternativeSpeedEnabled = State(initialValue: alternativeSpeedEnabled)
+        self._defaultSavePath = State(initialValue: defaultSavePath)
+        self._didLoadSpeedLimits = State(initialValue: true)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Settings Fully Configured") {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        jellyfin: .preview(.connected),
+        seerr: .preview(.connected)
+    ) {
+        NavigationStack {
+            SettingsView(previewViewModel: SettingsViewModel())
+        }
+    }
+}
+
+#Preview("Settings Nothing Configured") {
+    PreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured)
+    ) {
+        NavigationStack {
+            SettingsView(previewViewModel: SettingsViewModel(
+                notificationsEnabled: false,
+                notificationPermissionGranted: false,
+                serverProfile: nil,
+                qbVersion: nil,
+                deviceToken: nil
+            ), tmdbAPIKey: "")
+        }
+    }
+}
+
+#Preview("qBittorrent Settings") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentSettingsView(previewViewModel: SettingsViewModel())
+        }
+    }
+}
+
+#Preview("qBittorrent Settings Empty") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            QBittorrentSettingsView(previewViewModel: SettingsViewModel(
+                serverProfile: nil,
+                qbVersion: nil
+            ), globalDownloadLimit: 0, globalUploadLimit: 0, alternativeSpeedEnabled: false, defaultSavePath: "")
+        }
+    }
+}
+#endif

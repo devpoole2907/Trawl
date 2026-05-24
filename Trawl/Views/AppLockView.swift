@@ -80,3 +80,32 @@ struct AppLockView: View {
         }
     }
 }
+
+#if DEBUG
+extension AppLockController {
+    static func preview(
+        isAuthenticating: Bool = false,
+        lastError: LAError? = nil
+    ) -> AppLockController {
+        let controller = AppLockController()
+        controller.isAuthenticating = isAuthenticating
+        controller.lastError = lastError
+        return controller
+    }
+}
+
+#Preview("Locked") {
+    AppLockView()
+        .environment(AppLockController.preview())
+}
+
+#Preview("Authenticating") {
+    AppLockView()
+        .environment(AppLockController.preview(isAuthenticating: true))
+}
+
+#Preview("Error") {
+    AppLockView()
+        .environment(AppLockController.preview(lastError: LAError(.authenticationFailed)))
+}
+#endif

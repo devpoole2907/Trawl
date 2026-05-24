@@ -11,6 +11,11 @@ struct QBittorrentRSSView: View {
     @State private var showCreateFeedAlert = false
     @State private var newFeedURL = ""
     @State private var itemPendingDeletion: String?
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     var body: some View {
         List {
@@ -82,6 +87,9 @@ struct QBittorrentRSSView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             await loadRSSItems()
         }
         .refreshable {
@@ -232,3 +240,63 @@ struct QBittorrentRSSView: View {
         }
     }
 }
+
+#if DEBUG
+extension QBittorrentRSSView {
+    init(
+        previewRSSItems rssItems: [String: JSONValue],
+        isLoading: Bool = false,
+        actionErrorAlert: ErrorAlertItem? = nil
+    ) {
+        self.init()
+        self._rssItems = State(initialValue: rssItems)
+        self._isLoading = State(initialValue: isLoading)
+        self._actionErrorAlert = State(initialValue: actionErrorAlert)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [
+                "linux": .object([
+                    "Ubuntu Releases": .object(["url": .string("https://releases.ubuntu.com/rss.xml")]),
+                    "Fedora": .object(["url": .string("https://fedoraproject.org/rss.xml")])
+                ]),
+                "Movies Feed": .object(["url": .string("https://tracker.example.org/movies/rss")])
+            ])
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [:])
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [:], isLoading: true)
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(
+                previewRSSItems: [:],
+                actionErrorAlert: ErrorAlertItem(
+                    title: "Failed to Load RSS",
+                    message: "qBittorrent returned 403 Forbidden."
+                )
+            )
+        }
+    }
+}
+#endif

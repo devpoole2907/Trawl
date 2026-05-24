@@ -23,6 +23,22 @@ struct ArrServiceSettingsView: View {
     @State private var deviceToken: String?
     #endif
 
+    #if DEBUG
+    init(
+        serviceType: ArrServiceType,
+        previewStatus: ArrSystemStatus? = nil,
+        previewIsLoadingStatus: Bool = false,
+        previewStatusError: String? = nil,
+        previewNotificationStatus: ArrNotificationSetupStatus? = nil
+    ) {
+        self.serviceType = serviceType
+        _systemStatus = State(initialValue: previewStatus)
+        _isLoadingStatus = State(initialValue: previewIsLoadingStatus)
+        _systemStatusError = State(initialValue: previewStatusError)
+        _notificationSetupStatus = State(initialValue: previewNotificationStatus)
+    }
+    #endif
+
     private var profile: ArrServiceProfile? {
         serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
     }
@@ -318,6 +334,9 @@ struct ArrServiceSettingsView: View {
             isViewActive = false
         }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await loadSystemStatus()
             #if os(iOS)
             deviceToken = await NotificationService.shared.deviceToken
@@ -655,3 +674,39 @@ extension RadarrAPIClient: ArrServiceStatusProviding {}
 extension ProwlarrAPIClient: ArrServiceStatusProviding {}
 
 // MARK: - All-services settings view
+
+#if DEBUG
+#Preview("Service Detail - Connected") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrServiceSettingsView(
+                serviceType: .sonarr,
+                previewStatus: .preview,
+                previewNotificationStatus: .configured
+            )
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Service Detail - Loading") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.radarrOnly)) {
+        NavigationStack {
+            ArrServiceSettingsView(
+                serviceType: .radarr,
+                previewIsLoadingStatus: true
+            )
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Service Detail - Unconfigured") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrServiceSettingsView(serviceType: .prowlarr)
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+#endif

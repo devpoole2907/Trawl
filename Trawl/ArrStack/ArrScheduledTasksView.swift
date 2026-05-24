@@ -7,6 +7,20 @@ struct ArrScheduledTasksView: View {
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showSettings = false
 
+    #if DEBUG
+    init(
+        previewTasks: [ArrServiceType: [ArrScheduledTask]] = [:],
+        previewCommands: [ArrServiceType: [ArrCommand]] = [:],
+        previewBazarrTasks: [BazarrTask] = [],
+        selectedService: ArrServiceType = .sonarr
+    ) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewTasks(tasks: previewTasks, commands: previewCommands, bazarrTasks: previewBazarrTasks)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
@@ -166,6 +180,9 @@ struct ArrScheduledTasksView: View {
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
@@ -207,6 +224,50 @@ struct ArrScheduledTasksView: View {
         await loadService(.bazarr)
     }
 }
+
+#if DEBUG
+extension ArrTasksViewModel {
+    func setPreviewTasks(
+        tasks: [ArrServiceType: [ArrScheduledTask]],
+        commands: [ArrServiceType: [ArrCommand]] = [:],
+        bazarrTasks: [BazarrTask] = []
+    ) {
+        for service in [ArrServiceType.sonarr, .radarr, .prowlarr] {
+            mutate(service) {
+                $0.scheduledTasks = tasks[service] ?? []
+                $0.commandQueue = commands[service] ?? []
+                $0.isLoading = false
+                $0.errorMessage = nil
+            }
+        }
+        bazarr.tasks = bazarrTasks
+        bazarr.isLoading = false
+        bazarr.errorMessage = nil
+    }
+}
+
+#Preview("Tasks - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(
+                previewTasks: [.sonarr: ArrScheduledTask.previewList],
+                previewCommands: [.sonarr: ArrCommand.previewList],
+                previewBazarrTasks: [
+                    BazarrTask(interval: "Every 6 hours", jobId: "series-sync", jobRunning: false, name: "Sync Series", nextRunIn: "2 hours", nextRunTime: "2026-05-24 12:00:00")
+                ]
+            )
+        }
+    }
+}
+
+#Preview("Tasks - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(previewTasks: [.sonarr: []])
+        }
+    }
+}
+#endif
 
 // MARK: - Arr Scheduled Task Row
 

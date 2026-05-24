@@ -7,6 +7,13 @@ struct SeerrJobsView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var pollingTask: Task<Void, Never>?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: SeerrAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         List {
@@ -51,6 +58,9 @@ struct SeerrJobsView: View {
         .navigationTitle("Seerr Jobs")
         .refreshable { await load() }
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await load()
             startPolling()
         }
@@ -95,6 +105,58 @@ struct SeerrJobsView: View {
         await load()
     }
 }
+
+#if DEBUG
+extension SeerrJobsView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewJobs: [SeerrJob],
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._jobs = State(initialValue: previewJobs)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Jobs - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: SeerrJob.previewList)
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: [])
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load jobs."))) {
+        NavigationStack {
+            SeerrJobsView(
+                previewJobs: [],
+                errorMessage: "Scheduled jobs endpoint returned 503."
+            )
+        }
+    }
+}
+#endif
 
 // MARK: - Row
 

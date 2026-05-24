@@ -215,4 +215,32 @@ extension ArrServiceType {
     }
 }
 
+#if DEBUG
+#Preview("Manual Import - Locations") {
+    let profiles = PreviewSupport.ProfileScenario.custom { context in
+        let sonarr = ArrServiceProfile.preview(.sonarr)
+        sonarr.importFolders = ["/downloads/complete/tv", "/mnt/staging/sonarr"]
+        context.insert(sonarr)
+
+        let radarr = ArrServiceProfile.preview(.radarr, hostURL: "http://192.168.1.50:7878")
+        radarr.importFolders = ["/downloads/complete/movies"]
+        context.insert(radarr)
+    }
+
+    PreviewHost(profiles: profiles, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrManualImportView()
+        }
+    }
+}
+
+#Preview("Manual Import - Empty") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrManualImportView()
+        }
+    }
+}
+#endif
+
 // MARK: - Add Location Sheet

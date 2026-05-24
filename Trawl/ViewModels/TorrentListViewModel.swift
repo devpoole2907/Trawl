@@ -373,3 +373,43 @@ enum TorrentSortOrder: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 }
+
+#if DEBUG
+extension TorrentListViewModel {
+    convenience init(
+        previewTorrents: [Torrent] = Torrent.previewList,
+        selectedFilter: TorrentFilter = .all,
+        searchText: String = "",
+        sortOrder: TorrentSortOrder = .addedDate,
+        isSelecting: Bool = false,
+        selectedHashes: Set<String> = [],
+        processingHashes: Set<String> = [],
+        actionErrorAlert: ErrorAlertItem? = nil,
+        isAlternativeSpeedEnabled: Bool = false,
+        isUpdatingAlternativeSpeed: Bool = false,
+        syncService: SyncService = .preview(),
+        torrentService: TorrentService = .preview()
+    ) {
+        self.init(syncService: syncService, torrentService: torrentService)
+        self.selectedFilter = selectedFilter
+        self.searchText = searchText
+        self.sortOrder = sortOrder
+        self.isSelecting = isSelecting
+        self.selectedHashes = selectedHashes
+        self.processingHashes = processingHashes
+        self.actionErrorAlert = actionErrorAlert
+        self.isAlternativeSpeedEnabled = isAlternativeSpeedEnabled
+        self.isUpdatingAlternativeSpeed = isUpdatingAlternativeSpeed
+
+        let torrentMap = Dictionary(uniqueKeysWithValues: previewTorrents.map { ($0.hash, $0) })
+        let result = Self.compute(
+            torrents: torrentMap,
+            filter: selectedFilter,
+            searchText: searchText,
+            sortOrder: sortOrder
+        )
+        self.filteredTorrents = result.sorted
+        self.filterCounts = result.counts
+    }
+}
+#endif

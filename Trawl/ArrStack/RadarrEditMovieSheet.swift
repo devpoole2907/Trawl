@@ -82,3 +82,35 @@ struct RadarrEditMovieSheet: View {
         if success { dismiss() }
     }
 }
+
+#if DEBUG
+#Preview("Typical Edit") {
+    let movie = RadarrMovie.preview
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrEditMovieSheet(viewModel: vm, movie: movie)
+        }
+    }
+}
+
+#Preview("Missing File Edit") {
+    let movie = RadarrMovie.previewAnnounced
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrEditMovieSheet(viewModel: vm, movie: movie)
+        }
+    }
+}
+
+#Preview("Sparse Edit") {
+    let movie = RadarrMovie.previewSparse
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrEditMovieSheet(viewModel: vm, movie: movie)
+        }
+    }
+}
+#endif

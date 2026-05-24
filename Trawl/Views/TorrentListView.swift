@@ -19,6 +19,9 @@ struct TorrentListView: View {
     @State private var listScrollPosition: String?
     @State private var isFilterSearchExpanded = false
     private let title: String
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
 
     init(title: String = "Trawl") {
         self.title = title
@@ -113,6 +116,9 @@ struct TorrentListView: View {
             )
         }
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             if viewModel == nil {
                 let vm = TorrentListViewModel(
                     syncService: syncService,
@@ -128,6 +134,9 @@ struct TorrentListView: View {
             viewModel?.startSync()
         }
         .onChange(of: ObjectIdentifier(syncService)) {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             let vm = TorrentListViewModel(
                 syncService: syncService,
                 torrentService: torrentService,
@@ -616,3 +625,74 @@ private var torrentTrailingToolbarPlacement: ToolbarItemPlacement {
     .automatic
     #endif
 }
+
+#if DEBUG
+extension TorrentListView {
+    init(
+        title: String = "My qBittorrent",
+        previewViewModel: TorrentListViewModel?,
+        skipsAutomaticLoading: Bool = true
+    ) {
+        self.init(title: title)
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = skipsAutomaticLoading
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: Torrent.previewList))
+        }
+    }
+}
+
+#Preview("Loaded Heavy") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: Torrent.previewHeavyList))
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: []))
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: nil)
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(
+                previewTorrents: Torrent.previewList,
+                actionErrorAlert: ErrorAlertItem(
+                    title: "Couldn't Refresh Torrents",
+                    message: "The qBittorrent server returned 500 Internal Server Error."
+                )
+            ))
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            TorrentListView(
+                title: "qBittorrent Offline",
+                previewViewModel: TorrentListViewModel(previewTorrents: [])
+            )
+        }
+    }
+}
+#endif

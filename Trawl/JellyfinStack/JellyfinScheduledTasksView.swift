@@ -8,6 +8,13 @@ struct JellyfinScheduledTasksView: View {
     @State private var viewModel: JellyfinScheduledTasksViewModel?
     @State private var errorAlert: ErrorAlertItem?
     @State private var taskPendingStop: JellyfinScheduledTask?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         Group {
@@ -22,6 +29,9 @@ struct JellyfinScheduledTasksView: View {
         .navigationTitle("Scheduled Tasks")
         .navigationSubtitle("Jellyfin")
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             let vm = JellyfinScheduledTasksViewModel(apiClient: apiClient)
             viewModel = vm
             await vm.startPolling()
@@ -256,3 +266,73 @@ final class JellyfinScheduledTasksViewModel {
         errorMessage = nil
     }
 }
+
+#if DEBUG
+extension JellyfinScheduledTasksView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewViewModel: JellyfinScheduledTasksViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+        self.isPreview = true
+    }
+}
+
+extension JellyfinScheduledTasksViewModel {
+    convenience init(
+        previewTasks: [JellyfinScheduledTask],
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: JellyfinAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.tasks = previewTasks
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+    }
+}
+
+#Preview("Jellyfin Tasks - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: JellyfinScheduledTask.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: [])
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load tasks."))) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(
+                    previewTasks: [],
+                    errorMessage: "Task scheduler endpoint timed out."
+                )
+            )
+        }
+    }
+}
+#endif

@@ -13,6 +13,9 @@ struct AddTorrentSheet: View {
     @State private var inputTab: AddTorrentInputMode = .magnet
 
     let initialMagnetURL: String?
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
 
     init(initialMagnetURL: String? = nil) {
         self.initialMagnetURL = initialMagnetURL
@@ -45,6 +48,9 @@ struct AddTorrentSheet: View {
             .frame(minWidth: 620, idealWidth: 700, minHeight: 540)
             #endif
             .task {
+                #if DEBUG
+                guard !skipsAutomaticLoading else { return }
+                #endif
                 if viewModel == nil {
                     let vm = AddTorrentViewModel(torrentService: torrentService, syncService: syncService)
                     viewModel = vm
@@ -262,3 +268,70 @@ struct AddTorrentSheet: View {
         }.value
     }
 }
+
+#if DEBUG
+extension AddTorrentSheet {
+    init(
+        previewViewModel: AddTorrentViewModel,
+        inputTab: AddTorrentInputMode = .magnet
+    ) {
+        self.init(initialMagnetURL: nil)
+        self._viewModel = State(initialValue: previewViewModel)
+        self._inputTab = State(initialValue: inputTab)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Initial") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            previewMagnetLink: "",
+            savePath: "",
+            selectedCategory: "",
+            recentSavePaths: [
+                RecentSavePath(path: "/downloads/movies"),
+                RecentSavePath(path: "/downloads/tv")
+            ]
+        ))
+    }
+}
+
+#Preview("Magnet Input") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel())
+    }
+}
+
+#Preview("Torrent File") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        AddTorrentSheet(
+            previewViewModel: AddTorrentViewModel(
+                previewMagnetLink: "",
+                previewTorrentFileName: "ubuntu-24.04-desktop-amd64.iso.torrent",
+                previewTorrentFileData: Data([0x64, 0x38, 0x3a]),
+                savePath: "/downloads/linux",
+                selectedCategory: "linux-isos"
+            ),
+            inputTab: .file
+        )
+    }
+}
+
+#Preview("Submitting") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(isSubmitting: true))
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            error: "qBittorrent rejected the magnet link because it is malformed.",
+            submissionErrorAlert: ErrorAlertItem(
+                title: "Couldn't Add Torrent",
+                message: "qBittorrent rejected the magnet link because it is malformed."
+            )
+        ))
+    }
+}
+#endif

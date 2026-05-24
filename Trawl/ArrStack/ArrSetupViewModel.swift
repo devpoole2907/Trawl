@@ -285,3 +285,53 @@ final class ArrSetupViewModel {
         }
     }
 }
+
+#if DEBUG
+extension ArrSetupViewModel {
+    enum PreviewState {
+        case blank(ArrServiceType = .sonarr)
+        case editing(ArrServiceType = .radarr)
+        case validating(ArrServiceType = .sonarr)
+        case error(ArrServiceType = .sonarr, String)
+        case connected(ArrServiceType = .sonarr)
+    }
+
+    convenience init(
+        previewState: PreviewState = .blank(),
+        serviceManager: ArrServiceManager = .preview()
+    ) {
+        self.init(serviceManager: serviceManager)
+
+        switch previewState {
+        case .blank(let type):
+            serviceType = type
+            hostURL = "http://192.168.1.50:\(type.defaultPort)"
+            displayName = "\(type.displayName) Preview"
+        case .editing(let type):
+            serviceType = type
+            hostURL = "https://\(type.rawValue).local"
+            apiKey = "••••••••••••••••"
+            displayName = "\(type.displayName) Home"
+            allowsUntrustedTLS = true
+        case .validating(let type):
+            serviceType = type
+            hostURL = "http://192.168.1.50:\(type.defaultPort)"
+            apiKey = "preview-api-key"
+            displayName = "\(type.displayName) Preview"
+            isValidating = true
+        case .error(let type, let message):
+            serviceType = type
+            hostURL = "http://192.168.1.50:\(type.defaultPort)"
+            apiKey = "preview-api-key"
+            displayName = "\(type.displayName) Preview"
+            validationError = message
+        case .connected(let type):
+            serviceType = type
+            hostURL = "http://192.168.1.50:\(type.defaultPort)"
+            apiKey = "preview-api-key"
+            displayName = "\(type.displayName) Preview"
+            validatedStatus = .preview
+        }
+    }
+}
+#endif

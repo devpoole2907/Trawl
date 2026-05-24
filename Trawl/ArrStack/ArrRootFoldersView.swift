@@ -71,6 +71,9 @@ struct ArrRootFoldersView: View {
         .navigationTitle("Root Folders")
         .moreDestinationBackground(.rootFolders)
         .task {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await refreshRootFolders()
         }
         .toolbar {
@@ -240,6 +243,32 @@ struct ArrRootFoldersView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Root Folders - Loaded") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrRootFoldersView()
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Root Folders - Empty") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrRootFoldersView()
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Root Folder Editor - Add") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        AddRootFolderSheet { _, _ in true }
+    }
+}
+#endif
 
 private struct AddRootFolderSheet: View {
     @Environment(\.dismiss) private var dismiss

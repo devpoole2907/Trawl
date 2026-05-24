@@ -3,13 +3,20 @@ import Charts
 
 struct TorrentStatsView: View {
     @Environment(SyncService.self) private var syncService
+    #if DEBUG
+    private var previewServerState: ServerState?
+    private var previewSpeedHistory: [SyncService.SpeedSample]?
+    #endif
+
+    init() {}
 
     var body: some View {
-        let state = syncService.serverState
+        let state = resolvedServerState
+        let history = resolvedSpeedHistory
         List {
-            if !syncService.speedHistory.isEmpty {
+            if !history.isEmpty {
                 Section {
-                    SpeedGraphView(history: syncService.speedHistory)
+                    SpeedGraphView(history: history)
                         .frame(height: 140)
                         .padding(4)
                         .listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16))
@@ -112,6 +119,20 @@ struct TorrentStatsView: View {
                 .monospacedDigit()
         }
     }
+
+    private var resolvedServerState: ServerState? {
+        #if DEBUG
+        if let previewServerState { return previewServerState }
+        #endif
+        return syncService.serverState
+    }
+
+    private var resolvedSpeedHistory: [SyncService.SpeedSample] {
+        #if DEBUG
+        if let previewSpeedHistory { return previewSpeedHistory }
+        #endif
+        return syncService.speedHistory
+    }
 }
 
 // MARK: - Speed Graph
@@ -176,3 +197,75 @@ struct SpeedGraphView: View {
         history.map { max($0.dlSpeed, $0.upSpeed) }.max() ?? 0
     }
 }
+
+#if DEBUG
+extension TorrentStatsView {
+    init(
+        previewServerState: ServerState?,
+        previewSpeedHistory: [SyncService.SpeedSample] = []
+    ) {
+        self.previewServerState = previewServerState
+        self.previewSpeedHistory = previewSpeedHistory
+    }
+}
+
+extension ServerState {
+    static let preview = ServerState(
+        dlInfoSpeed: 4_500_000,
+        dlInfoData: 8_750_000_000,
+        upInfoSpeed: 820_000,
+        upInfoData: 1_900_000_000,
+        dlRateLimit: 0,
+        upRateLimit: 5_000_000,
+        dhtNodes: 412,
+        connectionStatus: "connected",
+        alltimeDl: 4_820_000_000_000,
+        alltimeUl: 3_650_000_000_000,
+        totalPeerConnections: 128,
+        freeSpaceOnDisk: 890_000_000_000,
+        globalRatio: "0.76"
+    )
+}
+
+extension Array where Element == SyncService.SpeedSample {
+    static var previewSpeedHistory: [SyncService.SpeedSample] {
+        let now = Date()
+        var samples: [SyncService.SpeedSample] = []
+        samples.reserveCapacity(36)
+
+        for index in 0..<36 {
+            let timestamp = now.addingTimeInterval(Double(index - 36) * 2)
+            let downloadSpeed = Int64(1_000_000 + (index % 9) * 450_000)
+            let uploadSpeed = Int64(250_000 + (index % 6) * 120_000)
+            samples.append(
+                SyncService.SpeedSample(
+                    timestamp: timestamp,
+                    dlSpeed: downloadSpeed,
+                    upSpeed: uploadSpeed
+                )
+            )
+        }
+
+        return samples
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentStatsView(
+                previewServerState: .preview,
+                previewSpeedHistory: .previewSpeedHistory
+            )
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentStatsView(previewServerState: nil)
+        }
+    }
+}
+#endif

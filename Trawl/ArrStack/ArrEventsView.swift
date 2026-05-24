@@ -33,6 +33,17 @@ struct ArrEventsView: View {
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var showSettings = false
 
+    #if DEBUG
+    init(previewEntries: [ArrServiceType: [UnifiedLogEntry]] = [:], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewEntries(previewEntries)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
@@ -263,6 +274,9 @@ struct ArrEventsView: View {
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
@@ -562,6 +576,43 @@ final class ArrEventsViewModel {
     }
 }
 
+#if DEBUG
+extension ArrEventsViewModel {
+    func setPreviewEntries(_ entriesByService: [ArrServiceType: [UnifiedLogEntry]]) {
+        for (service, entries) in entriesByService {
+            mutate(service) {
+                $0.entries = entries.sorted { $0.timestamp > $1.timestamp }
+                $0.total = entries.count
+                $0.isLoading = false
+                $0.errorMessage = nil
+            }
+        }
+    }
+}
+
+extension UnifiedLogEntry {
+    static func preview(
+        id: String,
+        service: ArrServiceType,
+        level: String,
+        message: String,
+        logger: String? = "Trawl.Preview",
+        minutesAgo: Int = 0,
+        exceptionType: String? = nil
+    ) -> UnifiedLogEntry {
+        UnifiedLogEntry(
+            id: id,
+            service: service,
+            level: level,
+            logger: logger,
+            message: message,
+            timestamp: Date().addingTimeInterval(TimeInterval(-minutesAgo * 60)),
+            exceptionType: exceptionType
+        )
+    }
+}
+#endif
+
 // MARK: - Level Filter
 
 enum ArrLogLevelFilter: String, CaseIterable, Sendable {
@@ -596,3 +647,32 @@ enum ArrLogLevelFilter: String, CaseIterable, Sendable {
         }
     }
 }
+
+#if DEBUG
+#Preview("Events - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewEntries: [
+                .sonarr: [
+                    .preview(id: "sonarr-1", service: .sonarr, level: "info", message: "RSS Sync completed", minutesAgo: 8),
+                    .preview(id: "sonarr-2", service: .sonarr, level: "warn", message: "Indexer TorrentLeech unavailable", minutesAgo: 24),
+                ],
+                .radarr: [
+                    .preview(id: "radarr-1", service: .radarr, level: "error", message: "Download client rejected release", minutesAgo: 31, exceptionType: "DownloadClientException"),
+                ],
+                .bazarr: [
+                    .preview(id: "bazarr-1", service: .bazarr, level: "warning", message: "Provider throttled requests", minutesAgo: 16),
+                ],
+            ])
+        }
+    }
+}
+
+#Preview("Events - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewEntries: [.sonarr: [], .radarr: []], selectedService: .sonarr)
+        }
+    }
+}
+#endif

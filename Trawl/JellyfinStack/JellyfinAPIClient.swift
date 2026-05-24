@@ -442,3 +442,11 @@ actor JellyfinAPIClient {
         return params.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
 }
+
+#if DEBUG
+extension JellyfinAPIClient {
+    static func preview() -> JellyfinAPIClient {
+        JellyfinAPIClient(baseURL: "http://preview.invalid", accessToken: "preview-token")
+    }
+}
+#endif

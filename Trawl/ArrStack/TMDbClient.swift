@@ -128,3 +128,11 @@ enum TMDbError: LocalizedError {
         }
     }
 }
+
+#if DEBUG
+extension TMDbClient {
+    static func preview() -> TMDbClient {
+        TMDbClient(apiKey: "preview-key")
+    }
+}
+#endif

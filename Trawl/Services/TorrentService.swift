@@ -233,3 +233,11 @@ final class TorrentService {
         try await apiClient.toggleFirstLastPiecePriority(hashes: hashes)
     }
 }
+
+#if DEBUG
+extension TorrentService {
+    static func preview() -> TorrentService {
+        TorrentService(apiClient: .preview())
+    }
+}
+#endif

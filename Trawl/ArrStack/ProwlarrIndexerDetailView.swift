@@ -187,3 +187,70 @@ struct ProwlarrIndexerDetailView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Typical") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .preview,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    indexerStatuses: ProwlarrIndexerStatus.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Disabled") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewDisabled,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    indexerStatuses: ProwlarrIndexerStatus.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Long Name") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewLongName,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewMissingMetadata,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: [.previewMissingMetadata],
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+#endif

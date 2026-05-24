@@ -7,6 +7,13 @@ struct JellyfinPluginsView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var pluginToDelete: JellyfinPlugin?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         List {
@@ -55,7 +62,12 @@ struct JellyfinPluginsView: View {
         .navigationTitle("Plugins")
         .navigationSubtitle("Jellyfin")
         .refreshable { await loadPlugins() }
-        .task { await loadPlugins() }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            await loadPlugins()
+        }
         .alert("Uninstall Plugin", isPresented: Binding(
             get: { pluginToDelete != nil },
             set: { if !$0 { pluginToDelete = nil } }
@@ -144,3 +156,55 @@ struct JellyfinPluginsView: View {
         }
     }
 }
+
+#if DEBUG
+extension JellyfinPluginsView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewPlugins: [JellyfinPlugin],
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._plugins = State(initialValue: previewPlugins)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self.isPreview = true
+    }
+}
+
+#Preview("Jellyfin Plugins - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinPluginsView(previewPlugins: JellyfinPlugin.previewList)
+        }
+    }
+}
+
+#Preview("Jellyfin Plugins - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinPluginsView(previewPlugins: [])
+        }
+    }
+}
+
+#Preview("Jellyfin Plugins - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinPluginsView(previewPlugins: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Jellyfin Plugins - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load plugins."))) {
+        NavigationStack {
+            JellyfinPluginsView(
+                previewPlugins: [],
+                errorMessage: "The plugin catalog could not be loaded."
+            )
+        }
+    }
+}
+#endif

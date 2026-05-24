@@ -449,3 +449,81 @@ nonisolated enum RadarrSortOrder: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 }
+
+#if DEBUG
+extension RadarrViewModel {
+    enum PreviewState {
+        case loaded
+        case heavy
+        case empty
+        case loading
+        case error(String)
+    }
+
+    convenience init(
+        previewState: PreviewState = .loaded,
+        serviceManager: ArrServiceManager = .preview(.radarrOnly),
+        jellyfinManager: JellyfinServiceManager? = .preview()
+    ) {
+        switch previewState {
+        case .loaded:
+            self.init(previewMovies: RadarrMovie.previewList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .heavy:
+            self.init(previewMovies: RadarrMovie.previewHeavyList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .empty:
+            self.init(previewMovies: [], serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .loading:
+            self.init(previewMovies: [], isLoading: true, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .error(let message):
+            self.init(previewMovies: [], error: message, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        }
+    }
+
+    convenience init(
+        previewMovies: [RadarrMovie],
+        isLoading: Bool = false,
+        error: String? = nil,
+        movieFiles: [RadarrMovieFile] = [],
+        isLoadingFiles: Bool = false,
+        serviceManager: ArrServiceManager = .preview(.radarrOnly),
+        jellyfinManager: JellyfinServiceManager? = .preview()
+    ) {
+        self.init(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        self.client = nil
+        setLibraryItems(previewMovies)
+        self.isLoading = isLoading
+        self.error = error
+        self.movieFiles = movieFiles
+        self.isLoadingFiles = isLoadingFiles
+        rebuildFilteredItems()
+    }
+}
+
+@MainActor
+struct RadarrPreviewHost<Content: View>: View {
+    let profiles: PreviewSupport.ProfileScenario
+    let arr: ArrServiceManager
+    let jellyfin: JellyfinServiceManager
+    let content: () -> Content
+
+    init(
+        profiles: PreviewSupport.ProfileScenario = .arrOnly,
+        arr: ArrServiceManager = .preview(.radarrOnly),
+        jellyfin: JellyfinServiceManager = .preview(),
+        @ViewBuilder content: @escaping () -> Content
+    ) {
+        self.profiles = profiles
+        self.arr = arr
+        self.jellyfin = jellyfin
+        self.content = content
+    }
+
+    var body: some View {
+        PreviewHost(profiles: profiles, arr: arr, jellyfin: jellyfin) {
+            content()
+                .environment(SyncService.preview())
+                .environment(TorrentService.preview())
+        }
+    }
+}
+#endif

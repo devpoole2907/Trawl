@@ -233,6 +233,72 @@ struct UnifiedUserListView: View {
     }
 }
 
+#if DEBUG
+extension UnifiedUserListView {
+    init(
+        previewUsers: [UnifiedUserViewModel.UnifiedUser],
+        isLoading: Bool = false,
+        jellyfinLoadError: String? = nil,
+        seerrLoadError: String? = nil,
+        jellyfinClient: JellyfinAPIClient = .preview(),
+        seerrClient: SeerrAPIClient? = .preview(),
+        seerrBaseURL: String? = "http://seerr.preview"
+    ) {
+        self.jellyfinClient = jellyfinClient
+        self.seerrClient = seerrClient
+        self.seerrBaseURL = seerrBaseURL
+        self._viewModel = State(initialValue: UnifiedUserViewModel(
+            jellyfinClient: jellyfinClient,
+            seerrClient: seerrClient,
+            users: previewUsers,
+            isLoading: isLoading,
+            jellyfinLoadError: jellyfinLoadError,
+            seerrLoadError: seerrLoadError
+        ))
+        self._viewModelSeerrClientID = State(initialValue: seerrClient.map(ObjectIdentifier.init))
+    }
+}
+
+#Preview("Users - Linked Services") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(previewUsers: UnifiedUserViewModel.UnifiedUser.previewList)
+        }
+    }
+}
+
+#Preview("Users - Jellyfin Only") {
+    PreviewHost(profiles: .jellyfinOnly, seerr: .preview(.notConfigured)) {
+        NavigationStack {
+            UnifiedUserListView(
+                previewUsers: [.previewJellyfinOnly, .previewDisabledJellyfin],
+                seerrClient: nil,
+                seerrBaseURL: nil
+            )
+        }
+    }
+}
+
+#Preview("Users - Loading") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(previewUsers: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Users - Partial Error") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(
+                previewUsers: [.previewLinked, .previewSeerrOnly],
+                seerrLoadError: "Seerr returned a gateway timeout."
+            )
+        }
+    }
+}
+#endif
+
 private struct UnifiedAddUserSheet: View {
     let create: (String, String?) async throws -> JellyfinUser
     let onImportToSeerr: (JellyfinUser) async throws -> Void

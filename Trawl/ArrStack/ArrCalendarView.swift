@@ -260,6 +260,48 @@ final class ArrCalendarViewModel {
     }
 }
 
+#if DEBUG
+extension ArrCalendarViewModel {
+    func installPreviewEvents(referenceDate: Date = .now) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: referenceDate)
+        let currentMonth = YearMonth.from(today)
+        loadedMonths = [currentMonth.advanced(by: -1), currentMonth, currentMonth.advanced(by: 1)]
+        sonarrSeries = SonarrSeries.previewList
+        radarrMovies = RadarrMovie.previewList
+        seriesLookup = Dictionary(uniqueKeysWithValues: sonarrSeries.map { ($0.id, $0) })
+        monthLoadErrors = [:]
+        isLoadingInitial = false
+        isRefreshing = false
+        isLoadingEarlier = false
+        isLoadingMore = false
+        lastRefreshKey = "preview"
+        scrollID = today
+
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        let nextWeek = calendar.date(byAdding: .day, value: 6, to: today) ?? today
+        let lastWeek = calendar.date(byAdding: .day, value: -5, to: today) ?? today
+
+        eventsByDay = [
+            today: [
+                .episode(SonarrEpisode.preview, series: SonarrSeries.preview, date: calendar.date(byAdding: .hour, value: 20, to: today) ?? today),
+                .movie(RadarrMovie.previewAnnounced, date: today, kind: .cinema),
+            ],
+            tomorrow: [
+                .episode(SonarrEpisode.previewList[1], series: SonarrSeries.previewList[3], date: calendar.date(byAdding: .hour, value: 21, to: tomorrow) ?? tomorrow),
+            ],
+            nextWeek: [
+                .movie(RadarrMovie.preview, date: nextWeek, kind: .digital),
+                .movie(RadarrMovie.previewReleased, date: nextWeek, kind: .physical),
+            ],
+            lastWeek: [
+                .episode(SonarrEpisode.previewList[2], series: SonarrSeries.previewEnded, date: lastWeek),
+            ],
+        ]
+    }
+}
+#endif
+
 private struct CalendarMonthLoadError: LocalizedError {
     let month: YearMonth
     let messages: [String]
@@ -435,6 +477,12 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             await revealCalendarIfNeeded(forceScrollToToday: true)
         }
         .task(id: calendarReloadKey) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive {
+                hideCalendarView = false
+                return
+            }
+            #endif
             guard isConnected else { return }
             await serviceManager.calendarViewModel.initialize()
             await revealCalendarIfNeeded(forceScrollToToday: !didInitialScroll)
@@ -604,6 +652,39 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         }
     }
 }
+
+#if DEBUG
+private struct ArrCalendarPreview: View {
+    let manager: ArrServiceManager
+
+    init(isEmpty: Bool = false) {
+        let manager = ArrServiceManager.preview(.allConfigured)
+        if isEmpty {
+            manager.calendarViewModel.isLoadingInitial = false
+        } else {
+            manager.calendarViewModel.installPreviewEvents()
+        }
+        self.manager = manager
+    }
+
+    var body: some View {
+        PreviewHost(profiles: .allServices, arr: manager) {
+            NavigationStack {
+                ArrCalendarView()
+            }
+            .environment(SyncService.preview())
+        }
+    }
+}
+
+#Preview("Calendar - Loaded") {
+    ArrCalendarPreview()
+}
+
+#Preview("Calendar - Empty") {
+    ArrCalendarPreview(isEmpty: true)
+}
+#endif
 
 // MARK: - Supporting Subviews
 

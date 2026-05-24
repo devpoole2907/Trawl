@@ -147,3 +147,34 @@ final class JellyfinServiceManager {
         }
     }
 }
+
+#if DEBUG
+extension JellyfinServiceManager {
+    enum PreviewState {
+        case connected, connecting, error(String), notConfigured, requiresReauthentication
+    }
+
+    static func preview(_ state: PreviewState = .connected) -> JellyfinServiceManager {
+        let mgr = JellyfinServiceManager()
+        switch state {
+        case .connected:
+            mgr.activeClient = .preview()
+            mgr.activeProfileID = UUID()
+            mgr.isConnected = true
+            mgr.cachedUserCount = 14
+            mgr.cachedSystemInfo = JellyfinSystemInfo.preview
+        case .connecting:
+            mgr.isConnecting = true
+        case .error(let msg):
+            mgr.connectionError = msg
+        case .notConfigured:
+            break
+        case .requiresReauthentication:
+            mgr.connectionError = "Session expired. Please re-enter your password."
+            mgr.requiresReauthentication = true
+            mgr.reauthenticationProfileID = UUID()
+        }
+        return mgr
+    }
+}
+#endif

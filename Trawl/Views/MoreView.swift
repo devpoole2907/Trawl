@@ -1177,6 +1177,148 @@ struct MoreView: View {
     }
 }
 
+#if DEBUG
+@MainActor
+private enum MorePreviewFixtures {
+    static func appServices() -> AppServices {
+        AppServices.disconnected()
+    }
+
+    static func notificationCenter() -> InAppNotificationCenter {
+        InAppNotificationCenter(
+            previewNotifications: notificationEntries,
+            lastReadDate: Date().addingTimeInterval(-3_600)
+        )
+    }
+
+    static var notificationEntries: [NotificationLogEntry] {
+        [
+            NotificationLogEntry(
+                title: "Sonarr Health Warning",
+                message: "Indexer sync completed, but one indexer reported a stale certificate.",
+                style: .error,
+                source: .system,
+                timestamp: Date().addingTimeInterval(-240)
+            ),
+            NotificationLogEntry(
+                title: "Download Complete",
+                message: "Dune Part Two imported successfully through qBittorrent and Radarr.",
+                style: .success,
+                source: .inApp,
+                timestamp: Date().addingTimeInterval(-1_800)
+            ),
+            NotificationLogEntry(
+                title: "Jellyfin User Import",
+                message: "Three Jellyfin users are ready to import into Seerr.",
+                style: .progress,
+                source: .inApp,
+                timestamp: Date().addingTimeInterval(-7_200)
+            ),
+        ]
+    }
+}
+
+private struct MorePreviewHost<Content: View>: View {
+    let profiles: PreviewSupport.ProfileScenario
+    let arr: ArrServiceManager
+    let jellyfin: JellyfinServiceManager
+    let seerr: SeerrServiceManager
+    let appServices: AppServices?
+    let content: (AppServices?) -> Content
+
+    init(
+        profiles: PreviewSupport.ProfileScenario = .allServices,
+        arr: ArrServiceManager = .preview(),
+        jellyfin: JellyfinServiceManager = .preview(),
+        seerr: SeerrServiceManager = .preview(),
+        appServices: AppServices? = MorePreviewFixtures.appServices(),
+        @ViewBuilder content: @escaping (AppServices?) -> Content
+    ) {
+        self.profiles = profiles
+        self.arr = arr
+        self.jellyfin = jellyfin
+        self.seerr = seerr
+        self.appServices = appServices
+        self.content = content
+    }
+
+    var body: some View {
+        PreviewHost(
+            profiles: profiles,
+            arr: arr,
+            jellyfin: jellyfin,
+            seerr: seerr,
+            appServices: appServices,
+            notificationCenter: MorePreviewFixtures.notificationCenter()
+        ) {
+            content(appServices)
+        }
+    }
+}
+
+#Preview("More - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Sonarr Only") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrOnly),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Connection Issue") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrConnectionError("Could not reach the Sonarr preview host.")),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+#endif
+
 private struct MoreSearchResultRow: View {
     let entry: MoreSearchIndexEntry
 
@@ -1879,12 +2021,25 @@ private struct IntegrationsManagementView: View {
     }
 }
 
+#if DEBUG
+#Preview("Integrations Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            IntegrationsManagementView()
+        }
+    }
+}
+#endif
+
 private struct LinkedApplicationsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var statusModel = LinkedApplicationsStatusViewModel()
+    #if DEBUG
+    private var skipsStatusRefresh = false
+    #endif
 
     var body: some View {
         List {
@@ -1936,6 +2091,9 @@ private struct LinkedApplicationsManagementView: View {
             )
         }
         .task {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             await statusModel.load(
                 arrServiceManager: arrServiceManager,
                 seerrServiceManager: seerrServiceManager,
@@ -1944,6 +2102,9 @@ private struct LinkedApplicationsManagementView: View {
             )
         }
         .onAppear {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             Task {
                 await statusModel.load(
                     arrServiceManager: arrServiceManager,
@@ -1956,9 +2117,55 @@ private struct LinkedApplicationsManagementView: View {
     }
 }
 
+#if DEBUG
+extension LinkedApplicationsManagementView {
+    init(previewStatusModel: LinkedApplicationsStatusViewModel) {
+        self._statusModel = State(initialValue: previewStatusModel)
+        self.skipsStatusRefresh = true
+    }
+}
+
+#Preview("Linked Applications - Mixed") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            LinkedApplicationsManagementView(
+                previewStatusModel: LinkedApplicationsStatusViewModel(
+                    indexerStatus: .connected,
+                    subtitleStatus: .partiallyConnected,
+                    requestRoutingStatus: .connected
+                )
+            )
+        }
+    }
+}
+
+#Preview("Linked Applications - Not Configured") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            LinkedApplicationsManagementView(
+                previewStatusModel: LinkedApplicationsStatusViewModel(
+                    indexerStatus: .notConfigured,
+                    subtitleStatus: .notConfigured,
+                    requestRoutingStatus: .notConfigured
+                )
+            )
+        }
+    }
+}
+#endif
+
 private struct DownloadClientsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @State private var statusModel = DownloadClientsStatusViewModel()
+    #if DEBUG
+    private var skipsStatusRefresh = false
+    #endif
 
     var body: some View {
         List {
@@ -1995,15 +2202,62 @@ private struct DownloadClientsManagementView: View {
             await statusModel.load(arrServiceManager: arrServiceManager)
         }
         .task {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             await statusModel.load(arrServiceManager: arrServiceManager)
         }
         .onAppear {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             Task {
                 await statusModel.load(arrServiceManager: arrServiceManager)
             }
         }
     }
 }
+
+#if DEBUG
+extension DownloadClientsManagementView {
+    init(previewStatusModel: DownloadClientsStatusViewModel) {
+        self._statusModel = State(initialValue: previewStatusModel)
+        self.skipsStatusRefresh = true
+    }
+}
+
+#Preview("Download Clients Hub - Connected") {
+    MorePreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            DownloadClientsManagementView(
+                previewStatusModel: DownloadClientsStatusViewModel(
+                    sonarrStatus: .connected,
+                    radarrStatus: .partiallyEnabled
+                )
+            )
+        }
+    }
+}
+
+#Preview("Download Clients Hub - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            DownloadClientsManagementView(
+                previewStatusModel: DownloadClientsStatusViewModel(
+                    sonarrStatus: .notConfigured,
+                    radarrStatus: .notConfigured
+                )
+            )
+        }
+    }
+}
+#endif
 
 @MainActor
 @Observable
@@ -2012,6 +2266,18 @@ private final class DownloadClientsStatusViewModel {
     private(set) var radarrStatus: IntegrationRelationshipStatus = .loading
 
     private var isLoading = false
+
+    init() {}
+
+    #if DEBUG
+    init(
+        sonarrStatus: IntegrationRelationshipStatus,
+        radarrStatus: IntegrationRelationshipStatus
+    ) {
+        self.sonarrStatus = sonarrStatus
+        self.radarrStatus = radarrStatus
+    }
+    #endif
 
     func load(arrServiceManager: ArrServiceManager) async {
         guard !isLoading else { return }
@@ -2097,6 +2363,20 @@ private final class LinkedApplicationsStatusViewModel {
     private(set) var requestRoutingStatus: IntegrationRelationshipStatus = .loading
 
     private var isLoading = false
+
+    init() {}
+
+    #if DEBUG
+    init(
+        indexerStatus: IntegrationRelationshipStatus,
+        subtitleStatus: IntegrationRelationshipStatus,
+        requestRoutingStatus: IntegrationRelationshipStatus
+    ) {
+        self.indexerStatus = indexerStatus
+        self.subtitleStatus = subtitleStatus
+        self.requestRoutingStatus = requestRoutingStatus
+    }
+    #endif
 
     func load(
         arrServiceManager: ArrServiceManager,
@@ -2436,6 +2716,16 @@ private struct SubtitleManagementView: View {
     }
 }
 
+#if DEBUG
+#Preview("Subtitles Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            SubtitleManagementView()
+        }
+    }
+}
+#endif
+
 private struct TorrentManagementView: View {
     var body: some View {
         List {
@@ -2485,6 +2775,16 @@ private struct TorrentManagementView: View {
     }
 }
 
+#if DEBUG
+#Preview("Torrent Management Hub") {
+    MorePreviewHost(profiles: .qBittorrentOnly) { _ in
+        NavigationStack {
+            TorrentManagementView()
+        }
+    }
+}
+#endif
+
 private struct RequestManagementView: View {
     let seerrProfile: SeerrServiceProfile?
 
@@ -2518,6 +2818,24 @@ private struct RequestManagementView: View {
         .moreDestinationBackground(.requestManagement)
     }
 }
+
+#if DEBUG
+#Preview("Requests Hub - Configured") {
+    MorePreviewHost(profiles: .seerrOnly) { _ in
+        NavigationStack {
+            RequestManagementView(seerrProfile: .preview())
+        }
+    }
+}
+
+#Preview("Requests Hub - Empty") {
+    MorePreviewHost(profiles: .empty, seerr: .preview(.notConfigured), appServices: nil) { _ in
+        NavigationStack {
+            RequestManagementView(seerrProfile: nil)
+        }
+    }
+}
+#endif
 
 private struct LogsAndEventsHubView: View {
     let hasQBittorrentLog: Bool
@@ -2594,6 +2912,30 @@ private struct LogsAndEventsHubView: View {
     }
 }
 
+#if DEBUG
+#Preview("Logs Hub - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            LogsAndEventsHubView(hasQBittorrentLog: true)
+        }
+    }
+}
+
+#Preview("Logs Hub - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            LogsAndEventsHubView(hasQBittorrentLog: false)
+        }
+    }
+}
+#endif
+
 private struct ArrActivityHubView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
 
@@ -2649,6 +2991,24 @@ private struct ArrActivityHubView: View {
         .moreDestinationBackground(.activity)
     }
 }
+
+#if DEBUG
+#Preview("Arr Activity Hub - Configured") {
+    MorePreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            ArrActivityHubView()
+        }
+    }
+}
+
+#Preview("Arr Activity Hub - Empty") {
+    MorePreviewHost(profiles: .empty, arr: .preview(.noneConfigured), appServices: nil) { _ in
+        NavigationStack {
+            ArrActivityHubView()
+        }
+    }
+}
+#endif
 
 private struct TasksHubView: View {
     let jellyfinProfile: JellyfinServiceProfile?
@@ -2714,6 +3074,30 @@ private struct TasksHubView: View {
     }
 }
 
+#if DEBUG
+#Preview("Tasks Hub - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            TasksHubView(jellyfinProfile: .preview())
+        }
+    }
+}
+
+#Preview("Tasks Hub - Arr Only") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrOnly),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            TasksHubView(jellyfinProfile: nil)
+        }
+    }
+}
+#endif
+
 private struct JellyfinManagementView: View {
     let jellyfinProfile: JellyfinServiceProfile?
 
@@ -2755,6 +3139,16 @@ private struct JellyfinManagementView: View {
         .moreDestinationBackground(.jellyfin)
     }
 }
+
+#if DEBUG
+#Preview("Jellyfin Management Hub") {
+    MorePreviewHost(profiles: .jellyfinOnly) { _ in
+        NavigationStack {
+            JellyfinManagementView(jellyfinProfile: .preview())
+        }
+    }
+}
+#endif
 
 private struct MoreServicesGradientBackground: View {
     let services: [ServiceIdentity]
@@ -3065,6 +3459,22 @@ struct RecentNotificationsSheet: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+#Preview("Recent Notifications - Loaded") {
+    NavigationStack {
+        RecentNotificationsSheet()
+            .environment(MorePreviewFixtures.notificationCenter())
+    }
+}
+
+#Preview("Recent Notifications - Empty") {
+    NavigationStack {
+        RecentNotificationsSheet()
+            .environment(InAppNotificationCenter(previewNotifications: []))
+    }
+}
+#endif
 
 private struct NotificationDetailView: View {
     let entry: NotificationLogEntry

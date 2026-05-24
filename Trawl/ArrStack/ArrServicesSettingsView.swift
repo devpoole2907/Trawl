@@ -143,3 +143,21 @@ private struct ServiceProfileRow: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Services - Configured") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrServicesSettingsView()
+        }
+    }
+}
+
+#Preview("Services - Empty") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrServicesSettingsView()
+        }
+    }
+}
+#endif

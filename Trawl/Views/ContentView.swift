@@ -55,6 +55,9 @@ struct ContentView: View {
     @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
     @State private var isTabChromeHidden = false
     #endif
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     var body: some View {
         Group {
@@ -214,18 +217,27 @@ struct ContentView: View {
             }
         }
         .task(id: seerrProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             await seerrServiceManager.initialize(from: seerrProfiles)
             if !seerrProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
         }
         .task(id: jellyfinProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
             if !jellyfinProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
         }
         .task(id: arrProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             if !didEvaluateWelcomeState {
                 isInWelcomeFlow = !hasConfiguredAnyService
                 didEvaluateWelcomeState = true
@@ -239,6 +251,9 @@ struct ContentView: View {
             await arrServiceManager.initialize(from: arrProfiles)
         }
         .task(id: connectionRetryLoopKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             guard scenePhase == .active, !shouldShowWelcomeScreen else { return }
             await connectionRetryScheduler.start {
                 await retryDisconnectedConnections()
@@ -872,6 +887,71 @@ struct ContentView: View {
         }
     }
 }
+
+#if DEBUG
+extension ContentView {
+    init(
+        previewSelectedTab: RootTab,
+        previewMorePath: [MoreDestination] = [],
+        previewAppServices: AppServices? = AppServices.disconnected(),
+        previewIsConnecting: Bool = false,
+        previewConnectionError: String? = nil,
+        previewIsInWelcomeFlow: Bool = false
+    ) {
+        self._appServices = State(initialValue: previewAppServices)
+        self._connectionError = State(initialValue: previewConnectionError)
+        self._isConnecting = State(initialValue: previewIsConnecting)
+        self._isInWelcomeFlow = State(initialValue: previewIsInWelcomeFlow)
+        self._selectedTab = State(initialValue: previewSelectedTab)
+        self._morePath = State(initialValue: previewMorePath)
+        self._didEvaluateWelcomeState = State(initialValue: true)
+        self._hasSetStartupTab = State(initialValue: true)
+        self.isPreview = true
+    }
+}
+
+#Preview("Content - More Tab") {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        appServices: AppServices.disconnected(),
+        notificationCenter: InAppNotificationCenter(
+            previewNotifications: [
+                NotificationLogEntry(
+                    title: "Download Complete",
+                    message: "A Radarr movie finished importing.",
+                    style: .success,
+                    source: .inApp,
+                    timestamp: Date().addingTimeInterval(-600)
+                )
+            ],
+            lastReadDate: Date().addingTimeInterval(-3_600)
+        )
+    ) {
+        ContentView(
+            previewSelectedTab: .more,
+            previewAppServices: AppServices.disconnected()
+        )
+    }
+}
+
+#Preview("Content - Welcome") {
+    PreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil,
+        notificationCenter: InAppNotificationCenter(previewNotifications: [])
+    ) {
+        ContentView(
+            previewSelectedTab: .torrents,
+            previewAppServices: nil,
+            previewIsInWelcomeFlow: true
+        )
+    }
+}
+#endif
 
 #if os(iOS)
 struct SetTabChromeHiddenKey: EnvironmentKey {

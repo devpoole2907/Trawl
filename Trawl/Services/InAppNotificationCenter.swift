@@ -356,6 +356,24 @@ final class InAppNotificationCenter {
     }
 }
 
+#if DEBUG
+extension InAppNotificationCenter {
+    convenience init(
+        previewNotifications: [NotificationLogEntry],
+        lastReadDate: Date = .distantPast
+    ) {
+        self.init()
+        dismissTask?.cancel()
+        dismissTask = nil
+        currentBanner = nil
+        queuedBanners = []
+        recentNotifications = previewNotifications
+        self.lastReadDate = lastReadDate
+        isPresentingRecentNotifications = false
+    }
+}
+#endif
+
 struct InAppBannerAction {
     let label: String
     let handler: () -> Void

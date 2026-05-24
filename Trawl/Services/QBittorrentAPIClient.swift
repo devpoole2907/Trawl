@@ -632,3 +632,15 @@ extension Array where Element == String {
             .filter { !$0.isEmpty }
     }
 }
+
+#if DEBUG
+extension QBittorrentAPIClient {
+    static func preview() -> QBittorrentAPIClient {
+        let authService = AuthService(serverProfileID: UUID())
+        return QBittorrentAPIClient(
+            baseURL: "http://preview.invalid",
+            authService: authService
+        )
+    }
+}
+#endif

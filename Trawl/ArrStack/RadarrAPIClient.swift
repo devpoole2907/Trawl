@@ -171,3 +171,11 @@ nonisolated struct RadarrWantedPage: Codable, Sendable {
     let totalRecords: Int?
     let records: [RadarrMovie]?
 }
+
+#if DEBUG
+extension RadarrAPIClient {
+    static func preview() -> RadarrAPIClient {
+        RadarrAPIClient(baseURL: "http://preview.invalid", apiKey: "preview-key")
+    }
+}
+#endif

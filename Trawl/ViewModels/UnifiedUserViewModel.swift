@@ -36,6 +36,26 @@ final class UnifiedUserViewModel {
         self.seerrClient = seerrClient
     }
 
+    #if DEBUG
+    init(
+        jellyfinClient: JellyfinAPIClient = .preview(),
+        seerrClient: SeerrAPIClient? = .preview(),
+        users: [UnifiedUser],
+        isLoading: Bool = false,
+        jellyfinLoadError: String? = nil,
+        seerrLoadError: String? = nil,
+        hasLoaded: Bool = true
+    ) {
+        self.jellyfinClient = jellyfinClient
+        self.seerrClient = seerrClient
+        self.users = users
+        self.isLoading = isLoading
+        self.jellyfinLoadError = jellyfinLoadError
+        self.seerrLoadError = seerrLoadError
+        self.hasLoaded = hasLoaded
+    }
+    #endif
+
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await load()
@@ -178,3 +198,52 @@ final class UnifiedUserViewModel {
         }
     }
 }
+
+#if DEBUG
+extension UnifiedUserViewModel.UnifiedUser {
+    static let previewLinked = UnifiedUserViewModel.UnifiedUser(
+        id: JellyfinUser.preview.id,
+        jellyfinUser: .preview,
+        seerrUser: .preview
+    )
+
+    static let previewLinkedAdmin = UnifiedUserViewModel.UnifiedUser(
+        id: JellyfinUser.previewAdmin.id,
+        jellyfinUser: .previewAdmin,
+        seerrUser: .previewAdmin
+    )
+
+    static let previewJellyfinOnly = UnifiedUserViewModel.UnifiedUser(
+        id: JellyfinUser.previewRestricted.id,
+        jellyfinUser: .previewRestricted,
+        seerrUser: nil
+    )
+
+    static let previewDisabledJellyfin = UnifiedUserViewModel.UnifiedUser(
+        id: JellyfinUser.previewDisabled.id,
+        jellyfinUser: .previewDisabled,
+        seerrUser: nil
+    )
+
+    static let previewSeerrOnly = UnifiedUserViewModel.UnifiedUser(
+        id: "seerr-\(SeerrUser.previewRequester.id)",
+        jellyfinUser: nil,
+        seerrUser: .previewRequester
+    )
+
+    static let previewLongName = UnifiedUserViewModel.UnifiedUser(
+        id: JellyfinUser.previewLongName.id,
+        jellyfinUser: .previewLongName,
+        seerrUser: .previewLongName
+    )
+
+    static let previewList: [UnifiedUserViewModel.UnifiedUser] = [
+        .previewLinkedAdmin,
+        .previewLinked,
+        .previewJellyfinOnly,
+        .previewDisabledJellyfin,
+        .previewSeerrOnly,
+        .previewLongName,
+    ]
+}
+#endif

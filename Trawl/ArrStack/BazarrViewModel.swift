@@ -41,11 +41,22 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
 
     var selectedTab: BazarrBrowserTab = .series
 
+    #if DEBUG
+    private var previewIsConnected: Bool?
+    private var previewIsConnecting: Bool?
+    private var previewConnectionError: String?
+    #endif
+
     init(serviceManager: ArrServiceManager) {
         super.init(serviceManager: serviceManager, client: serviceManager.activeBazarrEntry?.client)
     }
 
     var isConnected: Bool {
+        #if DEBUG
+        if let previewIsConnected {
+            return previewIsConnected
+        }
+        #endif
         guard let entry = serviceManager.activeBazarrEntry, entry.client != nil else {
             return false
         }
@@ -53,11 +64,21 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
     }
 
     var isConnecting: Bool {
-        serviceManager.activeBazarrEntry?.isConnecting ?? false
+        #if DEBUG
+        if let previewIsConnecting {
+            return previewIsConnecting
+        }
+        #endif
+        return serviceManager.activeBazarrEntry?.isConnecting ?? false
     }
 
     var connectionError: String? {
-        serviceManager.bazarrConnectionError
+        #if DEBUG
+        if let previewConnectionError {
+            return previewConnectionError
+        }
+        #endif
+        return serviceManager.bazarrConnectionError
     }
 
     // MARK: - Subtitle Status
@@ -264,3 +285,42 @@ enum BazarrBrowserTab: String, CaseIterable {
     case series = "Series"
     case movies = "Movies"
 }
+
+#if DEBUG
+extension BazarrViewModel {
+    convenience init(
+        previewSeries: [BazarrSeries] = BazarrSeries.previewList,
+        previewMovies: [BazarrMovie] = BazarrMovie.previewList,
+        previewEpisodes: [Int: [BazarrEpisode]] = [BazarrSeries.preview.sonarrSeriesId: BazarrEpisode.previewList],
+        isLoadingSeries: Bool = false,
+        isLoadingMovies: Bool = false,
+        isLoadingEpisodes: Bool = false,
+        seriesError: String? = nil,
+        moviesError: String? = nil,
+        episodesError: String? = nil,
+        selectedTab: BazarrBrowserTab = .series,
+        isConnected: Bool? = true,
+        isConnecting: Bool? = nil,
+        connectionError: String? = nil,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        series = previewSeries
+        movies = previewMovies
+        episodes = previewEpisodes
+        self.isLoadingSeries = isLoadingSeries
+        self.isLoadingMovies = isLoadingMovies
+        self.isLoadingEpisodes = isLoadingEpisodes
+        self.seriesError = seriesError
+        self.moviesError = moviesError
+        self.episodesError = episodesError
+        filteredSeries = Array(previewSeries.reversed())
+        filteredMovies = Array(previewMovies.reversed())
+        self.selectedTab = selectedTab
+        previewIsConnected = isConnected
+        previewIsConnecting = isConnecting
+        previewConnectionError = connectionError
+        setLibraryItems(previewSeries)
+    }
+}
+#endif

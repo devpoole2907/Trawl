@@ -16,6 +16,22 @@ struct ArrActivityQueueView: View {
     @State private var manualImportService: ArrServiceType = .sonarr
     @State private var showActivitySettings = false
 
+    #if DEBUG
+    init(
+        previewSonarrQueue: [ArrQueueItem] = [],
+        previewRadarrQueue: [ArrQueueItem] = [],
+        previewBazarrTasks: [BazarrTask] = [],
+        isLoading: Bool = false,
+        serviceFilter: ArrServiceFilter = .all
+    ) {
+        _sonarrQueue = State(initialValue: previewSonarrQueue)
+        _radarrQueue = State(initialValue: previewRadarrQueue)
+        _bazarrTasks = State(initialValue: previewBazarrTasks)
+        _isLoading = State(initialValue: isLoading)
+        _serviceFilter = State(initialValue: serviceFilter)
+    }
+    #endif
+
     private var activityRows: [ActivityRow] {
         var rows: [ActivityRow] = []
         if serviceFilter == .all || serviceFilter == .sonarr {
@@ -37,6 +53,9 @@ struct ArrActivityQueueView: View {
         .background(backgroundGradient)
         .navigationTitle("Queue")
         .task(id: activityReloadKey) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.hasAnyConnectedBazarrInstance else {
                 sonarrQueue = []
                 radarrQueue = []
@@ -705,9 +724,26 @@ struct ArrHealthView: View {
     @State private var serviceFilter: ArrServiceFilter = .all
     @State private var selectedItem: HealthItem?
     @State private var showSettings = false
+    private let previewHealthItems: [HealthItem]?
+
+    init() {
+        self.previewHealthItems = nil
+    }
+
+    #if DEBUG
+    init(previewChecks: [ArrHealthCheck], service: ArrServiceType = .sonarr) {
+        self.previewHealthItems = previewChecks.enumerated().map {
+            HealthItem(check: $0.element, source: service, index: $0.offset)
+        }
+    }
+    #endif
 
     private var allChecks: [HealthItem] {
-        (
+        if let previewHealthItems {
+            return previewHealthItems.sorted { $0.severityRank > $1.severityRank }
+        }
+
+        return (
             serviceManager.sonarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .sonarr, index: $0.offset) } +
             serviceManager.radarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .radarr, index: $0.offset) } +
             serviceManager.prowlarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .prowlarr, index: $0.offset) }
@@ -736,6 +772,10 @@ struct ArrHealthView: View {
             ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
         }
         .task(id: healthReloadKey) {
+            if previewHealthItems != nil { return }
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected else {
                 return
             }
@@ -1037,3 +1077,57 @@ private struct HealthDetailSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Queue - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrActivityQueueView(
+                previewSonarrQueue: ArrQueueItem.previewList,
+                previewRadarrQueue: [
+                    ArrQueueItem.makePreview(
+                        id: 20,
+                        title: "The Shawshank Redemption (1994)",
+                        status: "downloading",
+                        seriesId: nil,
+                        episodeId: nil,
+                        movieId: 278,
+                        outputPath: "/downloads/movies/The.Shawshank.Redemption.1994"
+                    )
+                ],
+                previewBazarrTasks: [
+                    BazarrTask(interval: "Every 1 hour", jobId: "sync-subtitles", jobRunning: true, name: "Sync Subtitles", nextRunIn: "42 minutes", nextRunTime: "2026-05-24 11:30:00")
+                ]
+            )
+        }
+        .environment(SyncService.preview())
+        .environment(TorrentService.preview())
+    }
+}
+
+#Preview("Queue - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrActivityQueueView()
+        }
+        .environment(SyncService.preview())
+        .environment(TorrentService.preview())
+    }
+}
+
+#Preview("Health - Issues") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrHealthView(previewChecks: ArrHealthCheck.previewList, service: .sonarr)
+        }
+    }
+}
+
+#Preview("Health - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrHealthView()
+        }
+    }
+}
+#endif

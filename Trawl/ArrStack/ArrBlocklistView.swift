@@ -8,6 +8,24 @@ struct ArrBlocklistView: View {
     @State private var entryToDelete: BlocklistEntry?
     @State private var exclusionToDelete: ExclusionEntry?
     @State private var showSettings = false
+    private let previewSonarrBlocklist: [ArrBlocklistItem]?
+    private let previewRadarrBlocklist: [ArrBlocklistItem]?
+    private let previewSonarrExclusions: [ArrImportListExclusion]?
+    private let previewRadarrExclusions: [ArrImportListExclusion]?
+
+    init(
+        previewSonarrBlocklist: [ArrBlocklistItem]? = nil,
+        previewRadarrBlocklist: [ArrBlocklistItem]? = nil,
+        previewSonarrExclusions: [ArrImportListExclusion]? = nil,
+        previewRadarrExclusions: [ArrImportListExclusion]? = nil,
+        initialMode: SuppressionMode = .blocklist
+    ) {
+        self.previewSonarrBlocklist = previewSonarrBlocklist
+        self.previewRadarrBlocklist = previewRadarrBlocklist
+        self.previewSonarrExclusions = previewSonarrExclusions
+        self.previewRadarrExclusions = previewRadarrExclusions
+        _mode = State(initialValue: initialMode)
+    }
 
     enum SuppressionMode: String, CaseIterable, Identifiable {
         case blocklist = "Blocklist"
@@ -42,21 +60,33 @@ struct ArrBlocklistView: View {
     }
 
     private var displayedSonarrItems: [ArrBlocklistItem] {
+        if let previewSonarrBlocklist {
+            return scope == .movies ? [] : previewSonarrBlocklist
+        }
         guard serviceManager.sonarrConnected else { return [] }
         return scope == .movies ? [] : serviceManager.sonarrBlocklist
     }
 
     private var displayedRadarrItems: [ArrBlocklistItem] {
+        if let previewRadarrBlocklist {
+            return scope == .series ? [] : previewRadarrBlocklist
+        }
         guard serviceManager.radarrConnected else { return [] }
         return scope == .series ? [] : serviceManager.radarrBlocklist
     }
 
     private var displayedSonarrExclusions: [ArrImportListExclusion] {
+        if let previewSonarrExclusions {
+            return scope == .movies ? [] : previewSonarrExclusions
+        }
         guard serviceManager.sonarrConnected else { return [] }
         return scope == .movies ? [] : serviceManager.sonarrImportListExclusions
     }
 
     private var displayedRadarrExclusions: [ArrImportListExclusion] {
+        if let previewRadarrExclusions {
+            return scope == .series ? [] : previewRadarrExclusions
+        }
         guard serviceManager.radarrConnected else { return [] }
         return scope == .series ? [] : serviceManager.radarrImportListExclusions
     }
@@ -82,7 +112,8 @@ struct ArrBlocklistView: View {
     }
 
     private var hasConfigured: Bool {
-        serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
+        if hasPreviewData { return true }
+        return serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance
     }
 
     private var blocklistServices: [ArrServiceType] {
@@ -93,7 +124,15 @@ struct ArrBlocklistView: View {
     }
 
     private var hasConnected: Bool {
-        serviceManager.sonarrConnected || serviceManager.radarrConnected
+        if hasPreviewData { return true }
+        return serviceManager.sonarrConnected || serviceManager.radarrConnected
+    }
+
+    private var hasPreviewData: Bool {
+        previewSonarrBlocklist != nil ||
+        previewRadarrBlocklist != nil ||
+        previewSonarrExclusions != nil ||
+        previewRadarrExclusions != nil
     }
 
     private var isConnecting: Bool {
@@ -389,6 +428,10 @@ struct ArrBlocklistView: View {
     // MARK: - Actions
 
     private func loadCurrentMode() async {
+        if hasPreviewData { return }
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         switch mode {
         case .blocklist:
             await serviceManager.loadBlocklist()
@@ -528,3 +571,28 @@ private enum BlocklistDateParser {
         return iso.date(from: value)
     }
 }
+
+#if DEBUG
+#Preview("Blocklist - Releases") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBlocklistView(
+                previewSonarrBlocklist: [ArrBlocklistItem.preview, ArrBlocklistItem.previewList[2]],
+                previewRadarrBlocklist: [ArrBlocklistItem.previewMovie]
+            )
+        }
+    }
+}
+
+#Preview("Blocklist - Exclusions") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBlocklistView(
+                previewSonarrExclusions: [ArrImportListExclusion.preview],
+                previewRadarrExclusions: [ArrImportListExclusion.previewMovie],
+                initialMode: .exclusions
+            )
+        }
+    }
+}
+#endif

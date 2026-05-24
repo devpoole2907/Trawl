@@ -918,3 +918,47 @@ struct SonarrSeriesDetailView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Library") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(.previewMissingArt, serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.previewMissingArt.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Discover") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel(previewSeries: [], serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(series: .previewDiscover, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Loading Episodes") {
+    SonarrPreviewHost { manager in
+        let series = SonarrSeries.preview
+        let viewModel = SonarrViewModel(
+            previewSeries: [series],
+            episodes: [series.id: []],
+            isLoadingEpisodes: true,
+            serviceManager: manager
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: series.id, viewModel: viewModel)
+        }
+    }
+}
+#endif

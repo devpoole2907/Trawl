@@ -156,3 +156,42 @@ final class AddTorrentViewModel {
 enum AddTorrentInputMode {
     case magnet, file
 }
+
+#if DEBUG
+extension AddTorrentViewModel {
+    convenience init(
+        previewMagnetLink: String = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Ubuntu%2024.04%20LTS",
+        previewTorrentFileName: String? = nil,
+        previewTorrentFileData: Data? = nil,
+        savePath: String = "/downloads/incoming",
+        selectedCategory: String = "linux-isos",
+        startPaused: Bool = false,
+        sequentialDownload: Bool = false,
+        firstLastPiecePriority: Bool = false,
+        isSubmitting: Bool = false,
+        error: String? = nil,
+        submissionErrorAlert: ErrorAlertItem? = nil,
+        availableCategories: [String] = ["linux-isos", "movies", "tv"],
+        recentSavePaths: [RecentSavePath] = [],
+        serverDefaultSavePath: String? = "/downloads",
+        torrentService: TorrentService = .preview(),
+        syncService: SyncService = .preview()
+    ) {
+        self.init(torrentService: torrentService, syncService: syncService)
+        self.magnetLink = previewMagnetLink
+        self.torrentFileName = previewTorrentFileName
+        self.torrentFileData = previewTorrentFileData
+        self.savePath = savePath
+        self.selectedCategory = selectedCategory
+        self.startPaused = startPaused
+        self.sequentialDownload = sequentialDownload
+        self.firstLastPiecePriority = firstLastPiecePriority
+        self.isSubmitting = isSubmitting
+        self.error = error
+        self.submissionErrorAlert = submissionErrorAlert
+        self.availableCategories = availableCategories
+        self.recentSavePaths = recentSavePaths
+        self.serverDefaultSavePath = serverDefaultSavePath
+    }
+}
+#endif

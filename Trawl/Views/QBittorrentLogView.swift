@@ -31,6 +31,11 @@ struct QBittorrentLogView: View {
     @State private var filter: QBLogFilter = .all
     @State private var searchText = ""
     @State private var isSearchExpanded = false
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     private var displayed: [QBittorrentLogEntry] {
         var results = entries
@@ -94,6 +99,9 @@ struct QBittorrentLogView: View {
         }
         .errorAlert(item: $loadError)
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             await load()
         }
         .refreshable {
@@ -135,6 +143,99 @@ struct QBittorrentLogView: View {
     }
 }
 
+#if DEBUG
+extension QBittorrentLogEntry {
+    static let previewList: [QBittorrentLogEntry] = [
+        QBittorrentLogEntry(
+            id: 1,
+            message: "qBittorrent v5.0.3 started",
+            timestamp: Int(Date().addingTimeInterval(-3600).timeIntervalSince1970),
+            type: 2
+        ),
+        QBittorrentLogEntry(
+            id: 2,
+            message: "Successfully listening on IP: 0.0.0.0, port: TCP/6881",
+            timestamp: Int(Date().addingTimeInterval(-1800).timeIntervalSince1970),
+            type: 1
+        ),
+        QBittorrentLogEntry(
+            id: 3,
+            message: "Tracker warning: connection timed out for udp://offline.example.net:6969/announce",
+            timestamp: Int(Date().addingTimeInterval(-600).timeIntervalSince1970),
+            type: 4
+        ),
+        QBittorrentLogEntry(
+            id: 4,
+            message: "File error alert. Torrent: Broken. File: /downloads/Broken.mkv. Reason: permission denied",
+            timestamp: Int(Date().addingTimeInterval(-120).timeIntervalSince1970),
+            type: 8
+        )
+    ]
+}
+
+extension QBittorrentLogView {
+    fileprivate init(
+        previewEntries entries: [QBittorrentLogEntry],
+        isLoading: Bool = false,
+        loadError: ErrorAlertItem? = nil,
+        filter: QBLogFilter = .all
+    ) {
+        self.init()
+        self._entries = State(initialValue: entries)
+        self._isLoading = State(initialValue: isLoading)
+        self._loadError = State(initialValue: loadError)
+        self._filter = State(initialValue: filter)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentLogView(previewEntries: QBittorrentLogEntry.previewList)
+        }
+    }
+}
+
+#Preview("Filtered") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentLogView(previewEntries: QBittorrentLogEntry.previewList, filter: .critical)
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentLogView(previewEntries: [])
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentLogView(previewEntries: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentLogView(
+                previewEntries: [],
+                loadError: ErrorAlertItem(
+                    title: "Failed to Load Log",
+                    message: "The qBittorrent log endpoint timed out."
+                )
+            )
+        }
+    }
+}
+#endif
+
 private struct QBLogRow: View {
     let entry: QBittorrentLogEntry
 
@@ -173,4 +274,3 @@ private struct QBLogRow: View {
         }
     }
 }
-

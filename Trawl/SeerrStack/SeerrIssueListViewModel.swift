@@ -130,3 +130,26 @@ final class SeerrIssueListViewModel {
         errorMessage = nil
     }
 }
+
+#if DEBUG
+extension SeerrIssueListViewModel {
+    convenience init(
+        previewIssues: [SeerrIssue],
+        isLoading: Bool = false,
+        isLoadingMore: Bool = false,
+        errorMessage: String? = nil,
+        selectedFilter: SeerrIssueFilter = .open,
+        totalResults: Int? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.issues = previewIssues
+        self.isLoading = isLoading
+        self.isLoadingMore = isLoadingMore
+        self.errorMessage = errorMessage
+        self.selectedFilter = selectedFilter
+        self.totalResults = totalResults ?? previewIssues.count
+        self.hasLoaded = true
+    }
+}
+#endif

@@ -9,6 +9,13 @@ struct JellyfinSessionsView: View {
     @State private var viewModel: JellyfinSessionsViewModel?
     @State private var messageSession: JellyfinSession?
     @State private var playbackStopSession: JellyfinSession?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         Group {
@@ -23,6 +30,9 @@ struct JellyfinSessionsView: View {
         .navigationTitle("Sessions")
         .navigationSubtitle("Jellyfin")
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             let vm = JellyfinSessionsViewModel(apiClient: apiClient)
             viewModel = vm
             await vm.startPolling()
@@ -367,3 +377,83 @@ private struct JellyfinSendMessageSheet: View {
         isSending = false
     }
 }
+
+#if DEBUG
+extension JellyfinSessionsView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewViewModel: JellyfinSessionsViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+        self.isPreview = true
+    }
+}
+
+extension JellyfinSessionsViewModel {
+    convenience init(
+        previewSessions: [JellyfinSession],
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: JellyfinAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.sessions = previewSessions
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+    }
+}
+
+#Preview("Jellyfin Sessions - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinSessionsView(
+                previewViewModel: JellyfinSessionsViewModel(previewSessions: JellyfinSession.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Sessions - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinSessionsView(
+                previewViewModel: JellyfinSessionsViewModel(previewSessions: [])
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Sessions - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinSessionsView(
+                previewViewModel: JellyfinSessionsViewModel(previewSessions: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Sessions - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load sessions."))) {
+        NavigationStack {
+            JellyfinSessionsView(
+                previewViewModel: JellyfinSessionsViewModel(
+                    previewSessions: [],
+                    errorMessage: "Jellyfin refused the session request."
+                )
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Send Message") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        JellyfinSendMessageSheet(
+            sessionId: JellyfinSession.previewActive.id,
+            sessionName: JellyfinSession.previewActive.userName ?? "Preview Session",
+            apiClient: .preview()
+        )
+    }
+}
+#endif

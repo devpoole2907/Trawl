@@ -8,6 +8,9 @@ struct OnboardingSheet: View {
     @State private var saveTask: Task<Void, Never>?
     let serverProfile: ServerProfile?
     let onComplete: () -> Void
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
 
     init(serverProfile: ServerProfile? = nil, onComplete: @escaping () -> Void) {
         self.serverProfile = serverProfile
@@ -39,6 +42,9 @@ struct OnboardingSheet: View {
             .frame(minWidth: 560, idealWidth: 620, minHeight: 480)
             #endif
             .task {
+                #if DEBUG
+                guard !skipsAutomaticLoading else { return }
+                #endif
                 guard let serverProfile else { return }
                 await viewModel.loadExistingServer(serverProfile)
             }
@@ -97,3 +103,69 @@ struct OnboardingSheet: View {
         #endif
     }
 }
+
+#if DEBUG
+extension OnboardingSheet {
+    init(
+        previewViewModel: OnboardingViewModel,
+        serverProfile: ServerProfile? = nil
+    ) {
+        self.init(serverProfile: serverProfile, onComplete: {})
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Initial") {
+    PreviewHost(profiles: .empty) {
+        OnboardingSheet(previewViewModel: OnboardingViewModel())
+    }
+}
+
+#Preview("Mid Input") {
+    PreviewHost(profiles: .empty) {
+        OnboardingSheet(previewViewModel: OnboardingViewModel(
+            previewHostURL: "http://192.168.1.50:8080",
+            previewUsername: "admin",
+            previewPassword: "password",
+            previewDisplayName: "Home qBittorrent"
+        ))
+    }
+}
+
+#Preview("Authenticating") {
+    PreviewHost(profiles: .empty) {
+        OnboardingSheet(previewViewModel: OnboardingViewModel(
+            previewHostURL: "http://192.168.1.50:8080",
+            previewUsername: "admin",
+            previewPassword: "password",
+            isValidating: true
+        ))
+    }
+}
+
+#Preview("Connection Error") {
+    PreviewHost(profiles: .empty) {
+        OnboardingSheet(previewViewModel: OnboardingViewModel(
+            previewHostURL: "http://nope.invalid:8080",
+            previewUsername: "admin",
+            previewPassword: "password",
+            validationError: "Connection failed: The server could not be reached.",
+            hasAttemptedSubmit: true
+        ))
+    }
+}
+
+#Preview("Edit Server") {
+    let server = ServerProfile.preview(displayName: "Seedbox", hostURL: "https://seedbox.example.com")
+    PreviewHost(profiles: .qBittorrentOnly) {
+        OnboardingSheet(previewViewModel: OnboardingViewModel(
+            previewHostURL: server.hostURL,
+            previewUsername: "admin",
+            previewPassword: "password",
+            previewDisplayName: server.displayName,
+            allowsUntrustedTLS: false
+        ), serverProfile: server)
+    }
+}
+#endif

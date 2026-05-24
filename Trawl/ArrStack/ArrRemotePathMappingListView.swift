@@ -12,6 +12,16 @@ struct ArrRemotePathMappingListView: View {
     @State private var mappingPendingDelete: RemotePathMappingEntry?
     @State private var showAddSheet = false
 
+    init() {}
+
+    #if DEBUG
+    fileprivate init(previewMappings: [RemotePathMappingEntry] = [], isLoading: Bool = false, loadError: String? = nil) {
+        _mappings = State(initialValue: previewMappings)
+        _isLoading = State(initialValue: isLoading)
+        _loadError = State(initialValue: loadError)
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         [
             serviceManager.sonarrClient == nil ? nil : ArrServiceType.sonarr,
@@ -127,7 +137,12 @@ struct ArrRemotePathMappingListView: View {
             .environment(serviceManager)
         }
         .refreshable { await loadMappings() }
-        .task { await loadMappings() }
+        .task {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
+            await loadMappings()
+        }
         .confirmationDialog(
             "Delete Mapping?",
             isPresented: Binding(
@@ -309,6 +324,27 @@ struct ArrRemotePathMappingEditorSheet: View {
         self.existingMapping = existingMapping
         self.onComplete = onComplete
     }
+
+    #if DEBUG
+    init(
+        previewAvailableServices: [ArrServiceType],
+        previewService: ArrServiceType = .sonarr,
+        previewMapping: ArrRemotePathMapping? = nil,
+        errorMessage: String? = nil
+    ) {
+        self.availableServices = previewAvailableServices
+        self.initialServiceType = previewService
+        self.existingMapping = previewMapping
+        self.onComplete = { _, _ in }
+        _selectedService = State(initialValue: previewService)
+        _host = State(initialValue: previewMapping?.host ?? "*")
+        _remotePath = State(initialValue: previewMapping?.remotePath ?? "/downloads/complete")
+        _localPath = State(initialValue: previewMapping?.localPath ?? "/media/downloads/complete")
+        _selectedHostID = State(initialValue: previewMapping == nil ? Self.wildcardID : Self.customID)
+        _errorMessage = State(initialValue: errorMessage)
+        _hasLoadedInitialState = State(initialValue: true)
+    }
+    #endif
 
     private var isEditing: Bool { existingMapping != nil }
 
@@ -538,3 +574,43 @@ struct ArrRemotePathMappingEditorSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Remote Path Mappings - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrRemotePathMappingListView(previewMappings: [
+                RemotePathMappingEntry(serviceType: .sonarr, mapping: ArrRemotePathMapping.preview),
+                RemotePathMappingEntry(serviceType: .radarr, mapping: ArrRemotePathMapping.previewList[1]),
+                RemotePathMappingEntry(serviceType: .bazarr, mapping: ArrRemotePathMapping.previewList[2]),
+            ])
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Remote Path Mappings - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrRemotePathMappingListView()
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Remote Path Mapping Editor - Add") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        ArrRemotePathMappingEditorSheet(previewAvailableServices: [.sonarr, .radarr], previewService: .sonarr)
+    }
+}
+
+#Preview("Remote Path Mapping Editor - Edit") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        ArrRemotePathMappingEditorSheet(
+            previewAvailableServices: [.sonarr],
+            previewService: .sonarr,
+            previewMapping: .preview
+        )
+    }
+}
+#endif

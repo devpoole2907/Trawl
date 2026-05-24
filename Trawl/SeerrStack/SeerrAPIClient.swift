@@ -384,3 +384,11 @@ actor SeerrAPIClient {
         return params.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
 }
+
+#if DEBUG
+extension SeerrAPIClient {
+    static func preview() -> SeerrAPIClient {
+        SeerrAPIClient(baseURL: "http://preview.invalid", allowsUntrustedTLS: false)
+    }
+}
+#endif

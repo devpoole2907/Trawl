@@ -533,3 +533,101 @@ private struct SeerrRequestRow: View {
     }
 
 }
+
+#if DEBUG
+extension SeerrDashboardView {
+    fileprivate init(previewViewModel: SeerrRequestManagementViewModel) {
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+extension SeerrRequestManagementViewModel {
+    fileprivate convenience init(
+        previewRequests: [SeerrMediaRequest],
+        requestCount: SeerrRequestCount? = .preview,
+        isLoading: Bool = false,
+        isLoadingMore: Bool = false,
+        errorMessage: String? = nil,
+        selectedFilter: SeerrRequestFilter = .pending,
+        totalResults: Int? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.requests = previewRequests.map(SeerrRequestDisplayItem.init(from:))
+        self.requestCount = requestCount
+        self.isLoading = isLoading
+        self.isLoadingMore = isLoadingMore
+        self.errorMessage = errorMessage
+        self.selectedFilter = selectedFilter
+        self.totalResults = totalResults ?? previewRequests.count
+        self.hasLoaded = true
+    }
+}
+
+#Preview("Seerr Requests - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrDashboardView(
+                previewViewModel: SeerrRequestManagementViewModel(
+                    previewRequests: SeerrMediaRequest.previewList
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Requests - Loaded Heavy") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrDashboardView(
+                previewViewModel: SeerrRequestManagementViewModel(
+                    previewRequests: SeerrMediaRequest.previewHeavyList,
+                    requestCount: .preview,
+                    selectedFilter: .all
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Requests - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrDashboardView(
+                previewViewModel: SeerrRequestManagementViewModel(
+                    previewRequests: [],
+                    requestCount: .previewEmpty
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Requests - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrDashboardView(
+                previewViewModel: SeerrRequestManagementViewModel(
+                    previewRequests: [],
+                    requestCount: nil,
+                    isLoading: true
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Requests - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to reach Seerr."))) {
+        NavigationStack {
+            SeerrDashboardView(
+                previewViewModel: SeerrRequestManagementViewModel(
+                    previewRequests: [],
+                    requestCount: nil,
+                    errorMessage: "Seerr returned 502 Bad Gateway."
+                )
+            )
+        }
+    }
+}
+#endif

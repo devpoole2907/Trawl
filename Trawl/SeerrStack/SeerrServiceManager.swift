@@ -89,3 +89,29 @@ final class SeerrServiceManager {
         }
     }
 }
+
+#if DEBUG
+extension SeerrServiceManager {
+    enum PreviewState {
+        case connected, connecting, error(String), notConfigured
+    }
+
+    static func preview(_ state: PreviewState = .connected) -> SeerrServiceManager {
+        let mgr = SeerrServiceManager()
+        switch state {
+        case .connected:
+            mgr.activeClient = .preview()
+            mgr.activeProfileID = UUID()
+            mgr.isConnected = true
+            mgr.cachedUserCount = 8
+        case .connecting:
+            mgr.isConnecting = true
+        case .error(let msg):
+            mgr.connectionError = msg
+        case .notConfigured:
+            break
+        }
+        return mgr
+    }
+}
+#endif

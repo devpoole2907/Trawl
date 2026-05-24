@@ -11,6 +11,13 @@ struct BazarrSeriesDetailView: View {
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
+    private let loadsOnAppear: Bool
+
+    init(seriesId: Int, viewModel: BazarrViewModel) {
+        self.seriesId = seriesId
+        _viewModel = State(wrappedValue: viewModel)
+        loadsOnAppear = true
+    }
 
     private var episodesBySeason: [(Int, [BazarrEpisode])] {
         Dictionary(grouping: episodes, by: \.season)
@@ -54,7 +61,10 @@ struct BazarrSeriesDetailView: View {
                 }
             }
         }
-        .task(id: serviceManager.activeBazarrProfileID) { await load() }
+        .task(id: serviceManager.activeBazarrProfileID) {
+            guard loadsOnAppear else { return }
+            await load()
+        }
         .refreshable { await load() }
     }
 
@@ -242,6 +252,99 @@ struct BazarrSeriesDetailView: View {
         }
     }
 }
+
+#if DEBUG
+extension BazarrSeriesDetailView {
+    init(
+        previewSeries: BazarrSeries? = BazarrSeries.preview,
+        previewEpisodes: [BazarrEpisode] = BazarrEpisode.previewList,
+        isLoading: Bool = false,
+        error: String? = nil,
+        viewModel: BazarrViewModel? = nil
+    ) {
+        let resolvedSeriesId = previewSeries?.sonarrSeriesId ?? BazarrSeries.preview.sonarrSeriesId
+        self.seriesId = resolvedSeriesId
+        _viewModel = State(wrappedValue: viewModel ?? BazarrViewModel(
+            previewSeries: previewSeries.map { [$0] } ?? [],
+            previewMovies: BazarrMovie.previewList,
+            previewEpisodes: [resolvedSeriesId: previewEpisodes]
+        ))
+        _series = State(wrappedValue: previewSeries)
+        _episodes = State(wrappedValue: previewEpisodes)
+        _isLoading = State(wrappedValue: isLoading)
+        _error = State(wrappedValue: error)
+        loadsOnAppear = false
+    }
+}
+
+#Preview("Typical") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: .preview,
+                previewEpisodes: BazarrEpisode.previewList
+            )
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: .previewMissingArt,
+                previewEpisodes: [.previewMissing, .previewNoSubtitles]
+            )
+        }
+    }
+}
+
+#Preview("Long Title") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: .previewLongTitle,
+                previewEpisodes: BazarrEpisode.previewList
+            )
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: .preview,
+                previewEpisodes: [],
+                isLoading: true
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: .preview,
+                previewEpisodes: [],
+                error: "Bazarr could not load episodes for this series."
+            )
+        }
+    }
+}
+
+#Preview("Not Found") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesDetailView(
+                previewSeries: nil,
+                previewEpisodes: []
+            )
+        }
+    }
+}
+#endif
 
 // MARK: - Season View
 
@@ -906,3 +1009,82 @@ struct BazarrInteractiveSearchSheet: View {
         downloadingId = nil
     }
 }
+
+#if DEBUG
+extension BazarrInteractiveSearchSheet {
+    init(
+        previewEpisode: BazarrEpisode = .previewMissing,
+        previewResults: [BazarrInteractiveSearchResult] = BazarrInteractiveSearchResult.previewList,
+        isLoading: Bool = false,
+        error: String? = nil
+    ) {
+        let viewModel = BazarrViewModel(
+            previewSeries: [.preview],
+            previewMovies: BazarrMovie.previewList,
+            previewEpisodes: [previewEpisode.sonarrSeriesId: [previewEpisode]]
+        )
+        self.init(
+            seriesId: previewEpisode.sonarrSeriesId,
+            episode: previewEpisode,
+            client: nil,
+            viewModel: viewModel,
+            onDownloaded: { await Task.yield() }
+        )
+        _selectedLanguage = State(wrappedValue: previewEpisode.missingSubtitles.first)
+        _results = State(wrappedValue: previewResults)
+        _isLoading = State(wrappedValue: isLoading)
+        _error = State(wrappedValue: error)
+    }
+}
+
+#Preview("Season Missing Subtitles") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeasonView(
+                seriesId: BazarrSeries.preview.sonarrSeriesId,
+                season: 1,
+                episodes: BazarrEpisode.previewList.filter { $0.season == 1 },
+                viewModel: BazarrViewModel(),
+                onRefresh: { await Task.yield() }
+            )
+        }
+    }
+}
+
+#Preview("Episode Missing Subtitles") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrEpisodeDetailView(
+                seriesId: BazarrSeries.preview.sonarrSeriesId,
+                episode: .previewMissing,
+                viewModel: BazarrViewModel(),
+                onRefresh: { await Task.yield() }
+            )
+        }
+    }
+}
+
+#Preview("Interactive Search Results") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrInteractiveSearchSheet()
+    }
+}
+
+#Preview("Interactive Search Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrInteractiveSearchSheet(
+            previewResults: [],
+            isLoading: true
+        )
+    }
+}
+
+#Preview("Interactive Search Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrInteractiveSearchSheet(
+            previewResults: [],
+            error: "OpenSubtitles rejected the search request."
+        )
+    }
+}
+#endif

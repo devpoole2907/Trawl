@@ -7,6 +7,10 @@ struct SeerrLinkedApplicationsView: View {
     @State private var editorContext: SeerrLinkedAppEditorContext?
     @State private var pendingDelete: SeerrLinkedAppEntry?
 
+    init(apiClient: SeerrAPIClient) {
+        self.apiClient = apiClient
+    }
+
     var body: some View {
         Group {
             if let viewModel {
@@ -283,3 +287,132 @@ private struct SeerrLinkedAppRow: View {
         .padding(.vertical, 4)
     }
 }
+
+#if DEBUG
+extension SeerrLinkedApplicationsView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewViewModel: SeerrLinkedApplicationsViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+extension SeerrLinkedApplicationsViewModel {
+    convenience init(
+        previewEntries: [SeerrLinkedAppEntry],
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.entries = previewEntries
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+        self.hasLoaded = true
+    }
+}
+
+extension SeerrLinkedAppEntry {
+    static let previewSonarr = SeerrLinkedAppEntry(
+        kind: .sonarr,
+        settings: .preview(id: 1, name: "Main Sonarr", port: 8989, activeProfileName: "HD-1080p")
+    )
+    static let previewRadarr = SeerrLinkedAppEntry(
+        kind: .radarr,
+        settings: .preview(id: 2, name: "Main Radarr", port: 7878, activeProfileName: "HD-1080p", isDefault: true)
+    )
+    static let preview4K = SeerrLinkedAppEntry(
+        kind: .radarr,
+        settings: .preview(id: 3, name: "Radarr 4K", port: 7879, activeProfileName: "Ultra-HD", is4k: true)
+    )
+    static let previewList: [SeerrLinkedAppEntry] = [previewSonarr, previewRadarr, preview4K]
+}
+
+extension SeerrDVRSettings {
+    static func preview(
+        id: Int,
+        name: String,
+        hostname: String = "192.168.1.50",
+        port: Int,
+        activeProfileName: String? = nil,
+        is4k: Bool = false,
+        isDefault: Bool = false
+    ) -> SeerrDVRSettings {
+        SeerrDVRSettings(
+            id: id,
+            name: name,
+            hostname: hostname,
+            port: port,
+            apiKey: "preview-key",
+            useSsl: false,
+            baseUrl: nil,
+            activeProfileId: 1,
+            activeProfileName: activeProfileName,
+            activeDirectory: "/media",
+            is4k: is4k,
+            isDefault: isDefault,
+            externalUrl: nil,
+            syncEnabled: true,
+            preventSearch: false,
+            tagRequests: true,
+            tags: [1, 2],
+            minimumAvailability: "released",
+            activeAnimeProfileId: nil,
+            activeAnimeDirectory: nil,
+            activeLanguageProfileId: nil,
+            activeAnimeLanguageProfileId: nil,
+            enableSeasonFolders: true
+        )
+    }
+}
+
+#Preview("Seerr Linked Apps - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrLinkedApplicationsView(
+                previewViewModel: SeerrLinkedApplicationsViewModel(
+                    previewEntries: SeerrLinkedAppEntry.previewList
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Linked Apps - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrLinkedApplicationsView(
+                previewViewModel: SeerrLinkedApplicationsViewModel(previewEntries: [])
+            )
+        }
+    }
+}
+
+#Preview("Seerr Linked Apps - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrLinkedApplicationsView(
+                previewViewModel: SeerrLinkedApplicationsViewModel(
+                    previewEntries: [],
+                    isLoading: true
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Linked Apps - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load linked apps."))) {
+        NavigationStack {
+            SeerrLinkedApplicationsView(
+                previewViewModel: SeerrLinkedApplicationsViewModel(
+                    previewEntries: [],
+                    errorMessage: "The Seerr settings endpoint returned 401."
+                )
+            )
+        }
+    }
+}
+#endif

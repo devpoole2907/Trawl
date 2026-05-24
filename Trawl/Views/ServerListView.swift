@@ -174,3 +174,30 @@ struct ServerListView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    PreviewHost(profiles: .custom { context in
+        let active = ServerProfile.preview(displayName: "Home qBittorrent", hostURL: "http://192.168.1.50:8080")
+        active.lastConnected = Date().addingTimeInterval(-900)
+        context.insert(active)
+
+        let seedbox = ServerProfile.preview(displayName: "Seedbox", hostURL: "https://seedbox.example.com")
+        seedbox.isActive = false
+        seedbox.lastConnected = Date().addingTimeInterval(-86_400)
+        context.insert(seedbox)
+    }) {
+        NavigationStack {
+            ServerListView()
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            ServerListView()
+        }
+    }
+}
+#endif

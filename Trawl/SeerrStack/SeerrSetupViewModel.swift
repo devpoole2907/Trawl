@@ -133,3 +133,22 @@ final class SeerrSetupViewModel {
         }
     }
 }
+
+#if DEBUG
+extension SeerrSetupViewModel {
+    convenience init(
+        previewHostURL: String = "",
+        previewUsername: String = "",
+        previewPassword: String = "",
+        previewIsAuthenticating: Bool = false,
+        previewError: String? = nil
+    ) {
+        self.init()
+        hostURL = previewHostURL
+        username = previewUsername
+        password = previewPassword
+        isAuthenticating = previewIsAuthenticating
+        error = previewError
+    }
+}
+#endif

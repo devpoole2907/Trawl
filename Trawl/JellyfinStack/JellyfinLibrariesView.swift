@@ -11,6 +11,13 @@ struct JellyfinLibrariesView: View {
     @State private var showingAddLibrary = false
     @State private var pendingLibraryRemoval: JellyfinVirtualFolder?
     @State private var scanningLibraryID: String?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     private var browserSource: RemotePathBrowserSource {
         RemotePathBrowserSource(
@@ -96,7 +103,12 @@ struct JellyfinLibrariesView: View {
         .navigationTitle("Libraries")
         .navigationSubtitle("Jellyfin")
         .refreshable { await loadLibraries() }
-        .task { await loadLibraries() }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            await loadLibraries()
+        }
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
@@ -770,6 +782,116 @@ private enum JellyfinLibraryContentType: String, CaseIterable, Identifiable {
         }
     }
 }
+
+#if DEBUG
+extension JellyfinLibrariesView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewFolders: [JellyfinVirtualFolder],
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        scanningLibraryID: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._folders = State(initialValue: previewFolders)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self._scanningLibraryID = State(initialValue: scanningLibraryID)
+        self.isPreview = true
+    }
+}
+
+private let jellyfinPreviewBrowserSource = RemotePathBrowserSource(
+    serviceName: "Jellyfin",
+    loadRoots: {
+        [
+            RemotePathEntry(name: "media", path: "/media", kind: .directory, isDirectory: true),
+            RemotePathEntry(name: "mnt", path: "/mnt", kind: .directory, isDirectory: true),
+        ]
+    },
+    loadChildren: { path in
+        [
+            RemotePathEntry(name: "movies", path: "\(path)/movies", kind: .directory, isDirectory: true),
+            RemotePathEntry(name: "tv", path: "\(path)/tv", kind: .directory, isDirectory: true),
+        ]
+    }
+)
+
+private struct JellyfinLibraryDetailPreviewWrapper: View {
+    @State private var scanningLibraryID: String?
+
+    var body: some View {
+        JellyfinLibraryDetailView(
+            folder: .preview,
+            apiClient: .preview(),
+            browserSource: jellyfinPreviewBrowserSource,
+            scanningLibraryID: $scanningLibraryID,
+            onChanged: {}
+        )
+    }
+}
+
+#Preview("Jellyfin Libraries - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinLibrariesView(previewFolders: JellyfinVirtualFolder.previewList)
+        }
+    }
+}
+
+#Preview("Jellyfin Libraries - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinLibrariesView(previewFolders: [])
+        }
+    }
+}
+
+#Preview("Jellyfin Libraries - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinLibrariesView(previewFolders: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Jellyfin Libraries - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load libraries."))) {
+        NavigationStack {
+            JellyfinLibrariesView(
+                previewFolders: [],
+                errorMessage: "The Jellyfin server did not return any library data."
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Library Detail") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinLibraryDetailPreviewWrapper()
+        }
+    }
+}
+
+#Preview("Jellyfin Add Library") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        JellyfinAddLibrarySheet(source: jellyfinPreviewBrowserSource) { _, _, _ in true }
+    }
+}
+
+#Preview("Jellyfin Add Path") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        JellyfinAddPathSheet(folder: .preview, source: jellyfinPreviewBrowserSource) { _ in true }
+    }
+}
+
+#Preview("Jellyfin Rename Library") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        JellyfinRenameLibrarySheet(folder: .preview) { _ in true }
+    }
+}
+#endif
 
 private extension JellyfinVirtualFolder {
     var collectionTypeDisplayName: String {

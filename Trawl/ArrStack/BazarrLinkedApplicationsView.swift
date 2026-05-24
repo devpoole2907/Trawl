@@ -8,6 +8,11 @@ struct BazarrLinkedApplicationsListView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var editorContext: BazarrLinkedApplicationType?
+    private let loadsOnAppear: Bool
+
+    init() {
+        loadsOnAppear = true
+    }
 
     private var client: BazarrAPIClient? {
         serviceManager.activeBazarrEntry?.client
@@ -83,6 +88,7 @@ struct BazarrLinkedApplicationsListView: View {
         #endif
         .refreshable { await load() }
         .task(id: serviceManager.activeBazarrProfileID) {
+            guard loadsOnAppear else { return }
             await load()
         }
         .sheet(item: $editorContext) { appType in
@@ -134,6 +140,142 @@ struct BazarrLinkedApplicationsListView: View {
         }
     }
 }
+
+#if DEBUG
+extension BazarrLinkedApplicationsListView {
+    init(
+        previewSettings: [String: JSONValue],
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        loadsOnAppear = false
+        _settings = State(wrappedValue: previewSettings)
+        _isLoading = State(wrappedValue: isLoading)
+        _errorMessage = State(wrappedValue: errorMessage)
+    }
+}
+
+private enum BazarrLinkedApplicationsPreviewData {
+    static let linkedSettings: [String: JSONValue] = [
+        "general": .object([
+            "use_sonarr": .bool(true),
+            "use_radarr": .bool(true),
+            "minimum_score": .string("90"),
+            "minimum_score_movie": .string("70"),
+        ]),
+        "sonarr": .object([
+            "ip": .string("192.168.1.51"),
+            "port": .string("8989"),
+            "base_url": .string("/"),
+            "apikey": .string("preview-sonarr-key"),
+            "ssl": .bool(false),
+            "series_sync_on_live": .bool(true),
+            "only_monitored": .bool(true),
+            "defer_search_signalr": .bool(false),
+            "excluded_tags": .array([.string("anime")]),
+            "excluded_series_types": .array([.string("daily")]),
+            "exclude_season_zero": .bool(false),
+            "http_timeout": .string("60"),
+        ]),
+        "radarr": .object([
+            "ip": .string("192.168.1.52"),
+            "port": .string("7878"),
+            "base_url": .string("/radarr"),
+            "apikey": .string("preview-radarr-key"),
+            "ssl": .bool(false),
+            "movies_sync_on_live": .bool(true),
+            "only_monitored": .bool(false),
+            "defer_search_signalr": .bool(false),
+            "excluded_tags": .array([]),
+            "http_timeout": .string("60"),
+        ]),
+    ]
+
+    static let sonarrOnlySettings: [String: JSONValue] = [
+        "general": .object([
+            "use_sonarr": .bool(true),
+            "use_radarr": .bool(false),
+            "minimum_score": .string("90"),
+            "minimum_score_movie": .string("70"),
+        ]),
+        "sonarr": .object([
+            "ip": .string("192.168.1.51"),
+            "port": .string("8989"),
+            "base_url": .string("/"),
+            "apikey": .string("preview-sonarr-key"),
+            "ssl": .bool(false),
+            "series_sync_on_live": .bool(true),
+            "only_monitored": .bool(true),
+            "defer_search_signalr": .bool(false),
+            "http_timeout": .string("60"),
+        ]),
+    ]
+
+    static let emptySettings: [String: JSONValue] = [
+        "general": .object([
+            "use_sonarr": .bool(false),
+            "use_radarr": .bool(false),
+        ]),
+    ]
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(previewSettings: BazarrLinkedApplicationsPreviewData.linkedSettings)
+        }
+    }
+}
+
+#Preview("Partial") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(previewSettings: BazarrLinkedApplicationsPreviewData.sonarrOnlySettings)
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(previewSettings: BazarrLinkedApplicationsPreviewData.emptySettings)
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(
+                previewSettings: [:],
+                isLoading: true
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(
+                previewSettings: [:],
+                errorMessage: "Bazarr could not load linked application settings."
+            )
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLinkedApplicationsListView(
+                previewSettings: [:],
+                errorMessage: "Unable to reach 192.168.1.50:6767."
+            )
+        }
+    }
+}
+#endif
 
 private struct BazarrLinkedApplicationRow: View {
     let appType: BazarrLinkedApplicationType
@@ -642,6 +784,28 @@ private struct ParsedServerURL {
         baseURL = components.path.isEmpty ? "/" : components.path
     }
 }
+
+#if DEBUG
+#Preview("Editor Sonarr") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrLinkedApplicationEditorSheet(
+            appType: .sonarr,
+            settings: BazarrLinkedApplicationsPreviewData.linkedSettings,
+            onSave: { _ in await Task.yield(); return true }
+        )
+    }
+}
+
+#Preview("Editor Radarr") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        BazarrLinkedApplicationEditorSheet(
+            appType: .radarr,
+            settings: BazarrLinkedApplicationsPreviewData.linkedSettings,
+            onSave: { _ in await Task.yield(); return true }
+        )
+    }
+}
+#endif
 
 extension Dictionary where Key == String, Value == JSONValue {
     func bazarrLinkedAppIsEnabled(_ appType: BazarrLinkedApplicationType) -> Bool {

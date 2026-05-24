@@ -1275,3 +1275,81 @@ final class ArrServiceManager {
         return components.url?.absoluteString ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#if DEBUG
+extension ArrServiceManager {
+    enum PreviewState {
+        case allConfigured
+        case sonarrOnly
+        case radarrOnly
+        case noneConfigured
+        case sonarrConnecting
+        case sonarrConnectionError(String)
+    }
+
+    static func preview(_ state: PreviewState = .allConfigured) -> ArrServiceManager {
+        let manager = ArrServiceManager()
+        switch state {
+        case .allConfigured:
+            manager.installPreviewSonarr(connected: true)
+            manager.installPreviewRadarr(connected: true)
+            manager.installPreviewProwlarr(connected: true)
+            manager.installPreviewBazarr(connected: true)
+        case .sonarrOnly:
+            manager.installPreviewSonarr(connected: true)
+        case .radarrOnly:
+            manager.installPreviewRadarr(connected: true)
+        case .noneConfigured:
+            break
+        case .sonarrConnecting:
+            manager.installPreviewSonarr(connected: false, isConnecting: true)
+        case .sonarrConnectionError(let msg):
+            manager.installPreviewSonarr(connected: false, error: msg)
+        }
+        return manager
+    }
+
+    fileprivate func installPreviewSonarr(connected: Bool, isConnecting: Bool = false, error: String? = nil) {
+        let id = UUID()
+        var entry = SonarrClientEntry(id: id, displayName: "Sonarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        entry.isConnecting = isConnecting
+        entry.connectionError = error
+        entry.qualityProfiles = ArrQualityProfile.previewList
+        entry.rootFolders = ArrRootFolder.previewList
+        entry.tags = ArrTag.previewList
+        sonarrInstances = [entry]
+        activeSonarrProfileID = id
+    }
+
+    fileprivate func installPreviewRadarr(connected: Bool, isConnecting: Bool = false, error: String? = nil) {
+        let id = UUID()
+        var entry = RadarrClientEntry(id: id, displayName: "Radarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        entry.isConnecting = isConnecting
+        entry.connectionError = error
+        entry.qualityProfiles = ArrQualityProfile.previewList
+        entry.rootFolders = ArrRootFolder.previewList
+        entry.tags = ArrTag.previewList
+        radarrInstances = [entry]
+        activeRadarrProfileID = id
+    }
+
+    fileprivate func installPreviewProwlarr(connected: Bool) {
+        prowlarrClient = connected ? .preview() : nil
+        prowlarrConnected = connected
+        activeProwlarrProfileID = UUID()
+    }
+
+    fileprivate func installPreviewBazarr(connected: Bool) {
+        let id = UUID()
+        var entry = BazarrClientEntry(id: id, displayName: "Bazarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        bazarrInstances = [entry]
+        activeBazarrProfileID = id
+    }
+}
+#endif

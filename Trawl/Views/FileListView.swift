@@ -178,3 +178,32 @@ private struct FileRow: View {
         .padding(.vertical, 4)
     }
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    let vm = TorrentDetailViewModel(files: TorrentFile.previewList)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            FileListView(viewModel: vm)
+        }
+    }
+}
+
+#Preview("Empty") {
+    let vm = TorrentDetailViewModel(files: [])
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            FileListView(viewModel: vm)
+        }
+    }
+}
+
+#Preview("Loading") {
+    let vm = TorrentDetailViewModel(files: [], isLoading: true)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            FileListView(viewModel: vm)
+        }
+    }
+}
+#endif

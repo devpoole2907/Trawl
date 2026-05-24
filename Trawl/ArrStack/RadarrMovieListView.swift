@@ -1,6 +1,13 @@
 import SwiftUI
 import SwiftData
 
+#if DEBUG
+private enum RadarrMovieListPreviewPresentation {
+    case error(String)
+    case connectionIssue(String)
+}
+#endif
+
 struct RadarrMovieListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
@@ -8,36 +15,43 @@ struct RadarrMovieListView: View {
 
     @State private var viewModel: RadarrViewModel?
     @State private var viewModelInstanceID: UUID?
+    #if DEBUG
+    private var previewPresentation: RadarrMovieListPreviewPresentation?
+
+    init() {
+        previewPresentation = nil
+    }
+
+    init(previewViewModel: RadarrViewModel) {
+        _viewModel = State(initialValue: previewViewModel)
+        _viewModelInstanceID = State(initialValue: previewViewModel.serviceManager.activeRadarrInstanceID)
+        previewPresentation = nil
+    }
+
+    fileprivate init(previewPresentation: RadarrMovieListPreviewPresentation) {
+        _viewModel = State(initialValue: nil)
+        _viewModelInstanceID = State(initialValue: nil)
+        self.previewPresentation = previewPresentation
+    }
+    #endif
 
     var body: some View {
         Group {
-            if let vm = viewModel {
-                ArrMediaListView(
-                    viewModel: vm,
-                    serviceType: .radarr,
-                    nounSingular: "Movie",
-                    nounPlural: "Movies",
-                    emptyIcon: "film",
-                    row: { movie, _ in
-                        RadarrMovieRow(
-                            movie: movie,
-                            hasIssue: vm.queue.contains {
-                                $0.movieId == movie.id && $0.isImportIssueQueueItem
-                            },
-                            bazarrStatus: serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
-                        )
-                    },
-                    detailDestination: { movieId in
-                        AnyView(RadarrMovieDetailView(movieId: movieId, viewModel: vm))
-                    }
-                )
+            #if DEBUG
+            if let previewPresentation {
+                previewContent(previewPresentation)
             } else {
-                radarrUnavailableContent
-                    .navigationTitle("Movies")
+                mainContent
             }
+            #else
+            mainContent
+            #endif
         }
         .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
+            #if DEBUG
+            guard previewPresentation == nil else { return }
+            #endif
             let activeID = serviceManager.activeRadarrInstanceID
             guard serviceManager.radarrConnected else {
                 viewModel = nil
@@ -50,6 +64,65 @@ struct RadarrMovieListView: View {
             }
         }
     }
+
+    @ViewBuilder
+    private var mainContent: some View {
+        if let vm = viewModel {
+            ArrMediaListView(
+                viewModel: vm,
+                serviceType: .radarr,
+                nounSingular: "Movie",
+                nounPlural: "Movies",
+                emptyIcon: "film",
+                row: { movie, _ in
+                    RadarrMovieRow(
+                        movie: movie,
+                        hasIssue: vm.queue.contains {
+                            $0.movieId == movie.id && $0.isImportIssueQueueItem
+                        },
+                        bazarrStatus: serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
+                    )
+                },
+                detailDestination: { movieId in
+                    AnyView(RadarrMovieDetailView(movieId: movieId, viewModel: vm))
+                }
+            )
+        } else {
+            radarrUnavailableContent
+                .navigationTitle("Movies")
+        }
+    }
+
+    #if DEBUG
+    @ViewBuilder
+    private func previewContent(_ presentation: RadarrMovieListPreviewPresentation) -> some View {
+        switch presentation {
+        case .error(let message):
+            ArrLibraryListView(
+                items: [RadarrMovie](),
+                isLoading: false,
+                error: message,
+                nounSingular: "Movie",
+                nounPlural: "Movies",
+                emptyIcon: "film",
+                titleKeyPath: \.title,
+                selectedIDs: [],
+                row: { movie, _ in
+                    RadarrMovieRow(movie: movie, hasIssue: false)
+                },
+                retry: nil
+            )
+            .navigationTitle("Movies")
+        case .connectionIssue(let message):
+            ArrServiceConnectionStatusView(
+                serviceType: .radarr,
+                title: "Radarr Unreachable",
+                message: message
+            )
+            .navigationTitle("Movies")
+        }
+    }
+    #endif
 
     private var backgroundGradient: some View {
         ZStack {
@@ -100,6 +173,60 @@ struct RadarrMovieListView: View {
         "\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none"):\(serviceManager.radarrConnected)"
     }
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    let vm = RadarrViewModel(previewState: .loaded)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieListView(previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Loaded Heavy") {
+    let vm = RadarrViewModel(previewState: .heavy)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieListView(previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Empty") {
+    let vm = RadarrViewModel(previewState: .empty)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieListView(previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Loading") {
+    let vm = RadarrViewModel(previewState: .loading)
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieListView(previewViewModel: vm)
+        }
+    }
+}
+
+#Preview("Error") {
+    RadarrPreviewHost {
+        NavigationStack {
+            RadarrMovieListView(previewPresentation: .error("Radarr returned a 500 while loading the movie library."))
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    RadarrPreviewHost {
+        NavigationStack {
+            RadarrMovieListView(previewPresentation: .connectionIssue("Connection refused at http://192.168.1.50:7878. Check the host URL and API key."))
+        }
+    }
+}
+#endif
 
 // MARK: - Movie Row
 

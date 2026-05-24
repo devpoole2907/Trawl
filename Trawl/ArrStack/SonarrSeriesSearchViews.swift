@@ -1,4 +1,85 @@
+import Foundation
 import SwiftUI
+
+#if DEBUG
+private enum SonarrSearchPreviewFixtures {
+    static let releases: [ArrRelease] = [
+        release(
+            guid: "sonarr-preview-1",
+            title: "Breaking.Bad.S01E01.1080p.BluRay.x265-GROUP",
+            indexer: "Preview Indexer",
+            size: 4_800_000_000,
+            seeders: 84,
+            quality: "Bluray-1080p"
+        ),
+        release(
+            guid: "sonarr-preview-2",
+            title: "Breaking.Bad.S01E01.2160p.WEB-DL.DDP5.1.HDR-GROUP",
+            indexer: "Usenet Preview",
+            size: 9_600_000_000,
+            seeders: 0,
+            quality: "WEBDL-2160p",
+            protocolName: "usenet"
+        ),
+        release(
+            guid: "sonarr-preview-3",
+            title: "Breaking.Bad.S01.Season.Pack.1080p.BluRay-GROUP",
+            indexer: "Preview Indexer",
+            size: 32_000_000_000,
+            seeders: 21,
+            quality: "Bluray-1080p",
+            fullSeason: true
+        ),
+    ]
+
+    static func release(
+        guid: String,
+        title: String,
+        indexer: String,
+        size: Int64,
+        seeders: Int,
+        quality: String,
+        protocolName: String = "torrent",
+        fullSeason: Bool = false
+    ) -> ArrRelease {
+        let json: [String: Any] = [
+            "guid": guid,
+            "indexerId": abs(guid.hashValue % 10_000),
+            "title": title,
+            "indexer": indexer,
+            "protocol": protocolName,
+            "size": size,
+            "ageHours": 4,
+            "approved": true,
+            "rejected": false,
+            "temporarilyRejected": false,
+            "downloadAllowed": true,
+            "seeders": seeders,
+            "leechers": 3,
+            "customFormatScore": 100,
+            "quality": ["quality": ["id": 7, "name": quality, "source": "bluray", "resolution": 1080]],
+            "magnetUrl": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567",
+            "fullSeason": fullSeason
+        ]
+        let data = try! JSONSerialization.data(withJSONObject: json, options: [])
+        return try! JSONDecoder().decode(ArrRelease.self, from: data)
+    }
+
+    static func viewModel(
+        serviceManager: ArrServiceManager,
+        series: SonarrSeries = .preview,
+        error: String? = nil
+    ) -> SonarrViewModel {
+        SonarrViewModel(
+            previewSeries: [series],
+            error: error,
+            episodes: [series.id: SonarrEpisode.previewList],
+            episodeFiles: [series.id: SonarrEpisodeFile.previewList],
+            serviceManager: serviceManager
+        )
+    }
+}
+#endif
 
 // MARK: - Add to Library Sheet
 
@@ -171,18 +252,76 @@ struct SonarrAddToLibrarySheet: View {
     }
 }
 
+#if DEBUG
+#Preview("Add To Library") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddToLibrarySheet(
+            viewModel: SonarrViewModel(previewSeries: [], serviceManager: manager),
+            series: .previewDiscover,
+            onAdded: {}
+        )
+    }
+}
+
+#Preview("Add To Library Long Title") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddToLibrarySheet(
+            viewModel: SonarrViewModel(previewSeries: [], serviceManager: manager),
+            series: .previewLongTitle,
+            onAdded: {}
+        )
+    }
+}
+
+#Preview("Add To Library Error") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddToLibrarySheet(
+            viewModel: SonarrViewModel(
+                previewSeries: [],
+                error: "Root folder /tv is unavailable.",
+                serviceManager: manager
+            ),
+            series: .previewDiscover,
+            onAdded: {}
+        )
+    }
+}
+#endif
+
 struct SonarrInteractiveSearchSheet: View {
     @Bindable var viewModel: SonarrViewModel
     let series: SonarrSeries
     let episode: SonarrEpisode?
     let seasonNumber: Int?
+    #if DEBUG
+    private let previewReleases: [ArrRelease]?
+    #endif
 
     init(viewModel: SonarrViewModel, series: SonarrSeries, episode: SonarrEpisode? = nil, seasonNumber: Int? = nil) {
         self.viewModel = viewModel
         self.series = series
         self.episode = episode
         self.seasonNumber = seasonNumber
+        #if DEBUG
+        self.previewReleases = nil
+        #endif
     }
+
+    #if DEBUG
+    init(
+        previewViewModel: SonarrViewModel,
+        series: SonarrSeries,
+        episode: SonarrEpisode? = nil,
+        seasonNumber: Int? = nil,
+        previewReleases: [ArrRelease]
+    ) {
+        self.viewModel = previewViewModel
+        self.series = series
+        self.episode = episode
+        self.seasonNumber = seasonNumber
+        self.previewReleases = previewReleases
+    }
+    #endif
 
     private var initialSort: ArrReleaseSort {
         var sort = ArrReleaseSort()
@@ -208,7 +347,12 @@ struct SonarrInteractiveSearchSheet: View {
             supportsSeasonPackFiltering: true,
             initialSort: initialSort,
             loadAction: {
-                try await viewModel.interactiveSearch(
+                #if DEBUG
+                if let previewReleases {
+                    return previewReleases
+                }
+                #endif
+                return try await viewModel.interactiveSearch(
                     episodeId: episode?.id,
                     seriesId: series.id,
                     seasonNumber: seasonNumber
@@ -231,6 +375,29 @@ struct SonarrInteractiveSearchSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Interactive Search") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrInteractiveSearchSheet(
+            previewViewModel: SonarrSearchPreviewFixtures.viewModel(serviceManager: manager),
+            series: .preview,
+            previewReleases: SonarrSearchPreviewFixtures.releases
+        )
+    }
+}
+
+#Preview("Interactive Search Episode") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrInteractiveSearchSheet(
+            previewViewModel: SonarrSearchPreviewFixtures.viewModel(serviceManager: manager),
+            series: .preview,
+            episode: .preview,
+            previewReleases: SonarrSearchPreviewFixtures.releases
+        )
+    }
+}
+#endif
 
 struct SonarrSeasonSearchView: View {
     private struct AutomaticSearchFeedback: Equatable {
@@ -780,6 +947,35 @@ struct SonarrSeasonSearchView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 }
+
+#if DEBUG
+#Preview("Season Search") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        let viewModel = SonarrSearchPreviewFixtures.viewModel(serviceManager: manager)
+        NavigationStack {
+            SonarrSeasonSearchView(
+                viewModel: viewModel,
+                series: .preview,
+                seasonNumber: 1,
+                episodes: SonarrEpisode.previewList
+            )
+        }
+    }
+}
+
+#Preview("Season Search Empty") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        NavigationStack {
+            SonarrSeasonSearchView(
+                viewModel: SonarrViewModel(previewSeries: [.preview], serviceManager: manager),
+                series: .preview,
+                seasonNumber: 2,
+                episodes: []
+            )
+        }
+    }
+}
+#endif
 
 struct SonarrSeasonEpisodeRow: View {
     @Bindable var viewModel: SonarrViewModel
@@ -1571,6 +1767,38 @@ struct SonarrEpisodeSearchView: View {
     }
 
 }
+
+#if DEBUG
+#Preview("Episode Search") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        let viewModel = SonarrSearchPreviewFixtures.viewModel(serviceManager: manager)
+        NavigationStack {
+            SonarrEpisodeSearchView(
+                viewModel: viewModel,
+                series: .preview,
+                episode: .preview
+            )
+        }
+    }
+}
+
+#Preview("Episode Search Missing") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        let episode = SonarrEpisode.previewUnaired[0]
+        NavigationStack {
+            SonarrEpisodeSearchView(
+                viewModel: SonarrViewModel(
+                    previewSeries: [.preview],
+                    episodes: [SonarrSeries.preview.id: [episode]],
+                    serviceManager: manager
+                ),
+                series: .preview,
+                episode: episode
+            )
+        }
+    }
+}
+#endif
 
 struct SonarrEpisodeHistoryRow: View {
     let record: ArrHistoryRecord

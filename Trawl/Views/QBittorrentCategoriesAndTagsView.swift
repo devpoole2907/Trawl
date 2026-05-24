@@ -20,6 +20,12 @@ struct QBittorrentCategoriesAndTagsView: View {
     // Shared State
     @State private var isSubmitting = false
     @State private var actionErrorAlert: ErrorAlertItem?
+    #if DEBUG
+    private var previewCategories: [String: SyncCategory]?
+    private var previewTags: [String]?
+    #endif
+
+    init() {}
 
     var body: some View {
         Group {
@@ -126,7 +132,7 @@ struct QBittorrentCategoriesAndTagsView: View {
     
     @ViewBuilder
     private var categoriesList: some View {
-        if syncService.sortedCategoryNames.isEmpty {
+        if categoryNames.isEmpty {
             ContentUnavailableView(
                 "No Categories",
                 systemImage: "tag",
@@ -135,7 +141,7 @@ struct QBittorrentCategoriesAndTagsView: View {
             .listRowBackground(Color.clear)
         } else {
             Section {
-                ForEach(syncService.sortedCategoryNames, id: \.self) { category in
+                ForEach(categoryNames, id: \.self) { category in
                     categoryRow(name: category)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -151,7 +157,7 @@ struct QBittorrentCategoriesAndTagsView: View {
     
     @ViewBuilder
     private func categoryRow(name: String) -> some View {
-        let category = syncService.categories[name]
+        let category = category(for: name)
 
         HStack(spacing: 12) {
             Image(systemName: "tag.fill")
@@ -180,7 +186,7 @@ struct QBittorrentCategoriesAndTagsView: View {
 
     @ViewBuilder
     private var tagsList: some View {
-        if syncService.sortedTags.isEmpty {
+        if tagNames.isEmpty {
             ContentUnavailableView(
                 "No Tags",
                 systemImage: "number",
@@ -189,7 +195,7 @@ struct QBittorrentCategoriesAndTagsView: View {
             .listRowBackground(Color.clear)
         } else {
             Section {
-                ForEach(syncService.sortedTags, id: \.self) { tag in
+                ForEach(tagNames, id: \.self) { tag in
                     tagRow(name: tag)
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
@@ -329,4 +335,78 @@ struct QBittorrentCategoriesAndTagsView: View {
             set: { if !$0 { tagPendingDeletion = nil } }
         )
     }
+
+    private var categoryNames: [String] {
+        #if DEBUG
+        if let previewCategories {
+            return previewCategories.keys.sorted()
+        }
+        #endif
+        return syncService.sortedCategoryNames
+    }
+
+    private var tagNames: [String] {
+        #if DEBUG
+        if let previewTags {
+            return previewTags.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        }
+        #endif
+        return syncService.sortedTags
+    }
+
+    private func category(for name: String) -> SyncCategory? {
+        #if DEBUG
+        if let previewCategories {
+            return previewCategories[name]
+        }
+        #endif
+        return syncService.categories[name]
+    }
 }
+
+#if DEBUG
+extension QBittorrentCategoriesAndTagsView {
+    init(
+        previewSelectedTab selectedTab: Int,
+        previewCategories: [String: SyncCategory]? = [
+            "linux-isos": SyncCategory(name: "linux-isos", savePath: "/downloads/linux"),
+            "movies": SyncCategory(name: "movies", savePath: "/downloads/movies"),
+            "tv": SyncCategory(name: "tv", savePath: "/downloads/tv")
+        ],
+        previewTags: [String]? = ["4k", "archived", "priority"]
+    ) {
+        self.init()
+        self._selectedTab = State(initialValue: selectedTab)
+        self.previewCategories = previewCategories
+        self.previewTags = previewTags
+    }
+}
+
+#Preview("Categories") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentCategoriesAndTagsView(previewSelectedTab: 0)
+        }
+    }
+}
+
+#Preview("Tags") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentCategoriesAndTagsView(previewSelectedTab: 1)
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentCategoriesAndTagsView(
+                previewSelectedTab: 0,
+                previewCategories: [:],
+                previewTags: []
+            )
+        }
+    }
+}
+#endif

@@ -168,3 +168,71 @@ private struct SeerrIssueRow: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+extension SeerrIssueListView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewViewModel: SeerrIssueListViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+#Preview("Seerr Issues - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: SeerrIssue.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Loaded Heavy") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(
+                    previewIssues: SeerrIssue.previewHeavyList,
+                    totalResults: SeerrIssue.previewHeavyList.count
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: [])
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load issues."))) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(
+                    previewIssues: [],
+                    errorMessage: "Issue list endpoint returned 500."
+                )
+            )
+        }
+    }
+}
+#endif

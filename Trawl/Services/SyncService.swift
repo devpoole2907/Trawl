@@ -315,3 +315,11 @@ final class SyncService {
         return normalizedTags.isEmpty ? nil : normalizedTags.joined(separator: ", ")
     }
 }
+
+#if DEBUG
+extension SyncService {
+    static func preview() -> SyncService {
+        SyncService(apiClient: .preview())
+    }
+}
+#endif

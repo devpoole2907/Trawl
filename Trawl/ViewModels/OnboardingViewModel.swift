@@ -195,3 +195,30 @@ final class OnboardingViewModel {
         }
     }
 }
+
+#if DEBUG
+extension OnboardingViewModel {
+    convenience init(
+        previewHostURL: String = "",
+        previewUsername: String = "",
+        previewPassword: String = "",
+        previewDisplayName: String = "",
+        allowsUntrustedTLS: Bool = false,
+        isValidating: Bool = false,
+        validationError: String? = nil,
+        isValid: Bool = false,
+        hasAttemptedSubmit: Bool = false
+    ) {
+        self.init()
+        self.hostURL = previewHostURL
+        self.username = previewUsername
+        self.password = previewPassword
+        self.displayName = previewDisplayName
+        self.allowsUntrustedTLS = allowsUntrustedTLS
+        self.isValidating = isValidating
+        self.validationError = validationError
+        self.isValid = isValid
+        self.hasAttemptedSubmit = hasAttemptedSubmit
+    }
+}
+#endif

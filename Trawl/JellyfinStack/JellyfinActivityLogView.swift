@@ -10,6 +10,13 @@ struct JellyfinActivityLogView: View {
     @State private var selectedTypeFilter: JellyfinActivityTypeFilter = .all
     @State private var searchText = ""
     @State private var isSearchExpanded = false
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         Group {
@@ -24,6 +31,9 @@ struct JellyfinActivityLogView: View {
         .navigationTitle("Activity Log")
         .navigationSubtitle("Jellyfin")
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             let vm = JellyfinActivityLogViewModel(apiClient: apiClient)
             viewModel = vm
             await vm.load()
@@ -296,3 +306,86 @@ final class JellyfinActivityLogViewModel {
         isLoadingMore = false
     }
 }
+
+#if DEBUG
+extension JellyfinActivityLogView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewViewModel: JellyfinActivityLogViewModel,
+        userNames: [String: String] = ["preview-user-uuid": "Preview User"]
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+        self._userNames = State(initialValue: userNames)
+        self.isPreview = true
+    }
+}
+
+extension JellyfinActivityLogViewModel {
+    convenience init(
+        previewEntries: [JellyfinActivityEntry],
+        isLoading: Bool = false,
+        isLoadingMore: Bool = false,
+        errorMessage: String? = nil,
+        totalRecords: Int? = nil,
+        apiClient: JellyfinAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.entries = previewEntries
+        self.isLoading = isLoading
+        self.isLoadingMore = isLoadingMore
+        self.errorMessage = errorMessage
+        self.totalRecords = totalRecords ?? previewEntries.count
+        self.hasLoaded = !previewEntries.isEmpty
+    }
+}
+
+#Preview("Jellyfin Activity - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinActivityLogView(
+                previewViewModel: JellyfinActivityLogViewModel(previewEntries: JellyfinActivityEntry.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Activity - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinActivityLogView(
+                previewViewModel: JellyfinActivityLogViewModel(previewEntries: [])
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Activity - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinActivityLogView(
+                previewViewModel: JellyfinActivityLogViewModel(previewEntries: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Activity - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load activity."))) {
+        NavigationStack {
+            JellyfinActivityLogView(
+                previewViewModel: JellyfinActivityLogViewModel(
+                    previewEntries: [],
+                    errorMessage: "Activity log endpoint returned 500."
+                )
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Activity Row") {
+    List {
+        JellyfinActivityRow(entry: .preview, userNames: ["preview-user-uuid": "Preview User"])
+    }
+}
+#endif

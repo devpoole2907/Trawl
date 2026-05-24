@@ -6,6 +6,13 @@ struct ArrDiskSpaceView: View {
     @State private var snapshots: [ArrDiskSpaceSnapshot] = []
     @State private var isLoading = false
 
+    #if DEBUG
+    init(previewSnapshots: [ArrDiskSpaceSnapshot] = [], isLoading: Bool = false) {
+        _snapshots = State(initialValue: previewSnapshots)
+        _isLoading = State(initialValue: isLoading)
+    }
+    #endif
+
     var body: some View {
         Group {
             if !hasConfiguredService {
@@ -47,6 +54,9 @@ struct ArrDiskSpaceView: View {
         .background(backgroundGradient)
         .navigationTitle("Disk Space")
         .task(id: reloadKey) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await loadDiskSpace()
         }
         .refreshable {
@@ -209,3 +219,21 @@ private protocol ArrDiskSpaceViewProviding: Sendable {
 
 extension SonarrAPIClient: ArrDiskSpaceViewProviding {}
 extension RadarrAPIClient: ArrDiskSpaceViewProviding {}
+
+#if DEBUG
+#Preview("Disk Space - Loaded") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrDiskSpaceView(previewSnapshots: ArrDiskSpaceSnapshot.previewList)
+        }
+    }
+}
+
+#Preview("Disk Space - Empty") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrDiskSpaceView()
+        }
+    }
+}
+#endif
