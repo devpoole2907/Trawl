@@ -11,6 +11,7 @@ struct QBittorrentRSSView: View {
     @State private var showCreateFeedAlert = false
     @State private var newFeedURL = ""
     @State private var itemPendingDeletion: String?
+    @State private var showingRulesSheet = false
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
@@ -52,11 +53,21 @@ struct QBittorrentRSSView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    showingRulesSheet = true
+                } label: {
+                    Label("Auto-Download Rules", systemImage: "gearshape")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showCreateFeedAlert = true
                 } label: {
                     Label("Add Feed", systemImage: "plus")
                 }
             }
+        }
+        .sheet(isPresented: $showingRulesSheet) {
+            QBittorrentRSSRulesSheet(feedURLs: feedURLs)
         }
         .alert("Add RSS Feed", isPresented: $showCreateFeedAlert) {
             TextField("Feed URL", text: $newFeedURL)
@@ -99,6 +110,23 @@ struct QBittorrentRSSView: View {
 
     private var rssItemKeys: [String] {
         rssItems.keys.sorted()
+    }
+
+    private var feedURLs: [String] {
+        var urls: [String] = []
+        collectFeedURLs(in: rssItems, into: &urls)
+        return Array(Set(urls)).sorted()
+    }
+
+    private func collectFeedURLs(in dictionary: [String: JSONValue], into urls: inout [String]) {
+        for value in dictionary.values {
+            guard case let .object(child) = value else { continue }
+            if case let .string(url) = child["url"] {
+                urls.append(url)
+            } else {
+                collectFeedURLs(in: child, into: &urls)
+            }
+        }
     }
 
     private func sortedKeys(in dictionary: [String: JSONValue]) -> [String] {

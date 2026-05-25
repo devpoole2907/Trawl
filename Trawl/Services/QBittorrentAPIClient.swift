@@ -323,6 +323,39 @@ actor QBittorrentAPIClient {
         return try decode([TorrentTracker].self, from: data)
     }
 
+    func addTorrentTrackers(hash: String, urls: [String]) async throws {
+        let sanitized = urls.trimmedNonEmpty()
+        guard !sanitized.isEmpty else { return }
+        // qBittorrent expects a newline-separated list as a single form value
+        let params: [String: String] = [
+            "hash": hash,
+            "urls": sanitized.joined(separator: "\n")
+        ]
+        let request = try buildFormRequest(path: "/api/v2/torrents/addTrackers", params: params)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to add trackers")
+    }
+
+    func removeTorrentTrackers(hash: String, urls: [String]) async throws {
+        let sanitized = urls.trimmedNonEmpty()
+        guard !sanitized.isEmpty else { return }
+        let params: [String: String] = [
+            "hash": hash,
+            "urls": sanitized.qbittorrentJoined()
+        ]
+        let request = try buildFormRequest(path: "/api/v2/torrents/removeTrackers", params: params)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to remove trackers")
+    }
+
+    func editTorrentTracker(hash: String, origURL: String, newURL: String) async throws {
+        let params: [String: String] = [
+            "hash": hash,
+            "origUrl": origURL,
+            "newUrl": newURL
+        ]
+        let request = try buildFormRequest(path: "/api/v2/torrents/editTracker", params: params)
+        try await performSuccessfulMutation(request, failureMessage: "Failed to edit tracker")
+    }
+
     // MARK: - Transfer
 
     func getTransferInfo() async throws -> TransferInfo {
@@ -527,14 +560,11 @@ actor QBittorrentAPIClient {
         try await performSuccessfulMutation(request, failureMessage: "Failed to set RSS rule")
     }
     
-    /// Get all auto-downloading rules
-    func getRSSRules() async throws -> [String: Any] {
+    /// Get all auto-downloading rules keyed by rule name.
+    func getRSSRules() async throws -> [String: QBittorrentRSSRule] {
         let request = try buildRequest(path: "/api/v2/rss/rules")
         let (data, _) = try await performRequest(request)
-        guard let json = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            throw QBError.decodingError("Failed to decode RSS rules")
-        }
-        return json
+        return try decode([String: QBittorrentRSSRule].self, from: data)
     }
     
     // MARK: - Logs

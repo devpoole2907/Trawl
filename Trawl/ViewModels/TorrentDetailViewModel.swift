@@ -104,6 +104,23 @@ final class TorrentDetailViewModel {
         }
     }
 
+    // Rethrows so callers can surface a non-blocking ErrorAlertItem; `self.error`
+    // is reserved for the trackers-load failure surface, not action failures.
+    func addTrackers(_ urls: [String]) async throws {
+        try await torrentService.addTorrentTrackers(hash: torrentHash, urls: urls)
+        await loadTrackers()
+    }
+
+    func removeTrackers(_ urls: [String]) async throws {
+        try await torrentService.removeTorrentTrackers(hash: torrentHash, urls: urls)
+        await loadTrackers()
+    }
+
+    func editTracker(originalURL: String, newURL: String) async throws {
+        try await torrentService.editTorrentTracker(hash: torrentHash, origURL: originalURL, newURL: newURL)
+        await loadTrackers()
+    }
+
     // MARK: - Actions
 
     func setFilePriority(indices: [Int], priority: FilePriority) async {
