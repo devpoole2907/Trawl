@@ -684,6 +684,24 @@ private struct ArrCalendarPreview: View {
 #Preview("Calendar - Empty") {
     ArrCalendarPreview(isEmpty: true)
 }
+
+#Preview("Calendar - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrCalendarView()
+        }
+        .environment(SyncService.preview())
+    }
+}
+
+#Preview("Calendar - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrCalendarView()
+        }
+        .environment(SyncService.preview())
+    }
+}
 #endif
 
 // MARK: - Supporting Subviews

@@ -595,4 +595,23 @@ private enum BlocklistDateParser {
         }
     }
 }
+
+#Preview("Blocklist - Empty") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBlocklistView(
+                previewSonarrBlocklist: [],
+                previewRadarrBlocklist: []
+            )
+        }
+    }
+}
+
+#Preview("Blocklist - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrBlocklistView()
+        }
+    }
+}
 #endif

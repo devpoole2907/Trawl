@@ -527,6 +527,33 @@ nonisolated enum SonarrSortOrder: String, CaseIterable, Identifiable, Sendable {
 
 #if DEBUG
 extension SonarrViewModel {
+    enum PreviewState {
+        case loaded
+        case heavy
+        case empty
+        case loading
+        case error(String)
+    }
+
+    convenience init(
+        previewState: PreviewState,
+        serviceManager: ArrServiceManager = .preview(.sonarrOnly),
+        jellyfinManager: JellyfinServiceManager? = .preview()
+    ) {
+        switch previewState {
+        case .loaded:
+            self.init(previewSeries: SonarrSeries.previewList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .heavy:
+            self.init(previewSeries: SonarrSeries.previewHeavyList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .empty:
+            self.init(previewSeries: [], serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .loading:
+            self.init(previewSeries: [], isLoading: true, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .error(let message):
+            self.init(previewSeries: [], error: message, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        }
+    }
+
     convenience init(
         previewSeries: [SonarrSeries] = SonarrSeries.previewList,
         isLoading: Bool = false,

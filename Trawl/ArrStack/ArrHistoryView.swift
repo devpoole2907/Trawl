@@ -16,16 +16,17 @@ struct ArrHistoryView: View {
         previewRadarrHistory: [ArrHistoryRecord] = [],
         previewProwlarrHistory: [ArrHistoryRecord] = [],
         serviceManager: ArrServiceManager = .preview(.allConfigured),
-        serviceFilter: ArrServiceFilter = .all
+        serviceFilter: ArrServiceFilter = .all,
+        previewLoading: Bool = false
     ) {
         let sonarrVM = SonarrViewModel(serviceManager: serviceManager)
-        sonarrVM.setPreviewHistory(previewSonarrHistory)
+        sonarrVM.setPreviewHistory(previewSonarrHistory, isLoading: previewLoading)
 
         let radarrVM = RadarrViewModel(serviceManager: serviceManager)
-        radarrVM.setPreviewHistory(previewRadarrHistory)
+        radarrVM.setPreviewHistory(previewRadarrHistory, isLoading: previewLoading)
 
         let prowlarrVM = ProwlarrViewModel(serviceManager: serviceManager)
-        prowlarrVM.setPreviewHistory(previewProwlarrHistory)
+        prowlarrVM.setPreviewHistory(previewProwlarrHistory, isLoading: previewLoading)
 
         _sonarrViewModel = State(initialValue: sonarrVM)
         _radarrViewModel = State(initialValue: radarrVM)
@@ -535,6 +536,24 @@ private enum HistoryDateParser {
 #Preview("History - Empty") {
     let manager = ArrServiceManager.preview(.allConfigured)
     PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrHistoryView(serviceManager: manager)
+        }
+    }
+}
+
+#Preview("History - Loading") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrHistoryView(serviceManager: manager, previewLoading: true)
+        }
+    }
+}
+
+#Preview("History - Connection Issue") {
+    let manager = ArrServiceManager.preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))
+    PreviewHost(profiles: .arrOnly, arr: manager) {
         NavigationStack {
             ArrHistoryView(serviceManager: manager)
         }

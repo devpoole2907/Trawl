@@ -288,6 +288,32 @@ enum BazarrBrowserTab: String, CaseIterable {
 
 #if DEBUG
 extension BazarrViewModel {
+    enum PreviewState {
+        case loaded
+        case heavy
+        case empty
+        case loading
+        case error(String)
+    }
+
+    convenience init(
+        previewState: PreviewState,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        switch previewState {
+        case .loaded:
+            self.init(previewSeries: BazarrSeries.previewList, previewMovies: BazarrMovie.previewList, serviceManager: serviceManager)
+        case .heavy:
+            self.init(previewSeries: BazarrSeries.previewHeavyList, previewMovies: BazarrMovie.previewHeavyList, serviceManager: serviceManager)
+        case .empty:
+            self.init(previewSeries: [], previewMovies: [], serviceManager: serviceManager)
+        case .loading:
+            self.init(previewSeries: [], previewMovies: [], isLoadingSeries: true, isLoadingMovies: true, serviceManager: serviceManager)
+        case .error(let message):
+            self.init(previewSeries: [], previewMovies: [], seriesError: message, moviesError: message, serviceManager: serviceManager)
+        }
+    }
+
     convenience init(
         previewSeries: [BazarrSeries] = BazarrSeries.previewList,
         previewMovies: [BazarrMovie] = BazarrMovie.previewList,

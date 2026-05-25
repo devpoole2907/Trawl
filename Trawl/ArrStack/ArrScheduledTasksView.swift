@@ -19,6 +19,20 @@ struct ArrScheduledTasksView: View {
         _vm = State(initialValue: previewVM)
         _selectedService = State(initialValue: selectedService)
     }
+
+    init(previewLoadingServices: [ArrServiceType], selectedService: ArrServiceType = .sonarr) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewLoading(previewLoadingServices)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+
+    init(previewError: String, services: [ArrServiceType], selectedService: ArrServiceType = .sonarr) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewError(previewError, for: services)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
     #endif
 
     private var availableServices: [ArrServiceType] {
@@ -244,6 +258,26 @@ extension ArrTasksViewModel {
         bazarr.isLoading = false
         bazarr.errorMessage = nil
     }
+
+    func setPreviewLoading(_ services: [ArrServiceType]) {
+        for service in services where service != .bazarr {
+            mutate(service) { $0.isLoading = true; $0.errorMessage = nil }
+        }
+        if services.contains(.bazarr) {
+            bazarr.isLoading = true
+            bazarr.errorMessage = nil
+        }
+    }
+
+    func setPreviewError(_ error: String, for services: [ArrServiceType]) {
+        for service in services where service != .bazarr {
+            mutate(service) { $0.isLoading = false; $0.errorMessage = error }
+        }
+        if services.contains(.bazarr) {
+            bazarr.isLoading = false
+            bazarr.errorMessage = error
+        }
+    }
 }
 
 #Preview("Tasks - Loaded") {
@@ -264,6 +298,34 @@ extension ArrTasksViewModel {
     PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
         NavigationStack {
             ArrScheduledTasksView(previewTasks: [.sonarr: []])
+        }
+    }
+}
+
+#Preview("Tasks - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(previewLoadingServices: [.sonarr], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Tasks - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(
+                previewError: "Failed to load tasks: The operation couldn't be completed.",
+                services: [.sonarr],
+                selectedService: .sonarr
+            )
+        }
+    }
+}
+
+#Preview("Tasks - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrScheduledTasksView()
         }
     }
 }

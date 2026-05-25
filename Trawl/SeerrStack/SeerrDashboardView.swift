@@ -534,6 +534,7 @@ private struct SeerrRequestRow: View {
 
 }
 
+// Treated as a list view (request stream); state coverage matches list canon.
 #if DEBUG
 extension SeerrDashboardView {
     fileprivate init(previewViewModel: SeerrRequestManagementViewModel) {

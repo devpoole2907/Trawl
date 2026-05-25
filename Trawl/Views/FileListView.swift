@@ -206,4 +206,13 @@ private struct FileRow: View {
         }
     }
 }
+
+#Preview("Error") {
+    let vm = TorrentDetailViewModel(files: [], error: "Failed to load files — connection refused.")
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            FileListView(viewModel: vm)
+        }
+    }
+}
 #endif

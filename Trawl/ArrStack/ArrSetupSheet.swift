@@ -172,6 +172,12 @@ struct ArrSetupSheet: View {
     }
 }
 
+#Preview("Setup - Mid-Input") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.radarrOnly)) {
+        ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .editing(.radarr)))
+    }
+}
+
 #Preview("Setup - Validating") {
     PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
         ArrSetupSheet(previewViewModel: ArrSetupViewModel(previewState: .validating(.radarr)))

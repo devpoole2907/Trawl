@@ -142,6 +142,11 @@ extension JellyfinSystemInfo {
         version: "10.10.0",
         operatingSystem: ""
     )
+    static let previewHeavy = JellyfinSystemInfo.makePreview(
+        serverName: "This Is An Extremely Long Jellyfin Server Name That Tests Label Truncation And Layout Stability",
+        version: "10.99.999.99999-dev",
+        operatingSystem: "Linux (Ubuntu 24.04.2 LTS x86_64 kernel 6.8.0-58-generic)"
+    )
 
     fileprivate static func makePreview(
         serverName: String = "My Jellyfin Server",
@@ -149,11 +154,12 @@ extension JellyfinSystemInfo {
         operatingSystem: String = "Linux"
     ) -> JellyfinSystemInfo {
         let json: [String: Any] = [
-            "Id": "server-uuid",
+            "Id": "server-uuid-0000-0000-0000-000000000000",
             "ServerName": serverName,
             "Version": version,
             "OperatingSystem": operatingSystem,
-            "ProductName": "Jellyfin Server"
+            "ProductName": "Jellyfin Server",
+            "WebSocketPortNumber": 8096
         ]
         let data = try! JSONSerialization.data(withJSONObject: json, options: [])
         return try! JSONDecoder().decode(JellyfinSystemInfo.self, from: data)

@@ -42,6 +42,24 @@ struct ArrEventsView: View {
             _selectedSelection = State(initialValue: .service(selectedService))
         }
     }
+
+    init(previewLoadingServices: [ArrServiceType], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewLoading(previewLoadingServices)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
+
+    init(previewError: String, services: [ArrServiceType], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewError(previewError, for: services)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
     #endif
 
     private var availableServices: [ArrServiceType] {
@@ -588,6 +606,24 @@ extension ArrEventsViewModel {
             }
         }
     }
+
+    func setPreviewLoading(_ services: [ArrServiceType]) {
+        for service in services {
+            mutate(service) {
+                $0.isLoading = true
+                $0.errorMessage = nil
+            }
+        }
+    }
+
+    func setPreviewError(_ error: String, for services: [ArrServiceType]) {
+        for service in services {
+            mutate(service) {
+                $0.isLoading = false
+                $0.errorMessage = error
+            }
+        }
+    }
 }
 
 extension UnifiedLogEntry {
@@ -672,6 +708,34 @@ enum ArrLogLevelFilter: String, CaseIterable, Sendable {
     PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
         NavigationStack {
             ArrEventsView(previewEntries: [.sonarr: [], .radarr: []], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Events - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewLoadingServices: [.sonarr, .radarr], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Events - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(
+                previewError: "Failed to load: The operation couldn't be completed.",
+                services: [.sonarr, .radarr],
+                selectedService: .sonarr
+            )
+        }
+    }
+}
+
+#Preview("Events - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrEventsView()
         }
     }
 }

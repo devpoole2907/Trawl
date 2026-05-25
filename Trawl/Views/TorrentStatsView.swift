@@ -268,4 +268,38 @@ extension Array where Element == SyncService.SpeedSample {
         }
     }
 }
+
+#Preview("Loading") {
+    // TorrentStatsView has no built-in loading indicator; show the empty skeleton
+    // the view produces while waiting for the first SyncService poll to arrive.
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentStatsView(previewServerState: nil, previewSpeedHistory: [])
+        }
+    }
+}
+
+#Preview("Error") {
+    // Simulate a connection-error banner wrapping the stats shell.
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            ZStack(alignment: .top) {
+                TorrentStatsView(previewServerState: nil, previewSpeedHistory: [])
+                VStack {
+                    Label(
+                        "Unable to connect to qBittorrent — check your server settings.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                    .padding()
+                    Spacer()
+                }
+            }
+        }
+    }
+}
 #endif

@@ -209,4 +209,23 @@ extension JellyfinSystemInfoView {
         }
     }
 }
+
+#Preview("Jellyfin System Info - Loaded Heavy") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinSystemInfoView(previewSystemInfo: .previewHeavy)
+        }
+    }
+}
+
+#Preview("Jellyfin System Info - Connection Issue") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to reach Jellyfin server"))) {
+        NavigationStack {
+            JellyfinSystemInfoView(
+                previewSystemInfo: nil,
+                errorMessage: "Unable to reach Jellyfin server — check your network connection."
+            )
+        }
+    }
+}
 #endif

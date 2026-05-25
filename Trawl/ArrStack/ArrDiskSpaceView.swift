@@ -236,4 +236,20 @@ extension RadarrAPIClient: ArrDiskSpaceViewProviding {}
         }
     }
 }
+
+#Preview("Disk Space - Loading") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrDiskSpaceView(isLoading: true)
+        }
+    }
+}
+
+#Preview("Disk Space - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrDiskSpaceView()
+        }
+    }
+}
 #endif

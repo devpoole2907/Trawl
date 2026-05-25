@@ -669,4 +669,32 @@ private struct ArrBackupRow: View {
         }
     }
 }
+
+#Preview("Backups - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Backups - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(
+                previewStates: [.sonarr: []],
+                selectedService: .sonarr,
+                error: "Failed to fetch backups: The operation couldn't be completed."
+            )
+        }
+    }
+}
+
+#Preview("Backups - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrBackupsView(selectedService: .sonarr)
+        }
+    }
+}
 #endif

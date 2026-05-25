@@ -961,4 +961,29 @@ struct SonarrSeriesDetailView: View {
         }
     }
 }
+
+#Preview("Error") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(
+            serviceManager: manager,
+            error: "Sonarr returned 500 Internal Server Error."
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Unable to reach Sonarr — check host and port.")) { manager in
+        let viewModel = SonarrViewModel(
+            previewSeries: [.preview],
+            error: "Unable to reach Sonarr — check host and port.",
+            serviceManager: manager
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
 #endif

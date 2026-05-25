@@ -307,4 +307,47 @@ extension SonarrAddSeriesSheet {
         )
     }
 }
+
+#Preview("Loading (Mid-Search)") {
+    // Simulate the spinner shown while a search is in-flight.
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { _ in
+        ArrSheetShell(
+            title: "Add Series",
+            confirmTitle: "Add",
+            isConfirmDisabled: true,
+            onConfirm: {}
+        ) {
+            List {
+                Section {
+                    ArrAddItemSearchBar(text: .constant("breaking bad"), placeholder: "Search TV shows...") {}
+                }
+                Section {
+                    HStack {
+                        Spacer()
+                        ProgressView("Searching…")
+                        Spacer()
+                    }
+                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+        }
+    }
+}
+
+#Preview("Error (Search Failed)") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddSeriesSheet(
+            previewViewModel: SonarrViewModel(
+                previewSeries: SonarrSeries.previewList,
+                error: "Sonarr returned 503 Service Unavailable.",
+                serviceManager: manager
+            ),
+            searchQuery: "breaking bad"
+        )
+    }
+}
 #endif

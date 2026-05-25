@@ -241,6 +241,14 @@ extension ArrServiceType {
         }
     }
 }
+
+#Preview("Manual Import - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrManualImportView()
+        }
+    }
+}
 #endif
 
 // MARK: - Add Location Sheet

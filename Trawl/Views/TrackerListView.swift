@@ -181,4 +181,22 @@ private var trackerRefreshToolbarPlacement: ToolbarItemPlacement {
         }
     }
 }
+
+#Preview("Loading") {
+    let vm = TorrentDetailViewModel(trackers: [], isLoading: true)
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TrackerListView(viewModel: vm)
+        }
+    }
+}
+
+#Preview("Error") {
+    let vm = TorrentDetailViewModel(trackers: [], error: "Connection refused — qBittorrent unreachable.")
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TrackerListView(viewModel: vm)
+        }
+    }
+}
 #endif
