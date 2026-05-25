@@ -107,45 +107,40 @@ struct JellyfinScheduledTasksView: View {
         }
     }
 
-    @ViewBuilder
     private func taskRow(_ task: JellyfinScheduledTask, viewModel: JellyfinScheduledTasksViewModel) -> some View {
         ScheduledTaskRowView(
-            icon: task.isRunning ? "clock.arrow.2.circlepath" : "clock",
-            iconColor: task.isRunning ? .green : .secondary,
+            status: taskStatus(task),
             title: task.name,
             subtitle: task.description,
-            badge: ScheduledTaskRowBadge(task.stateBadge, color: stateColor(task.state)),
             progress: task.isRunning ? task.currentProgressPercentage : nil,
-            result: taskResult(task.lastExecutionResult)
-        ) {
-            if task.isRunning || task.isCancelling {
-                Button {
-                    taskPendingStop = task
-                } label: {
-                    Image(systemName: "stop.circle")
-                        .font(.title3)
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    Task { await viewModel.startTask(id: task.id) }
-                } label: {
-                    Image(systemName: "play.circle")
-                        .font(.title3)
-                        .foregroundStyle(.green)
-                }
-                .buttonStyle(.plain)
+            result: taskResult(task.lastExecutionResult),
+            action: taskAction(task, viewModel: viewModel)
+        )
+    }
+
+    private func taskAction(
+        _ task: JellyfinScheduledTask,
+        viewModel: JellyfinScheduledTasksViewModel
+    ) -> ScheduledTaskRowAction {
+        if task.isRunning || task.isCancelling {
+            ScheduledTaskRowAction.stop(
+                accessibilityLabel: "Stop \(task.name)"
+            ) {
+                taskPendingStop = task
+            }
+        } else {
+            ScheduledTaskRowAction.run(
+                accessibilityLabel: "Run \(task.name)"
+            ) {
+                await viewModel.startTask(id: task.id)
             }
         }
     }
 
-    private func stateColor(_ state: String) -> Color {
-        switch state {
-        case "Running": .green
-        case "Cancelling": .orange
-        default: .secondary
-        }
+    private func taskStatus(_ task: JellyfinScheduledTask) -> ScheduledTaskRowStatus {
+        if task.isRunning { return .running }
+        if task.isCancelling { return .cancelling }
+        return .idle
     }
 
     private func taskResult(_ result: JellyfinScheduledTaskResult?) -> ScheduledTaskRowResult? {

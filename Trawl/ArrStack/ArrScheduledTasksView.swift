@@ -336,31 +336,28 @@ extension ArrTasksViewModel {
 private struct ArrScheduledTaskRow: View {
     let task: ArrScheduledTask
     let onTrigger: () async -> Void
-    @State private var isTriggering = false
 
     var body: some View {
         ScheduledTaskRowView(
+            status: taskStatus,
             title: task.name ?? "Unknown Task",
-            details: taskDetails
+            details: taskDetails,
+            action: taskAction
+        )
+    }
+
+    private var taskAction: ScheduledTaskRowAction {
+        let title = task.name ?? "task"
+        return ScheduledTaskRowAction.run(
+            accessibilityLabel: "Run \(title)",
+            isDisabled: task.taskName == nil || task.isRunning == true
         ) {
-            Button {
-                Task {
-                    isTriggering = true
-                    await onTrigger()
-                    isTriggering = false
-                }
-            } label: {
-                if isTriggering {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(isTriggering)
+            await onTrigger()
         }
+    }
+
+    private var taskStatus: ScheduledTaskRowStatus {
+        task.isRunning == true ? .running : .idle
     }
 
     private var taskDetails: [ScheduledTaskRowDetail] {
@@ -404,34 +401,27 @@ private struct ArrScheduledTaskRow: View {
 private struct BazarrTaskRow: View {
     let task: BazarrTask
     let onTrigger: () async -> Void
-    @State private var isTriggering = false
 
     var body: some View {
         ScheduledTaskRowView(
-            icon: task.jobRunning ? "arrow.triangle.2.circlepath" : "clock",
-            iconColor: task.jobRunning ? .blue : .secondary,
+            status: taskStatus,
             title: task.name,
-            badge: task.jobRunning ? ScheduledTaskRowBadge("RUNNING", color: .blue) : nil,
-            details: taskDetails
+            details: taskDetails,
+            action: taskAction
+        )
+    }
+
+    private var taskAction: ScheduledTaskRowAction {
+        ScheduledTaskRowAction.run(
+            accessibilityLabel: "Run \(task.name)",
+            isDisabled: task.jobRunning
         ) {
-            Button {
-                Task {
-                    isTriggering = true
-                    await onTrigger()
-                    isTriggering = false
-                }
-            } label: {
-                if isTriggering {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(isTriggering || task.jobRunning)
+            await onTrigger()
         }
+    }
+
+    private var taskStatus: ScheduledTaskRowStatus {
+        task.jobRunning ? .running : .idle
     }
 
     private var taskDetails: [ScheduledTaskRowDetail] {

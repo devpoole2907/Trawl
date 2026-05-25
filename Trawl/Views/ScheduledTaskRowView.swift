@@ -39,6 +39,7 @@ struct ScheduledTaskRowView<Action: View>: View {
                 .font(.title3)
                 .foregroundStyle(iconColor)
                 .frame(width: 24)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 4) {
                 HStack(spacing: 6) {
@@ -61,10 +62,16 @@ struct ScheduledTaskRowView<Action: View>: View {
                 if !details.isEmpty {
                     ScheduledTaskDetailFlowLayout(horizontalSpacing: 10, verticalSpacing: 3) {
                         ForEach(details) { detail in
-                            Label(detail.text, systemImage: detail.icon)
+                            HStack(spacing: 3) {
+                                Image(systemName: detail.icon)
+                                    .imageScale(.small)
+                                    .accessibilityHidden(true)
+
+                                Text(detail.text)
+                                    .lineLimit(1)
+                            }
                                 .font(.caption2)
                                 .foregroundStyle(detail.color)
-                                .lineLimit(1)
                         }
                     }
                 }
@@ -103,6 +110,30 @@ struct ScheduledTaskRowView<Action: View>: View {
     }
 }
 
+extension ScheduledTaskRowView {
+    init(
+        status: ScheduledTaskRowStatus,
+        title: String,
+        subtitle: String? = nil,
+        details: [ScheduledTaskRowDetail] = [],
+        progress: Double? = nil,
+        result: ScheduledTaskRowResult? = nil,
+        @ViewBuilder action: () -> Action
+    ) {
+        self.init(
+            icon: status.icon,
+            iconColor: status.color,
+            title: title,
+            subtitle: subtitle,
+            badge: status.badge,
+            details: details,
+            progress: progress,
+            result: result,
+            action: action
+        )
+    }
+}
+
 extension ScheduledTaskRowView where Action == EmptyView {
     init(
         icon: String = "clock",
@@ -129,6 +160,54 @@ extension ScheduledTaskRowView where Action == EmptyView {
     }
 }
 
+extension ScheduledTaskRowView where Action == ScheduledTaskRowActionButton {
+    init(
+        icon: String = "clock",
+        iconColor: Color = .secondary,
+        title: String,
+        subtitle: String? = nil,
+        badge: ScheduledTaskRowBadge? = nil,
+        details: [ScheduledTaskRowDetail] = [],
+        progress: Double? = nil,
+        result: ScheduledTaskRowResult? = nil,
+        action: ScheduledTaskRowAction
+    ) {
+        self.init(
+            icon: icon,
+            iconColor: iconColor,
+            title: title,
+            subtitle: subtitle,
+            badge: badge,
+            details: details,
+            progress: progress,
+            result: result
+        ) {
+            ScheduledTaskRowActionButton(action: action)
+        }
+    }
+
+    init(
+        status: ScheduledTaskRowStatus,
+        title: String,
+        subtitle: String? = nil,
+        details: [ScheduledTaskRowDetail] = [],
+        progress: Double? = nil,
+        result: ScheduledTaskRowResult? = nil,
+        action: ScheduledTaskRowAction
+    ) {
+        self.init(
+            status: status,
+            title: title,
+            subtitle: subtitle,
+            details: details,
+            progress: progress,
+            result: result
+        ) {
+            ScheduledTaskRowActionButton(action: action)
+        }
+    }
+}
+
 struct ScheduledTaskRowBadge {
     let text: String
     let color: Color
@@ -139,16 +218,147 @@ struct ScheduledTaskRowBadge {
     }
 }
 
+struct ScheduledTaskRowStatus {
+    let title: String
+    let icon: String
+    let color: Color
+
+    var badge: ScheduledTaskRowBadge {
+        ScheduledTaskRowBadge(title, color: color)
+    }
+
+    static let idle = ScheduledTaskRowStatus(
+        title: "Idle",
+        icon: "clock",
+        color: .secondary
+    )
+
+    static let running = ScheduledTaskRowStatus(
+        title: "Running",
+        icon: "clock.arrow.2.circlepath",
+        color: .green
+    )
+
+    static let cancelling = ScheduledTaskRowStatus(
+        title: "Cancelling",
+        icon: "clock.arrow.2.circlepath",
+        color: .orange
+    )
+}
+
 struct ScheduledTaskRowDetail: Identifiable {
-    let id = UUID()
+    let id: String
     let icon: String
     let text: String
     let color: Color
 
     init(icon: String, text: String, color: Color = .secondary) {
+        self.id = "\(icon)-\(text)"
         self.icon = icon
         self.text = text
         self.color = color
+    }
+}
+
+struct ScheduledTaskRowAction: Sendable {
+    let accessibilityLabel: String
+    let systemImage: String
+    let tint: Color
+    let isDisabled: Bool
+    let perform: @MainActor @Sendable () async -> Void
+
+    init(
+        accessibilityLabel: String,
+        systemImage: String,
+        tint: Color,
+        isDisabled: Bool = false,
+        perform: @escaping @MainActor @Sendable () async -> Void
+    ) {
+        self.accessibilityLabel = accessibilityLabel
+        self.systemImage = systemImage
+        self.tint = tint
+        self.isDisabled = isDisabled
+        self.perform = perform
+    }
+
+    static func run(
+        accessibilityLabel: String = "Run task",
+        systemImage: String = "play.circle",
+        tint: Color = .green,
+        isDisabled: Bool = false,
+        perform: @escaping @MainActor @Sendable () async -> Void
+    ) -> ScheduledTaskRowAction {
+        ScheduledTaskRowAction(
+            accessibilityLabel: accessibilityLabel,
+            systemImage: systemImage,
+            tint: tint,
+            isDisabled: isDisabled,
+            perform: perform
+        )
+    }
+
+    static func stop(
+        accessibilityLabel: String = "Stop task",
+        systemImage: String = "stop.circle",
+        tint: Color = .red,
+        isDisabled: Bool = false,
+        perform: @escaping @MainActor @Sendable () async -> Void
+    ) -> ScheduledTaskRowAction {
+        ScheduledTaskRowAction(
+            accessibilityLabel: accessibilityLabel,
+            systemImage: systemImage,
+            tint: tint,
+            isDisabled: isDisabled,
+            perform: perform
+        )
+    }
+}
+
+struct ScheduledTaskRowActionButton: View {
+    let action: ScheduledTaskRowAction
+    @State private var isPerforming = false
+
+    var body: some View {
+        Button {
+            performAction()
+        } label: {
+            Group {
+                if isPerforming {
+                    ProgressView()
+                        .controlSize(.small)
+                        .transition(.opacity.combined(with: .scale(scale: 0.82)))
+                } else {
+                    Label(action.accessibilityLabel, systemImage: action.systemImage)
+                        .labelStyle(.iconOnly)
+                        .font(.title3)
+                        .foregroundStyle(action.isDisabled ? Color.secondary.opacity(0.4) : action.tint)
+                        .transition(.opacity.combined(with: .scale(scale: 0.82)))
+                }
+            }
+            .frame(width: 28, height: 28)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(action.isDisabled || isPerforming)
+        .accessibilityLabel(action.accessibilityLabel)
+        .help(action.accessibilityLabel)
+    }
+
+    @MainActor
+    private func performAction() {
+        guard !action.isDisabled, !isPerforming else { return }
+        withAnimation(.easeInOut(duration: 0.18)) {
+            isPerforming = true
+        }
+
+        Task { @MainActor in
+            defer {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isPerforming = false
+                }
+            }
+            await action.perform()
+        }
     }
 }
 
