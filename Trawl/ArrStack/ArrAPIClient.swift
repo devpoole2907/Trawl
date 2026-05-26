@@ -38,6 +38,7 @@ extension SharedArrClient {
         guard let id = notification.id else { throw ArrError.invalidResponse }
         return try await base.putCodable("\(apiPath)/notification/\(id)", body: notification)
     }
+    func testNotification(_ notification: ArrNotification) async throws { try await base.postVoidCodable("\(apiPath)/notification/test", body: notification) }
 
     func getQueue(
         page: Int = 1,

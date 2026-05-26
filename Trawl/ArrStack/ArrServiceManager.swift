@@ -71,6 +71,7 @@ final class ArrServiceManager {
     private(set) var prowlarrConnected: Bool = false
     private(set) var prowlarrIsConnecting: Bool = false
     private(set) var prowlarrConnectionError: String?
+    private(set) var prowlarrTags: [ArrTag] = []
 
     // MARK: - Bazarr (multi-instance)
     private(set) var bazarrInstances: [BazarrClientEntry] = []
@@ -315,35 +316,32 @@ final class ArrServiceManager {
             return
         }
 
-        let fields = [
-            ArrNotificationField(name: "url", value: .string(pushURL)),
-            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
-            ArrNotificationField(name: "headers", value: .array([
-                .object([
-                    "Key": .string("X-Trawl-Token"),
-                    "Value": .string(deviceToken)
-                ])
-            ]))
-        ]
+        let serviceType = profile.resolvedServiceType
+        let isSonarr = serviceType == .sonarr
+        let isRadarr = serviceType == .radarr
+        let isProwlarr = serviceType == .prowlarr
 
         let newNotification = ArrNotification(
             id: existing?.id,
             name: notificationName,
-            onGrab: true,
-            onDownload: true,
-            onUpgrade: true,
-            onRename: true,
+            onGrab: isProwlarr ? nil : true,
+            onDownload: isProwlarr ? nil : true,
+            onUpgrade: isProwlarr ? nil : true,
+            onRename: isProwlarr ? nil : true,
             onHealthIssue: true,
             onApplicationUpdate: true,
-            onSeriesDelete: false,
-            onEpisodeFileDelete: false,
-            onEpisodeFileDeleteForUpgrade: false,
-            onMovieDelete: false,
-            onMovieFileDelete: false,
-            onMovieFileDeleteForUpgrade: false,
+            onSeriesAdd: isSonarr ? false : nil,
+            onSeriesDelete: isSonarr ? false : nil,
+            onEpisodeFileDelete: isSonarr ? false : nil,
+            onEpisodeFileDeleteForUpgrade: isSonarr ? false : nil,
+            onMovieAdded: isRadarr ? false : nil,
+            onMovieDelete: isRadarr ? false : nil,
+            onMovieFileDelete: isRadarr ? false : nil,
+            onMovieFileDeleteForUpgrade: isRadarr ? false : nil,
+            includeHealthWarnings: true,
             implementation: "Webhook",
             configContract: "WebhookSettings",
-            fields: fields,
+            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
             tags: []
         )
 
@@ -381,6 +379,95 @@ final class ArrServiceManager {
         return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken)
             ? .configured
             : .needsUpdate
+    }
+
+    func trawlNotification(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> ArrNotification {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+        let existing = notifications.first { $0.name == notificationName }
+        return notificationPayload(
+            existing: existing,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+    }
+
+    func saveTrawlNotification(
+        _ notification: ArrNotification,
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws {
+        let client = try notificationClient(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let payload = notificationPayload(
+            existing: notification,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+
+        if payload.id == nil {
+            _ = try await client.createNotification(payload)
+        } else {
+            _ = try await client.updateNotification(payload)
+        }
+    }
+
+    func testTrawlNotification(
+        _ notification: ArrNotification,
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws {
+        let client = try notificationClient(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let payload = notificationPayload(
+            existing: notification,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+        try await client.testNotification(payload)
+    }
+
+    func trawlNotificationSendsGrab(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> Bool {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+
+        guard let existing = notifications.first(where: { $0.name == notificationName }) else {
+            return false
+        }
+
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) && existing.onGrab == true
+    }
+
+    func tags(for profile: ArrServiceProfile) -> [ArrTag] {
+        guard let serviceType = profile.resolvedServiceType else { return [] }
+
+        switch serviceType {
+        case .sonarr:
+            return sonarrInstances.first(where: { $0.id == profile.id })?.tags ?? []
+        case .radarr:
+            return radarrInstances.first(where: { $0.id == profile.id })?.tags ?? []
+        case .prowlarr:
+            return prowlarrTags
+        case .bazarr:
+            return []
+        }
     }
 
     // MARK: - Backward-compatible Sonarr computed properties
@@ -604,12 +691,14 @@ final class ArrServiceManager {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 _ = try await client.getSystemStatus()
+                let fetchedTags = (try? await client.getTags()) ?? []
                 if activeProwlarrProfileID == nil || activeProwlarrProfileID == profile.id {
                     withAnimation(.snappy) {
                         prowlarrClient = client
                         activeProwlarrProfileID = profile.id
                         prowlarrConnected = true
                         prowlarrConnectionError = nil
+                        prowlarrTags = fetchedTags
                     }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
@@ -711,6 +800,7 @@ final class ArrServiceManager {
             prowlarrConnected = false
             prowlarrIsConnecting = false
             prowlarrConnectionError = nil
+            prowlarrTags = []
         }
         connectionErrors.removeAll()
         sonarrHealthChecks = []
@@ -768,6 +858,7 @@ final class ArrServiceManager {
                     activeProwlarrProfileID = nil
                     prowlarrConnected = false
                     prowlarrConnectionError = nil
+                    prowlarrTags = []
                 }
             }
             if let id = profileID {
@@ -1093,6 +1184,7 @@ final class ArrServiceManager {
                 prowlarrConnectionError = message
                 prowlarrConnected = false
                 activeProwlarrProfileID = nil
+                prowlarrTags = []
             }
         case .bazarr:
             updateEntry(in: &bazarrInstances, id: id) {
@@ -1183,7 +1275,10 @@ final class ArrServiceManager {
             }
             return client
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            guard activeProwlarrProfileID == profile.id, let prowlarrClient else {
+                throw ArrError.noServiceConfigured
+            }
+            return prowlarrClient
         case .bazarr:
             throw ArrError.unsupportedNotificationsService(serviceType.displayName)
         }
@@ -1191,6 +1286,64 @@ final class ArrServiceManager {
 
     private func notificationName(for profile: ArrServiceProfile) -> String {
         "Trawl (\(profile.displayName))"
+    }
+
+    private func notificationPayload(
+        existing: ArrNotification?,
+        profile: ArrServiceProfile,
+        pushURL: String,
+        deviceToken: String
+    ) -> ArrNotification {
+        let serviceType = profile.resolvedServiceType
+        let isSonarr = serviceType == .sonarr
+        let isRadarr = serviceType == .radarr
+        let isProwlarr = serviceType == .prowlarr
+
+        return ArrNotification(
+            id: existing?.id,
+            name: notificationName(for: profile),
+            onGrab: isProwlarr ? nil : (existing?.onGrab ?? true),
+            onDownload: isProwlarr ? nil : (existing?.onDownload ?? true),
+            onUpgrade: isProwlarr ? nil : (existing?.onUpgrade ?? true),
+            onRename: isProwlarr ? nil : (existing?.onRename ?? true),
+            onHealthIssue: existing?.onHealthIssue ?? true,
+            onApplicationUpdate: existing?.onApplicationUpdate ?? true,
+            onSeriesAdd: isSonarr ? (existing?.onSeriesAdd ?? false) : nil,
+            onSeriesDelete: isSonarr ? (existing?.onSeriesDelete ?? false) : nil,
+            onEpisodeFileDelete: isSonarr ? (existing?.onEpisodeFileDelete ?? false) : nil,
+            onEpisodeFileDeleteForUpgrade: isSonarr ? (existing?.onEpisodeFileDeleteForUpgrade ?? false) : nil,
+            onMovieAdded: isRadarr ? (existing?.onMovieAdded ?? false) : nil,
+            onMovieDelete: isRadarr ? (existing?.onMovieDelete ?? false) : nil,
+            onMovieFileDelete: isRadarr ? (existing?.onMovieFileDelete ?? false) : nil,
+            onMovieFileDeleteForUpgrade: isRadarr ? (existing?.onMovieFileDeleteForUpgrade ?? false) : nil,
+            includeHealthWarnings: existing?.includeHealthWarnings ?? true,
+            implementation: "Webhook",
+            configContract: "WebhookSettings",
+            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
+            tags: existing?.tags ?? []
+        )
+    }
+
+    private func notificationFields(pushURL: String, deviceToken: String, serviceType: ArrServiceType?) -> [ArrNotificationField] {
+        if serviceType == .prowlarr {
+            return [
+                ArrNotificationField(name: "url", value: .string(pushURL)),
+                ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+                ArrNotificationField(name: "username", value: .string("trawl")),
+                ArrNotificationField(name: "password", value: .string(deviceToken))
+            ]
+        }
+
+        return [
+            ArrNotificationField(name: "url", value: .string(pushURL)),
+            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+            ArrNotificationField(name: "headers", value: .array([
+                .object([
+                    "Key": .string("X-Trawl-Token"),
+                    "Value": .string(deviceToken)
+                ])
+            ]))
+        ]
     }
 
     private func pushNotificationURL(from workerURL: String) throws -> String {
@@ -1233,34 +1386,30 @@ final class ArrServiceManager {
             }
         }()
         let tokenMatches: Bool = {
-            guard case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value else { return false }
-            return headers.contains { headerValue in
-                guard case .object(let header) = headerValue else { return false }
+            if case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value {
+                return headers.contains { headerValue in
+                    guard case .object(let header) = headerValue else { return false }
 
-                let key: String? = {
-                    if case .string(let value) = header["Key"] { return value }
-                    if case .string(let value) = header["key"] { return value }
-                    return nil
-                }()
+                    let key: String? = {
+                        if case .string(let value) = header["Key"] { return value }
+                        if case .string(let value) = header["key"] { return value }
+                        return nil
+                    }()
 
-                let value: String? = {
-                    if case .string(let storedValue) = header["Value"] { return storedValue }
-                    if case .string(let storedValue) = header["value"] { return storedValue }
-                    return nil
-                }()
+                    let value: String? = {
+                        if case .string(let storedValue) = header["Value"] { return storedValue }
+                        if case .string(let storedValue) = header["value"] { return storedValue }
+                        return nil
+                    }()
 
-                return key == "X-Trawl-Token" && value == deviceToken
+                    return key == "X-Trawl-Token" && value == deviceToken
+                }
             }
-        }()
-        let triggersMatch =
-            notification.onGrab &&
-            notification.onDownload &&
-            notification.onUpgrade != false &&
-            notification.onRename != false &&
-            notification.onHealthIssue != false &&
-            notification.onApplicationUpdate != false
 
-        return urlMatches && methodMatches && tokenMatches && triggersMatch
+            guard case .string(let password) = notification.fields.first(where: { $0.name == "password" })?.value else { return false }
+            return password == deviceToken
+        }()
+        return urlMatches && methodMatches && tokenMatches
     }
 
     private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {

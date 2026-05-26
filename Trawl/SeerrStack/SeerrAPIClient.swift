@@ -246,6 +246,18 @@ actor SeerrAPIClient {
         try await get("/api/v1/settings/public")
     }
 
+    func getWebhookNotificationSettings() async throws -> SeerrWebhookNotificationSettings {
+        try await get("/api/v1/settings/notifications/webhook")
+    }
+
+    func updateWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {
+        try await postVoid("/api/v1/settings/notifications/webhook", jsonBody: settings)
+    }
+
+    func testWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {
+        try await postVoid("/api/v1/settings/notifications/webhook/test", jsonBody: settings)
+    }
+
     // MARK: - HTTP Infrastructure
 
     private func get<T: Decodable>(_ path: String, params: [String: String] = [:]) async throws -> T {

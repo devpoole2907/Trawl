@@ -287,7 +287,7 @@ struct SettingsView: View {
                             .cornerRadius(8)
                         }
 
-                        Text("Use the 'One-Tap Setup' inside Radarr or Sonarr settings to link your notifications automatically.")
+                        Text("Use the notification settings hub to link app webhooks automatically.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

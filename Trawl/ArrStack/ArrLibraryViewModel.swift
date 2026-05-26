@@ -450,11 +450,11 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         }
 
         do {
-            return try await serviceManager.notificationSetupStatus(
+            return try await serviceManager.trawlNotificationSendsGrab(
                 for: profile,
                 workerURL: NotificationService.shared.workerURL,
                 deviceToken: token
-            ) == .configured
+            )
         } catch {
             return false
         }

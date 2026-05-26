@@ -19,6 +19,11 @@ final class InAppNotificationCenter {
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
     var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }
 
+    // Current banner frame in window coordinates. Used by the iOS passthrough
+    // window's hit test so touches inside the banner reach SwiftUI's gesture
+    // system. ObservationIgnored — read imperatively from UIKit, not via views.
+    @ObservationIgnored var bannerFrame: CGRect = .zero
+
     private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
 

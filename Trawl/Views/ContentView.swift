@@ -1171,6 +1171,7 @@ private final class InAppNotificationWindowPresenter {
         hostingController.view.backgroundColor = .clear
 
         let overlayWindow = PassthroughNotificationWindow(windowScene: scene)
+        overlayWindow.notificationCenter = notificationCenter
         overlayWindow.backgroundColor = .clear
         overlayWindow.windowLevel = .statusBar + 1
         overlayWindow.rootViewController = hostingController
@@ -1181,9 +1182,29 @@ private final class InAppNotificationWindowPresenter {
 }
 
 private final class PassthroughNotificationWindow: UIWindow {
+    weak var notificationCenter: InAppNotificationCenter?
+
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hitView = super.hitTest(point, with: event)
-        return hitView === rootViewController?.view ? nil : hitView
+
+        // A SwiftUI subview claimed the touch — deliver normally.
+        if hitView !== rootViewController?.view {
+            return hitView
+        }
+
+        // The host view itself was hit. iOS 26's glassEffect renders a
+        // UIVisualEffectView that often doesn't claim touches, so hits inside
+        // the visible banner can land on the bare host. Capture them only when
+        // a banner is showing AND the point is inside its tracked frame, so the
+        // rest of the window stays passthrough.
+        if let center = notificationCenter,
+           center.currentBanner != nil,
+           !center.bannerFrame.isEmpty,
+           center.bannerFrame.contains(point) {
+            return hitView
+        }
+
+        return nil
     }
 }
 
@@ -1208,6 +1229,14 @@ private struct InAppNotificationWindowOverlay: View {
                         .withActionAffordance(notificationCenter.currentBannerHasAction)
                         .padding(.top, toolbarAwareTopPadding(safeAreaTop: geometry.safeAreaInsets.top))
                         .transition(.move(edge: .top).combined(with: .opacity))
+                        .onGeometryChange(for: CGRect.self) { proxy in
+                            proxy.frame(in: .global)
+                        } action: { newFrame in
+                            notificationCenter.bannerFrame = newFrame
+                        }
+                        .onDisappear {
+                            notificationCenter.bannerFrame = .zero
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -1236,9 +1265,10 @@ private struct InAppNotificationBanner: View {
     var hasAction = false
 
     @State private var dragOffset: CGFloat = 0
+    @State private var didDrag = false
 
     var body: some View {
-        Button(action: onTap) {
+        ZStack {
             HStack(spacing: 12) {
                 if item.showsProgressView {
                     ProgressView()
@@ -1268,32 +1298,51 @@ private struct InAppNotificationBanner: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 16))
         }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 16))
         .frame(maxWidth: 560)
         .padding(.horizontal, 16)
         .contentShape(Rectangle())
         .offset(y: dragOffset)
-        .simultaneousGesture(
-            DragGesture()
+        .gesture(
+            DragGesture(minimumDistance: 0)
                 .onChanged { value in
-                    if value.translation.height < 0 {
-                        dragOffset = value.translation.height
+                    if abs(value.translation.width) > 5 || abs(value.translation.height) > 5 {
+                        didDrag = true
+                    }
+                    let translation = value.translation.height
+                    if translation < 0 {
+                        // Upward: track 1:1 — user is dismissing.
+                        dragOffset = translation
+                    } else {
+                        // Downward: rubber-band so the banner gives a bit
+                        // before snapping back, like iOS scroll overscroll.
+                        dragOffset = rubberBand(translation)
                     }
                 }
                 .onEnded { value in
+                    let wasDrag = didDrag
+                    didDrag = false
+
                     if value.translation.height < -40 {
                         onDismiss()
-                    } else {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            dragOffset = 0
-                        }
+                        return
+                    }
+
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) {
+                        dragOffset = 0
+                    }
+
+                    if !wasDrag {
+                        onTap()
                     }
                 }
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityAction { onTap() }
     }
 }
 
@@ -1303,6 +1352,14 @@ private extension InAppNotificationBanner {
         copy.hasAction = hasAction
         return copy
     }
+}
+
+// UIKit-style rubber-band resistance: distance grows quickly at first then
+// asymptotically approaches `dimension`, so the user can tug a little but
+// never drag the banner indefinitely downward.
+private func rubberBand(_ distance: CGFloat, dimension: CGFloat = 80) -> CGFloat {
+    let d = max(distance, 0)
+    return (1.0 - 1.0 / ((d * 0.55 / dimension) + 1.0)) * dimension
 }
 
 private extension InAppBannerItem {

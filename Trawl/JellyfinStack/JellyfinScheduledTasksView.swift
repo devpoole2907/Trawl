@@ -108,54 +108,21 @@ struct JellyfinScheduledTasksView: View {
     }
 
     private func taskRow(_ task: JellyfinScheduledTask, viewModel: JellyfinScheduledTasksViewModel) -> some View {
-        ScheduledTaskRowView(
-            status: taskStatus(task),
-            title: task.name,
-            subtitle: task.description,
-            progress: task.isRunning ? task.currentProgressPercentage : nil,
-            result: taskResult(task.lastExecutionResult),
-            action: taskAction(task, viewModel: viewModel)
-        )
+        ScheduledTaskControlRow(item: task, action: taskAction(task, viewModel: viewModel))
     }
 
     private func taskAction(
         _ task: JellyfinScheduledTask,
         viewModel: JellyfinScheduledTasksViewModel
     ) -> ScheduledTaskRowAction {
-        if task.isRunning || task.isCancelling {
-            ScheduledTaskRowAction.stop(
-                accessibilityLabel: "Stop \(task.name)"
-            ) {
-                taskPendingStop = task
-            }
-        } else {
-            ScheduledTaskRowAction.run(
-                accessibilityLabel: "Run \(task.name)"
-            ) {
-                await viewModel.startTask(id: task.id)
-            }
+        ScheduledTaskRowAction.runOrStopTask(
+            title: task.scheduledTaskRowTitle,
+            isRunning: task.isRunning || task.isCancelling
+        ) {
+            await viewModel.startTask(id: task.id)
+        } stop: {
+            taskPendingStop = task
         }
-    }
-
-    private func taskStatus(_ task: JellyfinScheduledTask) -> ScheduledTaskRowStatus {
-        if task.isRunning { return .running }
-        if task.isCancelling { return .cancelling }
-        return .idle
-    }
-
-    private func taskResult(_ result: JellyfinScheduledTaskResult?) -> ScheduledTaskRowResult? {
-        guard let result else { return nil }
-
-        var detail: String?
-        if let start = result.startTimeUtc, let end = result.endTimeUtc {
-            detail = durationText(start: start, end: end)
-        }
-
-        return ScheduledTaskRowResult(
-            title: result.statusBadge,
-            detail: detail,
-            color: result.isSuccess ? .green : .red
-        )
     }
 
     private var groupedCategories: [(key: String, value: [JellyfinScheduledTask])] {
@@ -164,28 +131,66 @@ struct JellyfinScheduledTasksView: View {
         return grouped.sorted { $0.key < $1.key }
     }
 
-    private func durationText(start: String, end: String) -> String {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let parse = { (raw: String) -> Date? in
-            isoFormatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
-        }
-        guard let startDate = parse(start), let endDate = parse(end) else { return "" }
-        let interval = endDate.timeIntervalSince(startDate)
-        if interval < 60 {
-            return "\(Int(interval))s"
-        } else if interval < 3600 {
-            return "\(Int(interval / 60))m"
-        } else {
-            return "\(Int(interval / 3600))h \(Int(interval.truncatingRemainder(dividingBy: 3600) / 60))m"
-        }
-    }
-
     private var stopTaskAlertPresented: Binding<Bool> {
         Binding(
             get: { taskPendingStop != nil },
             set: { if !$0 { taskPendingStop = nil } }
         )
+    }
+}
+
+extension JellyfinScheduledTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name
+    }
+
+    var scheduledTaskRowSubtitle: String? {
+        ScheduledTaskRowFormatter.cleanedText(description)
+    }
+
+    var scheduledTaskRowSubtitleLineLimit: Int? {
+        nil
+    }
+
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: isRunning, isCancelling: isCancelling)
+    }
+
+    var scheduledTaskRowProgress: Double? {
+        isRunning ? currentProgressPercentage : nil
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        lastExecutionResult?.scheduledTaskRowDetails ?? []
+    }
+
+    var scheduledTaskRowResult: ScheduledTaskRowResult? {
+        lastExecutionResult?.scheduledTaskRowResult
+    }
+}
+
+private extension JellyfinScheduledTaskResult {
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        [
+            ScheduledTaskRowDetail.lastRun(from: endTimeUtc ?? startTimeUtc),
+            ScheduledTaskRowFormatter.durationText(start: startTimeUtc, end: endTimeUtc).map { .duration($0) }
+        ].compactMap { $0 }
+    }
+
+    var scheduledTaskRowResult: ScheduledTaskRowResult? {
+        guard !isSuccess else { return nil }
+
+        return ScheduledTaskRowResult(
+            title: statusBadge,
+            detail: ScheduledTaskRowFormatter.cleanedText(errorMessage),
+            color: statusColor
+        )
+    }
+
+    var statusColor: Color {
+        if status == "Cancelled" { return .orange }
+        if isFailure { return .red }
+        return .secondary
     }
 }
 

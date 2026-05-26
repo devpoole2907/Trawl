@@ -1401,7 +1401,7 @@ enum ArrError: LocalizedError, Sendable {
         case .connectionFailed:
             "Could not connect. Check the URL and ensure the service is running."
         case .unsupportedNotificationsService(let service):
-            "\(service) does not support one-tap notification setup."
+            "\(service) does not support webhook notification setup."
         case .unsupportedIndexerService(let service):
             "\(service) does not support direct indexer management."
         case .profileSelectionCountMismatch(let itemCount, let profileCount):

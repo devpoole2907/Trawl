@@ -2667,10 +2667,9 @@ private struct IntegrationRelationshipRow: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: -6) {
+            HStack(spacing: 5) {
                 ForEach(targets, id: \.self) { target in
                     serviceIcon(target)
-                        .background(Circle().fill(.background))
                 }
             }
         }
@@ -3265,13 +3264,21 @@ struct RecentNotificationsSheet: View {
     @State private var unreadSinceDate: Date = .distantPast
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
+    private var unreadNotificationCount: Int {
+        inAppNotificationCenter.recentNotifications.filter { $0.timestamp > effectiveUnreadSinceDate }.count
+    }
+    private var effectiveUnreadSinceDate: Date {
+        unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
+    }
 
     var body: some View {
         AppSheetShell(
             title: "Notifications",
-            subtitle: notificationCount > 0 ? "\(notificationCount) notification\(notificationCount == 1 ? "" : "s")" : nil,
-            confirmTitle: notificationCount > 0 ? "Clear" : nil,
-            onConfirm: notificationCount > 0 ? { showClearConfirmation = true } : nil,
+            subtitle: "\(unreadNotificationCount) unread",
+            cancelTitle: "Close",
+            cancelSystemImage: "xmark",
+            showsCancel: false,
+            usesInlineLargeTitle: true,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
@@ -3304,6 +3311,26 @@ struct RecentNotificationsSheet: View {
             } message: {
                 Text("All recent notifications will be removed.")
             }
+            #if os(iOS)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        NotificationSettingsHubView()
+                    } label: {
+                        Label("Notification Settings", systemImage: "gearshape")
+                    }
+                }
+
+                if notificationCount > 0 {
+                    ToolbarSpacer(.flexible, placement: .topBarTrailing)
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button("Clear") {
+                            showClearConfirmation = true
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .onAppear {
             unreadSinceDate = inAppNotificationCenter.lastReadDate
@@ -3457,6 +3484,493 @@ struct RecentNotificationsSheet: View {
                 .padding(.leading, 15)
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct NotificationSettingsHubView: View {
+    @Environment(\.openURL) private var openURL
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Query private var allProfiles: [ArrServiceProfile]
+    @Query private var seerrProfiles: [SeerrServiceProfile]
+
+    var body: some View {
+        List {
+            #if os(iOS)
+            Section {
+                Button("Open Trawl Notification Settings", systemImage: "gearshape") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+            } header: {
+                Text("Device Notifications")
+            } footer: {
+                Text("System notification permission is required before app webhooks can send push notifications.")
+            }
+            #endif
+
+            Section {
+                ForEach(ArrServiceType.webhookNotificationServices) { serviceType in
+                    let profile = profile(for: serviceType)
+                    NavigationLink {
+                        ArrWebhookNotificationConfigView(
+                            serviceType: serviceType,
+                            profile: profile,
+                            isConnected: isConnected(serviceType)
+                        )
+                    } label: {
+                        ArrWebhookNotificationHubRow(
+                            serviceType: serviceType,
+                            profile: profile,
+                            isConnected: isConnected(serviceType)
+                        )
+                    }
+                }
+
+                NavigationLink {
+                    SeerrWebhookNotificationConfigView(
+                        profile: seerrProfile,
+                        isConnected: isSeerrConnected
+                    )
+                } label: {
+                    SeerrWebhookNotificationHubRow(
+                        profile: seerrProfile,
+                        isConnected: isSeerrConnected
+                    )
+                }
+            } header: {
+                Text("App Webhooks")
+            } footer: {
+                Text("Creates or updates the same Trawl webhook offered from each app's settings.")
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        .navigationBarTitleDisplayMode(.inline)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .background(MoreDestinationGradientBackground(accent: .integrations))
+        .navigationTitle("Notification Settings")
+    }
+
+    private func profile(for serviceType: ArrServiceType) -> ArrServiceProfile? {
+        arrServiceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
+    }
+
+    private func isConnected(_ serviceType: ArrServiceType) -> Bool {
+        guard let profile = profile(for: serviceType) else { return false }
+        return arrServiceManager.isConnected(serviceType, profileID: profile.id)
+    }
+
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
+    private var isSeerrConnected: Bool {
+        guard let seerrProfile else { return false }
+        return seerrServiceManager.activeProfileID == seerrProfile.id && seerrServiceManager.isConnected
+    }
+}
+
+private struct SeerrWebhookNotificationHubRow: View {
+    let profile: SeerrServiceProfile?
+    let isConnected: Bool
+
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @State private var status: ArrNotificationSetupStatus?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: ServiceIdentity.seerr.systemImage)
+                .foregroundStyle(ServiceIdentity.seerr.brandColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Seerr")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                Text(profile?.displayName ?? "No server configured")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                statusLabel
+                    .font(.caption2)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 4)
+        .task(id: taskID) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
+            await refreshStatus()
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await loadStatus() }
+            }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if profile == nil {
+            Label("Add a Seerr server first", systemImage: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+        } else if !isConnected {
+            Label("Seerr is unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if status == nil {
+            Label("Open to configure request and issue events", systemImage: "slider.horizontal.3")
+                .foregroundStyle(.secondary)
+        } else if let status {
+            webhookStatusRow(status)
+        }
+    }
+
+    private var taskID: String {
+        #if os(iOS)
+        "seerr-\(profile?.id.uuidString ?? "none")-\(isConnected)-\(deviceToken ?? "nil")"
+        #else
+        "seerr-\(profile?.id.uuidString ?? "none")-\(isConnected)"
+        #endif
+    }
+
+    @MainActor
+    private func refreshStatus() async {
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+        await loadStatus()
+    }
+
+    @MainActor
+    private func loadStatus() async {
+        guard isConnected, profile != nil else {
+            status = nil
+            return
+        }
+
+        #if os(iOS)
+        let token = if let deviceToken {
+            deviceToken
+        } else {
+            await NotificationService.shared.deviceToken
+        }
+        #else
+        let token: String? = nil
+        #endif
+
+        guard let token, !token.isEmpty else {
+            status = nil
+            return
+        }
+
+        status = try? await seerrServiceManager.webhookNotificationSetupStatus(
+            workerURL: NotificationService.shared.workerURL,
+            deviceToken: token
+        )
+    }
+}
+
+private struct SeerrWebhookNotificationConfigView: View {
+    let profile: SeerrServiceProfile?
+    let isConnected: Bool
+
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var draft = SeerrWebhookNotificationDraft()
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var isTesting = false
+    @State private var loadError: String?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    private var canSave: Bool {
+        isConnected && profile != nil && !isSaving && !isLoading && hasDeviceToken
+    }
+
+    private var canTest: Bool {
+        canSave && !isTesting
+    }
+
+    private var hasDeviceToken: Bool {
+        #if os(iOS)
+        deviceToken?.isEmpty == false
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        Form {
+            if let loadError {
+                Section {
+                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            if profile == nil || !isConnected || !hasDeviceToken {
+                Section {
+                    Label(unavailableMessage, systemImage: "bell.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                ForEach(SeerrWebhookNotificationTrigger.all) { trigger in
+                    Toggle(isOn: binding(for: trigger.type)) {
+                        Label(trigger.title, systemImage: trigger.systemImage)
+                    }
+                }
+            } header: {
+                Text("Notification Triggers")
+            } footer: {
+                Text("Select which request and issue events should trigger this notification")
+            }
+
+            Section {
+                Button {
+                    Task { await testNotification() }
+                } label: {
+                    if isTesting {
+                        HStack {
+                            ProgressView()
+                                .padding(.trailing, 8)
+                            Text("Testing...")
+                        }
+                    } else {
+                        Label("Test", systemImage: "paperplane")
+                    }
+                }
+                .disabled(!canTest)
+            }
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationTitle("Seerr Notifications")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        Task { await save() }
+                    }
+                    .disabled(!canSave)
+                }
+            }
+        }
+        .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive {
+                draft = .preview
+                return
+            }
+            #endif
+            await load()
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await load() }
+            }
+        }
+        #endif
+    }
+
+    private var unavailableMessage: String {
+        if profile == nil {
+            return "Add a Seerr server before configuring notifications."
+        }
+        if !isConnected {
+            return "Seerr needs to be connected before webhook setup."
+        }
+        if !hasDeviceToken {
+            return "Enable notifications in Trawl settings first."
+        }
+        return "Notification configuration is unavailable."
+    }
+
+    @MainActor
+    private func load() async {
+        guard isConnected, profile != nil else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+
+        guard let token = currentDeviceToken else { return }
+
+        do {
+            let settings = try await seerrServiceManager.trawlWebhookNotificationSettings(
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            draft = SeerrWebhookNotificationDraft(settings: settings)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private var currentDeviceToken: String? {
+        #if os(iOS)
+        guard let deviceToken, !deviceToken.isEmpty else { return nil }
+        return deviceToken
+        #else
+        return nil
+        #endif
+    }
+
+    private func binding(for type: SeerrNotificationType) -> Binding<Bool> {
+        Binding(
+            get: { draft.isEnabled(type) },
+            set: { draft.setEnabled($0, for: type) }
+        )
+    }
+
+    @MainActor
+    private func save() async {
+        guard let token = currentDeviceToken else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await seerrServiceManager.saveTrawlWebhookNotificationSettings(
+                draft.settings,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Saved", message: "Seerr notifications updated.")
+            await load()
+        } catch {
+            inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func testNotification() async {
+        guard let token = currentDeviceToken else { return }
+        isTesting = true
+        defer { isTesting = false }
+
+        do {
+            try await seerrServiceManager.testTrawlWebhookNotificationSettings(
+                draft.settings,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Test Sent", message: "Seerr accepted the webhook test.")
+        } catch {
+            inAppNotificationCenter.showError(title: "Test Failed", message: error.localizedDescription)
+        }
+    }
+}
+
+private struct SeerrWebhookNotificationDraft {
+    var enabledTypes: Set<SeerrNotificationType> = Set(SeerrWebhookNotificationTrigger.all.map(\.type))
+
+    init() {}
+
+    init(settings: SeerrWebhookNotificationSettings) {
+        let visibleTypes = Set(SeerrWebhookNotificationTrigger.all.map(\.type))
+        enabledTypes = Set(visibleTypes.filter { settings.types & $0.rawValue != 0 })
+        if enabledTypes.isEmpty {
+            enabledTypes = visibleTypes
+        }
+    }
+
+    static var preview: SeerrWebhookNotificationDraft {
+        var draft = SeerrWebhookNotificationDraft()
+        draft.enabledTypes.remove(.issueReopened)
+        return draft
+    }
+
+    var settings: SeerrWebhookNotificationSettings {
+        let typeMask = enabledTypes.reduce(SeerrNotificationType.testNotification.rawValue) { partialResult, type in
+            partialResult | type.rawValue
+        }
+
+        return SeerrWebhookNotificationSettings(
+            enabled: true,
+            types: typeMask,
+            options: SeerrWebhookNotificationOptions(
+                webhookUrl: nil,
+                authHeader: nil,
+                jsonPayload: nil,
+                supportVariables: true,
+                customHeaders: nil
+            )
+        )
+    }
+
+    func isEnabled(_ type: SeerrNotificationType) -> Bool {
+        enabledTypes.contains(type)
+    }
+
+    mutating func setEnabled(_ isEnabled: Bool, for type: SeerrNotificationType) {
+        if isEnabled {
+            enabledTypes.insert(type)
+        } else {
+            enabledTypes.remove(type)
+        }
+    }
+}
+
+private struct SeerrWebhookNotificationTrigger: Identifiable {
+    let type: SeerrNotificationType
+    let title: String
+    let systemImage: String
+
+    var id: Int { type.rawValue }
+
+    static let all: [SeerrWebhookNotificationTrigger] = [
+        .init(type: .mediaPending, title: "Request Pending Approval", systemImage: "hourglass.badge.plus"),
+        .init(type: .mediaAutoRequested, title: "Request Automatically Submitted", systemImage: "wand.and.sparkles"),
+        .init(type: .mediaAutoApproved, title: "Request Automatically Approved", systemImage: "checkmark.seal.fill"),
+        .init(type: .mediaApproved, title: "Request Approved", systemImage: "checkmark.circle.fill"),
+        .init(type: .mediaDeclined, title: "Request Declined", systemImage: "xmark.circle.fill"),
+        .init(type: .mediaAvailable, title: "Request Available", systemImage: "play.tv.fill"),
+        .init(type: .mediaFailed, title: "Request Processing Failed", systemImage: "exclamationmark.triangle.fill"),
+        .init(type: .issueCreated, title: "Issue Reported", systemImage: "exclamationmark.bubble.fill"),
+        .init(type: .issueComment, title: "Issue Comment", systemImage: "text.bubble.fill"),
+        .init(type: .issueResolved, title: "Issue Resolved", systemImage: "checkmark.message.fill"),
+        .init(type: .issueReopened, title: "Issue Reopened", systemImage: "arrow.counterclockwise.circle.fill")
+    ]
+}
+
+@ViewBuilder
+private func webhookStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
+    switch status {
+    case .configured:
+        Label("Trawl webhook is configured", systemImage: "checkmark.circle.fill")
+            .foregroundStyle(.green)
+    case .needsUpdate:
+        Label("Trawl webhook needs updating", systemImage: "arrow.triangle.2.circlepath.circle.fill")
+            .foregroundStyle(.orange)
+    case .notAdded:
+        Label("Trawl webhook has not been added", systemImage: "minus.circle.fill")
+            .foregroundStyle(.secondary)
     }
 }
 

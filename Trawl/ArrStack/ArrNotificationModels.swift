@@ -3,22 +3,26 @@ import Foundation
 nonisolated struct ArrNotification: Codable, Identifiable, Sendable {
     let id: Int?
     let name: String
-    let onGrab: Bool
-    let onDownload: Bool
+    let onGrab: Bool?
+    let onDownload: Bool?
     let onUpgrade: Bool?
     let onRename: Bool?
     let onHealthIssue: Bool?
     let onApplicationUpdate: Bool?
     
     // Sonarr specific
+    let onSeriesAdd: Bool?
     let onSeriesDelete: Bool?
     let onEpisodeFileDelete: Bool?
     let onEpisodeFileDeleteForUpgrade: Bool?
     
     // Radarr specific
+    let onMovieAdded: Bool?
     let onMovieDelete: Bool?
     let onMovieFileDelete: Bool?
     let onMovieFileDeleteForUpgrade: Bool?
+
+    let includeHealthWarnings: Bool?
 
     let implementation: String
     let configContract: String

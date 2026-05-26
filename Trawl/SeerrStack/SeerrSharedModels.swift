@@ -28,6 +28,44 @@ nonisolated struct SeerrPagedResponse<Element>: Codable, Sendable where Element:
 
 typealias SeerrRequestListResponse = SeerrPagedResponse<SeerrMediaRequest>
 
+nonisolated struct SeerrWebhookNotificationSettings: Codable, Sendable {
+    var enabled: Bool
+    var types: Int
+    var options: SeerrWebhookNotificationOptions
+}
+
+nonisolated struct SeerrWebhookNotificationOptions: Codable, Sendable {
+    var webhookUrl: String?
+    var authHeader: String?
+    var jsonPayload: String?
+    var supportVariables: Bool?
+    var customHeaders: [SeerrWebhookCustomHeader]?
+}
+
+nonisolated struct SeerrWebhookCustomHeader: Codable, Identifiable, Sendable {
+    var key: String
+    var value: String
+
+    var id: String { "\(key)=\(value)" }
+}
+
+nonisolated enum SeerrNotificationType: Int, CaseIterable, Identifiable, Sendable {
+    case mediaPending = 2
+    case mediaApproved = 4
+    case mediaAvailable = 8
+    case mediaFailed = 16
+    case testNotification = 32
+    case mediaDeclined = 64
+    case mediaAutoApproved = 128
+    case issueCreated = 256
+    case issueComment = 512
+    case issueResolved = 1024
+    case issueReopened = 2048
+    case mediaAutoRequested = 4096
+
+    var id: Int { rawValue }
+}
+
 nonisolated struct SeerrMediaRequest: Codable, Identifiable, Sendable {
     let id: Int
     let status: Int?

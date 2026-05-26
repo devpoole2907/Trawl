@@ -338,61 +338,53 @@ private struct ArrScheduledTaskRow: View {
     let onTrigger: () async -> Void
 
     var body: some View {
-        ScheduledTaskRowView(
-            status: taskStatus,
-            title: task.name ?? "Unknown Task",
-            details: taskDetails,
-            action: taskAction
-        )
+        ScheduledTaskControlRow(item: task, action: taskAction)
     }
 
     private var taskAction: ScheduledTaskRowAction {
-        let title = task.name ?? "task"
-        return ScheduledTaskRowAction.run(
-            accessibilityLabel: "Run \(title)",
+        ScheduledTaskRowAction.runTask(
+            title: task.scheduledTaskRowTitle,
             isDisabled: task.taskName == nil || task.isRunning == true
         ) {
             await onTrigger()
         }
     }
+}
 
-    private var taskStatus: ScheduledTaskRowStatus {
-        task.isRunning == true ? .running : .idle
+extension ArrScheduledTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name ?? "Unknown Task"
     }
 
-    private var taskDetails: [ScheduledTaskRowDetail] {
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: isRunning == true)
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
         var details: [ScheduledTaskRowDetail] = []
 
-        if let interval = task.interval {
-            details.append(ScheduledTaskRowDetail(icon: "clock", text: intervalText(interval)))
+        if let interval {
+            details.append(.interval(ScheduledTaskRowFormatter.compactIntervalText(minutes: interval)))
         }
-        if let last = task.lastExecution {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.counterclockwise", text: relativeDate(last)))
+        if let lastExecutionDetail {
+            details.append(lastExecutionDetail)
         }
-        if let next = task.nextExecution {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(relativeDate(next))"))
+        if let nextExecutionDetail {
+            details.append(nextExecutionDetail)
         }
-        if let duration = task.lastDuration, duration != "00:00:00" {
-            details.append(ScheduledTaskRowDetail(icon: "timer", text: duration))
+        if let duration = ScheduledTaskRowFormatter.cleanedText(lastDuration), duration != "00:00:00" {
+            details.append(.duration(duration))
         }
 
         return details
     }
 
-    private func intervalText(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h" }
-        return "\(hours / 24)d"
+    private var lastExecutionDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.lastRun(from: lastExecution)
     }
 
-    private func relativeDate(_ raw: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        return raw
+    private var nextExecutionDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.nextRun(from: nextExecution)
     }
 }
 
@@ -403,38 +395,38 @@ private struct BazarrTaskRow: View {
     let onTrigger: () async -> Void
 
     var body: some View {
-        ScheduledTaskRowView(
-            status: taskStatus,
-            title: task.name,
-            details: taskDetails,
-            action: taskAction
-        )
+        ScheduledTaskControlRow(item: task, action: taskAction)
     }
 
     private var taskAction: ScheduledTaskRowAction {
-        ScheduledTaskRowAction.run(
-            accessibilityLabel: "Run \(task.name)",
+        ScheduledTaskRowAction.runTask(
+            title: task.scheduledTaskRowTitle,
             isDisabled: task.jobRunning
         ) {
             await onTrigger()
         }
     }
+}
 
-    private var taskStatus: ScheduledTaskRowStatus {
-        task.jobRunning ? .running : .idle
+extension BazarrTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name
     }
 
-    private var taskDetails: [ScheduledTaskRowDetail] {
-        var details: [ScheduledTaskRowDetail] = []
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: jobRunning)
+    }
 
-        if let interval = task.interval {
-            details.append(ScheduledTaskRowDetail(icon: "clock", text: interval))
-        }
-        if let nextRunIn = task.nextRunIn {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(nextRunIn)"))
-        }
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        [
+            ScheduledTaskRowFormatter.cleanedText(interval).map { ScheduledTaskRowDetail.interval($0) },
+            nextRunDetail
+        ].compactMap { $0 }
+    }
 
-        return details
+    private var nextRunDetail: ScheduledTaskRowDetail? {
+        if let detail = ScheduledTaskRowDetail.nextRun(from: nextRunTime) { return detail }
+        return ScheduledTaskRowFormatter.cleanedText(nextRunIn).map { .nextRun($0) }
     }
 }
 
@@ -454,8 +446,12 @@ private struct ArrCommandQueueRow: View {
     }
 
     private var commandDetails: [ScheduledTaskRowDetail] {
-        guard let queued = command.queued else { return [] }
-        return [ScheduledTaskRowDetail(icon: "clock", text: relativeDate(queued))]
+        guard let queued = queuedDetail else { return [] }
+        return [queued]
+    }
+
+    private var queuedDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.queued(from: command.queued)
     }
 
     private var statusIcon: String {
@@ -476,14 +472,6 @@ private struct ArrCommandQueueRow: View {
         }
     }
 
-    private func relativeDate(_ raw: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        return raw
-    }
 }
 
 // MARK: - Tasks ViewModel
