@@ -39,8 +39,17 @@
 	</array>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsArbitraryLoads</key>
+		<true/>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Trawl uses Face ID to lock access to your downloads, library, and connected servers.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Trawl connects to Sonarr, Radarr, Prowlarr, Bazarr, Jellyfin, qBittorrent, and other services running on your local network.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

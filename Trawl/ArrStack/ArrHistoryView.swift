@@ -10,12 +10,14 @@ struct ArrHistoryView: View {
     @State private var prowlarrViewModel: ProwlarrViewModel?
     @State private var historyRefreshGeneration = 0
 
+    init() {}
+
     #if DEBUG
     init(
         previewSonarrHistory: [ArrHistoryRecord] = [],
         previewRadarrHistory: [ArrHistoryRecord] = [],
         previewProwlarrHistory: [ArrHistoryRecord] = [],
-        serviceManager: ArrServiceManager = .preview(.allConfigured),
+        serviceManager: ArrServiceManager,
         serviceFilter: ArrServiceFilter = .all,
         previewLoading: Bool = false
     ) {
