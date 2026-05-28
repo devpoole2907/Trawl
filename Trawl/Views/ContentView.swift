@@ -194,6 +194,12 @@ struct ContentView: View {
                         pendingDeepLink = PendingDeepLink(tab: .torrents, morePath: [])
                     case "calendar":
                         pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
+                    case "health":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.health])
+                    case "seerr-requests":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrAdmin])
+                    case "seerr-issue":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrIssues])
                     default:
                         break
                     }
@@ -204,6 +210,12 @@ struct ContentView: View {
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
+                    case "health":
+                        selectedTab = .more
+                        morePath = [.health]
+                    case "seerr-requests":
+                        selectedTab = .more
+                        morePath = [.seerrAdmin]
                     case "seerr-issue":
                         selectedTab = .more
                         morePath = [.seerrIssues]
@@ -1185,26 +1197,18 @@ private final class PassthroughNotificationWindow: UIWindow {
     weak var notificationCenter: InAppNotificationCenter?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hitView = super.hitTest(point, with: event)
-
-        // A SwiftUI subview claimed the touch — deliver normally.
-        if hitView !== rootViewController?.view {
-            return hitView
+        // Only intercept touches that land inside the visible banner's tracked
+        // frame. SwiftUI's hosting tree contains transparent subviews (Color.clear,
+        // overlay containers) that would otherwise claim taps in empty areas, so
+        // we can't trust `super.hitTest` alone — bannerFrame is the source of
+        // truth for what should swallow input. Outside the banner: passthrough.
+        guard let center = notificationCenter,
+              center.currentBanner != nil,
+              !center.bannerFrame.isEmpty,
+              center.bannerFrame.contains(point) else {
+            return nil
         }
-
-        // The host view itself was hit. iOS 26's glassEffect renders a
-        // UIVisualEffectView that often doesn't claim touches, so hits inside
-        // the visible banner can land on the bare host. Capture them only when
-        // a banner is showing AND the point is inside its tracked frame, so the
-        // rest of the window stays passthrough.
-        if let center = notificationCenter,
-           center.currentBanner != nil,
-           !center.bannerFrame.isEmpty,
-           center.bannerFrame.contains(point) {
-            return hitView
-        }
-
-        return nil
+        return super.hitTest(point, with: event)
     }
 }
 
@@ -1227,13 +1231,17 @@ private struct InAppNotificationWindowOverlay: View {
                             }
                         }
                         .withActionAffordance(notificationCenter.currentBannerHasAction)
-                        .padding(.top, toolbarAwareTopPadding(safeAreaTop: geometry.safeAreaInsets.top))
-                        .transition(.move(edge: .top).combined(with: .opacity))
+                        // Force a fresh view instance per banner so SwiftUI doesn't
+                        // carry the previous banner's dragOffset @State into the next
+                        // one when a swipe-to-dismiss is mid-flight.
+                        .id(banner.id)
                         .onGeometryChange(for: CGRect.self) { proxy in
                             proxy.frame(in: .global)
                         } action: { newFrame in
                             notificationCenter.bannerFrame = newFrame
                         }
+                        .padding(.top, toolbarAwareTopPadding(safeAreaTop: geometry.safeAreaInsets.top))
+                        .transition(.move(edge: .top).combined(with: .opacity))
                         .onDisappear {
                             notificationCenter.bannerFrame = .zero
                         }
@@ -1246,14 +1254,21 @@ private struct InAppNotificationWindowOverlay: View {
     }
 
     private func toolbarAwareTopPadding(safeAreaTop: CGFloat) -> CGFloat {
-        let statusBarTop = UIApplication.shared.connectedScenes
+        let scene = UIApplication.shared.connectedScenes
             .compactMap { $0 as? UIWindowScene }
-            .first(where: { $0.activationState == .foregroundActive })?
-            .statusBarManager?
-            .statusBarFrame
-            .height ?? 0
+            .first(where: { $0.activationState == .foregroundActive })
 
-        return max(safeAreaTop, statusBarTop, 44) + 44 + 26
+        let statusBarTop = scene?.statusBarManager?.statusBarFrame.height ?? 0
+        let sheetNudge: CGFloat = isPresentingSheet(in: scene) ? 4 : 0
+
+        return max(safeAreaTop, statusBarTop, 44) + 44 + 26 + sheetNudge
+    }
+
+    private func isPresentingSheet(in scene: UIWindowScene?) -> Bool {
+        // Skip our own overlay window — only consider the app's main windows.
+        scene?.windows
+            .filter { !($0 is PassthroughNotificationWindow) }
+            .contains { $0.rootViewController?.presentedViewController != nil } ?? false
     }
 }
 #endif

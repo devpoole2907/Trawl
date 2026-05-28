@@ -3551,8 +3551,6 @@ private struct NotificationSettingsHubView: View {
         #else
         .listStyle(.inset)
         #endif
-        .scrollContentBackground(.hidden)
-        .background(MoreDestinationGradientBackground(accent: .integrations))
         .navigationTitle("Notification Settings")
     }
 
@@ -3689,6 +3687,7 @@ private struct SeerrWebhookNotificationConfigView: View {
     let profile: SeerrServiceProfile?
     let isConnected: Bool
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var draft = SeerrWebhookNotificationDraft()
@@ -3862,7 +3861,7 @@ private struct SeerrWebhookNotificationConfigView: View {
                 deviceToken: token
             )
             inAppNotificationCenter.showSuccess(title: "Saved", message: "Seerr notifications updated.")
-            await load()
+            dismiss()
         } catch {
             inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
         }
@@ -3963,14 +3962,23 @@ private struct SeerrWebhookNotificationTrigger: Identifiable {
 private func webhookStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
     switch status {
     case .configured:
-        Label("Trawl webhook is configured", systemImage: "checkmark.circle.fill")
-            .foregroundStyle(.green)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook is configured",
+            systemImage: "checkmark.circle.fill",
+            color: .green
+        )
     case .needsUpdate:
-        Label("Trawl webhook needs updating", systemImage: "arrow.triangle.2.circlepath.circle.fill")
-            .foregroundStyle(.orange)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook needs updating",
+            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+            color: .orange
+        )
     case .notAdded:
-        Label("Trawl webhook has not been added", systemImage: "minus.circle.fill")
-            .foregroundStyle(.secondary)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook has not been added",
+            systemImage: "minus.circle.fill",
+            color: .secondary
+        )
     }
 }
 

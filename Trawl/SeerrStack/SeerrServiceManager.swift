@@ -122,6 +122,12 @@ final class SeerrServiceManager {
         let pushURL = try pushNotificationURL(from: workerURL)
         let payload = webhookSettingsPayload(existing: settings, pushURL: pushURL, deviceToken: deviceToken)
         try await activeClient.updateWebhookNotificationSettings(payload)
+        try await rewriteLegacyWebhookPayloadIfNeeded(
+            existing: settings,
+            client: activeClient,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
     }
 
     func testTrawlWebhookNotificationSettings(
@@ -132,26 +138,41 @@ final class SeerrServiceManager {
         guard let activeClient else { throw SeerrAPIError.unauthorized }
         let pushURL = try pushNotificationURL(from: workerURL)
         let payload = webhookSettingsPayload(existing: settings, pushURL: pushURL, deviceToken: deviceToken)
-        try await activeClient.testWebhookNotificationSettings(payload)
+        do {
+            try await activeClient.testWebhookNotificationSettings(payload)
+        } catch {
+            let enriched = await enrichedWebhookTestError(from: error, using: activeClient)
+            guard Self.isLegacyWebhookPayloadError(enriched) else {
+                throw enriched
+            }
+
+            do {
+                let legacyPayload = webhookSettingsPayload(
+                    existing: settings,
+                    pushURL: pushURL,
+                    deviceToken: deviceToken,
+                    payloadFormat: .legacyJSONString
+                )
+                try await activeClient.testWebhookNotificationSettings(legacyPayload)
+            } catch {
+                throw await enrichedWebhookTestError(from: error, using: activeClient)
+            }
+        }
     }
 
     private func webhookSettingsPayload(
         existing: SeerrWebhookNotificationSettings,
         pushURL: String,
-        deviceToken: String
+        deviceToken: String,
+        payloadFormat: SeerrWebhookPayloadFormat = .current
     ) -> SeerrWebhookNotificationSettings {
-        let existingMatches = webhookSettingsMatch(existing, pushURL: pushURL, deviceToken: deviceToken)
-        let payload = existingMatches
-            ? Self.validWebhookPayload(existing.options.jsonPayload) ?? Self.trawlWebhookPayloadTemplate
-            : Self.trawlWebhookPayloadTemplate
-
         return SeerrWebhookNotificationSettings(
             enabled: true,
             types: (existing.types == 0 ? Self.defaultWebhookTypes : existing.types) | SeerrNotificationType.testNotification.rawValue,
             options: SeerrWebhookNotificationOptions(
                 webhookUrl: pushURL,
-                authHeader: nil,
-                jsonPayload: payload,
+                authHeader: Self.basicAuthHeader(deviceToken: deviceToken),
+                jsonPayload: Self.webhookPayloadValue(format: payloadFormat),
                 supportVariables: true,
                 customHeaders: [SeerrWebhookCustomHeader(key: "X-Trawl-Token", value: deviceToken)]
             )
@@ -167,6 +188,10 @@ final class SeerrServiceManager {
               let webhookURL = settings.options.webhookUrl,
               normalizedNotificationComparisonURL(webhookURL) == normalizedNotificationComparisonURL(pushURL)
         else { return false }
+
+        if Self.authHeaderMatches(settings.options.authHeader, deviceToken: deviceToken) {
+            return true
+        }
 
         return settings.options.customHeaders?.contains { header in
             header.key.caseInsensitiveCompare("X-Trawl-Token") == .orderedSame && header.value == deviceToken
@@ -238,19 +263,66 @@ final class SeerrServiceManager {
         SeerrNotificationType.allCases.reduce(0) { $0 | $1.rawValue }
     }
 
-    private static func validWebhookPayload(_ value: String?) -> String? {
-        guard let value, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            return nil
-        }
+    private static func basicAuthHeader(deviceToken: String) -> String {
+        let credentials = "trawl:\(deviceToken)"
+        let encodedCredentials = Data(credentials.utf8).base64EncodedString()
+        return "Basic \(encodedCredentials)"
+    }
 
+    private static func authHeaderMatches(_ value: String?, deviceToken: String) -> Bool {
+        value?.trimmingCharacters(in: .whitespacesAndNewlines) == basicAuthHeader(deviceToken: deviceToken)
+    }
+
+    private func rewriteLegacyWebhookPayloadIfNeeded(
+        existing: SeerrWebhookNotificationSettings,
+        client: SeerrAPIClient,
+        pushURL: String,
+        deviceToken: String
+    ) async throws {
+        do {
+            _ = try await client.getWebhookNotificationSettings()
+        } catch let error as SeerrAPIError {
+            guard case .decode = error else { return }
+
+            let legacyPayload = webhookSettingsPayload(
+                existing: existing,
+                pushURL: pushURL,
+                deviceToken: deviceToken,
+                payloadFormat: .legacyJSONString
+            )
+            try await client.updateWebhookNotificationSettings(legacyPayload)
+        }
+    }
+
+    private func enrichedWebhookTestError(from error: any Error, using client: SeerrAPIClient) async -> any Error {
         guard
-            let data = value.data(using: .utf8),
-            (try? JSONSerialization.jsonObject(with: data)) != nil
+            let logs = try? await client.getLogs(take: 20, filter: "debug", search: "webhook"),
+            let detail = logs.compactMap(\.webhookFailureDetail).first
         else {
-            return nil
+            return error
         }
 
-        return value
+        return SeerrWebhookNotificationTestError(baseMessage: error.localizedDescription, detail: detail)
+    }
+
+    private static func isLegacyWebhookPayloadError(_ error: any Error) -> Bool {
+        let message = error.localizedDescription.lowercased()
+        return message.contains("[object object]") && message.contains("valid json")
+    }
+
+    private static func webhookPayloadValue(format: SeerrWebhookPayloadFormat) -> String {
+        switch format {
+        case .current:
+            return trawlWebhookPayloadTemplate
+        case .legacyJSONString:
+            guard
+                let data = try? JSONEncoder().encode(trawlWebhookPayloadTemplate),
+                let string = String(data: data, encoding: .utf8)
+            else {
+                return trawlWebhookPayloadTemplate
+            }
+            return string
+        }
     }
 
     private static let trawlWebhookPayloadTemplate = """
@@ -273,6 +345,73 @@ final class SeerrServiceManager {
       "comment": "{{comment_message}}"
     }
     """
+}
+
+private enum SeerrWebhookPayloadFormat {
+    case current
+    case legacyJSONString
+}
+
+private struct SeerrWebhookNotificationTestError: LocalizedError {
+    let baseMessage: String
+    let detail: String
+
+    var errorDescription: String? {
+        "\(baseMessage)\n\nSeerr log: \(detail)"
+    }
+}
+
+private extension SeerrServerLogEntry {
+    var webhookFailureDetail: String? {
+        let searchable = [label, message, prettyPrintedData]
+            .compactMap { $0?.lowercased() }
+            .joined(separator: " ")
+
+        guard searchable.contains("webhook") || searchable.contains("notification") else {
+            return nil
+        }
+
+        if let dataDetail = data?.webhookFailureDetail, !dataDetail.isEmpty {
+            return dataDetail
+        }
+
+        return message
+    }
+}
+
+private extension SeerrJSONValue {
+    var webhookFailureDetail: String? {
+        guard case .object(let object) = self else { return nil }
+
+        let preferredKeys = ["errorMessage", "message", "response", "error", "code"]
+        let details = preferredKeys.compactMap { key -> String? in
+            guard let value = object[key] else { return nil }
+            return value.compactDescription
+        }
+
+        if !details.isEmpty {
+            return details.joined(separator: " | ")
+        }
+
+        return prettyPrinted
+    }
+
+    var compactDescription: String {
+        switch self {
+        case .null:
+            return "null"
+        case .bool(let value):
+            return String(value)
+        case .integer(let value):
+            return String(value)
+        case .double(let value):
+            return String(value)
+        case .string(let value):
+            return value
+        case .array, .object:
+            return prettyPrinted
+        }
+    }
 }
 
 #if DEBUG

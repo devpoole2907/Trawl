@@ -311,12 +311,12 @@ final class ArrServiceManager {
         let pushURL = try pushNotificationURL(from: workerURL)
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
+        let serviceType = profile.resolvedServiceType
 
-        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) {
+        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType) {
             return
         }
 
-        let serviceType = profile.resolvedServiceType
         let isSonarr = serviceType == .sonarr
         let isRadarr = serviceType == .radarr
         let isProwlarr = serviceType == .prowlarr
@@ -376,7 +376,7 @@ final class ArrServiceManager {
             return .notAdded
         }
 
-        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken)
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType)
             ? .configured
             : .needsUpdate
     }
@@ -452,7 +452,7 @@ final class ArrServiceManager {
             return false
         }
 
-        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) && existing.onGrab == true
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType) && existing.onGrab == true
     }
 
     func tags(for profile: ArrServiceProfile) -> [ArrTag] {
@@ -1367,7 +1367,8 @@ final class ArrServiceManager {
     private func trawlNotificationMatches(
         _ notification: ArrNotification,
         pushURL: String,
-        deviceToken: String
+        deviceToken: String,
+        serviceType: ArrServiceType?
     ) -> Bool {
         let urlMatches: Bool = {
             guard case .string(let url) = notification.fields.first(where: { $0.name == "url" })?.value else { return false }
@@ -1386,6 +1387,10 @@ final class ArrServiceManager {
             }
         }()
         let tokenMatches: Bool = {
+            if serviceType == .prowlarr {
+                return prowlarrAuthMatches(notification, deviceToken: deviceToken)
+            }
+
             if case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value {
                 return headers.contains { headerValue in
                     guard case .object(let header) = headerValue else { return false }
@@ -1410,6 +1415,27 @@ final class ArrServiceManager {
             return password == deviceToken
         }()
         return urlMatches && methodMatches && tokenMatches
+    }
+
+    private func prowlarrAuthMatches(_ notification: ArrNotification, deviceToken: String) -> Bool {
+        guard case .string(let username) = notification.fields.first(where: { $0.name == "username" })?.value,
+              username.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("trawl") == .orderedSame else {
+            return false
+        }
+
+        guard let passwordValue = notification.fields.first(where: { $0.name == "password" })?.value else {
+            return true
+        }
+
+        switch passwordValue {
+        case .string(let password):
+            let normalized = password.trimmingCharacters(in: .whitespacesAndNewlines)
+            return normalized == deviceToken || normalized.isEmpty || normalized.allSatisfy { $0 == "*" }
+        case .null:
+            return true
+        default:
+            return false
+        }
     }
 
     private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {

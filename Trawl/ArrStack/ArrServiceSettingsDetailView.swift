@@ -563,6 +563,9 @@ struct ArrWebhookNotificationHubRow: View {
             #endif
             await refreshStatus()
         }
+        .onAppear {
+            Task { await refreshStatus() }
+        }
         #if os(iOS)
         .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
             if let token = notification.object as? String {
@@ -640,6 +643,7 @@ struct ArrWebhookNotificationConfigView: View {
     let profile: ArrServiceProfile?
     let isConnected: Bool
 
+    @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var draft = ArrWebhookNotificationDraft()
@@ -856,7 +860,7 @@ struct ArrWebhookNotificationConfigView: View {
                 deviceToken: token
             )
             inAppNotificationCenter.showSuccess(title: "Saved", message: "\(serviceType.displayName) notifications updated.")
-            await load()
+            dismiss()
         } catch {
             inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
         }
@@ -1107,14 +1111,37 @@ private extension ArrServiceType {
 private func notificationSetupStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
     switch status {
     case .configured:
-        Label("Trawl webhook is configured", systemImage: "checkmark.circle.fill")
-            .foregroundStyle(.green)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook is configured",
+            systemImage: "checkmark.circle.fill",
+            color: .green
+        )
     case .needsUpdate:
-        Label("Trawl webhook needs updating", systemImage: "arrow.triangle.2.circlepath.circle.fill")
-            .foregroundStyle(.orange)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook needs updating",
+            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+            color: .orange
+        )
     case .notAdded:
-        Label("Trawl webhook has not been added", systemImage: "minus.circle.fill")
-            .foregroundStyle(.secondary)
+        WebhookStatusInlineRow(
+            text: "Trawl webhook has not been added",
+            systemImage: "minus.circle.fill",
+            color: .secondary
+        )
+    }
+}
+
+struct WebhookStatusInlineRow: View {
+    let text: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .foregroundStyle(color)
     }
 }
 
