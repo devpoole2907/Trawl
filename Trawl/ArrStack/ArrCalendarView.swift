@@ -447,7 +447,10 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 Menu {
-                    Picker("Show", selection: $showMonitoredOnly) {
+                    Picker("Show", selection: Binding(
+                        get: { showMonitoredOnly },
+                        set: { newValue in withAnimation { showMonitoredOnly = newValue } }
+                    )) {
                         Text("All").tag(false)
                         Text("Monitored Only").tag(true)
                     }

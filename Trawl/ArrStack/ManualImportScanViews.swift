@@ -35,7 +35,8 @@ struct ManualImportScanView: View {
     @State private var pendingAddExpanded = true
     @State private var needsIDExpanded = true
     @State private var blockedExpanded = false
-    @State private var inLibraryExpanded = false
+    @State private var inLibraryExpanded = true
+    @ScaledMetric(relativeTo: .subheadline) private var autoIdentifyStatusRowHeight: CGFloat = 50
     let showsCloseButton: Bool
 
     // MARK: Filtered groups
@@ -135,6 +136,14 @@ struct ManualImportScanView: View {
         #else
         .listStyle(.inset)
         #endif
+        .animation(.snappy, value: viewModel.hasPerformedInitialScan)
+        .animation(.snappy, value: viewModel.isAutoIdentifying)
+        .animation(.snappy, value: viewModel.isImporting)
+        .animation(.snappy, value: readyGroups.count)
+        .animation(.snappy, value: pendingAddGroups.count)
+        .animation(.snappy, value: needsIDGroups.count)
+        .animation(.snappy, value: blockedGroups.count)
+        .animation(.snappy, value: inLibraryGroups.count)
         .moreDestinationBackground(.manualImport)
         .navigationTitle(viewModel.folderName)
         #if os(iOS) || os(visionOS)
@@ -266,16 +275,20 @@ struct ManualImportScanView: View {
                     } else {
                         Image(systemName: viewModel.unresolvedUnidentifiedCount == 0 ? "checkmark.circle.fill" : "sparkle.magnifyingglass")
                             .foregroundStyle(viewModel.unresolvedUnidentifiedCount == 0 ? .green : .secondary)
+                            .contentTransition(.symbolEffect(.replace))
                     }
                     VStack(alignment: .leading, spacing: 2) {
                         Text(autoIdentifyProgressText)
                             .font(.subheadline.weight(.semibold))
+                            .lineLimit(1)
                         Text(autoIdentifyStatusText)
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .lineLimit(1)
+                            .truncationMode(.middle)
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
                     Button(viewModel.isAutoIdentifying ? "Stop" : "Auto Match") {
                         if viewModel.isAutoIdentifying {
                             viewModel.stopAutoIdentify(userInitiated: true)
@@ -286,6 +299,7 @@ struct ManualImportScanView: View {
                     .font(.caption.weight(.semibold))
                     .disabled(viewModel.groupedUnidentifiedFiles.isEmpty && !viewModel.isAutoIdentifying)
                 }
+                .frame(height: autoIdentifyStatusRowHeight)
                 .padding(.vertical, 2)
             }
         }
@@ -625,6 +639,11 @@ struct ArrQueueImportIssueResolutionSheet: View {
             #else
             .listStyle(.inset)
             #endif
+            .animation(.snappy, value: hasScannedFiles)
+            .animation(.snappy, value: viewModel.isScanning)
+            .animation(.snappy, value: readyItems.count)
+            .animation(.snappy, value: viewModel.groupedUnidentifiedFiles.count)
+            .animation(.snappy, value: viewModel.groupedBlockedFiles.count)
             .refreshable {
                 await viewModel.loadFiles()
             }
@@ -1523,15 +1542,38 @@ private struct ManualImportSelectionReviewSheet: View {
         viewModel.selectedFiles.count + pendingAddGroups.reduce(0) { $0 + $1.items.count }
     }
 
+    private var importableGroupsFileCount: Int {
+        allImportableGroups.reduce(0) { $0 + $1.items.count }
+    }
+
+    private var confirmTitle: String {
+        let fileWord = confirmCount == 1 ? "file" : "files"
+        return "Import \(confirmCount) \(fileWord)"
+    }
+
     private var isConfirmDisabled: Bool {
         hasUnresolved || (viewModel.selectedFiles.isEmpty && pendingAddGroups.isEmpty) || viewModel.isBusy
+    }
+
+    private var titleWord: String {
+        viewModel.service == .sonarr ? "series" : "movies"
+    }
+
+    private var readyHeaderText: String {
+        let groupCount = allImportableGroups.count
+        let fileCount = importableGroupsFileCount
+        if groupCount == fileCount {
+            return "Ready to Import (\(fileCount))"
+        }
+        let unit = groupCount == 1 ? (viewModel.service == .sonarr ? "series" : "movie") : titleWord
+        return "Ready to Import · \(groupCount) \(unit) · \(fileCount) files"
     }
 
     var body: some View {
         AppSheetShell(
             title: "Review Selection",
             cancelTitle: "Close",
-            confirmTitle: "Import \(confirmCount)",
+            confirmTitle: confirmTitle,
             isConfirmDisabled: isConfirmDisabled,
             onConfirm: {
                 dismiss()
@@ -1558,7 +1600,7 @@ private struct ManualImportSelectionReviewSheet: View {
                                 .opacity(0.65)
                         }
                     } header: {
-                        Text("Ready to Import")
+                        Text(readyHeaderText)
                     } footer: {
                         if !pendingAddGroups.isEmpty {
                             Text("Identified titles will be added to \(viewModel.service.displayName) and imported together.")
@@ -1591,7 +1633,7 @@ private struct ManualImportSelectionReviewSheet: View {
                                 }
                         }
                     } header: {
-                        Text("Identify Before Import")
+                        Text("Identify Before Import (\(unresolvedGroups.count))")
                     } footer: {
                         Text("Tap any file to identify it and move it to the ready list.")
                     }
@@ -1716,6 +1758,7 @@ private struct ManualImportIdentifySheet: View {
     @State private var currentItems: [ManualImportItem] = []
     @State private var excludedItemIDs: Set<String> = []
     @State private var isFilesExpanded = false
+    @State private var selectedResult: IdentifySelection?
 
     private var includedItems: [ManualImportItem] {
         currentItems.filter { !excludedItemIDs.contains($0.id) }
@@ -1727,6 +1770,35 @@ private struct ManualImportIdentifySheet: View {
 
     private var navigationTitle: String {
         target.items.count > 1 ? "Identify \(target.items.count) Files" : "Identify File"
+    }
+
+    private struct CurrentMatch {
+        let title: String
+        let posterURL: URL?
+        let seasonEpisode: String?
+        let isTentative: Bool
+    }
+
+    private enum IdentifySelection: Hashable {
+        case libraryMovie(RadarrMovie)
+        case catalogMovie(RadarrMovie)
+        case librarySeries(SonarrSeries)
+        case catalogSeries(SonarrSeries)
+    }
+
+    private var isConfirmDisabled: Bool {
+        selectedResult == nil || viewModel.isAddingToLibrary || viewModel.isImporting
+    }
+
+    private var currentMatch: CurrentMatch? {
+        guard let first = target.items.first, let title = first.mediaTitle, !title.isEmpty else { return nil }
+        var seasonEpisode: String?
+        if let season = first.seasonNumber, !first.episodes.isEmpty {
+            let numbers = first.episodes.map { "E\(String(format: "%02d", $0.number))" }.joined(separator: " · ")
+            seasonEpisode = "S\(String(format: "%02d", season)) · \(numbers)"
+        }
+        let isTentative = (first.mediaID ?? 0) <= 0
+        return CurrentMatch(title: title, posterURL: first.posterURL, seasonEpisode: seasonEpisode, isTentative: isTentative)
     }
 
     var body: some View {
@@ -1787,11 +1859,50 @@ private struct ManualImportIdentifySheet: View {
                 }
             }
         }
+        .safeAreaInset(edge: .bottom) {
+            identifyActionBar
+        }
+    }
+
+    private var identifyActionBar: some View {
+        HStack(spacing: 12) {
+            Button {
+                Task { await commitSelectedResult(importAfterAdding: false) }
+            } label: {
+                Text("Add")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.glass(.regular))
+
+            Button {
+                Task { await commitSelectedResult(importAfterAdding: true) }
+            } label: {
+                Text("Add and Import")
+                    .font(.headline)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+            }
+            .buttonStyle(.glass(.regular.tint(Color.accentColor)))
+        }
+        .disabled(isConfirmDisabled)
+        .animation(.snappy, value: isConfirmDisabled)
+        .padding(.horizontal)
+        .padding(.vertical, 10)
     }
 
     @ViewBuilder
     private var list: some View {
         List {
+            if let match = currentMatch {
+                Section {
+                    currentMatchRow(match)
+                } header: {
+                    Text(match.isTentative ? "Tentative Match" : "Currently Identified")
+                }
+            }
+
             Section {
                 if currentItems.count > 1 {
                     let includedCount = currentItems.count - excludedItemIDs.count
@@ -1967,71 +2078,127 @@ private struct ManualImportIdentifySheet: View {
         }
     }
 
+    private func select(_ selection: IdentifySelection) {
+        withAnimation(.snappy) {
+            selectedResult = selection
+        }
+    }
+
+    private func badgeText(for selection: IdentifySelection) -> String {
+        selectedResult == selection ? "Selected" : "Select"
+    }
+
+    private func isSelected(_ selection: IdentifySelection) -> Bool {
+        selectedResult == selection
+    }
+
+    @MainActor
+    private func commitSelectedResult(importAfterAdding: Bool) async {
+        guard let selectedResult else { return }
+        let originalIDs = Set(includedItems.map(\.id))
+        let succeeded: Bool
+
+        switch selectedResult {
+        case .libraryMovie(let movie):
+            viewModel.applyIdentification(to: includedItems, mediaID: movie.id, title: movie.title, posterURL: posterURL(from: movie.images))
+            succeeded = importAfterAdding ? await viewModel.importIdentifiedItems(originalIDs: originalIDs) : true
+        case .catalogMovie(let movie):
+            succeeded = await viewModel.addToLibraryAndIdentify(blockedItems: includedItems, movie: movie, importAfterAdding: importAfterAdding)
+        case .librarySeries(let series):
+            viewModel.applyIdentification(to: includedItems, mediaID: series.id, title: series.title, posterURL: posterURL(from: series.images))
+            succeeded = importAfterAdding ? await viewModel.importIdentifiedItems(originalIDs: originalIDs) : true
+        case .catalogSeries(let series):
+            succeeded = await viewModel.addToLibraryAndIdentify(blockedItems: includedItems, series: series, importAfterAdding: importAfterAdding)
+        }
+
+        if succeeded {
+            dismiss()
+        }
+    }
+
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
+        let selection = IdentifySelection.libraryMovie(movie)
         let posterImageURL = posterURL(from: movie.images)
         return Button {
-            viewModel.applyIdentification(to: includedItems, mediaID: movie.id, title: movie.title, posterURL: posterImageURL)
-            dismiss()
+            select(selection)
         } label: {
-            mediaRow(title: movie.title, year: movie.year, posterURL: posterImageURL, badge: nil)
+            mediaRow(title: movie.title, year: movie.year, posterURL: posterImageURL, badge: badgeText(for: selection), isSelected: isSelected(selection))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
     }
 
     private func catalogMovieRow(_ movie: RadarrMovie) -> some View {
+        let selection = IdentifySelection.catalogMovie(movie)
         let posterImageURL = posterURL(from: movie.images)
         return Button {
-            Task {
-                let succeeded = await viewModel.addToLibraryAndIdentify(
-                    blockedItems: includedItems,
-                    movie: movie,
-                    importAfterAdding: importAfterAdding
-                )
-                if succeeded {
-                    dismiss()
-                }
-            }
+            select(selection)
         } label: {
-            mediaRow(title: movie.title, year: movie.year, posterURL: posterImageURL, badge: importAfterAdding ? "Add & Import" : "Add")
+            mediaRow(title: movie.title, year: movie.year, posterURL: posterImageURL, badge: badgeText(for: selection), isSelected: isSelected(selection))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
     }
 
     private func librarySeriesRow(_ s: SonarrSeries) -> some View {
+        let selection = IdentifySelection.librarySeries(s)
         let posterImageURL = posterURL(from: s.images)
         return Button {
-            viewModel.applyIdentification(to: includedItems, mediaID: s.id, title: s.title, posterURL: posterImageURL)
-            dismiss()
+            select(selection)
         } label: {
-            mediaRow(title: s.title, year: s.year, posterURL: posterImageURL, badge: nil)
+            mediaRow(title: s.title, year: s.year, posterURL: posterImageURL, badge: badgeText(for: selection), isSelected: isSelected(selection))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
     }
 
     private func catalogSeriesRow(_ s: SonarrSeries) -> some View {
+        let selection = IdentifySelection.catalogSeries(s)
         let posterImageURL = posterURL(from: s.images)
         return Button {
-            Task {
-                let succeeded = await viewModel.addToLibraryAndIdentify(
-                    blockedItems: includedItems,
-                    series: s,
-                    importAfterAdding: importAfterAdding
-                )
-                if succeeded {
-                    dismiss()
-                }
-            }
+            select(selection)
         } label: {
-            mediaRow(title: s.title, year: s.year, posterURL: posterImageURL, badge: importAfterAdding ? "Add & Import" : "Add")
+            mediaRow(title: s.title, year: s.year, posterURL: posterImageURL, badge: badgeText(for: selection), isSelected: isSelected(selection))
         }
         .buttonStyle(.plain)
         .contentShape(Rectangle())
     }
 
-    private func mediaRow(title: String, year: Int?, posterURL: URL?, badge: String?) -> some View {
+    private func currentMatchRow(_ match: CurrentMatch) -> some View {
+        HStack(spacing: 12) {
+            ArrArtworkView(url: match.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(match.isTentative ? AnyShapeStyle(.orange) : AnyShapeStyle(.green))
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(match.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+                if let seasonEpisode = match.seasonEpisode {
+                    Text(seasonEpisode)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Text(match.isTentative
+                     ? "Pending add to \(viewModel.service.displayName)"
+                     : "Already in \(viewModel.service.displayName)")
+                    .font(.caption2)
+                    .foregroundStyle(match.isTentative ? .orange : .secondary)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func mediaRow(title: String, year: Int?, posterURL: URL?, badge: String?, isSelected: Bool) -> some View {
         HStack(spacing: 12) {
             ArrArtworkView(url: posterURL) {
                 ZStack {
@@ -2062,7 +2229,8 @@ private struct ManualImportIdentifySheet: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.blue, in: Capsule())
+                    .background(isSelected ? Color.green : Color.blue, in: Capsule())
+                    .animation(.snappy, value: isSelected)
             }
         }
         .padding(.vertical, 4)

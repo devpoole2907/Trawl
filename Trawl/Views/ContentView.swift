@@ -993,33 +993,59 @@ private struct NotificationTabBarAccessory: View {
         placement == .inline
     }
 
+    private var runningImportJobs: [ActiveImportJob] {
+        inAppNotificationCenter.activeImportJobs.filter { $0.status == .running }
+    }
+
+    private var primaryRunningJob: ActiveImportJob? {
+        runningImportJobs.first
+    }
+
     private var headline: String {
-        if let latestNotification {
-            latestNotification.title
-        } else {
-            "Notifications"
+        if runningImportJobs.count > 1 {
+            return "Importing \(runningImportJobs.count) jobs"
         }
+        if let job = primaryRunningJob {
+            let fileWord = job.fileCount == 1 ? "file" : "files"
+            return "Importing \(job.fileCount) \(fileWord)"
+        }
+        if let latestNotification {
+            return latestNotification.title
+        }
+        return "Notifications"
     }
 
     private var subtitle: String {
+        if runningImportJobs.count > 1 {
+            let services = Set(runningImportJobs.map(\.serviceTitle)).sorted().joined(separator: " · ")
+            return services.isEmpty ? "Imports in progress" : services
+        }
+        if let job = primaryRunningJob {
+            return "\(job.serviceTitle) · \(job.primaryName)"
+        }
         if let latestNotification {
-            "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
+            return "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
         } else if unreadCount == 1 {
-            "1 unread notification"
+            return "1 unread notification"
         } else if unreadCount > 1 {
-            "\(unreadCount) unread notifications"
+            return "\(unreadCount) unread notifications"
         } else {
-            "No recent notifications"
+            return "No recent notifications"
         }
     }
 
     private var notificationAccessibilityValue: String {
+        if !runningImportJobs.isEmpty {
+            let count = runningImportJobs.count
+            let word = count == 1 ? "import" : "imports"
+            return "\(count) \(word) in progress"
+        }
         if unreadCount == 1 {
-            "1 unread notification"
+            return "1 unread notification"
         } else if unreadCount > 1 {
-            "\(unreadCount) unread notifications"
+            return "\(unreadCount) unread notifications"
         } else {
-            "No unread notifications"
+            return "No unread notifications"
         }
     }
 
@@ -1058,6 +1084,13 @@ private struct NotificationTabBarAccessory: View {
     }
 
     private var inlineSummary: String {
+        if runningImportJobs.count > 1 {
+            return "Importing \(runningImportJobs.count) jobs"
+        }
+        if let job = primaryRunningJob {
+            let fileWord = job.fileCount == 1 ? "file" : "files"
+            return "Importing \(job.fileCount) \(fileWord) · \(job.serviceTitle)"
+        }
         if unreadCount >= 1, let latest = latestNotification {
             let count = unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
             return "\(count) · \(latest.associatedServiceTitle)"
@@ -1126,22 +1159,52 @@ private struct NotificationTabBarAccessory: View {
     }
 
     private var notificationIcon: some View {
-        Image(systemName: "bell.fill")
-            .symbolRenderingMode(.hierarchical)
-            .overlay(alignment: .topTrailing) {
-                if unreadCount > 0 {
-                    Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(.red, in: Capsule())
-                        .offset(x: 10, y: -10)
-                        .accessibilityHidden(true)
-                }
+        Group {
+            if inAppNotificationCenter.hasRunningImportJobs {
+                Image(systemName: "tray.and.arrow.down.fill")
+                    .symbolRenderingMode(.hierarchical)
+            } else {
+                Image(systemName: "bell.fill")
+                    .symbolRenderingMode(.hierarchical)
             }
+        }
+        .overlay(alignment: .topTrailing) {
+            if inAppNotificationCenter.hasRunningImportJobs {
+                let count = inAppNotificationCenter.runningImportJobsCount
+                Group {
+                    if count > 1 {
+                        Text("\(count)")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .minimumScaleFactor(0.7)
+                            .lineLimit(1)
+                            .padding(.horizontal, 5)
+                            .frame(minWidth: 18, minHeight: 18)
+                            .background(.blue, in: Capsule())
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .symbolEffect(.rotate, options: .repeat(.continuous))
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 16, height: 16)
+                            .background(.blue, in: Circle())
+                    }
+                }
+                .offset(x: 10, y: -10)
+                .accessibilityHidden(true)
+            } else if unreadCount > 0 {
+                Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(.red, in: Capsule())
+                    .offset(x: 10, y: -10)
+                    .accessibilityHidden(true)
+            }
+        }
     }
 }
 

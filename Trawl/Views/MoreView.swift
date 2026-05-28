@@ -3271,10 +3271,23 @@ struct RecentNotificationsSheet: View {
         unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
     }
 
+    private var activeJobs: [ActiveImportJob] {
+        inAppNotificationCenter.activeImportJobs
+    }
+
+    private var subtitleText: String {
+        let running = inAppNotificationCenter.runningImportJobsCount
+        if running > 0 {
+            let word = running == 1 ? "import" : "imports"
+            return "\(running) \(word) in progress · \(unreadNotificationCount) unread"
+        }
+        return "\(unreadNotificationCount) unread"
+    }
+
     var body: some View {
         AppSheetShell(
             title: "Notifications",
-            subtitle: "\(unreadNotificationCount) unread",
+            subtitle: subtitleText,
             cancelTitle: "Close",
             cancelSystemImage: "xmark",
             showsCancel: false,
@@ -3283,7 +3296,7 @@ struct RecentNotificationsSheet: View {
             dragIndicator: .visible
         ) {
             Group {
-                if inAppNotificationCenter.recentNotifications.isEmpty {
+                if activeJobs.isEmpty && inAppNotificationCenter.recentNotifications.isEmpty {
                     ContentUnavailableView {
                         Label("No Notifications Yet", systemImage: "bell.slash")
                     } description: {
@@ -3298,9 +3311,51 @@ struct RecentNotificationsSheet: View {
                         }
                     }
                 } else {
-                    List(inAppNotificationCenter.recentNotifications) { entry in
-                        notificationRow(for: entry)
+                    List {
+                        if !activeJobs.isEmpty {
+                            Section {
+                                ForEach(activeJobs) { job in
+                                    activeImportJobRow(job)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
+                                            if job.status != .running {
+                                                Button(role: .destructive) {
+                                                    inAppNotificationCenter.removeImportJob(id: job.id)
+                                                } label: {
+                                                    Label("Dismiss", systemImage: "xmark")
+                                                }
+                                            }
+                                        }
+                                }
+                            } header: {
+                                HStack {
+                                    Text("Imports")
+                                    Spacer(minLength: 8)
+                                    if activeJobs.contains(where: { $0.status != .running }) {
+                                        Button("Clear Finished") {
+                                            inAppNotificationCenter.clearFinishedImportJobs()
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .textCase(nil)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !inAppNotificationCenter.recentNotifications.isEmpty {
+                            Section {
+                                ForEach(inAppNotificationCenter.recentNotifications) { entry in
+                                    notificationRow(for: entry)
+                                }
+                            } header: {
+                                Text("Recent")
+                            }
+                        }
                     }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
@@ -3423,6 +3478,103 @@ struct RecentNotificationsSheet: View {
         message.count > Self.longMessageThreshold || message.contains("\n")
     }
 
+    private func tintColor(for tint: ImportJobTint) -> Color {
+        switch tint {
+        case .sonarr: return ServiceIdentity.sonarr.brandColor
+        case .radarr: return ServiceIdentity.radarr.brandColor
+        case .generic: return .accentColor
+        }
+    }
+
+    @ViewBuilder
+    private func activeImportJobRow(_ job: ActiveImportJob) -> some View {
+        let tint = tintColor(for: job.serviceTint)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                switch job.status {
+                case .running:
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(tint)
+                case .succeeded:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.green)
+                case .failed:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: job.serviceSystemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text(job.serviceTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(activeImportJobStatusText(job))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(activeImportJobStatusColor(job))
+                    Spacer(minLength: 0)
+                }
+
+                Text(job.primaryName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                Text(activeImportJobSubtitle(job))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if let error = job.errorMessage, job.status == .failed {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func activeImportJobStatusText(_ job: ActiveImportJob) -> String {
+        switch job.status {
+        case .running: return "Importing"
+        case .succeeded: return "Imported"
+        case .failed: return "Failed"
+        }
+    }
+
+    private func activeImportJobStatusColor(_ job: ActiveImportJob) -> Color {
+        switch job.status {
+        case .running: return .secondary
+        case .succeeded: return .green
+        case .failed: return .red
+        }
+    }
+
+    private func activeImportJobSubtitle(_ job: ActiveImportJob) -> String {
+        let fileWord = job.fileCount == 1 ? "file" : "files"
+        let countText = "\(job.fileCount) \(fileWord)"
+        let timeText: String
+        if let completedAt = job.completedAt {
+            timeText = completedAt.formatted(date: .omitted, time: .shortened)
+        } else {
+            timeText = job.startedAt.formatted(date: .omitted, time: .shortened)
+        }
+        return "\(countText) · \(job.folderName) · \(timeText)"
+    }
+
     @ViewBuilder
     private func notificationRow(for entry: NotificationLogEntry) -> some View {
         let long = isLongMessage(entry.message)
@@ -3523,7 +3675,8 @@ private struct NotificationSettingsHubView: View {
                         ArrWebhookNotificationHubRow(
                             serviceType: serviceType,
                             profile: profile,
-                            isConnected: isConnected(serviceType)
+                            isConnected: isConnected(serviceType),
+                            showsProfileSubtitle: false
                         )
                     }
                 }
@@ -3593,11 +3746,6 @@ private struct SeerrWebhookNotificationHubRow: View {
                 Text("Seerr")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
-
-                Text(profile?.displayName ?? "No server configured")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
 
                 statusLabel
                     .font(.caption2)

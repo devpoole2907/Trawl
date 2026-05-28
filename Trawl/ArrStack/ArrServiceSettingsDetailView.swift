@@ -515,6 +515,7 @@ struct ArrWebhookNotificationHubRow: View {
     let serviceType: ArrServiceType
     let profile: ArrServiceProfile?
     let isConnected: Bool
+    let showsProfileSubtitle: Bool
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var status: ArrNotificationSetupStatus?
@@ -526,11 +527,13 @@ struct ArrWebhookNotificationHubRow: View {
         serviceType: ArrServiceType,
         profile: ArrServiceProfile?,
         isConnected: Bool,
+        showsProfileSubtitle: Bool = true,
         previewStatus: ArrNotificationSetupStatus? = nil
     ) {
         self.serviceType = serviceType
         self.profile = profile
         self.isConnected = isConnected
+        self.showsProfileSubtitle = showsProfileSubtitle
         _status = State(initialValue: previewStatus)
     }
 
@@ -545,10 +548,12 @@ struct ArrWebhookNotificationHubRow: View {
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.primary)
 
-                Text(profile?.displayName ?? "No server configured")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                if showsProfileSubtitle {
+                    Text(profile?.displayName ?? "No server configured")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
 
                 statusLabel
                     .font(.caption2)
