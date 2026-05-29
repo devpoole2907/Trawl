@@ -5,7 +5,6 @@ struct SeerrDashboardView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @State private var viewModel: SeerrRequestManagementViewModel?
     @State private var deleteTarget: SeerrRequestDisplayItem?
-    @State private var isOverviewExpanded = true
     @State private var requestSearchText = ""
     @State private var isSearchExpanded = false
 
@@ -32,13 +31,13 @@ struct SeerrDashboardView: View {
         let query = requestSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let filteredRequests = query.isEmpty
             ? viewModel.requests
-            : viewModel.requests.filter { item in
+            : viewModel.searchRequests.filter { item in
                 item.title.localizedCaseInsensitiveContains(query)
                     || item.request.requestedBy?.displayName.localizedCaseInsensitiveContains(query) == true
             }
 
         List {
-            if let requestCount = viewModel.requestCount {
+            if !isSearchExpanded, let requestCount = viewModel.requestCount {
                 seerrOverviewSection(requestCount)
             }
 
@@ -52,8 +51,13 @@ struct SeerrDashboardView: View {
 
             if viewModel.isLoading && viewModel.requests.isEmpty {
                 loadingRows
-            } else if viewModel.requests.isEmpty {
+            } else if !query.isEmpty && viewModel.isLoadingSearch && viewModel.searchRequests.isEmpty {
+                loadingRows
+            } else if query.isEmpty && viewModel.requests.isEmpty {
                 emptyState
+            } else if filteredRequests.isEmpty {
+                ContentUnavailableView.search(text: query)
+                    .listRowBackground(Color.clear)
             } else {
                 Section {
                     ForEach(filteredRequests) { item in
@@ -105,15 +109,19 @@ struct SeerrDashboardView: View {
                             }
                     }
 
-                    if viewModel.hasMore {
+                    if query.isEmpty, viewModel.hasMore {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .task { await viewModel.loadMore() }
                     }
                 } header: {
-                    Text(viewModel.selectedFilter.rawValue)
+                    Text(query.isEmpty ? viewModel.selectedFilter.rawValue : "Search Results")
                 } footer: {
-                    Text("\(viewModel.totalRequestCount) \(viewModel.totalRequestCount == 1 ? "request" : "requests")")
+                    if query.isEmpty {
+                        Text("\(viewModel.totalRequestCount) \(viewModel.totalRequestCount == 1 ? "request" : "requests")")
+                    } else {
+                        Text("\(filteredRequests.count) \(filteredRequests.count == 1 ? "match" : "matches") across all requests")
+                    }
                 }
             }
         }
@@ -135,11 +143,15 @@ struct SeerrDashboardView: View {
                 searchText: $requestSearchText,
                 searchHint: "Search requests",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading
+                searchPlacement: .leading,
+                alignment: .leading
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await viewModel.loadRequests() }
+        .onChange(of: requestSearchText) { _, newValue in
+            Task { await viewModel.updateSearchRequests(for: newValue) }
+        }
         .alert(
             "Delete Request?",
             isPresented: Binding(
@@ -161,15 +173,13 @@ struct SeerrDashboardView: View {
     }
 
     private func seerrOverviewSection(_ requestCount: SeerrRequestCount) -> some View {
-        Section {
-            DisclosureGroup("Seerr Overview", isExpanded: $isOverviewExpanded) {
-                LabeledContent("Total", value: "\(requestCount.total ?? 0)")
-                LabeledContent("Pending", value: "\(requestCount.pending ?? 0)")
-                LabeledContent("Approved", value: "\(requestCount.approved ?? 0)")
-                LabeledContent("Available", value: "\(requestCount.available ?? 0)")
-                LabeledContent("Movies", value: "\(requestCount.movie ?? 0)")
-                LabeledContent("Series", value: "\(requestCount.tv ?? 0)")
-            }
+        Section("Seerr Overview") {
+            LabeledContent("Total", value: "\(requestCount.total ?? 0)")
+            LabeledContent("Pending", value: "\(requestCount.pending ?? 0)")
+            LabeledContent("Approved", value: "\(requestCount.approved ?? 0)")
+            LabeledContent("Available", value: "\(requestCount.available ?? 0)")
+            LabeledContent("Movies", value: "\(requestCount.movie ?? 0)")
+            LabeledContent("Series", value: "\(requestCount.tv ?? 0)")
         }
     }
 
@@ -234,9 +244,11 @@ extension EnvironmentValues {
 @Observable
 private final class SeerrRequestManagementViewModel {
     private(set) var requests: [SeerrRequestDisplayItem] = []
+    private(set) var searchRequests: [SeerrRequestDisplayItem] = []
     private(set) var requestCount: SeerrRequestCount?
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
+    private(set) var isLoadingSearch = false
     private(set) var errorMessage: String?
     var selectedFilter: SeerrRequestFilter = .pending {
         didSet {
@@ -259,6 +271,8 @@ private final class SeerrRequestManagementViewModel {
     private var totalResults = 0
     private var hasLoaded = false
     private var requestVersion = 0
+    private var searchVersion = 0
+    private var hasLoadedAllRequestsForSearch = false
 
     init(apiClient: SeerrAPIClient) {
         self.apiClient = apiClient
@@ -275,6 +289,40 @@ private final class SeerrRequestManagementViewModel {
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await loadRequests()
+    }
+
+    func updateSearchRequests(for searchText: String) async {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !query.isEmpty else {
+            searchVersion += 1
+            isLoadingSearch = false
+            searchRequests = []
+            hasLoadedAllRequestsForSearch = false
+            return
+        }
+
+        guard !hasLoadedAllRequestsForSearch, !isLoadingSearch else { return }
+
+        searchVersion += 1
+        let capturedVersion = searchVersion
+        isLoadingSearch = true
+        defer {
+            if capturedVersion == searchVersion {
+                isLoadingSearch = false
+            }
+        }
+
+        do {
+            let allRequests = try await loadAllRequestsForSearch()
+            guard capturedVersion == searchVersion else { return }
+            searchRequests = allRequests
+            hasLoadedAllRequestsForSearch = true
+            await enrichSearchIfNeeded()
+        } catch {
+            guard capturedVersion == searchVersion else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     func loadRequests() async {
@@ -372,6 +420,50 @@ private final class SeerrRequestManagementViewModel {
         }
     }
 
+    private func enrichSearchIfNeeded() async {
+        let toEnrich = searchRequests.filter(\.needsEnrichment)
+        guard !toEnrich.isEmpty else { return }
+
+        await withTaskGroup(of: (Int, SeerrMediaSummary?).self) { group in
+            for item in toEnrich {
+                guard let tmdbId = item.request.media?.tmdbId,
+                      let mediaType = item.request.media?.mediaType else { continue }
+                let itemId = item.id
+                group.addTask { [apiClient] in
+                    let summary = try? await apiClient.getMediaSummary(tmdbId: tmdbId, mediaType: mediaType)
+                    return (itemId, summary)
+                }
+            }
+            for await (id, summary) in group {
+                guard let summary else { continue }
+                if let index = searchRequests.firstIndex(where: { $0.id == id }) {
+                    searchRequests[index].enrich(with: summary)
+                }
+            }
+        }
+    }
+
+    private func loadAllRequestsForSearch() async throws -> [SeerrRequestDisplayItem] {
+        let searchPageSize = 100
+        var skip = 0
+        var total = Int.max
+        var items: [SeerrRequestDisplayItem] = []
+
+        while skip < total {
+            let response = try await apiClient.getRequests(
+                take: searchPageSize,
+                skip: skip,
+                filter: SeerrRequestFilter.all.apiValue
+            )
+            items.append(contentsOf: response.results.map(SeerrRequestDisplayItem.init(from:)))
+            total = response.pageInfo.results ?? items.count
+            guard !response.results.isEmpty else { break }
+            skip += searchPageSize
+        }
+
+        return items
+    }
+
     func approve(_ item: SeerrRequestDisplayItem) async {
         await update(item) {
             try await apiClient.approveRequest(id: item.request.id)
@@ -389,6 +481,7 @@ private final class SeerrRequestManagementViewModel {
             try await apiClient.deleteRequest(id: item.request.id)
             withAnimation(.default) {
                 requests.removeAll { $0.id == item.id }
+                searchRequests.removeAll { $0.id == item.id }
                 totalResults = max(0, totalResults - 1)
             }
         } catch {
@@ -412,6 +505,7 @@ private final class SeerrRequestManagementViewModel {
                     }
                 }
             }
+            replaceSearchRequest(SeerrRequestDisplayItem(from: updated))
             requestCount = try? await apiClient.getRequestCount()
         } catch {
             errorMessage = error.localizedDescription
@@ -421,6 +515,12 @@ private final class SeerrRequestManagementViewModel {
     private func replace(_ item: SeerrRequestDisplayItem) {
         if let index = requests.firstIndex(where: { $0.id == item.id }) {
             requests[index] = item
+        }
+    }
+
+    private func replaceSearchRequest(_ item: SeerrRequestDisplayItem) {
+        if let index = searchRequests.firstIndex(where: { $0.id == item.id }) {
+            searchRequests[index] = item
         }
     }
 }

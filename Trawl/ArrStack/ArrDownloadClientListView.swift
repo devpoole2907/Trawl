@@ -382,6 +382,7 @@ struct ArrDownloadClientListView: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder

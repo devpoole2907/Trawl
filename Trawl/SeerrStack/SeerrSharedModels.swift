@@ -182,6 +182,39 @@ nonisolated struct SeerrMediaSummary: Codable, Sendable {
     }
 }
 
+nonisolated struct SeerrDiscoverItem: Codable, Sendable {
+    let id: Int
+    let title: String?
+    let name: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let overview: String?
+    let voteAverage: Double?
+    let releaseDate: String?
+    let firstAirDate: String?
+    let genreIds: [Int]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, title, name, overview
+        case posterPath = "poster_path"
+        case backdropPath = "backdrop_path"
+        case voteAverage = "vote_average"
+        case releaseDate = "release_date"
+        case firstAirDate = "first_air_date"
+        case genreIds = "genre_ids"
+    }
+
+    func toTMDbItem(mediaType: String) -> TMDbItem {
+        TMDbItem(
+            id: id, title: title, name: name,
+            posterPath: posterPath, backdropPath: backdropPath,
+            overview: overview, voteAverage: voteAverage,
+            releaseDate: releaseDate, firstAirDate: firstAirDate,
+            mediaType: mediaType, genreIds: genreIds
+        )
+    }
+}
+
 nonisolated enum SeerrRequestStatus: Int, Codable, Sendable {
     case pending = 1
     case approved = 2

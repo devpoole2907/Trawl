@@ -41,8 +41,14 @@ struct ManualImportScanView: View {
 
     // MARK: Filtered groups
 
+    private var hasActiveSearch: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     private var readyGroups: [ManualImportGroup] {
-        let base = selectedTab == .new ? viewModel.groupedNewImportableFiles : viewModel.groupedImportableFiles
+        let base = hasActiveSearch || selectedTab != .new
+            ? viewModel.groupedImportableFiles
+            : viewModel.groupedNewImportableFiles
         return searchFiltered(base)
     }
 
@@ -52,10 +58,11 @@ struct ManualImportScanView: View {
     private var inLibraryGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedInLibraryFiles) }
 
     private func searchFiltered(_ groups: [ManualImportGroup]) -> [ManualImportGroup] {
-        guard !searchText.isEmpty else { return groups }
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return groups }
         return groups.filter {
-            $0.displayTitle.localizedCaseInsensitiveContains(searchText) ||
-            $0.items.contains { $0.fileName.localizedCaseInsensitiveContains(searchText) }
+            $0.displayTitle.localizedCaseInsensitiveContains(query) ||
+            $0.items.contains { $0.fileName.localizedCaseInsensitiveContains(query) }
         }
     }
 
@@ -108,14 +115,14 @@ struct ManualImportScanView: View {
         List {
             statusSection
 
-            if selectedTab != .inLibrary {
+            if hasActiveSearch || selectedTab != .inLibrary {
                 readySection
                 pendingAddSection
                 needsIDSection
                 blockedSection
             }
 
-            if selectedTab == .all || selectedTab == .inLibrary {
+            if hasActiveSearch || selectedTab == .all || selectedTab == .inLibrary {
                 inLibrarySection
             }
 
@@ -161,7 +168,7 @@ struct ManualImportScanView: View {
                 searchText: $searchText,
                 searchHint: "Search files…",
                 searchPlacement: .leading,
-                alignment: .center
+                alignment: .leading
             )
         }
         .toolbar {

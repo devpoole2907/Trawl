@@ -264,7 +264,10 @@
 				Views/FormComponents/ModalFormStyle.swift,
 				Views/FormComponents/ServerURLField.swift,
 				Views/FormComponents/ValidationErrorSection.swift,
+				Views/InAppNotificationBanner.swift,
+				Views/InAppNotificationWindowOverlay.swift,
 				Views/MoreView.swift,
+				Views/NotificationTabBarAccessory.swift,
 				Views/OnboardingSheet.swift,
 				Views/QBittorrentCategoriesAndTagsView.swift,
 				Views/QBittorrentCategoriesView.swift,
@@ -272,9 +275,11 @@
 				Views/QBittorrentRSSRulesSheet.swift,
 				Views/QBittorrentRSSView.swift,
 				Views/QBittorrentTagsView.swift,
+				Views/RootTab.swift,
 				Views/SearchView.swift,
 				Views/ServerListView.swift,
 				Views/SettingsView.swift,
+				Views/ThemeOverride.swift,
 				Views/TorrentDetailView.swift,
 				Views/TorrentListView.swift,
 				Views/TorrentPillView.swift,
@@ -283,6 +288,7 @@
 				Views/TrackerListView.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
+				Views/WelcomeFlowView.swift,
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
 		};
@@ -484,7 +490,10 @@
 				Views/FormComponents/ModalFormStyle.swift,
 				Views/FormComponents/ServerURLField.swift,
 				Views/FormComponents/ValidationErrorSection.swift,
+				Views/InAppNotificationBanner.swift,
+				Views/InAppNotificationWindowOverlay.swift,
 				Views/MoreView.swift,
+				Views/NotificationTabBarAccessory.swift,
 				Views/OnboardingSheet.swift,
 				Views/QBittorrentCategoriesAndTagsView.swift,
 				Views/QBittorrentCategoriesView.swift,
@@ -492,9 +501,11 @@
 				Views/QBittorrentRSSRulesSheet.swift,
 				Views/QBittorrentRSSView.swift,
 				Views/QBittorrentTagsView.swift,
+				Views/RootTab.swift,
 				Views/SearchView.swift,
 				Views/ServerListView.swift,
 				Views/SettingsView.swift,
+				Views/ThemeOverride.swift,
 				Views/TorrentDetailView.swift,
 				Views/TorrentListView.swift,
 				Views/TorrentRowView.swift,
@@ -502,6 +513,7 @@
 				Views/TrackerListView.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
+				Views/WelcomeFlowView.swift,
 			);
 			target = FF000003FF000003FF000003 /* TrawlWidgets */;
 		};

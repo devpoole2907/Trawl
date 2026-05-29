@@ -37,18 +37,21 @@ struct ArrDiskSpaceView: View {
                     description: Text("No disk space information is currently available from your services.")
                 )
             } else {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
-                        if !sonarrSnapshots.isEmpty {
-                            serviceSection(title: "Sonarr", color: ServiceIdentity.sonarr.brandColor, snapshots: sonarrSnapshots)
-                        }
-
-                        if !radarrSnapshots.isEmpty {
-                            serviceSection(title: "Radarr", color: ServiceIdentity.radarr.brandColor, snapshots: radarrSnapshots)
-                        }
+                List {
+                    if !sonarrSnapshots.isEmpty {
+                        serviceSection(title: "Sonarr", snapshots: sonarrSnapshots)
                     }
-                    .padding(16)
+
+                    if !radarrSnapshots.isEmpty {
+                        serviceSection(title: "Radarr", snapshots: radarrSnapshots)
+                    }
                 }
+                #if os(iOS)
+                .listStyle(.insetGrouped)
+                #else
+                .listStyle(.inset)
+                #endif
+                .scrollContentBackground(.hidden)
             }
         }
         .background(backgroundGradient)
@@ -151,34 +154,23 @@ struct ArrDiskSpaceView: View {
         .ignoresSafeArea()
     }
 
-    private func serviceSection(title: String, color: Color, snapshots: [ArrDiskSpaceSnapshot]) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Label(title, systemImage: title == "Sonarr" ? "tv" : "film")
-                .font(.headline)
-                .foregroundStyle(color)
-
+    private func serviceSection(title: String, snapshots: [ArrDiskSpaceSnapshot]) -> some View {
+        Section(title) {
             ForEach(snapshots) { snapshot in
-                DiskSpaceCard(snapshot: snapshot, accentColor: color)
+                DiskSpaceRow(snapshot: snapshot)
             }
         }
     }
 }
 
-private struct DiskSpaceCard: View {
+private struct DiskSpaceRow: View {
     let snapshot: ArrDiskSpaceSnapshot
-    let accentColor: Color
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(snapshot.label ?? "Storage")
-                        .font(.subheadline.weight(.semibold))
-                    Text(snapshot.path)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                Text(snapshot.label ?? "Storage")
+                    .font(.subheadline.weight(.medium))
 
                 Spacer(minLength: 12)
 
@@ -189,10 +181,15 @@ private struct DiskSpaceCard: View {
                 }
             }
 
+            Text(snapshot.path)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+
             if let totalSpace = snapshot.totalSpace, totalSpace > 0, let freeSpace = snapshot.freeSpace {
                 let usedSpace = totalSpace - freeSpace
                 ProgressView(value: Double(usedSpace), total: Double(totalSpace))
-                    .tint(progressTint(totalSpace: totalSpace, freeSpace: freeSpace))
+                    .tint(freeSpace > totalSpace / 5 ? .teal : .orange)
 
                 HStack {
                     Text("Used \(ByteFormatter.format(bytes: usedSpace))")
@@ -203,13 +200,7 @@ private struct DiskSpaceCard: View {
                 .foregroundStyle(.secondary)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
-        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func progressTint(totalSpace: Int64, freeSpace: Int64) -> Color {
-        freeSpace > totalSpace / 5 ? accentColor : .orange
+        .padding(.vertical, 4)
     }
 }
 

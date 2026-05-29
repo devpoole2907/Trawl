@@ -106,7 +106,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                         searchText: $viewModel.searchText,
                         searchHint: "Search \(nounPlural.lowercased())",
                         isSearchExpanded: $isFilterSearchExpanded,
-                        searchPlacement: .leading
+                        searchPlacement: .leading,
+                        alignment: .leading
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }

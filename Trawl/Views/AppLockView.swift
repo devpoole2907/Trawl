@@ -23,17 +23,6 @@ struct AppLockView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button {
-                Task { await controller.authenticate() }
-            } label: {
-                Label(unlockButtonTitle, systemImage: unlockButtonIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .disabled(controller.isAuthenticating)
-
             if let error = controller.lastError, error.code != .userCancel {
                 Text(error.localizedDescription)
                     .font(.footnote)
@@ -45,6 +34,9 @@ struct AppLockView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
         .ignoresSafeArea()
+        .prominentBottomButton(LocalizedStringKey(unlockButtonTitle), systemImage: unlockButtonIcon, isDisabled: controller.isAuthenticating) {
+            Task { await controller.authenticate() }
+        }
         .task {
             await controller.authenticate()
         }

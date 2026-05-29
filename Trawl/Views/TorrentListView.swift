@@ -64,7 +64,8 @@ struct TorrentListView: View {
                     searchText: torrentSearchText,
                     searchHint: "Search torrents",
                     isSearchExpanded: $isFilterSearchExpanded,
-                    searchPlacement: .leading
+                    searchPlacement: .leading,
+                    alignment: .leading
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

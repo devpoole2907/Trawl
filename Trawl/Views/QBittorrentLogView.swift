@@ -39,11 +39,10 @@ struct QBittorrentLogView: View {
 
     private var displayed: [QBittorrentLogEntry] {
         var results = entries
-        if let typeValue = filter.typeValue {
-            results = results.filter { $0.type == typeValue }
-        }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !query.isEmpty {
+        if query.isEmpty, let typeValue = filter.typeValue {
+            results = results.filter { $0.type == typeValue }
+        } else if !query.isEmpty {
             results = results.filter { $0.message.localizedCaseInsensitiveContains(query) }
         }
         return results
@@ -94,7 +93,8 @@ struct QBittorrentLogView: View {
                 searchText: $searchText,
                 searchHint: "Search log",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading
+                searchPlacement: .leading,
+                alignment: .leading
             )
         }
         .errorAlert(item: $loadError)

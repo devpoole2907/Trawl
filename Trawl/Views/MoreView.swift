@@ -67,6 +67,7 @@ enum MoreDestination: Hashable {
 }
 
 enum MoreDestinationAccent {
+    case settings
     case activity
     case calendar
     case manualImport
@@ -98,6 +99,7 @@ enum MoreDestinationAccent {
 
     var color: Color {
         switch self {
+        case .settings: return .secondary
         case .activity: return .indigo
         case .calendar: return .purple
         case .manualImport: return .blue
@@ -450,7 +452,7 @@ struct MoreView: View {
 
                         NavigationLink(value: MoreDestination.torrentManagement) {
                             moreRow(icon: "arrow.down.circle.fill", color: MoreDestinationAccent.torrentManagement.color,
-                                    title: "Torrents", subtitle: "Transfer stats, categories, RSS feeds, and settings")
+                                    title: "Torrents", subtitle: "Transfer stats, categories, and RSS feeds")
                         }
 
                         NavigationLink(value: MoreDestination.integrations) {
@@ -1581,9 +1583,9 @@ private enum MoreSearchIndex {
                 icon: "arrow.down.circle.fill",
                 color: MoreDestinationAccent.torrentManagement.color,
                 title: "Torrents",
-                subtitle: "Transfer stats, categories, RSS feeds, and settings",
+                subtitle: "Transfer stats, categories, and RSS feeds",
                 category: "Torrents",
-                keywords: ["qbittorrent", "downloads", "rss", "speed", "limits"]
+                keywords: ["qbittorrent", "downloads", "rss", "speed"]
             ),
             .init(
                 id: "transfer-stats",
@@ -1614,16 +1616,6 @@ private enum MoreSearchIndex {
                 subtitle: "Feeds and automatic download rules",
                 category: "Torrents",
                 keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"]
-            ),
-            .init(
-                id: "qbittorrent-settings",
-                destination: .qbittorrentSettings,
-                icon: "gearshape.fill",
-                color: ServiceIdentity.qbittorrent.brandColor,
-                title: "qBittorrent Settings",
-                subtitle: "Server, speed limits, and save location",
-                category: "Settings",
-                keywords: ["torrent", "downloads", "connection", "server", "speed", "limits"]
             ),
             .init(
                 id: "integrations",
@@ -2755,15 +2747,6 @@ private struct TorrentManagementView: View {
                         subtitle: "Feeds and automatic download rules"
                     )
                 }
-
-                NavigationLink(value: MoreDestination.qbittorrentSettings) {
-                    NavigationMenuRow(
-                        icon: "gearshape.fill",
-                        color: ServiceIdentity.qbittorrent.brandColor,
-                        title: "qBittorrent Settings",
-                        subtitle: "Server, speed limits, and save location"
-                    )
-                }
             }
         }
         #if os(iOS)
@@ -3648,20 +3631,6 @@ private struct NotificationSettingsHubView: View {
 
     var body: some View {
         List {
-            #if os(iOS)
-            Section {
-                Button("Open Trawl Notification Settings", systemImage: "gearshape") {
-                    if let url = URL(string: UIApplication.openSettingsURLString) {
-                        openURL(url)
-                    }
-                }
-            } header: {
-                Text("Device Notifications")
-            } footer: {
-                Text("System notification permission is required before app webhooks can send push notifications.")
-            }
-            #endif
-
             Section {
                 ForEach(ArrServiceType.webhookNotificationServices) { serviceType in
                     let profile = profile(for: serviceType)
@@ -3697,6 +3666,20 @@ private struct NotificationSettingsHubView: View {
             } footer: {
                 Text("Creates or updates the same Trawl webhook offered from each app's settings.")
             }
+
+            #if os(iOS)
+            Section {
+                Button("Open Trawl Notification Settings", systemImage: "gearshape") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+            } header: {
+                Text("Device Notifications")
+            } footer: {
+                Text("System notification permission is required before app webhooks can send push notifications.")
+            }
+            #endif
         }
         #if os(iOS)
         .listStyle(.insetGrouped)

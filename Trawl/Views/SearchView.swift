@@ -4,10 +4,14 @@ import SwiftData
 struct SearchView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     @State private var viewModel = SearchViewModel()
     @State private var showClearConfirmation = false
+    @State private var pendingTrendingMovie: RadarrMovie? = nil
+    @State private var pendingTrendingSeries: SonarrSeries? = nil
+    @State private var trendingLookupTask: Task<Void, Never>? = nil
 
     @Namespace private var trendingTransition
 
@@ -89,6 +93,22 @@ struct SearchView: View {
                     #endif
                 }
             }
+            .navigationDestination(item: $pendingTrendingMovie) { movie in
+                if let vm = viewModel.radarrLookupVM {
+                    RadarrMovieDetailView(movie: movie, viewModel: vm, onAdded: {
+                        await refreshLibrary()
+                    })
+                    .environment(syncService)
+                }
+            }
+            .navigationDestination(item: $pendingTrendingSeries) { series in
+                if let vm = viewModel.sonarrLookupVM {
+                    SonarrSeriesDetailView(series: series, viewModel: vm, onAdded: {
+                        await refreshLibrary()
+                    })
+                    .environment(syncService)
+                }
+            }
         }
         .searchable(
             text: $viewModel.searchText,
@@ -125,7 +145,7 @@ struct SearchView: View {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
             #endif
-            await viewModel.loadStoredTMDbAPIKeyAndTrending(arrServiceManager: arrServiceManager)
+            await viewModel.loadTrending(arrServiceManager: arrServiceManager, seerrServiceManager: seerrServiceManager)
         }
         .task(id: "\(arrServiceManager.sonarrConnected)\(arrServiceManager.radarrConnected)") {
             #if DEBUG
@@ -141,6 +161,12 @@ struct SearchView: View {
             await reconcileTrendingMatches()
         }
         .errorAlert(item: $viewModel.actionErrorAlert)
+        .onDisappear {
+            trendingLookupTask?.cancel()
+            trendingLookupTask = nil
+            pendingTrendingMovie = nil
+            pendingTrendingSeries = nil
+        }
     }
 
     // MARK: - Content routing
@@ -249,13 +275,6 @@ struct SearchView: View {
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
-            } else if viewModel.tmdbAPIKey.isEmpty {
-                ContentUnavailableView {
-                    Label("Popular This Week", systemImage: "flame")
-                } description: {
-                    Text("Add a TMDb API key in Settings to see trending movies and TV shows.")
-                }
-                .padding(.top, 60)
             } else if let error = viewModel.trendingError, !hasContent {
                 ContentUnavailableView {
                     Label("Couldn't Load Trending", systemImage: "exclamationmark.triangle")
@@ -326,14 +345,26 @@ struct SearchView: View {
             .buttonStyle(.plain)
         } else {
             Button {
-                if let year = item.year {
-                    viewModel.searchText = "\(item.displayTitle) \(year)"
-                } else {
-                    viewModel.searchText = item.displayTitle
+                trendingLookupTask?.cancel()
+                trendingLookupTask = Task {
+                    if item.isMovie, let radarrClient = arrServiceManager.radarrClient,
+                       let movie = try? await radarrClient.lookupMovieByTmdb(tmdbId: item.id) {
+                        guard !Task.isCancelled else { return }
+                        pendingTrendingMovie = movie
+                    } else if !item.isMovie, let sonarrClient = arrServiceManager.sonarrClient,
+                              let tvdbId = try? await TMDbClient().tvExternalIds(tmdbId: item.id).tvdbId,
+                              !Task.isCancelled,
+                              let series = try? await sonarrClient.lookupSeriesByTvdb(tvdbId: tvdbId) {
+                        guard !Task.isCancelled else { return }
+                        pendingTrendingSeries = series
+                    } else if !Task.isCancelled {
+                        // Arr not configured or lookup failed — fall back to text search
+                        viewModel.searchText = item.year.map { "\(item.displayTitle) \($0)" } ?? item.displayTitle
+                        viewModel.isSearchPresented = true
+                        viewModel.scope = .arr
+                        startArrLookup(immediate: true)
+                    }
                 }
-                viewModel.isSearchPresented = true
-                viewModel.scope = .arr
-                startArrLookup(immediate: true)
             } label: {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
             }
@@ -757,7 +788,7 @@ struct SearchView: View {
     }
 
     private func loadTrending() async {
-        await viewModel.loadTrending(arrServiceManager: arrServiceManager)
+        await viewModel.loadTrending(arrServiceManager: arrServiceManager, seerrServiceManager: seerrServiceManager)
     }
 
     private func makeSonarrViewModel() -> SonarrViewModel? {
@@ -1061,8 +1092,7 @@ extension SearchView {
             scope: .arr,
             trendingMovies: [],
             trendingTV: [],
-            hasSearchedArr: true,
-            tmdbAPIKey: ""
+            hasSearchedArr: true
         ))
     }
 }

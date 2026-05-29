@@ -30,7 +30,6 @@ final class SearchViewModel {
     private var radarrLookupContextKey = ""
 
     // TMDb trending
-    var tmdbAPIKey: String = ""
     var trendingMovies: [TMDbItem] = []
     var trendingTV: [TMDbItem] = []
     var isLoadingTrending = false
@@ -116,7 +115,7 @@ final class SearchViewModel {
         }
     }
 
-    func startArrLookup(arrServiceManager: ArrServiceManager, immediate: Bool = false) {
+    func startArrLookup(arrServiceManager: ArrServiceManager, immediate: Bool = false, force: Bool = false) {
         let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else {
             resetArrLookup()
@@ -125,7 +124,7 @@ final class SearchViewModel {
 
         let isCurrentlySearchingTerm = activeArrLookupTerm == term
             && ((sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false))
-        if isCurrentlySearchingTerm || (lastCompletedArrLookupTerm == term && !immediate) {
+        if !force && (isCurrentlySearchingTerm || lastCompletedArrLookupTerm == term) {
             return
         }
 
@@ -258,24 +257,28 @@ final class SearchViewModel {
         createLookupViewModels(arrServiceManager: arrServiceManager)
     }
 
-    func loadStoredTMDbAPIKeyAndTrending(arrServiceManager: ArrServiceManager) async {
-        if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-            tmdbAPIKey = key
-        }
-        await loadTrending(arrServiceManager: arrServiceManager)
-    }
-
-    func loadTrending(arrServiceManager: ArrServiceManager) async {
-        guard !tmdbAPIKey.isEmpty else {
-            trendingMovies = []
-            trendingTV = []
-            return
-        }
+    func loadTrending(arrServiceManager: ArrServiceManager, seerrServiceManager: SeerrServiceManager) async {
         isLoadingTrending = true
         trendingError = nil
         defer { isLoadingTrending = false }
 
-        let client = TMDbClient(apiKey: tmdbAPIKey)
+        if let seerrClient = seerrServiceManager.activeClient, seerrServiceManager.isConnected {
+            do {
+                async let moviesTask = seerrClient.discoverTrendingMovies()
+                async let tvTask = seerrClient.discoverTrendingTV()
+                let (rawMovies, rawTV) = try await (moviesTask, tvTask)
+                let movies = rawMovies.map { $0.toTMDbItem(mediaType: "movie") }
+                let tv = rawTV.map { $0.toTMDbItem(mediaType: "tv") }
+                trendingMovies = movies
+                trendingTV = tv
+                await resolveTrendingMatches(movies: movies, tv: tv, arrServiceManager: arrServiceManager)
+                return
+            } catch {
+                // fall through to worker proxy
+            }
+        }
+
+        let client = TMDbClient()
         do {
             async let moviesTask = client.trendingMovies()
             async let tvTask = client.trendingTV()
@@ -532,7 +535,6 @@ extension SearchViewModel {
         hasSearchedArr: Bool = false,
         isLoadingTrending: Bool = false,
         trendingError: String? = nil,
-        tmdbAPIKey: String = "preview-key",
         actionErrorAlert: ErrorAlertItem? = nil
     ) {
         self.init()
@@ -552,7 +554,6 @@ extension SearchViewModel {
         self.hasSearchedArr = hasSearchedArr
         self.isLoadingTrending = isLoadingTrending
         self.trendingError = trendingError
-        self.tmdbAPIKey = tmdbAPIKey
         self.actionErrorAlert = actionErrorAlert
     }
 }

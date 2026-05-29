@@ -6,6 +6,8 @@ struct ArrScheduledTasksView: View {
     @State private var vm = ArrTasksViewModel()
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showSettings = false
+    @State private var taskSearchText = ""
+    @State private var isSearchExpanded = false
 
     #if DEBUG
     init(
@@ -76,6 +78,14 @@ struct ArrScheduledTasksView: View {
         vm.errorMessage(for: selectedService)
     }
 
+    private var taskSearchQuery: String {
+        taskSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasTaskSearch: Bool {
+        !taskSearchQuery.isEmpty
+    }
+
     var body: some View {
         Group {
             if availableServices.isEmpty {
@@ -95,7 +105,7 @@ struct ArrScheduledTasksView: View {
             }
         }
         .navigationTitle("Tasks")
-        .navigationSubtitle(selectedService.displayName)
+        .navigationSubtitle(hasTaskSearch ? "Search" : selectedService.displayName)
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
@@ -105,6 +115,10 @@ struct ArrScheduledTasksView: View {
                     set: { newService in withAnimation { selectedService = newService } }
                 ),
                 items: availableServices.map(\.segmentBarItem),
+                searchText: $taskSearchText,
+                searchHint: "Search tasks",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading,
                 alignment: .leading
             )
         }
@@ -139,7 +153,9 @@ struct ArrScheduledTasksView: View {
     @ViewBuilder
     private var taskList: some View {
         List {
-            if let error = currentError {
+            if hasTaskSearch {
+                searchResultsList
+            } else if let error = currentError {
                 Section {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
                 }
@@ -190,6 +206,63 @@ struct ArrScheduledTasksView: View {
         .animation(.default, value: currentBazarrTasks.map(\.id))
     }
 
+    @ViewBuilder
+    private var searchResultsList: some View {
+        let query = taskSearchQuery
+        let sections = taskSearchSections(matching: query)
+
+        if sections.isEmpty {
+            ContentUnavailableView.search(text: query)
+                .listRowBackground(Color.clear)
+        } else {
+            ForEach(sections) { section in
+                Section(section.title) {
+                    ForEach(section.items) { item in
+                        switch item.kind {
+                        case .scheduled(let task):
+                            ArrScheduledTaskRow(task: task) {
+                                await triggerArrTask(task, service: item.service)
+                            }
+                        case .queue(let command):
+                            ArrCommandQueueRow(command: command)
+                        case .bazarr(let task):
+                            BazarrTaskRow(task: task) {
+                                await triggerBazarrTask(task)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func taskSearchSections(matching query: String) -> [TaskSearchSection] {
+        availableServices.flatMap { service -> [TaskSearchSection] in
+            if service == .bazarr {
+                let items = vm.bazarrTasks
+                    .filter { $0.matchesTaskSearch(query) }
+                    .map { TaskSearchItem(service: service, kind: .bazarr($0)) }
+                return items.isEmpty ? [] : [TaskSearchSection(title: "\(service.displayName) Scheduled", items: items)]
+            }
+
+            let scheduled = vm.scheduledTasks(for: service)
+                .filter { $0.matchesTaskSearch(query) }
+                .map { TaskSearchItem(service: service, kind: .scheduled($0)) }
+            let queue = vm.commandQueue(for: service)
+                .filter { $0.matchesTaskSearch(query) }
+                .map { TaskSearchItem(service: service, kind: .queue($0)) }
+
+            var sections: [TaskSearchSection] = []
+            if !scheduled.isEmpty {
+                sections.append(TaskSearchSection(title: "\(service.displayName) Scheduled", items: scheduled))
+            }
+            if !queue.isEmpty {
+                sections.append(TaskSearchSection(title: "\(service.displayName) Queue", items: queue))
+            }
+            return sections
+        }
+    }
+
     // MARK: - Load & Trigger
 
     @MainActor
@@ -215,7 +288,12 @@ struct ArrScheduledTasksView: View {
 
     @MainActor
     private func triggerArrTask(_ task: ArrScheduledTask) async {
-        switch selectedService {
+        await triggerArrTask(task, service: selectedService)
+    }
+
+    @MainActor
+    private func triggerArrTask(_ task: ArrScheduledTask, service: ArrServiceType) async {
+        switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
             await vm.triggerTask(task, service: .sonarr, client: client)
@@ -228,7 +306,7 @@ struct ArrScheduledTasksView: View {
         case .bazarr:
             break
         }
-        await loadService(selectedService)
+        await loadService(service)
     }
 
     @MainActor
@@ -236,6 +314,71 @@ struct ArrScheduledTasksView: View {
         guard let client = serviceManager.activeBazarrEntry?.client else { return }
         await vm.triggerBazarrTask(task, client: client)
         await loadService(.bazarr)
+    }
+}
+
+private struct TaskSearchSection: Identifiable {
+    let title: String
+    let items: [TaskSearchItem]
+
+    var id: String { title }
+}
+
+private struct TaskSearchItem: Identifiable {
+    let service: ArrServiceType
+    let kind: TaskSearchItemKind
+
+    var id: String {
+        "\(service.rawValue)-\(kind.id)"
+    }
+}
+
+private enum TaskSearchItemKind {
+    case scheduled(ArrScheduledTask)
+    case queue(ArrCommand)
+    case bazarr(BazarrTask)
+
+    var id: String {
+        switch self {
+        case .scheduled(let task):
+            "scheduled-\(task.id)"
+        case .queue(let command):
+            "queue-\(command.id.map(String.init) ?? command.commandName ?? command.name ?? command.queued ?? "unknown")"
+        case .bazarr(let task):
+            "bazarr-\(task.id)"
+        }
+    }
+}
+
+private extension ArrScheduledTask {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            taskName,
+            lastStartMessage
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+    }
+}
+
+private extension ArrCommand {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            commandName,
+            status,
+            trigger,
+            exception
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+    }
+}
+
+private extension BazarrTask {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            jobId,
+            interval
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
     }
 }
 

@@ -75,7 +75,8 @@ struct SeerrLogsView: View {
                 searchText: $searchText,
                 searchHint: "Search logs",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading
+                searchPlacement: .leading,
+                alignment: .leading
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
@@ -115,7 +116,7 @@ struct SeerrLogsView: View {
         do {
             let result = try await apiClient.getLogs(
                 take: 100,
-                filter: level.apiValue,
+                filter: committedSearchText.isEmpty ? level.apiValue : SeerrLogLevelFilter.debug.apiValue,
                 search: committedSearchText
             )
             withAnimation(.default) {

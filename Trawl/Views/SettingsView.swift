@@ -11,16 +11,12 @@ struct SettingsView: View {
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(AppLockController.self) private var appLockController
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
     @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @State private var tmdbAPIKey: String = ""
-    @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
-    @State private var didLoadTmdbAPIKey = false
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
@@ -60,33 +56,11 @@ struct SettingsView: View {
                 #endif
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
-
-                // Load TMDb API key from Keychain
-                if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-                    tmdbAPIKey = key
-                }
-                didLoadTmdbAPIKey = true
             }
             .task(id: arrProfilesSyncKey) {
                 arrServiceManager.syncProfiles(arrProfiles)
             }
-            .onChange(of: tmdbAPIKey) { _, newValue in
-                guard didLoadTmdbAPIKey else { return }
-                tmdbAPIKeySaveTask?.cancel()
-                tmdbAPIKeySaveTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(400))
-                    guard !Task.isCancelled else { return }
-                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty {
-                        try? await KeychainHelper.shared.delete(key: "tmdb.apiKey")
-                    } else {
-                        try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: trimmed)
-                    }
-                }
-            }
-            .onDisappear {
-                tmdbAPIKeySaveTask?.cancel()
-            }
+            .moreDestinationBackground(.settings)
     }
 
     // MARK: - Computed
@@ -234,68 +208,6 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
-            Section {
-                SecureField("API Key", text: $tmdbAPIKey)
-                    .textContentType(.password)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-            } header: {
-                Label("TMDb", systemImage: "flame")
-            } footer: {
-                Text("Required for Popular This Week on the Search tab. Get a free key at themoviedb.org.")
-            }
-
-            Section("Notifications") {
-                Toggle("Download Notifications", isOn: $viewModel.notificationsEnabled)
-                    .onChange(of: viewModel.notificationsEnabled) {
-                        Task { await viewModel.toggleNotifications() }
-                    }
-                if viewModel.notificationsEnabled && !viewModel.notificationPermissionGranted {
-                    Label("Notification permission not granted. Enable in System Settings.", systemImage: "exclamationmark.triangle")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                }
-
-                #if os(iOS)
-                if viewModel.notificationsEnabled, let deviceToken = viewModel.deviceToken {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Account ID")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            HStack {
-                                Text(deviceToken)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-
-                                Spacer()
-
-                                Button {
-                                    UIPasteboard.general.string = deviceToken
-                                    inAppNotificationCenter.showSuccess(title: "Copied", message: "ID copied to clipboard")
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                            .padding(8)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(8)
-                        }
-
-                        Text("Use the notification settings hub to link app webhooks automatically.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                #endif
-            }
-
             #if os(iOS)
             Section {
                 Toggle(securityToggleTitle, isOn: Binding(
@@ -368,6 +280,7 @@ struct SettingsView: View {
             }
             
         }
+        .scrollContentBackground(.hidden)
         #if os(macOS)
         .formStyle(.grouped)
         .padding(20)
@@ -972,13 +885,10 @@ extension EnvironmentValues {
 extension SettingsView {
     init(
         previewViewModel: SettingsViewModel,
-        showsDoneButton: Bool = true,
-        tmdbAPIKey: String = "preview-tmdb-key"
+        showsDoneButton: Bool = true
     ) {
         self.init(showsDoneButton: showsDoneButton)
         self._viewModel = State(initialValue: previewViewModel)
-        self._tmdbAPIKey = State(initialValue: tmdbAPIKey)
-        self._didLoadTmdbAPIKey = State(initialValue: true)
         self.skipsAutomaticLoading = true
     }
 }
@@ -1029,7 +939,7 @@ extension QBittorrentSettingsView {
                 serverProfile: nil,
                 qbVersion: nil,
                 deviceToken: nil
-            ), tmdbAPIKey: "")
+            ))
         }
     }
 }

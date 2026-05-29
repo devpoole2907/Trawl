@@ -267,6 +267,7 @@ private struct ArrQualityDefinitionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 
     private var rangeLabel: String {

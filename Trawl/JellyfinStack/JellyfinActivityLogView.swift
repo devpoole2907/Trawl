@@ -140,7 +140,8 @@ struct JellyfinActivityLogView: View {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         return entries.filter { entry in
-            if case .type(let selectedType) = selectedTypeFilter,
+            if query.isEmpty,
+               case .type(let selectedType) = selectedTypeFilter,
                entry.type?.caseInsensitiveCompare(selectedType) != .orderedSame {
                 return false
             }

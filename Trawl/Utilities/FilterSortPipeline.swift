@@ -13,8 +13,11 @@ enum FilterSortPipeline {
         let trimmedSearchText = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let filteredItems = items.filter { item in
-            matchesFilter(item, filter) &&
-            (trimmedSearchText.isEmpty || matchesSearch(item, trimmedSearchText))
+            if trimmedSearchText.isEmpty {
+                matchesFilter(item, filter)
+            } else {
+                matchesSearch(item, trimmedSearchText)
+            }
         }
 
         return filteredItems.sorted { lhs, rhs in

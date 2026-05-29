@@ -28,12 +28,10 @@ struct ArrReleaseActionContent: View {
                 if let rejections = release.rejections, !rejections.isEmpty {
                     rejectionsCard(rejections)
                 }
-
-                downloadButton
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
-            .padding(.bottom, 32)
+            .padding(.bottom, 96)
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
         }
@@ -63,6 +61,13 @@ struct ArrReleaseActionContent: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .prominentBottomButton(
+            isGrabbing ? "Downloading..." : "Download Release",
+            systemImage: isGrabbing ? nil : "arrow.down.circle.fill",
+            isLoading: isGrabbing,
+            isDisabled: !canDownload,
+            action: grabRelease
+        )
     }
 
     private var heroHeader: some View {
@@ -185,45 +190,13 @@ struct ArrReleaseActionContent: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
-    private var downloadButton: some View {
-        Button {
-            guard !grabInFlight else { return }
-            Task {
-                grabInFlight = true
-                defer { grabInFlight = false }
-                await onGrab()
-            }
-        } label: {
-            HStack(spacing: 12) {
-                if isGrabbing {
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(.white)
-                } else {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .font(.headline)
-                        .foregroundStyle(accentColor)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Download Release")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-
-                    Text(release.indexer ?? release.qualityName)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                }
-            }
-            .frame(maxWidth: .infinity, minHeight: 48)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
-            .contentShape(Rectangle())
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+    private func grabRelease() {
+        guard !grabInFlight else { return }
+        Task {
+            grabInFlight = true
+            defer { grabInFlight = false }
+            await onGrab()
         }
-        .buttonStyle(.plain)
-        .disabled(!canDownload)
     }
 
     private func badge(text: String, systemImage: String, tint: Color) -> some View {

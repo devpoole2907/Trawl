@@ -212,6 +212,16 @@ actor SeerrAPIClient {
         try await deleteVoid("/api/v1/request/\(id)")
     }
 
+    func discoverTrendingMovies() async throws -> [SeerrDiscoverItem] {
+        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/movies/trending")
+        return response.results
+    }
+
+    func discoverTrendingTV() async throws -> [SeerrDiscoverItem] {
+        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/tv/trending")
+        return response.results
+    }
+
     func getMediaSummary(tmdbId: Int, mediaType: String) async throws -> SeerrMediaSummary {
         let path = mediaType == "tv" ? "/api/v1/tv/\(tmdbId)" : "/api/v1/movie/\(tmdbId)"
         return try await get(path)

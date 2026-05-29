@@ -222,6 +222,9 @@ struct ArrWantedView: View {
             }
         }
         .navigationTitle("Wanted / Missing")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .background(backgroundGradient)
         .toolbar {
             if showsCloseButton {

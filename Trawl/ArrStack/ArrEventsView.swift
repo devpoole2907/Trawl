@@ -95,14 +95,21 @@ struct ArrEventsView: View {
     }
 
     private var displayedEntries: [UnifiedLogEntry] {
+        let query = committedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let raw: [UnifiedLogEntry]
-        switch selectedSelection {
-        case .all:
+        if !query.isEmpty {
             raw = availableServices
                 .flatMap { vm.entries(for: $0) }
                 .sorted { $0.timestamp > $1.timestamp }
-        case .service(let t):
-            raw = vm.entries(for: t)
+        } else {
+            switch selectedSelection {
+            case .all:
+                raw = availableServices
+                    .flatMap { vm.entries(for: $0) }
+                    .sorted { $0.timestamp > $1.timestamp }
+            case .service(let t):
+                raw = vm.entries(for: t)
+            }
         }
 
         let levelFiltered = raw.filter { entry in
@@ -111,10 +118,10 @@ struct ArrEventsView: View {
                 : selectedLevel.includesArrLevel(entry.level)
         }
 
-        guard !committedSearchText.isEmpty else { return levelFiltered }
+        guard !query.isEmpty else { return levelFiltered }
         return levelFiltered.filter {
-            $0.message.localizedCaseInsensitiveContains(committedSearchText) ||
-            ($0.logger ?? "").localizedCaseInsensitiveContains(committedSearchText)
+            $0.message.localizedCaseInsensitiveContains(query) ||
+            ($0.logger ?? "").localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -193,7 +200,7 @@ struct ArrEventsView: View {
                 searchHint: "Search events",
                 isSearchExpanded: $isSearchExpanded,
                 searchPlacement: .leading,
-                alignment: .center
+                alignment: .leading
             )
         }
         .loadServicesPeriodically(
