@@ -39,7 +39,6 @@ struct ContentView: View {
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
     @State private var showArrSetup = false
-    @State private var welcomePath: [WelcomeStep] = []
     @State private var setupTarget: SetupTarget?
     @State private var didEvaluateWelcomeState = false
     @State private var servicesTask: Task<Void, Never>?
@@ -53,6 +52,10 @@ struct ContentView: View {
     #if os(iOS)
     @Namespace private var notificationTransitionNamespace
     @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
+    @State private var isTabChromeHidden = false
+    #endif
+    #if DEBUG
+    private var isPreview = false
     #endif
 
     var body: some View {
@@ -190,6 +193,12 @@ struct ContentView: View {
                         pendingDeepLink = PendingDeepLink(tab: .torrents, morePath: [])
                     case "calendar":
                         pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
+                    case "health":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.health])
+                    case "seerr-requests":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrAdmin])
+                    case "seerr-issue":
+                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrIssues])
                     default:
                         break
                     }
@@ -200,10 +209,15 @@ struct ContentView: View {
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
+                    case "health":
+                        selectedTab = .more
+                        morePath = [.health]
+                    case "seerr-requests":
+                        selectedTab = .more
+                        morePath = [.seerrAdmin]
                     case "seerr-issue":
                         selectedTab = .more
                         morePath = [.seerrIssues]
-                        // We could deep link directly to the issue if we had a MoreDestination for it
                     default:
                         return
                     }
@@ -213,18 +227,27 @@ struct ContentView: View {
             }
         }
         .task(id: seerrProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             await seerrServiceManager.initialize(from: seerrProfiles)
             if !seerrProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
         }
         .task(id: jellyfinProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
             if !jellyfinProfiles.isEmpty {
                 isInWelcomeFlow = false
             }
         }
         .task(id: arrProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             if !didEvaluateWelcomeState {
                 isInWelcomeFlow = !hasConfiguredAnyService
                 didEvaluateWelcomeState = true
@@ -238,6 +261,9 @@ struct ContentView: View {
             await arrServiceManager.initialize(from: arrProfiles)
         }
         .task(id: connectionRetryLoopKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
             guard scenePhase == .active, !shouldShowWelcomeScreen else { return }
             await connectionRetryScheduler.start {
                 await retryDisconnectedConnections()
@@ -292,237 +318,19 @@ struct ContentView: View {
     }
 
     private var welcomeScreen: some View {
-        NavigationStack(path: $welcomePath) {
-            welcomeIntroScreen
-                .navigationDestination(for: WelcomeStep.self) { step in
-                    switch step {
-                    case .services:
-                        serviceSelectionScreen
-                    }
-                }
-        }
-    }
-
-    private func featureRow(icon: String, color: Color, title: String, description: String) -> some View {
-        HStack(spacing: 14) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundStyle(color)
-                .frame(width: 36)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                Text(description)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-        }
-    }
-
-    private var welcomeIntroScreen: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 12) {
-                Image(systemName: "externaldrive.badge.wifi")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.tint)
-
-                Text("Welcome to Trawl")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                Text("Your home for torrents, TV, and movies.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(alignment: .leading, spacing: 16) {
-                featureRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
-                           title: "qBittorrent",
-                           description: "Manage and monitor your downloads")
-                featureRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
-                           title: "Sonarr",
-                           description: "Track and automate your TV series")
-                featureRow(icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
-                           title: "Radarr",
-                           description: "Discover and collect movies")
-                featureRow(icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
-                           title: "Prowlarr",
-                           description: "Manage and search your indexers")
-                featureRow(icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
-                           title: "Bazarr",
-                           description: "Manage subtitles for series and movies")
-                featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
-                           title: "Seerr",
-                           description: "Manage requests and users")
-            }
-            .padding(.horizontal, 8)
-
-            NavigationLink(value: WelcomeStep.services) {
-                Text("Get Started")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .glassEffect(.regular.interactive(), in: Capsule())
-        }
-        .padding(32)
-        .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private var serviceSelectionScreen: some View {
-        VStack(spacing: 24) {
-            VStack(spacing: 10) {
-                Text("Choose Your Services")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
-
-                Text("Set up the services you want to use, then continue into the app.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            VStack(spacing: 12) {
-                setupRow(
-                    icon: ServiceIdentity.qbittorrent.systemImage,
-                    color: ServiceIdentity.qbittorrent.brandColor,
-                    title: "qBittorrent",
-                    description: "Manage and monitor your downloads",
-                    isConfigured: activeServer != nil
-                ) {
-                    setupTarget = .qbittorrent
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.sonarr.systemImage,
-                    color: ServiceIdentity.sonarr.brandColor,
-                    title: "Sonarr",
-                    description: "Track and automate your TV series",
-                    isConfigured: sonarrProfile != nil
-                ) {
-                    setupTarget = .sonarr
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.radarr.systemImage,
-                    color: ServiceIdentity.radarr.brandColor,
-                    title: "Radarr",
-                    description: "Discover and collect movies",
-                    isConfigured: radarrProfile != nil
-                ) {
-                    setupTarget = .radarr
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.prowlarr.systemImage,
-                    color: ServiceIdentity.prowlarr.brandColor,
-                    title: "Prowlarr",
-                    description: "Manage and search your indexers",
-                    isConfigured: prowlarrProfile != nil
-                ) {
-                    setupTarget = .prowlarr
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.bazarr.systemImage,
-                    color: ServiceIdentity.bazarr.brandColor,
-                    title: "Bazarr",
-                    description: "Manage subtitles for series and movies",
-                    isConfigured: bazarrProfile != nil
-                ) {
-                    setupTarget = .bazarr
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.seerr.systemImage,
-                    color: ServiceIdentity.seerr.brandColor,
-                    title: "Seerr",
-                    description: "Manage requests and users",
-                    isConfigured: seerrProfile != nil
-                ) {
-                    setupTarget = .seerr
-                }
-
-                setupRow(
-                    icon: ServiceIdentity.jellyfin.systemImage,
-                    color: ServiceIdentity.jellyfin.brandColor,
-                    title: "Jellyfin",
-                    description: "Manage users, libraries, and server activity",
-                    isConfigured: jellyfinProfile != nil
-                ) {
-                    setupTarget = .jellyfin
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            VStack(spacing: 10) {
-                Button("Go") {
-                    if hasConfiguredAnyService {
-                        isInWelcomeFlow = false
-                    }
-                }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .disabled(!hasConfiguredAnyService)
-                    .frame(maxWidth: .infinity)
-
-                Button("Back") {
-                    welcomePath.removeAll()
-                }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-            }
-        }
-        .padding(32)
-        .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .navigationTitle("Choose Services")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-    }
-
-    private func setupRow(
-        icon: String,
-        color: Color,
-        title: String,
-        description: String,
-        isConfigured: Bool,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 14) {
-                Image(systemName: icon)
-                    .font(.title2)
-                    .foregroundStyle(color)
-                    .frame(width: 36)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-                    Text(description)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Image(systemName: isConfigured ? "checkmark.circle.fill" : "circle")
-                    .font(.title3)
-                    .foregroundStyle(isConfigured ? Color.green : Color.secondary.opacity(0.4))
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 14)
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
-        }
-        .buttonStyle(.plain)
+        WelcomeFlowView(
+            isInWelcomeFlow: $isInWelcomeFlow,
+            setupTarget: $setupTarget,
+            configuredServices: WelcomeServicesState(
+                qbittorrent: activeServer != nil,
+                sonarr: sonarrProfile != nil,
+                radarr: radarrProfile != nil,
+                prowlarr: prowlarrProfile != nil,
+                bazarr: bazarrProfile != nil,
+                seerr: seerrProfile != nil,
+                jellyfin: jellyfinProfile != nil
+            )
+        )
     }
 
     // MARK: - Tab Content
@@ -565,7 +373,7 @@ struct ContentView: View {
             }
 
             Tab(value: RootTab.search, role: .search) {
-                SearchView(appServices: appServices)
+                SearchView()
                     .environment(arrServiceManager)
                     .environment(services.syncService)
                     .environment(services.torrentService)
@@ -615,23 +423,30 @@ struct ContentView: View {
         }
         .tabViewStyle(.sidebarAdaptable)
         #if os(iOS)
-        .tabViewBottomAccessory {
+        .tabViewBottomAccessory(isEnabled: !isTabChromeHidden) {
             NotificationTabBarAccessory()
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .overlay(alignment: .bottom) {
-            // Source view for the notification sheet zoom transition.
-            // Lives in the main view hierarchy (not inside tabViewBottomAccessory)
-            // because matched transitions can't resolve views bridged through the
-            // liquid-glass tab bar. The view is rendered (non-zero opacity) so
-            // SwiftUI registers its frame, but visually imperceptible.
-            Rectangle()
-                .fill(Color.primary.opacity(0.001))
-                .frame(width: 320, height: 56)
-                .matchedTransitionSource(id: notificationSheetTransitionID, in: notificationTransitionNamespace)
-                .padding(.bottom, 96)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+            if !isTabChromeHidden {
+                // Source view for the notification sheet zoom transition.
+                // Lives in the main view hierarchy (not inside tabViewBottomAccessory)
+                // because matched transitions can't resolve views bridged through the
+                // liquid-glass tab bar. The view is rendered (non-zero opacity) so
+                // SwiftUI registers its frame, but visually imperceptible.
+                Rectangle()
+                    .fill(Color.primary.opacity(0.001))
+                    .frame(width: 320, height: 56)
+                    .matchedTransitionSource(id: notificationSheetTransitionID, in: notificationTransitionNamespace)
+                    .padding(.bottom, 96)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
+        }
+        .environment(\.setTabChromeHidden) { isHidden in
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                isTabChromeHidden = isHidden
+            }
         }
         #endif
         .sheet(item: $magnetDeepLink) { link in
@@ -865,359 +680,70 @@ struct ContentView: View {
     }
 }
 
-#if os(iOS)
-private struct NotificationTabBarAccessory: View {
-    @Environment(\.tabViewBottomAccessoryPlacement) private var placement
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-
-    private var latestNotification: NotificationLogEntry? {
-        inAppNotificationCenter.recentNotifications.first
-    }
-
-    private var unreadCount: Int {
-        inAppNotificationCenter.unreadCount
-    }
-
-    private var isInline: Bool {
-        placement == .inline
-    }
-
-    private var headline: String {
-        if let latestNotification {
-            latestNotification.title
-        } else {
-            "Notifications"
-        }
-    }
-
-    private var subtitle: String {
-        if let latestNotification {
-            "\(latestNotification.associatedServiceTitle) · \(latestNotification.timestamp.formatted(date: .abbreviated, time: .shortened))"
-        } else if unreadCount == 1 {
-            "1 unread notification"
-        } else if unreadCount > 1 {
-            "\(unreadCount) unread notifications"
-        } else {
-            "No recent notifications"
-        }
-    }
-
-    private var notificationAccessibilityValue: String {
-        if unreadCount == 1 {
-            "1 unread notification"
-        } else if unreadCount > 1 {
-            "\(unreadCount) unread notifications"
-        } else {
-            "No unread notifications"
-        }
-    }
-
-    private func presentRecentNotifications() {
-        inAppNotificationCenter.showRecentNotifications()
-        if inAppNotificationCenter.currentBanner != nil {
-            inAppNotificationCenter.dismissCurrentBanner()
-        }
-    }
-
-    var body: some View {
-        Button {
-            presentRecentNotifications()
-        } label: {
-            if isInline {
-                inlineContent
-            } else {
-                expandedContent
-            }
-        }
-        .buttonStyle(.plain)
-        .simultaneousGesture(swipeUpGesture)
-        .accessibilityLabel("Notifications")
-        .accessibilityValue(notificationAccessibilityValue)
-    }
-
-    private var swipeUpGesture: some Gesture {
-        DragGesture(minimumDistance: 12)
-            .onEnded { value in
-                let verticalDistance = -value.translation.height
-                let verticalVelocity = -value.predictedEndTranslation.height + value.translation.height
-                if verticalDistance > 24 || verticalVelocity > 80 {
-                    presentRecentNotifications()
-                }
-            }
-    }
-
-    private var inlineSummary: String {
-        if unreadCount >= 1, let latest = latestNotification {
-            let count = unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
-            return "\(count) · \(latest.associatedServiceTitle)"
-        } else if unreadCount >= 1 {
-            return unreadCount == 1 ? "1 unread" : "\(unreadCount) unread"
-        } else if let latestNotification {
-            return latestNotification.title
-        } else {
-            return "Notifications"
-        }
-    }
-
-    private var inlineContent: some View {
-        HStack(spacing: 8) {
-            notificationIcon
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(.tint)
-
-            Text(inlineSummary)
-                .font(.footnote.weight(.medium))
-                .foregroundStyle(.primary)
-                .lineLimit(1)
-                .truncationMode(.tail)
-
-            Spacer(minLength: 4)
-
-            Image(systemName: "chevron.up")
-                .font(.caption2.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .contentShape(Rectangle())
-    }
-
-    private var expandedContent: some View {
-        HStack(spacing: 12) {
-            notificationIcon
-                .font(.title3.weight(.semibold))
-                .frame(width: 36, height: 36)
-                .foregroundStyle(.tint)
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(headline)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-            }
-
-            Spacer(minLength: 8)
-
-            Image(systemName: "chevron.up")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .contentShape(Rectangle())
-    }
-
-    private var notificationIcon: some View {
-        Image(systemName: "bell.fill")
-            .symbolRenderingMode(.hierarchical)
-            .overlay(alignment: .topTrailing) {
-                if unreadCount > 0 {
-                    Text(unreadCount > 99 ? "99+" : "\(unreadCount)")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white)
-                        .minimumScaleFactor(0.7)
-                        .lineLimit(1)
-                        .padding(.horizontal, 5)
-                        .frame(minWidth: 18, minHeight: 18)
-                        .background(.red, in: Capsule())
-                        .offset(x: 10, y: -10)
-                        .accessibilityHidden(true)
-                }
-            }
+#if DEBUG
+extension ContentView {
+    init(
+        previewSelectedTab: RootTab,
+        previewMorePath: [MoreDestination] = [],
+        previewAppServices: AppServices? = AppServices.disconnected(),
+        previewIsConnecting: Bool = false,
+        previewConnectionError: String? = nil,
+        previewIsInWelcomeFlow: Bool = false
+    ) {
+        self._appServices = State(initialValue: previewAppServices)
+        self._connectionError = State(initialValue: previewConnectionError)
+        self._isConnecting = State(initialValue: previewIsConnecting)
+        self._isInWelcomeFlow = State(initialValue: previewIsInWelcomeFlow)
+        self._selectedTab = State(initialValue: previewSelectedTab)
+        self._morePath = State(initialValue: previewMorePath)
+        self._didEvaluateWelcomeState = State(initialValue: true)
+        self._hasSetStartupTab = State(initialValue: true)
+        self.isPreview = true
     }
 }
 
-fileprivate extension NotificationLogEntry {
-    var associatedServiceTitle: String {
-        let blob = "\(title) \(message)".lowercased()
-        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
-
-        if tokens.contains("sonarr") { return "Sonarr" }
-        if tokens.contains("radarr") { return "Radarr" }
-        if tokens.contains("prowlarr") { return "Prowlarr" }
-        if tokens.contains("bazarr") { return "Bazarr" }
-        if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return "Seerr" }
-        if tokens.contains("jellyfin") { return "Jellyfin" }
-        if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return "qBittorrent" }
-        return "Trawl"
-    }
-}
-
-@MainActor
-private final class InAppNotificationWindowPresenter {
-    private var window: UIWindow?
-
-    func install(notificationCenter: InAppNotificationCenter) {
-        guard let scene = UIApplication.shared.connectedScenes
-            .compactMap({ $0 as? UIWindowScene })
-            .first(where: { $0.activationState == .foregroundActive }) else {
-            return
-        }
-
-        if window?.windowScene === scene {
-            return
-        }
-
-        let hostingController = UIHostingController(
-            rootView: InAppNotificationWindowOverlay(notificationCenter: notificationCenter)
-                .environment(notificationCenter)
+#Preview("Content - More Tab") {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        appServices: AppServices.disconnected(),
+        notificationCenter: InAppNotificationCenter(
+            previewNotifications: [
+                NotificationLogEntry(
+                    title: "Download Complete",
+                    message: "A Radarr movie finished importing.",
+                    style: .success,
+                    source: .inApp,
+                    timestamp: Date().addingTimeInterval(-600)
+                )
+            ],
+            lastReadDate: Date().addingTimeInterval(-3_600)
         )
-        hostingController.view.backgroundColor = .clear
-
-        let overlayWindow = PassthroughNotificationWindow(windowScene: scene)
-        overlayWindow.backgroundColor = .clear
-        overlayWindow.windowLevel = .statusBar + 1
-        overlayWindow.rootViewController = hostingController
-        overlayWindow.isHidden = false
-
-        window = overlayWindow
+    ) {
+        ContentView(
+            previewSelectedTab: .more,
+            previewAppServices: AppServices.disconnected()
+        )
     }
 }
 
-private final class PassthroughNotificationWindow: UIWindow {
-    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        let hitView = super.hitTest(point, with: event)
-        return hitView === rootViewController?.view ? nil : hitView
-    }
-}
-
-private struct InAppNotificationWindowOverlay: View {
-    let notificationCenter: InAppNotificationCenter
-
-    var body: some View {
-        GeometryReader { geometry in
-            Color.clear
-                .overlay(alignment: .top) {
-                    if let banner = notificationCenter.currentBanner {
-                        InAppNotificationBanner(item: banner) {
-                            notificationCenter.dismissCurrentBanner()
-                        } onTap: {
-                            if notificationCenter.currentBannerHasAction {
-                                notificationCenter.fireCurrentBannerAction()
-                            } else {
-                                notificationCenter.showRecentNotifications()
-                                notificationCenter.dismissCurrentBanner()
-                            }
-                        }
-                        .withActionAffordance(notificationCenter.currentBannerHasAction)
-                        .padding(.top, toolbarAwareTopPadding(safeAreaTop: geometry.safeAreaInsets.top))
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .ignoresSafeArea()
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: notificationCenter.currentBanner)
-    }
-
-    private func toolbarAwareTopPadding(safeAreaTop: CGFloat) -> CGFloat {
-        let statusBarTop = UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .first(where: { $0.activationState == .foregroundActive })?
-            .statusBarManager?
-            .statusBarFrame
-            .height ?? 0
-
-        return max(safeAreaTop, statusBarTop, 44) + 44 + 26
+#Preview("Content - Welcome") {
+    PreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil,
+        notificationCenter: InAppNotificationCenter(previewNotifications: [])
+    ) {
+        ContentView(
+            previewSelectedTab: .torrents,
+            previewAppServices: nil,
+            previewIsInWelcomeFlow: true
+        )
     }
 }
 #endif
-
-private struct InAppNotificationBanner: View {
-    let item: InAppBannerItem
-    let onDismiss: () -> Void
-    let onTap: () -> Void
-    var hasAction = false
-
-    @State private var dragOffset: CGFloat = 0
-
-    var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 12) {
-                if item.showsProgressView {
-                    ProgressView()
-                        .controlSize(.regular)
-                        .tint(item.tintColor)
-                } else {
-                    Image(systemName: item.systemImage)
-                        .font(.title3.weight(.semibold))
-                        .foregroundStyle(item.tintColor)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(item.title)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.primary)
-                    Text(item.message)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-
-                Spacer(minLength: 0)
-
-                if hasAction {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
-            }
-        }
-        .buttonStyle(.plain)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
-        .glassEffect(.regular.tint(item.tintColor.opacity(0.18)), in: RoundedRectangle(cornerRadius: 16))
-        .frame(maxWidth: 560)
-        .padding(.horizontal, 16)
-        .contentShape(Rectangle())
-        .offset(y: dragOffset)
-        .simultaneousGesture(
-            DragGesture()
-                .onChanged { value in
-                    if value.translation.height < 0 {
-                        dragOffset = value.translation.height
-                    }
-                }
-                .onEnded { value in
-                    if value.translation.height < -40 {
-                        onDismiss()
-                    } else {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                            dragOffset = 0
-                        }
-                    }
-                }
-        )
-    }
-}
-
-private extension InAppNotificationBanner {
-    func withActionAffordance(_ hasAction: Bool) -> InAppNotificationBanner {
-        var copy = self
-        copy.hasAction = hasAction
-        return copy
-    }
-}
-
-private extension InAppBannerItem {
-    var tintColor: Color {
-        switch style {
-        case .success:
-            .green
-        case .error:
-            .red
-        case .progress:
-            .blue
-        }
-    }
-}
 
 private struct MagnetDeepLink: Identifiable {
     let id = UUID()
@@ -1227,70 +753,4 @@ private struct MagnetDeepLink: Identifiable {
 private struct PendingDeepLink {
     let tab: RootTab
     let morePath: [MoreDestination]
-}
-
-enum RootTab: Hashable, CaseIterable {
-    case torrents
-    case series
-    case movies
-    case search
-    case more
-
-    var displayName: String {
-        switch self {
-        case .torrents: "Torrents"
-        case .series: "Series"
-        case .movies: "Movies"
-        case .search: "Search"
-        case .more: "More"
-        }
-    }
-}
-
-enum ThemeOverride: String, CaseIterable {
-    case system
-    case light
-    case dark
-
-    var displayName: String {
-        switch self {
-        case .system: "System"
-        case .light: "Light"
-        case .dark: "Dark"
-        }
-    }
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: nil
-        case .light: .light
-        case .dark: .dark
-        }
-    }
-}
-
-private enum WelcomeStep: Hashable {
-    case services
-}
-
-private enum SetupTarget: Identifiable {
-    case qbittorrent
-    case sonarr
-    case radarr
-    case prowlarr
-    case bazarr
-    case seerr
-    case jellyfin
-
-    var id: String {
-        switch self {
-        case .qbittorrent: "qbittorrent"
-        case .sonarr: "sonarr"
-        case .radarr: "radarr"
-        case .prowlarr: "prowlarr"
-        case .bazarr: "bazarr"
-        case .seerr: "seerr"
-        case .jellyfin: "jellyfin"
-        }
-    }
 }

@@ -92,3 +92,28 @@ final class SeerrIssueDetailViewModel {
         errorMessage = nil
     }
 }
+
+#if DEBUG
+extension SeerrIssueDetailViewModel {
+    convenience init(
+        previewIssue: SeerrIssue,
+        previewComments: [SeerrIssueComment]? = nil,
+        replyMessage: String = "",
+        isLoadingComments: Bool = false,
+        isSendingReply: Bool = false,
+        isUpdatingStatus: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(issue: previewIssue, apiClient: apiClient)
+        if let previewComments {
+            comments = previewComments
+        }
+        self.replyMessage = replyMessage
+        self.isLoadingComments = isLoadingComments
+        self.isSendingReply = isSendingReply
+        self.isUpdatingStatus = isUpdatingStatus
+        self.errorMessage = errorMessage
+    }
+}
+#endif

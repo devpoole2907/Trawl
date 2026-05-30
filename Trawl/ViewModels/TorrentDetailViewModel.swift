@@ -16,6 +16,11 @@ final class TorrentDetailViewModel {
     // Optimistic local overrides; nil defers to live torrent state
     private var optimisticSequentialDownload: Bool? = nil
     private var optimisticFirstLastPiecePriority: Bool? = nil
+    #if DEBUG
+    private var previewTorrent: Torrent?
+    private var previewCategories: [String]?
+    private var previewTags: [String]?
+    #endif
 
     private let torrentService: TorrentService
     private let syncService: SyncService
@@ -29,13 +34,28 @@ final class TorrentDetailViewModel {
     }
 
     /// Live torrent data from sync
-    var torrent: Torrent? { syncService.torrents[torrentHash] }
+    var torrent: Torrent? {
+        #if DEBUG
+        if let previewTorrent { return previewTorrent }
+        #endif
+        return syncService.torrents[torrentHash]
+    }
 
     /// Available categories from sync
-    var availableCategories: [String] { syncService.sortedCategoryNames }
+    var availableCategories: [String] {
+        #if DEBUG
+        if let previewCategories { return previewCategories }
+        #endif
+        return syncService.sortedCategoryNames
+    }
 
     /// Available tags from sync
-    var availableTags: [String] { syncService.sortedTags }
+    var availableTags: [String] {
+        #if DEBUG
+        if let previewTags { return previewTags }
+        #endif
+        return syncService.sortedTags
+    }
 
     var currentTags: [String] {
         guard let rawTags = torrent?.tags else { return [] }
@@ -75,13 +95,31 @@ final class TorrentDetailViewModel {
         }
     }
 
-    func loadTrackers() async {
+    func loadTrackers() async throws {
         do {
             trackers = try await torrentService.getTrackers(hash: torrentHash)
             error = nil
         } catch {
             self.error = error.localizedDescription
+            throw error
         }
+    }
+
+    // Rethrows so callers can surface a non-blocking ErrorAlertItem; `self.error`
+    // is reserved for the trackers-load failure surface, not action failures.
+    func addTrackers(_ urls: [String]) async throws {
+        try await torrentService.addTorrentTrackers(hash: torrentHash, urls: urls)
+        try await loadTrackers()
+    }
+
+    func removeTrackers(_ urls: [String]) async throws {
+        try await torrentService.removeTorrentTrackers(hash: torrentHash, urls: urls)
+        try await loadTrackers()
+    }
+
+    func editTracker(originalURL: String, newURL: String) async throws {
+        try await torrentService.editTorrentTracker(hash: torrentHash, origURL: originalURL, newURL: newURL)
+        try await loadTrackers()
     }
 
     // MARK: - Actions
@@ -317,3 +355,67 @@ final class TorrentDetailViewModel {
         }
     }
 }
+
+#if DEBUG
+extension TorrentDetailViewModel {
+    convenience init(
+        previewTorrent: Torrent = .preview,
+        files: [TorrentFile] = TorrentFile.previewList,
+        trackers: [TorrentTracker] = TorrentTracker.previewList,
+        properties: TorrentProperties? = TorrentProperties.preview,
+        isLoading: Bool = false,
+        error: String? = nil,
+        actionErrorAlert: ErrorAlertItem? = nil,
+        availableCategories: [String] = ["movies", "tv", "linux-isos"],
+        availableTags: [String] = ["4k", "archived", "priority"],
+        syncService: SyncService = .preview(),
+        torrentService: TorrentService = .preview()
+    ) {
+        self.init(torrentHash: previewTorrent.hash, torrentService: torrentService, syncService: syncService)
+        self.previewTorrent = previewTorrent
+        self.files = files
+        self.trackers = trackers
+        self.properties = properties
+        self.isLoading = isLoading
+        self.error = error
+        self.actionErrorAlert = actionErrorAlert
+        self.previewCategories = availableCategories
+        self.previewTags = availableTags
+    }
+}
+
+extension TorrentTracker {
+    static let previewList: [TorrentTracker] = [
+        TorrentTracker(
+            url: "udp://tracker.opentrackr.org:1337/announce",
+            status: 2,
+            tier: 0,
+            numPeers: 54,
+            numSeeds: 42,
+            numLeeches: 12,
+            numDownloaded: 318,
+            msg: "Working"
+        ),
+        TorrentTracker(
+            url: "https://tracker.example.org/announce",
+            status: 3,
+            tier: 1,
+            numPeers: 8,
+            numSeeds: 6,
+            numLeeches: 2,
+            numDownloaded: 75,
+            msg: "Updating"
+        ),
+        TorrentTracker(
+            url: "udp://offline.example.net:6969/announce",
+            status: 4,
+            tier: 2,
+            numPeers: 0,
+            numSeeds: 0,
+            numLeeches: 0,
+            numDownloaded: 0,
+            msg: "Host not found"
+        )
+    ]
+}
+#endif

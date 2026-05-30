@@ -745,3 +745,30 @@ private extension ArrQualityProfileItem {
         return updated
     }
 }
+
+#if DEBUG
+#Preview("Quality Profiles - List") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrQualityProfilesListView()
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Quality Profile - Detail") {
+    NavigationStack {
+        ArrQualityProfileDetailView(serviceType: .sonarr, profile: .preview)
+    }
+}
+
+#Preview("Quality Profile - Editor") {
+    NavigationStack {
+        ArrQualityProfileEditorView(
+            serviceType: .sonarr,
+            session: .edit(.preview),
+            isSaving: false
+        ) { _ in true }
+    }
+}
+#endif

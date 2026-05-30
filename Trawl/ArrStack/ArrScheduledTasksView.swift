@@ -6,6 +6,36 @@ struct ArrScheduledTasksView: View {
     @State private var vm = ArrTasksViewModel()
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showSettings = false
+    @State private var taskSearchText = ""
+    @State private var isSearchExpanded = false
+
+    #if DEBUG
+    init(
+        previewTasks: [ArrServiceType: [ArrScheduledTask]] = [:],
+        previewCommands: [ArrServiceType: [ArrCommand]] = [:],
+        previewBazarrTasks: [BazarrTask] = [],
+        selectedService: ArrServiceType = .sonarr
+    ) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewTasks(tasks: previewTasks, commands: previewCommands, bazarrTasks: previewBazarrTasks)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+
+    init(previewLoadingServices: [ArrServiceType], selectedService: ArrServiceType = .sonarr) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewLoading(previewLoadingServices)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+
+    init(previewError: String, services: [ArrServiceType], selectedService: ArrServiceType = .sonarr) {
+        let previewVM = ArrTasksViewModel()
+        previewVM.setPreviewError(previewError, for: services)
+        _vm = State(initialValue: previewVM)
+        _selectedService = State(initialValue: selectedService)
+    }
+    #endif
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -48,6 +78,14 @@ struct ArrScheduledTasksView: View {
         vm.errorMessage(for: selectedService)
     }
 
+    private var taskSearchQuery: String {
+        taskSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var hasTaskSearch: Bool {
+        !taskSearchQuery.isEmpty
+    }
+
     var body: some View {
         Group {
             if availableServices.isEmpty {
@@ -67,7 +105,7 @@ struct ArrScheduledTasksView: View {
             }
         }
         .navigationTitle("Tasks")
-        .navigationSubtitle(selectedService.displayName)
+        .navigationSubtitle(hasTaskSearch ? "Search" : selectedService.displayName)
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
@@ -77,6 +115,10 @@ struct ArrScheduledTasksView: View {
                     set: { newService in withAnimation { selectedService = newService } }
                 ),
                 items: availableServices.map(\.segmentBarItem),
+                searchText: $taskSearchText,
+                searchHint: "Search tasks",
+                isSearchExpanded: $isSearchExpanded,
+                searchPlacement: .leading,
                 alignment: .leading
             )
         }
@@ -111,7 +153,9 @@ struct ArrScheduledTasksView: View {
     @ViewBuilder
     private var taskList: some View {
         List {
-            if let error = currentError {
+            if hasTaskSearch {
+                searchResultsList
+            } else if let error = currentError {
                 Section {
                     Text(error).font(.footnote).foregroundStyle(.secondary)
                 }
@@ -162,10 +206,70 @@ struct ArrScheduledTasksView: View {
         .animation(.default, value: currentBazarrTasks.map(\.id))
     }
 
+    @ViewBuilder
+    private var searchResultsList: some View {
+        let query = taskSearchQuery
+        let sections = taskSearchSections(matching: query)
+
+        if sections.isEmpty {
+            ContentUnavailableView.search(text: query)
+                .listRowBackground(Color.clear)
+        } else {
+            ForEach(sections) { section in
+                Section(section.title) {
+                    ForEach(section.items) { item in
+                        switch item.kind {
+                        case .scheduled(let task):
+                            ArrScheduledTaskRow(task: task) {
+                                await triggerArrTask(task, service: item.service)
+                            }
+                        case .queue(let command):
+                            ArrCommandQueueRow(command: command)
+                        case .bazarr(let task):
+                            BazarrTaskRow(task: task) {
+                                await triggerBazarrTask(task)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func taskSearchSections(matching query: String) -> [TaskSearchSection] {
+        availableServices.flatMap { service -> [TaskSearchSection] in
+            if service == .bazarr {
+                let items = vm.bazarrTasks
+                    .filter { $0.matchesTaskSearch(query) }
+                    .map { TaskSearchItem(service: service, kind: .bazarr($0)) }
+                return items.isEmpty ? [] : [TaskSearchSection(title: "\(service.displayName) Scheduled", items: items)]
+            }
+
+            let scheduled = vm.scheduledTasks(for: service)
+                .filter { $0.matchesTaskSearch(query) }
+                .map { TaskSearchItem(service: service, kind: .scheduled($0)) }
+            let queue = vm.commandQueue(for: service)
+                .filter { $0.matchesTaskSearch(query) }
+                .map { TaskSearchItem(service: service, kind: .queue($0)) }
+
+            var sections: [TaskSearchSection] = []
+            if !scheduled.isEmpty {
+                sections.append(TaskSearchSection(title: "\(service.displayName) Scheduled", items: scheduled))
+            }
+            if !queue.isEmpty {
+                sections.append(TaskSearchSection(title: "\(service.displayName) Queue", items: queue))
+            }
+            return sections
+        }
+    }
+
     // MARK: - Load & Trigger
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
@@ -184,7 +288,12 @@ struct ArrScheduledTasksView: View {
 
     @MainActor
     private func triggerArrTask(_ task: ArrScheduledTask) async {
-        switch selectedService {
+        await triggerArrTask(task, service: selectedService)
+    }
+
+    @MainActor
+    private func triggerArrTask(_ task: ArrScheduledTask, service: ArrServiceType) async {
+        switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
             await vm.triggerTask(task, service: .sonarr, client: client)
@@ -197,7 +306,7 @@ struct ArrScheduledTasksView: View {
         case .bazarr:
             break
         }
-        await loadService(selectedService)
+        await loadService(service)
     }
 
     @MainActor
@@ -208,71 +317,217 @@ struct ArrScheduledTasksView: View {
     }
 }
 
+private struct TaskSearchSection: Identifiable {
+    let title: String
+    let items: [TaskSearchItem]
+
+    var id: String { title }
+}
+
+private struct TaskSearchItem: Identifiable {
+    let service: ArrServiceType
+    let kind: TaskSearchItemKind
+
+    var id: String {
+        "\(service.rawValue)-\(kind.id)"
+    }
+}
+
+private enum TaskSearchItemKind {
+    case scheduled(ArrScheduledTask)
+    case queue(ArrCommand)
+    case bazarr(BazarrTask)
+
+    var id: String {
+        switch self {
+        case .scheduled(let task):
+            "scheduled-\(task.id)"
+        case .queue(let command):
+            "queue-\(command.id.map(String.init) ?? command.commandName ?? command.name ?? command.queued ?? "unknown")"
+        case .bazarr(let task):
+            "bazarr-\(task.id)"
+        }
+    }
+}
+
+private extension ArrScheduledTask {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            taskName,
+            lastStartMessage
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+    }
+}
+
+private extension ArrCommand {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            commandName,
+            status,
+            trigger,
+            exception
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+    }
+}
+
+private extension BazarrTask {
+    func matchesTaskSearch(_ query: String) -> Bool {
+        [
+            name,
+            jobId,
+            interval
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true }
+    }
+}
+
+#if DEBUG
+extension ArrTasksViewModel {
+    func setPreviewTasks(
+        tasks: [ArrServiceType: [ArrScheduledTask]],
+        commands: [ArrServiceType: [ArrCommand]] = [:],
+        bazarrTasks: [BazarrTask] = []
+    ) {
+        for service in [ArrServiceType.sonarr, .radarr, .prowlarr] {
+            mutate(service) {
+                $0.scheduledTasks = tasks[service] ?? []
+                $0.commandQueue = commands[service] ?? []
+                $0.isLoading = false
+                $0.errorMessage = nil
+            }
+        }
+        bazarr.tasks = bazarrTasks
+        bazarr.isLoading = false
+        bazarr.errorMessage = nil
+    }
+
+    func setPreviewLoading(_ services: [ArrServiceType]) {
+        for service in services where service != .bazarr {
+            mutate(service) { $0.isLoading = true; $0.errorMessage = nil }
+        }
+        if services.contains(.bazarr) {
+            bazarr.isLoading = true
+            bazarr.errorMessage = nil
+        }
+    }
+
+    func setPreviewError(_ error: String, for services: [ArrServiceType]) {
+        for service in services where service != .bazarr {
+            mutate(service) { $0.isLoading = false; $0.errorMessage = error }
+        }
+        if services.contains(.bazarr) {
+            bazarr.isLoading = false
+            bazarr.errorMessage = error
+        }
+    }
+}
+
+#Preview("Tasks - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(
+                previewTasks: [.sonarr: ArrScheduledTask.previewList],
+                previewCommands: [.sonarr: ArrCommand.previewList],
+                previewBazarrTasks: [
+                    BazarrTask(interval: "Every 6 hours", jobId: "series-sync", jobRunning: false, name: "Sync Series", nextRunIn: "2 hours", nextRunTime: "2026-05-24 12:00:00")
+                ]
+            )
+        }
+    }
+}
+
+#Preview("Tasks - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(previewTasks: [.sonarr: []])
+        }
+    }
+}
+
+#Preview("Tasks - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(previewLoadingServices: [.sonarr], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Tasks - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrScheduledTasksView(
+                previewError: "Failed to load tasks: The operation couldn't be completed.",
+                services: [.sonarr],
+                selectedService: .sonarr
+            )
+        }
+    }
+}
+
+#Preview("Tasks - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrScheduledTasksView()
+        }
+    }
+}
+#endif
+
 // MARK: - Arr Scheduled Task Row
 
 private struct ArrScheduledTaskRow: View {
     let task: ArrScheduledTask
     let onTrigger: () async -> Void
-    @State private var isTriggering = false
 
     var body: some View {
-        ScheduledTaskRowView(
-            title: task.name ?? "Unknown Task",
-            details: taskDetails
-        ) {
-            Button {
-                Task {
-                    isTriggering = true
-                    await onTrigger()
-                    isTriggering = false
-                }
-            } label: {
-                if isTriggering {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(isTriggering)
-        }
+        ScheduledTaskControlRow(item: task, action: taskAction)
     }
 
-    private var taskDetails: [ScheduledTaskRowDetail] {
+    private var taskAction: ScheduledTaskRowAction {
+        ScheduledTaskRowAction.runTask(
+            title: task.scheduledTaskRowTitle,
+            isDisabled: task.taskName == nil || task.isRunning == true
+        ) {
+            await onTrigger()
+        }
+    }
+}
+
+extension ArrScheduledTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name ?? "Unknown Task"
+    }
+
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: isRunning == true)
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
         var details: [ScheduledTaskRowDetail] = []
 
-        if let interval = task.interval {
-            details.append(ScheduledTaskRowDetail(icon: "clock", text: intervalText(interval)))
+        if let interval {
+            details.append(.interval(ScheduledTaskRowFormatter.compactIntervalText(minutes: interval)))
         }
-        if let last = task.lastExecution {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.counterclockwise", text: relativeDate(last)))
+        if let lastExecutionDetail {
+            details.append(lastExecutionDetail)
         }
-        if let next = task.nextExecution {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(relativeDate(next))"))
+        if let nextExecutionDetail {
+            details.append(nextExecutionDetail)
         }
-        if let duration = task.lastDuration, duration != "00:00:00" {
-            details.append(ScheduledTaskRowDetail(icon: "timer", text: duration))
+        if let duration = ScheduledTaskRowFormatter.cleanedText(lastDuration), duration != "00:00:00" {
+            details.append(.duration(duration))
         }
 
         return details
     }
 
-    private func intervalText(_ minutes: Int) -> String {
-        if minutes < 60 { return "\(minutes)m" }
-        let hours = minutes / 60
-        if hours < 24 { return "\(hours)h" }
-        return "\(hours / 24)d"
+    private var lastExecutionDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.lastRun(from: lastExecution)
     }
 
-    private func relativeDate(_ raw: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        return raw
+    private var nextExecutionDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.nextRun(from: nextExecution)
     }
 }
 
@@ -281,47 +536,40 @@ private struct ArrScheduledTaskRow: View {
 private struct BazarrTaskRow: View {
     let task: BazarrTask
     let onTrigger: () async -> Void
-    @State private var isTriggering = false
 
     var body: some View {
-        ScheduledTaskRowView(
-            icon: task.jobRunning ? "arrow.triangle.2.circlepath" : "clock",
-            iconColor: task.jobRunning ? .blue : .secondary,
-            title: task.name,
-            badge: task.jobRunning ? ScheduledTaskRowBadge("RUNNING", color: .blue) : nil,
-            details: taskDetails
-        ) {
-            Button {
-                Task {
-                    isTriggering = true
-                    await onTrigger()
-                    isTriggering = false
-                }
-            } label: {
-                if isTriggering {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Image(systemName: "play.fill")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            .buttonStyle(.plain)
-            .disabled(isTriggering || task.jobRunning)
-        }
+        ScheduledTaskControlRow(item: task, action: taskAction)
     }
 
-    private var taskDetails: [ScheduledTaskRowDetail] {
-        var details: [ScheduledTaskRowDetail] = []
-
-        if let interval = task.interval {
-            details.append(ScheduledTaskRowDetail(icon: "clock", text: interval))
+    private var taskAction: ScheduledTaskRowAction {
+        ScheduledTaskRowAction.runTask(
+            title: task.scheduledTaskRowTitle,
+            isDisabled: task.jobRunning
+        ) {
+            await onTrigger()
         }
-        if let nextRunIn = task.nextRunIn {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: "Next: \(nextRunIn)"))
-        }
+    }
+}
 
-        return details
+extension BazarrTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name
+    }
+
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: jobRunning)
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        [
+            ScheduledTaskRowFormatter.cleanedText(interval).map { ScheduledTaskRowDetail.interval($0) },
+            nextRunDetail
+        ].compactMap { $0 }
+    }
+
+    private var nextRunDetail: ScheduledTaskRowDetail? {
+        if let detail = ScheduledTaskRowDetail.nextRun(from: nextRunTime) { return detail }
+        return ScheduledTaskRowFormatter.cleanedText(nextRunIn).map { .nextRun($0) }
     }
 }
 
@@ -341,8 +589,12 @@ private struct ArrCommandQueueRow: View {
     }
 
     private var commandDetails: [ScheduledTaskRowDetail] {
-        guard let queued = command.queued else { return [] }
-        return [ScheduledTaskRowDetail(icon: "clock", text: relativeDate(queued))]
+        guard let queued = queuedDetail else { return [] }
+        return [queued]
+    }
+
+    private var queuedDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.queued(from: command.queued)
     }
 
     private var statusIcon: String {
@@ -363,14 +615,6 @@ private struct ArrCommandQueueRow: View {
         }
     }
 
-    private func relativeDate(_ raw: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        return raw
-    }
 }
 
 // MARK: - Tasks ViewModel

@@ -1,6 +1,8 @@
 import Foundation
 import OSLog
 import SwiftData
+import CryptoKit
+import UIKit
 
 /// One-shot data helpers for WidgetKit timeline providers.
 /// Follows the same SwiftData + Keychain pattern as the Share extension.
@@ -10,12 +12,14 @@ enum WidgetDataFetcher {
     enum WidgetError: LocalizedError {
         case noServerConfigured
         case noArrServicesConfigured
+        case noSeerrServicesConfigured
         case missingCredentials
 
         var errorDescription: String? {
             switch self {
             case .noServerConfigured: "No qBittorrent server configured."
             case .noArrServicesConfigured: "No Sonarr or Radarr services configured."
+            case .noSeerrServicesConfigured: "No Seerr server configured."
             case .missingCredentials: "Server credentials not found in keychain."
             }
         }
@@ -33,10 +37,101 @@ enum WidgetDataFetcher {
     }
 
     struct ArrProfileSnapshot: Sendable {
+        let displayName: String
+        let profileID: UUID
         let hostURL: String
         let allowsUntrustedTLS: Bool
         let apiKeyKeychainKey: String
         let serviceType: ArrServiceType
+    }
+
+    struct SeerrProfileSnapshot: Sendable {
+        let displayName: String
+        let profileID: UUID
+        let hostURL: String
+        let allowsUntrustedTLS: Bool
+        let sessionCookieKey: String
+    }
+
+    struct WidgetSeerrItemSnapshot: Sendable {
+        let title: String
+        let subtitle: String?
+        let kindLabel: String
+        let serverName: String
+        let createdAt: Date?
+    }
+
+    struct WidgetSeerrPendingSnapshot: Sendable {
+        let totalPending: Int
+        let topRequest: WidgetSeerrItemSnapshot?
+        let serverLabel: String
+        let checkedServerCount: Int
+        let errorMessage: String?
+    }
+
+    struct WidgetSeerrIssuesSnapshot: Sendable {
+        let totalOpen: Int
+        let topIssue: WidgetSeerrItemSnapshot?
+        let serverLabel: String
+        let checkedServerCount: Int
+        let errorMessage: String?
+    }
+
+    struct WidgetActiveTorrentSnapshot: Sendable {
+        let name: String
+        let progress: Double
+        let dlspeed: Int64
+        let etaText: String?
+        let state: String
+    }
+
+    struct WidgetActiveTorrentsSnapshot: Sendable {
+        let activeCount: Int
+        let topTorrent: WidgetActiveTorrentSnapshot?
+        let serverName: String
+        let errorMessage: String?
+    }
+
+    enum WidgetLibraryHealthSeverity: Int, Sendable {
+        case notice = 1
+        case warning = 2
+        case error = 3
+
+        var title: String {
+            switch self {
+            case .notice: "Notice"
+            case .warning: "Warning"
+            case .error: "Error"
+            }
+        }
+    }
+
+    struct WidgetLibraryHealthOffender: Sendable {
+        let serviceName: String
+        let serviceType: String
+        let title: String
+        let detail: String
+        let severity: WidgetLibraryHealthSeverity
+    }
+
+    struct WidgetLibraryHealthServiceSnapshot: Sendable, Identifiable {
+        var id: String { "\(serviceType)-\(serviceName)" }
+        let serviceName: String
+        let serviceType: String
+        let healthIssueCount: Int
+        let queueIssueCount: Int
+        let worstOffender: WidgetLibraryHealthOffender?
+
+        var totalIssueCount: Int { healthIssueCount + queueIssueCount }
+    }
+
+    struct WidgetLibraryHealthSnapshot: Sendable {
+        let totalIssueCount: Int
+        let healthIssueCount: Int
+        let queueIssueCount: Int
+        let worstOffender: WidgetLibraryHealthOffender?
+        let services: [WidgetLibraryHealthServiceSnapshot]
+        let errorMessage: String?
     }
 
     // MARK: - Container
@@ -54,68 +149,177 @@ enum WidgetDataFetcher {
 
     /// Fetches global transfer info from the specified server (or the active/first server).
     static func fetchTransferInfo(serverID: String? = nil) async throws -> (info: TransferInfo, serverName: String) {
-        let container = try makeModelContainer()
+        let snapshot = try await fetchServerSnapshot(serverID: serverID)
+        let client = try await makeQBittorrentClient(from: snapshot)
+        return (try await client.getTransferInfo(), snapshot.displayName)
+    }
 
-        let snapshot: ServerSnapshot = try await MainActor.run {
-            let context = ModelContext(container)
-            let all = try context.fetch(FetchDescriptor<ServerProfile>())
-            let server: ServerProfile?
-            if let serverID, let id = UUID(uuidString: serverID) {
-                server = all.first(where: { $0.id == id })
-                guard server != nil else { throw WidgetError.noServerConfigured }
-            } else {
-                server = all.first(where: { $0.isActive }) ?? all.first
+    static func fetchActiveTorrents(serverID: String? = nil) async throws -> WidgetActiveTorrentsSnapshot {
+        let snapshot = try await fetchServerSnapshot(serverID: serverID)
+        let client = try await makeQBittorrentClient(from: snapshot)
+        let torrents = try await client.getTorrentSummaries()
+        let active = torrents
+            .filter(isActiveTorrent)
+            .sorted { lhs, rhs in
+                let lhsSpeed = lhs.dlspeed ?? 0, rhsSpeed = rhs.dlspeed ?? 0
+                if lhsSpeed != rhsSpeed { return lhsSpeed > rhsSpeed }
+                let lhsProgress = lhs.progress ?? 0, rhsProgress = rhs.progress ?? 0
+                if lhsProgress != rhsProgress { return lhsProgress > rhsProgress }
+                return (lhs.name ?? "").localizedCaseInsensitiveCompare(rhs.name ?? "") == .orderedAscending
             }
-            guard let s = server else { throw WidgetError.noServerConfigured }
-            return ServerSnapshot(
-                displayName: s.displayName,
-                hostURL: s.hostURL,
-                allowsUntrustedTLS: s.allowsUntrustedTLS,
-                usernameKey: s.usernameKey,
-                passwordKey: s.passwordKey,
-                serverID: s.id
+
+        let top = active.first.map { torrent in
+            WidgetActiveTorrentSnapshot(
+                name: torrent.name ?? "Unknown",
+                progress: max(0, min(1, torrent.progress ?? 0)),
+                dlspeed: torrent.dlspeed ?? 0,
+                etaText: widgetETAText(for: torrent.eta ?? 0),
+                state: (torrent.state ?? .unknown).displayName
             )
         }
 
-        let username = try await KeychainHelper.shared.read(key: snapshot.usernameKey) ?? ""
-        let password = try await KeychainHelper.shared.read(key: snapshot.passwordKey) ?? ""
+        return WidgetActiveTorrentsSnapshot(
+            activeCount: active.count,
+            topTorrent: top,
+            serverName: snapshot.displayName,
+            errorMessage: nil
+        )
+    }
 
-        guard !username.isEmpty, !password.isEmpty else {
-            throw WidgetError.missingCredentials
+    // MARK: - Seerr
+
+    static func fetchSeerrPendingRequests(profileID: String? = nil) async throws -> WidgetSeerrPendingSnapshot {
+        let profiles = try await fetchSeerrProfiles(profileID: profileID)
+        var snapshots: [WidgetSeerrPendingSnapshot] = []
+
+        await withTaskGroup(of: WidgetSeerrPendingSnapshot?.self) { group in
+            for profile in profiles {
+                group.addTask { await fetchSeerrPendingRequests(for: profile) }
+            }
+
+            for await snapshot in group {
+                if let snapshot {
+                    snapshots.append(snapshot)
+                }
+            }
         }
 
-        let client = try await QBittorrentClientFactory.makeAndLogin(
-            baseURL: snapshot.hostURL,
-            serverProfileID: snapshot.serverID,
-            allowsUntrustedTLS: snapshot.allowsUntrustedTLS,
-            username: username,
-            password: password
+        let serverLabel = profiles.count == 1 ? profiles[0].displayName : "\(profiles.count) Servers"
+        guard !snapshots.isEmpty else {
+            return WidgetSeerrPendingSnapshot(
+                totalPending: 0,
+                topRequest: nil,
+                serverLabel: serverLabel,
+                checkedServerCount: 0,
+                errorMessage: "Unavailable"
+            )
+        }
+
+        let topRequest = snapshots
+            .compactMap(\.topRequest)
+            .max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+
+        return WidgetSeerrPendingSnapshot(
+            totalPending: snapshots.reduce(0) { $0 + $1.totalPending },
+            topRequest: topRequest,
+            serverLabel: serverLabel,
+            checkedServerCount: snapshots.count,
+            errorMessage: nil
         )
-        return (try await client.getTransferInfo(), snapshot.displayName)
+    }
+
+    static func fetchSeerrOpenIssues() async throws -> WidgetSeerrIssuesSnapshot {
+        let profiles = try await fetchSeerrProfiles(profileID: nil)
+        var snapshots: [WidgetSeerrIssuesSnapshot] = []
+
+        await withTaskGroup(of: WidgetSeerrIssuesSnapshot?.self) { group in
+            for profile in profiles {
+                group.addTask { await fetchSeerrOpenIssues(for: profile) }
+            }
+
+            for await snapshot in group {
+                if let snapshot {
+                    snapshots.append(snapshot)
+                }
+            }
+        }
+
+        let serverLabel = profiles.count == 1 ? profiles[0].displayName : "\(profiles.count) Servers"
+        guard !snapshots.isEmpty else {
+            return WidgetSeerrIssuesSnapshot(
+                totalOpen: 0,
+                topIssue: nil,
+                serverLabel: serverLabel,
+                checkedServerCount: 0,
+                errorMessage: "Unavailable"
+            )
+        }
+
+        let topIssue = snapshots
+            .compactMap(\.topIssue)
+            .max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+
+        return WidgetSeerrIssuesSnapshot(
+            totalOpen: snapshots.reduce(0) { $0 + $1.totalOpen },
+            topIssue: topIssue,
+            serverLabel: serverLabel,
+            checkedServerCount: snapshots.count,
+            errorMessage: nil
+        )
+    }
+
+    // MARK: - Library health
+
+    static func fetchLibraryHealth() async throws -> WidgetLibraryHealthSnapshot {
+        let profiles = try await fetchArrProfiles(serviceTypes: [.sonarr, .radarr])
+        guard !profiles.isEmpty else { throw WidgetError.noArrServicesConfigured }
+
+        var services: [WidgetLibraryHealthServiceSnapshot] = []
+        await withTaskGroup(of: WidgetLibraryHealthServiceSnapshot.self) { group in
+            for profile in profiles {
+                group.addTask { await fetchArrLibraryHealth(for: profile) }
+            }
+
+            for await service in group {
+                services.append(service)
+            }
+        }
+
+        services.sort { lhs, rhs in
+            if lhs.totalIssueCount != rhs.totalIssueCount { return lhs.totalIssueCount > rhs.totalIssueCount }
+            return lhs.serviceName.localizedCaseInsensitiveCompare(rhs.serviceName) == .orderedAscending
+        }
+
+        let worstOffender = services
+            .compactMap(\.worstOffender)
+            .max { lhs, rhs in
+                if lhs.severity.rawValue != rhs.severity.rawValue {
+                    return lhs.severity.rawValue < rhs.severity.rawValue
+                }
+                return lhs.serviceName.localizedCaseInsensitiveCompare(rhs.serviceName) == .orderedDescending
+            }
+
+        let healthIssueCount = services.reduce(0) { $0 + $1.healthIssueCount }
+        let queueIssueCount = services.reduce(0) { $0 + $1.queueIssueCount }
+
+        return WidgetLibraryHealthSnapshot(
+            totalIssueCount: healthIssueCount + queueIssueCount,
+            healthIssueCount: healthIssueCount,
+            queueIssueCount: queueIssueCount,
+            worstOffender: worstOffender,
+            services: services,
+            errorMessage: nil
+        )
     }
 
     // MARK: - Calendar (Sonarr + Radarr)
 
     /// Fetches upcoming episodes and movie releases for the next `days` days.
-    static func fetchUpcomingReleases(days: Int = 14) async throws -> [WidgetCalendarEvent] {
-        let container = try makeModelContainer()
-
-        let profiles: [ArrProfileSnapshot] = try await MainActor.run {
-            let context = ModelContext(container)
-            let all = try context.fetch(FetchDescriptor<ArrServiceProfile>())
-            return all
-                .filter { $0.isEnabled }
-                .compactMap { profile -> ArrProfileSnapshot? in
-                    guard let type = profile.resolvedServiceType,
-                          type == .sonarr || type == .radarr else { return nil }
-                    return ArrProfileSnapshot(
-                        hostURL: profile.hostURL,
-                        allowsUntrustedTLS: profile.allowsUntrustedTLS,
-                        apiKeyKeychainKey: profile.apiKeyKeychainKey,
-                        serviceType: type
-                    )
-                }
-        }
+    /// - Parameter includeUnmonitored: When `true` (default), includes unmonitored
+    ///   series/movies — matching the main app's calendar. When `false`, only
+    ///   monitored items are returned.
+    static func fetchUpcomingReleases(days: Int = 14, includeUnmonitored: Bool = true) async throws -> [WidgetCalendarEvent] {
+        let profiles = try await fetchArrProfiles(serviceTypes: [.sonarr, .radarr])
 
         guard !profiles.isEmpty else { throw WidgetError.noArrServicesConfigured }
 
@@ -126,23 +330,471 @@ enum WidgetDataFetcher {
 
         await withTaskGroup(of: [WidgetCalendarEvent].self) { group in
             for profile in profiles {
-                group.addTask { await fetchArrEvents(profile: profile, apiStart: apiStart, filterStart: filterStart, end: end) }
+                group.addTask {
+                    await fetchArrEvents(
+                        profile: profile,
+                        apiStart: apiStart,
+                        filterStart: filterStart,
+                        end: end,
+                        includeUnmonitored: includeUnmonitored
+                    )
+                }
             }
             for await batch in group {
                 events.append(contentsOf: batch)
             }
         }
 
-        return events.sorted { $0.date < $1.date }
+        let sorted = events.sorted { $0.date < $1.date }
+        return await prefetchPosters(for: sorted)
+    }
+
+    // MARK: - Poster prefetch
+    //
+    // WidgetKit captures its render as a snapshot, so `AsyncImage` network loads
+    // never complete in time. Instead we download poster thumbnails here (the
+    // timeline provider awaits this) into the shared App Group container and let
+    // the view load them synchronously from disk.
+
+    private static func posterCacheDirectory() -> URL? {
+        guard let base = AppGroup.sharedContainerURL else { return nil }
+        let dir = base.appendingPathComponent("WidgetPosters", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    /// Downloads (or reuses cached) poster thumbnails and returns the events with
+    /// `posterLocalPath` populated. Only the first handful of unique posters are
+    /// fetched to keep the provider fast and the cache small.
+    private static func prefetchPosters(for events: [WidgetCalendarEvent]) async -> [WidgetCalendarEvent] {
+        guard let dir = posterCacheDirectory() else { return events }
+        prunePosterCache(in: dir)
+
+        // Fetch unique posters in the order they'll be displayed, capped.
+        var seen = Set<URL>()
+        let uniqueURLs = events.compactMap(\.posterURL).filter { seen.insert($0).inserted }.prefix(20)
+
+        var pathByURL: [URL: String] = [:]
+        await withTaskGroup(of: (URL, String?).self) { group in
+            for url in uniqueURLs {
+                group.addTask { (url, await downloadPosterThumbnail(url, into: dir)) }
+            }
+            for await (url, path) in group {
+                if let path { pathByURL[url] = path }
+            }
+        }
+
+        guard !pathByURL.isEmpty else { return events }
+        return events.map { event in
+            guard let url = event.posterURL, let path = pathByURL[url] else { return event }
+            var copy = event
+            copy.posterLocalPath = path
+            return copy
+        }
+    }
+
+    private static func downloadPosterThumbnail(_ url: URL, into dir: URL) async -> String? {
+        let fileName = SHA256.hash(data: Data(url.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }.joined() + ".jpg"
+        let fileURL = dir.appendingPathComponent(fileName)
+
+        if FileManager.default.fileExists(atPath: fileURL.path) { return fileURL.path }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let image = UIImage(data: data),
+                  let thumb = downscaledImage(image, maxDimension: 200),
+                  let jpeg = thumb.jpegData(compressionQuality: 0.8) else { return nil }
+            try jpeg.write(to: fileURL, options: .atomic)
+            return fileURL.path
+        } catch {
+            return nil
+        }
+    }
+
+    private static func downscaledImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage? {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxDimension else { return image }
+        let scale = maxDimension / longest
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+    }
+
+    /// Removes cached thumbnails not touched in the last 30 days.
+    private static func prunePosterCache(in dir: URL) {
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        for file in files {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, modified < cutoff {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
     }
 
     // MARK: - Private helpers
+
+    private static func fetchServerSnapshot(serverID: String? = nil) async throws -> ServerSnapshot {
+        let container = try makeModelContainer()
+
+        return try await MainActor.run {
+            let context = ModelContext(container)
+            let all = try context.fetch(FetchDescriptor<ServerProfile>())
+            let server: ServerProfile?
+            if let serverID, let id = UUID(uuidString: serverID) {
+                server = all.first(where: { $0.id == id })
+                guard server != nil else { throw WidgetError.noServerConfigured }
+            } else {
+                server = all.first(where: { $0.isActive }) ?? all.first
+            }
+
+            guard let s = server else { throw WidgetError.noServerConfigured }
+            return ServerSnapshot(
+                displayName: s.displayName,
+                hostURL: s.hostURL,
+                allowsUntrustedTLS: s.allowsUntrustedTLS,
+                usernameKey: s.usernameKey,
+                passwordKey: s.passwordKey,
+                serverID: s.id
+            )
+        }
+    }
+
+    private static func makeQBittorrentClient(from snapshot: ServerSnapshot) async throws -> QBittorrentAPIClient {
+        let username = try await KeychainHelper.shared.read(key: snapshot.usernameKey) ?? ""
+        let password = try await KeychainHelper.shared.read(key: snapshot.passwordKey) ?? ""
+
+        guard !username.isEmpty, !password.isEmpty else {
+            throw WidgetError.missingCredentials
+        }
+
+        return try await QBittorrentClientFactory.makeAndLogin(
+            baseURL: snapshot.hostURL,
+            serverProfileID: snapshot.serverID,
+            allowsUntrustedTLS: snapshot.allowsUntrustedTLS,
+            username: username,
+            password: password
+        )
+    }
+
+    private static func fetchArrProfiles(serviceTypes: Set<ArrServiceType>) async throws -> [ArrProfileSnapshot] {
+        let container = try makeModelContainer()
+
+        return try await MainActor.run {
+            let context = ModelContext(container)
+            let all = try context.fetch(FetchDescriptor<ArrServiceProfile>())
+            let enabled = all.filter(\.isEnabled)
+            let candidates = enabled.isEmpty ? all : enabled
+
+            return candidates
+                .compactMap { profile -> ArrProfileSnapshot? in
+                    guard let type = profile.resolvedServiceType,
+                          serviceTypes.contains(type) else { return nil }
+                    return ArrProfileSnapshot(
+                        displayName: profile.displayName,
+                        profileID: profile.id,
+                        hostURL: profile.hostURL,
+                        allowsUntrustedTLS: profile.allowsUntrustedTLS,
+                        apiKeyKeychainKey: profile.apiKeyKeychainKey,
+                        serviceType: type
+                    )
+                }
+                .sorted { lhs, rhs in
+                    if lhs.serviceType.rawValue != rhs.serviceType.rawValue {
+                        return lhs.serviceType.rawValue < rhs.serviceType.rawValue
+                    }
+                    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+                }
+        }
+    }
+
+    private static func fetchSeerrProfiles(profileID: String?) async throws -> [SeerrProfileSnapshot] {
+        let container = try makeModelContainer()
+
+        return try await MainActor.run {
+            let context = ModelContext(container)
+            let all = try context.fetch(FetchDescriptor<SeerrServiceProfile>())
+
+            let candidates: [SeerrServiceProfile]
+            if let profileID, let id = UUID(uuidString: profileID) {
+                candidates = all.filter { $0.id == id }
+            } else {
+                let enabled = all.filter(\.isEnabled)
+                candidates = enabled.isEmpty ? all : enabled
+            }
+
+            let snapshots = candidates
+                .map { profile in
+                    SeerrProfileSnapshot(
+                        displayName: profile.displayName,
+                        profileID: profile.id,
+                        hostURL: profile.hostURL,
+                        allowsUntrustedTLS: profile.allowsUntrustedTLS,
+                        sessionCookieKey: profile.sessionCookieKey
+                    )
+                }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+
+            guard !snapshots.isEmpty else { throw WidgetError.noSeerrServicesConfigured }
+            return snapshots
+        }
+    }
+
+    private static func makeSeerrClient(from profile: SeerrProfileSnapshot) async throws -> WidgetSeerrAPIClient {
+        guard let cookie = try await KeychainHelper.shared.read(key: profile.sessionCookieKey),
+              !cookie.isEmpty else {
+            throw WidgetError.missingCredentials
+        }
+
+        let client = WidgetSeerrAPIClient(
+            baseURL: profile.hostURL,
+            sessionCookie: cookie,
+            allowsUntrustedTLS: profile.allowsUntrustedTLS
+        )
+        let cookieKey = profile.sessionCookieKey
+        await client.setCookieUpdateHandler { updated in
+            Task.detached {
+                try? await KeychainHelper.shared.save(key: cookieKey, value: updated)
+            }
+        }
+        return client
+    }
+
+    private static func fetchSeerrPendingRequests(for profile: SeerrProfileSnapshot) async -> WidgetSeerrPendingSnapshot? {
+        do {
+            let client = try await makeSeerrClient(from: profile)
+            async let count: WidgetSeerrRequestCount = client.getRequestCount()
+            async let list: WidgetSeerrRequestListResponse = client.getRequests(take: 1, skip: 0, filter: "pending", sort: "added", sortDirection: "desc")
+            let (requestCount, requestList) = try await (count, list)
+            let totalPending = requestCount.pending ?? requestList.pageInfo.results ?? requestList.results.count
+            let topRequest = requestList.results.first.map { request in
+                let title = request.media?.displayTitle ?? "Request \(request.id)"
+                let subtitle = request.requestedBy.map { "by \($0.displayName)" }
+                let kindLabel = request.media?.typeLabel ?? (request.is4k == true ? "4K" : "Request")
+                let createdAt = parseISO(request.createdAt)
+
+                return WidgetSeerrItemSnapshot(
+                    title: title,
+                    subtitle: subtitle,
+                    kindLabel: kindLabel,
+                    serverName: profile.displayName,
+                    createdAt: createdAt
+                )
+            }
+
+            return WidgetSeerrPendingSnapshot(
+                totalPending: totalPending,
+                topRequest: topRequest,
+                serverLabel: profile.displayName,
+                checkedServerCount: 1,
+                errorMessage: nil
+            )
+        } catch {
+            logger.error("Seerr pending request fetch failed for host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    private static func fetchSeerrOpenIssues(for profile: SeerrProfileSnapshot) async -> WidgetSeerrIssuesSnapshot? {
+        do {
+            let client = try await makeSeerrClient(from: profile)
+            let issueList = try await client.getIssues(take: 1, skip: 0, sort: "added", filter: "open")
+            let topIssue = issueList.results.first.map { issue in
+                WidgetSeerrItemSnapshot(
+                    title: issue.media?.displayTitle ?? "Issue \(issue.id)",
+                    subtitle: issue.createdBy.map { "by \($0.displayName)" },
+                    kindLabel: issue.issueKindLabel,
+                    serverName: profile.displayName,
+                    createdAt: parseISO(issue.createdAt)
+                )
+            }
+
+            return WidgetSeerrIssuesSnapshot(
+                totalOpen: issueList.pageInfo.results ?? issueList.results.count,
+                topIssue: topIssue,
+                serverLabel: profile.displayName,
+                checkedServerCount: 1,
+                errorMessage: nil
+            )
+        } catch {
+            logger.error("Seerr issue fetch failed for host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    private static func fetchArrLibraryHealth(for profile: ArrProfileSnapshot) async -> WidgetLibraryHealthServiceSnapshot {
+        do {
+            guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
+                  !apiKey.isEmpty else {
+                throw WidgetError.missingCredentials
+            }
+
+            switch profile.serviceType {
+            case .sonarr:
+                let client = SonarrAPIClient(
+                    baseURL: profile.hostURL,
+                    apiKey: apiKey,
+                    allowsUntrustedTLS: profile.allowsUntrustedTLS
+                )
+                return await fetchArrLibraryHealth(profile: profile, client: client)
+
+            case .radarr:
+                let client = RadarrAPIClient(
+                    baseURL: profile.hostURL,
+                    apiKey: apiKey,
+                    allowsUntrustedTLS: profile.allowsUntrustedTLS
+                )
+                return await fetchArrLibraryHealth(profile: profile, client: client)
+
+            case .prowlarr, .bazarr:
+                return WidgetLibraryHealthServiceSnapshot(
+                    serviceName: profile.displayName,
+                    serviceType: profile.serviceType.displayName,
+                    healthIssueCount: 0,
+                    queueIssueCount: 0,
+                    worstOffender: nil
+                )
+            }
+        } catch {
+            let offender = WidgetLibraryHealthOffender(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                title: "\(profile.serviceType.displayName) Unavailable",
+                detail: error.localizedDescription,
+                severity: .error
+            )
+            return WidgetLibraryHealthServiceSnapshot(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                healthIssueCount: 1,
+                queueIssueCount: 0,
+                worstOffender: offender
+            )
+        }
+    }
+
+    private static func fetchArrLibraryHealth<Client: SharedArrClient>(
+        profile: ArrProfileSnapshot,
+        client: Client
+    ) async -> WidgetLibraryHealthServiceSnapshot {
+        do {
+            async let healthChecks = client.getHealth()
+            async let queuePage = client.getQueue(page: 1, pageSize: 100)
+            let (checks, queue) = try await (healthChecks, queuePage)
+
+            let relevantChecks = checks.filter(isRelevantHealthCheck)
+            let queueIssues = (queue.records ?? []).filter(\.isImportIssueQueueItem)
+
+            var offenders: [WidgetLibraryHealthOffender] = relevantChecks.map { check in
+                WidgetLibraryHealthOffender(
+                    serviceName: profile.displayName,
+                    serviceType: profile.serviceType.displayName,
+                    title: check.source ?? "\(profile.serviceType.displayName) Health",
+                    detail: check.message ?? "Health issue",
+                    severity: healthSeverity(for: check)
+                )
+            }
+
+            offenders.append(contentsOf: queueIssues.map { item in
+                WidgetLibraryHealthOffender(
+                    serviceName: profile.displayName,
+                    serviceType: profile.serviceType.displayName,
+                    title: item.title ?? "Queue Item",
+                    detail: item.primaryStatusMessage ?? item.trackedDownloadState ?? item.status ?? "Queue issue",
+                    severity: queueSeverity(for: item)
+                )
+            })
+
+            let worst = offenders.max { lhs, rhs in
+                if lhs.severity.rawValue != rhs.severity.rawValue {
+                    return lhs.severity.rawValue < rhs.severity.rawValue
+                }
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedDescending
+            }
+
+            return WidgetLibraryHealthServiceSnapshot(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                healthIssueCount: relevantChecks.count,
+                queueIssueCount: queueIssues.count,
+                worstOffender: worst
+            )
+        } catch {
+            let offender = WidgetLibraryHealthOffender(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                title: "\(profile.serviceType.displayName) Unavailable",
+                detail: error.localizedDescription,
+                severity: .error
+            )
+            return WidgetLibraryHealthServiceSnapshot(
+                serviceName: profile.displayName,
+                serviceType: profile.serviceType.displayName,
+                healthIssueCount: 1,
+                queueIssueCount: 0,
+                worstOffender: offender
+            )
+        }
+    }
+
+    private static func isActiveTorrent(_ torrent: TorrentInfoSummary) -> Bool {
+        switch torrent.state ?? .unknown {
+        case .downloading, .forcedDL, .metaDL, .stalledDL, .queuedDL, .checkingDL, .allocating, .moving:
+            true
+        case .uploading, .forcedUP, .stalledUP, .queuedUP, .checkingUP, .pausedDL, .pausedUP,
+             .stoppedDL, .stoppedUP, .error, .missingFiles, .checkingResumeData, .unknown:
+            (torrent.dlspeed ?? 0) > 0
+        }
+    }
+
+    private static func widgetETAText(for seconds: Int) -> String? {
+        guard seconds > 0, seconds < 8_640_000 else { return nil }
+        return ByteFormatter.formatETA(seconds: seconds)
+    }
+
+    private static func isRelevantHealthCheck(_ check: ArrHealthCheck) -> Bool {
+        let type = check.type?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        if type.isEmpty {
+            return check.message?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        }
+        return type != "ok"
+    }
+
+    private static func healthSeverity(for check: ArrHealthCheck) -> WidgetLibraryHealthSeverity {
+        switch check.type?.lowercased() {
+        case "error":
+            .error
+        case "notice":
+            .notice
+        default:
+            .warning
+        }
+    }
+
+    private static func queueSeverity(for item: ArrQueueItem) -> WidgetLibraryHealthSeverity {
+        let status = item.trackedDownloadStatus?.lowercased()
+        let state = item.normalizedState
+        if status == "error" || state == "failedpending" {
+            return .error
+        }
+        return .warning
+    }
 
     private static func fetchArrEvents(
         profile: ArrProfileSnapshot,
         apiStart: Date,
         filterStart: Date,
-        end: Date
+        end: Date,
+        includeUnmonitored: Bool
     ) async -> [WidgetCalendarEvent] {
         do {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
@@ -160,7 +812,7 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: false, includeSeries: true)
+                let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored, includeSeries: true)
                 return episodes.compactMap { ep -> WidgetCalendarEvent? in
                     guard let date = parseISO(ep.airDateUtc) ?? parseDayDate(ep.airDate),
                           date >= filterStart else { return nil }
@@ -183,7 +835,7 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: false)
+                let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored)
                 return movies.flatMap { movie -> [WidgetCalendarEvent] in
                     let releases: [(String?, String, String)] = [
                         (movie.digitalRelease, "Digital", "blue"),

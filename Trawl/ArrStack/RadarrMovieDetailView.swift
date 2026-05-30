@@ -11,6 +11,9 @@ struct RadarrMovieDetailView: View {
     // Discover mode: movie object passed directly
     private let discoverMovie: RadarrMovie?
     private let onAdded: (() async -> Void)?
+    #if DEBUG
+    private var disablesPreviewLoadingTasks = false
+    #endif
 
     @State private var showRenameFilesAlert = false
     @State private var isRenamingFiles = false
@@ -48,6 +51,18 @@ struct RadarrMovieDetailView: View {
         self.viewModel = viewModel
         self.onAdded = onAdded
     }
+
+    #if DEBUG
+    init(previewMovieId movieId: Int, viewModel: RadarrViewModel) {
+        self.init(movieId: movieId, viewModel: viewModel)
+        disablesPreviewLoadingTasks = true
+    }
+
+    init(previewMovie movie: RadarrMovie, viewModel: RadarrViewModel, onAdded: (() async -> Void)? = nil) {
+        self.init(movie: movie, viewModel: viewModel, onAdded: onAdded)
+        disablesPreviewLoadingTasks = true
+    }
+    #endif
 
     /// The resolved movie: prefer library version (by ID or TMDb ID), fall back to discover object.
     private var movie: RadarrMovie? {
@@ -99,6 +114,9 @@ struct RadarrMovieDetailView: View {
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
         .task(id: movie?.id) {
+            #if DEBUG
+            guard !disablesPreviewLoadingTasks else { return }
+            #endif
             bazarrMovieSubtitles = nil
             guard let movie, let client = serviceManager.activeBazarrEntry?.client else { return }
             if let page = try? await client.getMovies(ids: [movie.id]),
@@ -220,6 +238,9 @@ struct RadarrMovieDetailView: View {
             }
         }
         .task(id: resolvedLibraryId) {
+            #if DEBUG
+            guard !disablesPreviewLoadingTasks else { return }
+            #endif
             guard let id = resolvedLibraryId else { return }
             await viewModel.loadMovieFiles(movieId: id)
             await viewModel.loadMovies()
@@ -419,7 +440,11 @@ struct RadarrMovieDetailView: View {
 
         if !activeQueueItems.isEmpty {
             ArrDetailQueueCard(items: activeQueueItems) { item in
-                ArrDetailQueueItemRow(item: item)
+                ArrDetailQueueItemRow(
+                    item: item,
+                    isRemoving: queueActionInFlightIDs.contains(item.id),
+                    onSetPendingAction: { pendingQueueAction = $0 }
+                )
             }
         }
 
@@ -643,10 +668,12 @@ struct RadarrMovieDetailView: View {
         queueActionInFlightIDs.insert(item.id)
         defer { queueActionInFlightIDs.remove(item.id) }
 
-        await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
-        let wasRemoved = !viewModel.queue.contains(where: { $0.id == item.id })
+        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
 
         if wasRemoved {
+            if blocklist {
+                await serviceManager.loadBlocklist()
+            }
             InAppNotificationCenter.shared.showSuccess(
                 title: blocklist ? "Blocked" : "Removed",
                 message: blocklist
@@ -923,3 +950,38 @@ struct RadarrMovieDetailView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Downloaded Detail") {
+    let movie = RadarrMovie.preview
+    let vm = RadarrViewModel(
+        previewMovies: [movie],
+        movieFiles: [.makePreview(movieId: movie.id)]
+    )
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieDetailView(previewMovieId: movie.id, viewModel: vm)
+        }
+    }
+}
+
+#Preview("Sparse Detail") {
+    let movie = RadarrMovie.previewSparse
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieDetailView(previewMovieId: movie.id, viewModel: vm)
+        }
+    }
+}
+
+#Preview("Discover Detail") {
+    let movie = RadarrMovie.previewAnnounced
+    let vm = RadarrViewModel(previewMovies: [])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieDetailView(previewMovie: movie, viewModel: vm)
+        }
+    }
+}
+#endif

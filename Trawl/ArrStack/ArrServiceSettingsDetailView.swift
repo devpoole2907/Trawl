@@ -6,7 +6,6 @@ struct ArrServiceSettingsView: View {
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var allProfiles: [ArrServiceProfile]
     @State private var editorContext: ArrServiceEditorContext?
     @State private var systemStatus: ArrSystemStatus?
@@ -14,13 +13,24 @@ struct ArrServiceSettingsView: View {
     @State private var systemStatusError: String?
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
-    @State private var isSettingUpNotifications = false
-    @State private var notificationSetupMessage: String?
-    @State private var notificationSetupStatus: ArrNotificationSetupStatus?
-    @State private var isViewActive = false
+    #if DEBUG
+    private let previewNotificationStatus: ArrNotificationSetupStatus?
+    #endif
 
-    #if os(iOS)
-    @State private var deviceToken: String?
+    #if DEBUG
+    init(
+        serviceType: ArrServiceType,
+        previewStatus: ArrSystemStatus? = nil,
+        previewIsLoadingStatus: Bool = false,
+        previewStatusError: String? = nil,
+        previewNotificationStatus: ArrNotificationSetupStatus? = nil
+    ) {
+        self.serviceType = serviceType
+        _systemStatus = State(initialValue: previewStatus)
+        _isLoadingStatus = State(initialValue: previewIsLoadingStatus)
+        _systemStatusError = State(initialValue: previewStatusError)
+        self.previewNotificationStatus = previewNotificationStatus
+    }
     #endif
 
     private var profile: ArrServiceProfile? {
@@ -52,10 +62,6 @@ struct ArrServiceSettingsView: View {
     }
 
     private var supportsCommands: Bool {
-        serviceType != .prowlarr && serviceType != .bazarr
-    }
-
-    private var supportsNotifications: Bool {
         serviceType != .prowlarr && serviceType != .bazarr
     }
 
@@ -210,41 +216,29 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if supportsNotifications, isConnected {
+                if serviceType.supportsWebhookNotifications, isConnected {
                     Section("Notifications") {
-                        Button {
-                            setupNotifications()
+                        NavigationLink {
+                            ArrWebhookNotificationConfigView(
+                                serviceType: serviceType,
+                                profile: profile,
+                                isConnected: isConnected
+                            )
                         } label: {
-                            if isSettingUpNotifications {
-                                HStack {
-                                    ProgressView()
-                                        .padding(.trailing, 8)
-                                    Text("Setting up...")
-                                }
-                            } else {
-                                Label("One-Tap Notification Setup", systemImage: "bell.badge.fill")
-                            }
-                        }
-                        #if os(iOS)
-                        .disabled(isSettingUpNotifications || deviceToken == nil)
-                        #else
-                        .disabled(true)
-                        #endif
-
-                        #if os(iOS)
-                        if deviceToken == nil {
-                            Text("Enable notifications in Trawl settings first.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("Automatically creates or updates a 'Trawl' webhook in your \(serviceType.displayName) settings.")
-                                .font(.caption2)
-                                .foregroundStyle(.secondary)
-                        }
-                        #endif
-
-                        if let notificationSetupStatus {
-                            notificationSetupStatusRow(notificationSetupStatus)
+                            #if DEBUG
+                            ArrWebhookNotificationHubRow(
+                                serviceType: serviceType,
+                                profile: profile,
+                                isConnected: isConnected,
+                                previewStatus: previewNotificationStatus
+                            )
+                            #else
+                            ArrWebhookNotificationHubRow(
+                                serviceType: serviceType,
+                                profile: profile,
+                                isConnected: isConnected
+                            )
+                            #endif
                         }
                     }
                 }
@@ -311,31 +305,15 @@ struct ArrServiceSettingsView: View {
             })
             .environment(serviceManager)
         }
-        .onAppear {
-            isViewActive = true
-        }
-        .onDisappear {
-            isViewActive = false
-        }
         .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
-            await loadSystemStatus()
-            #if os(iOS)
-            deviceToken = await NotificationService.shared.deviceToken
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
             #endif
-            await loadNotificationSetupStatus()
+            await loadSystemStatus()
         }
         .refreshable {
             await loadSystemStatus()
-            await loadNotificationSetupStatus()
         }
-        #if os(iOS)
-        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
-            if let token = notification.object as? String {
-                deviceToken = token
-                Task { await loadNotificationSetupStatus() }
-            }
-        }
-        #endif
     }
 
     private var activeProfileID: UUID? {
@@ -459,95 +437,6 @@ struct ArrServiceSettingsView: View {
 
     // MARK: - Actions
 
-    private func setupNotifications() {
-        guard supportsNotifications else { return }
-        guard let profile else { return }
-
-        isSettingUpNotifications = true
-        notificationSetupMessage = nil
-        Task {
-            #if os(iOS)
-            let token = await NotificationService.shared.deviceToken
-            #else
-            let token: String? = nil
-            #endif
-
-            guard let token else {
-                isSettingUpNotifications = false
-                return
-            }
-
-            let url = NotificationService.shared.workerURL
-
-            do {
-                try await serviceManager.setupNotifications(for: profile, workerURL: url, deviceToken: token)
-                notificationSetupStatus = .configured
-                if isViewActive {
-                    inAppNotificationCenter.showSuccess(title: "Success", message: "Notifications configured in \(serviceType.displayName)")
-                }
-            } catch {
-                await loadNotificationSetupStatus()
-                if isViewActive {
-                    inAppNotificationCenter.showError(title: "Setup Failed", message: error.localizedDescription)
-                }
-                isSettingUpNotifications = false
-                return
-            }
-            await loadNotificationSetupStatus()
-            isSettingUpNotifications = false
-        }
-    }
-
-    private func loadNotificationSetupStatus() async {
-        guard supportsNotifications, isConnected, let profile else {
-            notificationSetupStatus = nil
-            return
-        }
-
-        #if os(iOS)
-        let token = if let deviceToken {
-            deviceToken
-        } else {
-            await NotificationService.shared.deviceToken
-        }
-        #else
-        let token: String? = nil
-        #endif
-
-        guard let token, !token.isEmpty else {
-            notificationSetupStatus = nil
-            return
-        }
-
-        do {
-            notificationSetupStatus = try await serviceManager.notificationSetupStatus(
-                for: profile,
-                workerURL: NotificationService.shared.workerURL,
-                deviceToken: token
-            )
-        } catch {
-            notificationSetupStatus = nil
-        }
-    }
-
-    @ViewBuilder
-    private func notificationSetupStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
-        switch status {
-        case .configured:
-            Label("Trawl webhook is configured.", systemImage: "checkmark.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.green)
-        case .needsUpdate:
-            Label("Trawl webhook exists but needs updating.", systemImage: "arrow.triangle.2.circlepath.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.orange)
-        case .notAdded:
-            Label("Trawl webhook has not been added yet.", systemImage: "minus.circle.fill")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-
     private func serviceInfoRow(label: String, value: String) -> some View {
         HStack {
             Text(label)
@@ -614,6 +503,653 @@ struct ArrServiceSettingsView: View {
 
 }
 
+extension ArrServiceType {
+    static let webhookNotificationServices: [ArrServiceType] = [.sonarr, .radarr, .prowlarr]
+
+    var supportsWebhookNotifications: Bool {
+        Self.webhookNotificationServices.contains(self)
+    }
+}
+
+struct ArrWebhookNotificationHubRow: View {
+    let serviceType: ArrServiceType
+    let profile: ArrServiceProfile?
+    let isConnected: Bool
+    let showsProfileSubtitle: Bool
+
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @State private var status: ArrNotificationSetupStatus?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    init(
+        serviceType: ArrServiceType,
+        profile: ArrServiceProfile?,
+        isConnected: Bool,
+        showsProfileSubtitle: Bool = true,
+        previewStatus: ArrNotificationSetupStatus? = nil
+    ) {
+        self.serviceType = serviceType
+        self.profile = profile
+        self.isConnected = isConnected
+        self.showsProfileSubtitle = showsProfileSubtitle
+        _status = State(initialValue: previewStatus)
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: serviceType.serviceIdentity.systemImage)
+                .foregroundStyle(serviceType.serviceIdentity.brandColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(serviceType.displayName)
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                if showsProfileSubtitle {
+                    Text(profile?.displayName ?? "No server configured")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+
+                statusLabel
+                    .font(.caption2)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 4)
+        .task(id: taskID) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
+            await refreshStatus()
+        }
+        .onAppear {
+            Task { await refreshStatus() }
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await loadStatus() }
+            }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if profile == nil {
+            Label("Add a \(serviceType.displayName) server first", systemImage: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+        } else if !isConnected {
+            Label("\(serviceType.displayName) is unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if status == nil {
+            Label("Open to configure triggers and tags", systemImage: "slider.horizontal.3")
+                .foregroundStyle(.secondary)
+        } else if let status {
+            notificationSetupStatusRow(status)
+        }
+    }
+
+    private var taskID: String {
+        #if os(iOS)
+        "\(serviceType.rawValue)-\(profile?.id.uuidString ?? "none")-\(isConnected)-\(deviceToken ?? "nil")"
+        #else
+        "\(serviceType.rawValue)-\(profile?.id.uuidString ?? "none")-\(isConnected)"
+        #endif
+    }
+
+    @MainActor
+    private func refreshStatus() async {
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+        await loadStatus()
+    }
+
+    @MainActor
+    private func loadStatus() async {
+        guard isConnected, let profile else {
+            status = nil
+            return
+        }
+
+        #if os(iOS)
+        let token = if let deviceToken {
+            deviceToken
+        } else {
+            await NotificationService.shared.deviceToken
+        }
+        #else
+        let token: String? = nil
+        #endif
+
+        guard let token, !token.isEmpty else {
+            status = nil
+            return
+        }
+
+        status = try? await serviceManager.notificationSetupStatus(
+            for: profile,
+            workerURL: NotificationService.shared.workerURL,
+            deviceToken: token
+        )
+    }
+}
+
+struct ArrWebhookNotificationConfigView: View {
+    let serviceType: ArrServiceType
+    let profile: ArrServiceProfile?
+    let isConnected: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var draft = ArrWebhookNotificationDraft()
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var isTesting = false
+    @State private var loadError: String?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    private var availableTags: [ArrTag] {
+        guard let profile else { return [] }
+        return serviceManager.tags(for: profile)
+            .sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    private var canSave: Bool {
+        serviceType.supportsWebhookNotifications && isConnected && profile != nil && !isSaving && !isLoading && hasDeviceToken
+    }
+
+    private var canTest: Bool {
+        canSave && !isTesting
+    }
+
+    private var hasDeviceToken: Bool {
+        #if os(iOS)
+        deviceToken?.isEmpty == false
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        Form {
+            if let loadError {
+                Section {
+                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            if profile == nil || !isConnected || !hasDeviceToken {
+                Section {
+                    Label(unavailableMessage, systemImage: "bell.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                ForEach(ArrWebhookNotificationTrigger.triggers(for: serviceType)) { trigger in
+                    Toggle(isOn: binding(for: trigger)) {
+                        Label(trigger.title, systemImage: trigger.systemImage)
+                    }
+                }
+            } header: {
+                Text("Notification Triggers")
+            } footer: {
+                Text("Select which events should trigger this notification")
+            }
+
+            Section {
+                if availableTags.isEmpty {
+                    Text("No tags available")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(availableTags) { tag in
+                        Button {
+                            toggleTag(tag.id)
+                        } label: {
+                            HStack {
+                                Text(tag.label)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if draft.tagIDs.contains(tag.id) {
+                                    Image(systemName: "checkmark")
+                                        .foregroundStyle(serviceType.serviceIdentity.brandColor)
+                                }
+                            }
+                        }
+                    }
+                }
+            } header: {
+                Text("Tags")
+            } footer: {
+                Text("Only send notifications for \(serviceType.mediaNounPlural) with at least one matching tag")
+            }
+
+            Section {
+                Button {
+                    Task { await testNotification() }
+                } label: {
+                    if isTesting {
+                        HStack {
+                            ProgressView()
+                                .padding(.trailing, 8)
+                            Text("Testing...")
+                        }
+                    } else {
+                        Label("Test", systemImage: "paperplane")
+                    }
+                }
+                .disabled(!canTest)
+            }
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationTitle("\(serviceType.displayName) Notifications")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        Task { await save() }
+                    }
+                    .disabled(!canSave)
+                }
+            }
+        }
+        .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive {
+                draft = .preview(serviceType: serviceType)
+                return
+            }
+            #endif
+            await load()
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await load() }
+            }
+        }
+        #endif
+    }
+
+    private var unavailableMessage: String {
+        if profile == nil {
+            return "Add a \(serviceType.displayName) server before configuring notifications."
+        }
+        if !isConnected {
+            return "\(serviceType.displayName) needs to be connected before webhook setup."
+        }
+        if !hasDeviceToken {
+            return "Enable notifications in Trawl settings first."
+        }
+        return "Notification configuration is unavailable."
+    }
+
+    @MainActor
+    private func load() async {
+        guard serviceType.supportsWebhookNotifications, isConnected, let profile else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+
+        guard let token = currentDeviceToken else { return }
+
+        do {
+            let notification = try await serviceManager.trawlNotification(
+                for: profile,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            draft = ArrWebhookNotificationDraft(notification: notification, serviceType: serviceType)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private var currentDeviceToken: String? {
+        #if os(iOS)
+        guard let deviceToken, !deviceToken.isEmpty else { return nil }
+        return deviceToken
+        #else
+        return nil
+        #endif
+    }
+
+    private func binding(for trigger: ArrWebhookNotificationTrigger) -> Binding<Bool> {
+        Binding(
+            get: { draft.isEnabled(trigger) },
+            set: { draft.setEnabled($0, for: trigger) }
+        )
+    }
+
+    private func toggleTag(_ tagID: Int) {
+        if draft.tagIDs.contains(tagID) {
+            draft.tagIDs.remove(tagID)
+        } else {
+            draft.tagIDs.insert(tagID)
+        }
+    }
+
+    @MainActor
+    private func save() async {
+        guard let profile, let token = currentDeviceToken else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await serviceManager.saveTrawlNotification(
+                draft.notification(name: nil, serviceType: serviceType),
+                for: profile,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Saved", message: "\(serviceType.displayName) notifications updated.")
+            dismiss()
+        } catch {
+            inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func testNotification() async {
+        guard let profile, let token = currentDeviceToken else { return }
+        isTesting = true
+        defer { isTesting = false }
+
+        do {
+            try await serviceManager.testTrawlNotification(
+                draft.notification(name: nil, serviceType: serviceType),
+                for: profile,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Test Sent", message: "\(serviceType.displayName) accepted the webhook test.")
+        } catch {
+            inAppNotificationCenter.showError(title: "Test Failed", message: error.localizedDescription)
+        }
+    }
+}
+
+private struct ArrWebhookNotificationDraft {
+    var id: Int?
+    var onGrab = true
+    var onDownload = true
+    var onUpgrade = true
+    var onRename = true
+    var onHealthIssue = true
+    var onApplicationUpdate = true
+    var onSeriesAdd = false
+    var onSeriesDelete = false
+    var onEpisodeFileDelete = false
+    var onEpisodeFileDeleteForUpgrade = false
+    var onMovieAdded = false
+    var onMovieDelete = false
+    var onMovieFileDelete = false
+    var onMovieFileDeleteForUpgrade = false
+    var includeHealthWarnings = true
+    var tagIDs: Set<Int> = []
+
+    init() {}
+
+    init(notification: ArrNotification, serviceType: ArrServiceType) {
+        id = notification.id
+        onGrab = notification.onGrab ?? true
+        onDownload = notification.onDownload ?? true
+        onUpgrade = notification.onUpgrade ?? true
+        onRename = notification.onRename ?? true
+        onHealthIssue = notification.onHealthIssue ?? true
+        onApplicationUpdate = notification.onApplicationUpdate ?? true
+        onSeriesAdd = notification.onSeriesAdd ?? false
+        onSeriesDelete = notification.onSeriesDelete ?? false
+        onEpisodeFileDelete = notification.onEpisodeFileDelete ?? false
+        onEpisodeFileDeleteForUpgrade = notification.onEpisodeFileDeleteForUpgrade ?? false
+        onMovieAdded = notification.onMovieAdded ?? false
+        onMovieDelete = notification.onMovieDelete ?? false
+        onMovieFileDelete = notification.onMovieFileDelete ?? false
+        onMovieFileDeleteForUpgrade = notification.onMovieFileDeleteForUpgrade ?? false
+        includeHealthWarnings = notification.includeHealthWarnings ?? true
+        tagIDs = Set(notification.tags)
+
+        if serviceType == .sonarr {
+            onMovieAdded = false
+            onMovieDelete = false
+            onMovieFileDelete = false
+            onMovieFileDeleteForUpgrade = false
+        } else if serviceType == .radarr {
+            onSeriesAdd = false
+            onSeriesDelete = false
+            onEpisodeFileDelete = false
+            onEpisodeFileDeleteForUpgrade = false
+        } else if serviceType == .prowlarr {
+            onGrab = false
+            onDownload = false
+            onUpgrade = false
+            onRename = false
+            onSeriesAdd = false
+            onSeriesDelete = false
+            onEpisodeFileDelete = false
+            onEpisodeFileDeleteForUpgrade = false
+            onMovieAdded = false
+            onMovieDelete = false
+            onMovieFileDelete = false
+            onMovieFileDeleteForUpgrade = false
+        }
+    }
+
+    static func preview(serviceType: ArrServiceType) -> ArrWebhookNotificationDraft {
+        var draft = ArrWebhookNotificationDraft()
+        draft.tagIDs = serviceType == .sonarr ? [1, 3] : [2]
+        return draft
+    }
+
+    func isEnabled(_ trigger: ArrWebhookNotificationTrigger) -> Bool {
+        switch trigger.key {
+        case .grab: onGrab
+        case .download: onDownload
+        case .upgrade: onUpgrade
+        case .rename: onRename
+        case .healthIssue: onHealthIssue
+        case .applicationUpdate: onApplicationUpdate
+        case .seriesAdd: onSeriesAdd
+        case .seriesDelete: onSeriesDelete
+        case .episodeFileDelete: onEpisodeFileDelete
+        case .episodeFileDeleteForUpgrade: onEpisodeFileDeleteForUpgrade
+        case .movieAdded: onMovieAdded
+        case .movieDelete: onMovieDelete
+        case .movieFileDelete: onMovieFileDelete
+        case .movieFileDeleteForUpgrade: onMovieFileDeleteForUpgrade
+        case .includeHealthWarnings: includeHealthWarnings
+        }
+    }
+
+    mutating func setEnabled(_ isEnabled: Bool, for trigger: ArrWebhookNotificationTrigger) {
+        switch trigger.key {
+        case .grab: onGrab = isEnabled
+        case .download: onDownload = isEnabled
+        case .upgrade: onUpgrade = isEnabled
+        case .rename: onRename = isEnabled
+        case .healthIssue: onHealthIssue = isEnabled
+        case .applicationUpdate: onApplicationUpdate = isEnabled
+        case .seriesAdd: onSeriesAdd = isEnabled
+        case .seriesDelete: onSeriesDelete = isEnabled
+        case .episodeFileDelete: onEpisodeFileDelete = isEnabled
+        case .episodeFileDeleteForUpgrade: onEpisodeFileDeleteForUpgrade = isEnabled
+        case .movieAdded: onMovieAdded = isEnabled
+        case .movieDelete: onMovieDelete = isEnabled
+        case .movieFileDelete: onMovieFileDelete = isEnabled
+        case .movieFileDeleteForUpgrade: onMovieFileDeleteForUpgrade = isEnabled
+        case .includeHealthWarnings: includeHealthWarnings = isEnabled
+        }
+    }
+
+    func notification(name: String?, serviceType: ArrServiceType) -> ArrNotification {
+        let isSonarr = serviceType == .sonarr
+        let isRadarr = serviceType == .radarr
+        let isProwlarr = serviceType == .prowlarr
+
+        return ArrNotification(
+            id: id,
+            name: name ?? "Trawl",
+            onGrab: isProwlarr ? nil : onGrab,
+            onDownload: isProwlarr ? nil : onDownload,
+            onUpgrade: isProwlarr ? nil : onUpgrade,
+            onRename: isProwlarr ? nil : onRename,
+            onHealthIssue: onHealthIssue,
+            onApplicationUpdate: onApplicationUpdate,
+            onSeriesAdd: isSonarr ? onSeriesAdd : nil,
+            onSeriesDelete: isSonarr ? onSeriesDelete : nil,
+            onEpisodeFileDelete: isSonarr ? onEpisodeFileDelete : nil,
+            onEpisodeFileDeleteForUpgrade: isSonarr ? onEpisodeFileDeleteForUpgrade : nil,
+            onMovieAdded: isRadarr ? onMovieAdded : nil,
+            onMovieDelete: isRadarr ? onMovieDelete : nil,
+            onMovieFileDelete: isRadarr ? onMovieFileDelete : nil,
+            onMovieFileDeleteForUpgrade: isRadarr ? onMovieFileDeleteForUpgrade : nil,
+            includeHealthWarnings: includeHealthWarnings,
+            implementation: "Webhook",
+            configContract: "WebhookSettings",
+            fields: [],
+            tags: Array(tagIDs).sorted()
+        )
+    }
+}
+
+private struct ArrWebhookNotificationTrigger: Identifiable {
+    enum Key {
+        case grab
+        case download
+        case upgrade
+        case rename
+        case healthIssue
+        case applicationUpdate
+        case seriesAdd
+        case seriesDelete
+        case episodeFileDelete
+        case episodeFileDeleteForUpgrade
+        case movieAdded
+        case movieDelete
+        case movieFileDelete
+        case movieFileDeleteForUpgrade
+        case includeHealthWarnings
+    }
+
+    let key: Key
+    let title: String
+    let systemImage: String
+
+    var id: String { "\(key)" }
+
+    static func triggers(for serviceType: ArrServiceType) -> [ArrWebhookNotificationTrigger] {
+        if serviceType == .prowlarr {
+            return [
+                .init(key: .healthIssue, title: "Health Issue", systemImage: "heart.text.square.fill"),
+                .init(key: .includeHealthWarnings, title: "Include Health Warnings", systemImage: "exclamationmark.triangle.fill"),
+                .init(key: .applicationUpdate, title: "Application Update", systemImage: "arrow.down.app.fill")
+            ]
+        }
+
+        var common: [ArrWebhookNotificationTrigger] = [
+            .init(key: .grab, title: "Grab", systemImage: "tray.and.arrow.down.fill"),
+            .init(key: .download, title: "Import", systemImage: "square.and.arrow.down.fill"),
+            .init(key: .upgrade, title: "Upgrade", systemImage: "arrow.up.circle.fill"),
+            .init(key: .rename, title: "Rename", systemImage: "textformat"),
+            .init(key: .healthIssue, title: "Health Issue", systemImage: "heart.text.square.fill"),
+            .init(key: .includeHealthWarnings, title: "Include Health Warnings", systemImage: "exclamationmark.triangle.fill"),
+            .init(key: .applicationUpdate, title: "Application Update", systemImage: "arrow.down.app.fill")
+        ]
+
+        switch serviceType {
+        case .sonarr:
+            common.insert(contentsOf: [
+                .init(key: .seriesAdd, title: "Series Added", systemImage: "plus.rectangle.on.folder.fill"),
+                .init(key: .seriesDelete, title: "Series Deleted", systemImage: "trash.fill"),
+                .init(key: .episodeFileDelete, title: "Episode File Deleted", systemImage: "xmark.bin.fill"),
+                .init(key: .episodeFileDeleteForUpgrade, title: "Episode File Deleted for Upgrade", systemImage: "arrow.triangle.2.circlepath")
+            ], at: 4)
+        case .radarr:
+            common.insert(contentsOf: [
+                .init(key: .movieAdded, title: "Movie Added", systemImage: "plus.rectangle.on.folder.fill"),
+                .init(key: .movieDelete, title: "Movie Deleted", systemImage: "trash.fill"),
+                .init(key: .movieFileDelete, title: "Movie File Deleted", systemImage: "xmark.bin.fill"),
+                .init(key: .movieFileDeleteForUpgrade, title: "Movie File Deleted for Upgrade", systemImage: "arrow.triangle.2.circlepath")
+            ], at: 4)
+        case .prowlarr, .bazarr:
+            break
+        }
+
+        return common
+    }
+}
+
+private extension ArrServiceType {
+    var mediaNounPlural: String {
+        switch self {
+        case .sonarr: "series"
+        case .radarr: "movies"
+        case .prowlarr: "indexers"
+        case .bazarr: "items"
+        }
+    }
+}
+
+@ViewBuilder
+private func notificationSetupStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
+    switch status {
+    case .configured:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook is configured",
+            systemImage: "checkmark.circle.fill",
+            color: .green
+        )
+    case .needsUpdate:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook needs updating",
+            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+            color: .orange
+        )
+    case .notAdded:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook has not been added",
+            systemImage: "minus.circle.fill",
+            color: .secondary
+        )
+    }
+}
+
+struct WebhookStatusInlineRow: View {
+    let text: String
+    let systemImage: String
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: systemImage)
+            Text(text)
+        }
+        .foregroundStyle(color)
+    }
+}
+
 private enum ArrServiceEditorContext: Identifiable {
     case create(ArrServiceType)
     case edit(ArrServiceProfile)
@@ -655,3 +1191,39 @@ extension RadarrAPIClient: ArrServiceStatusProviding {}
 extension ProwlarrAPIClient: ArrServiceStatusProviding {}
 
 // MARK: - All-services settings view
+
+#if DEBUG
+#Preview("Service Detail - Connected") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrServiceSettingsView(
+                serviceType: .sonarr,
+                previewStatus: .preview,
+                previewNotificationStatus: .configured
+            )
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Service Detail - Loading") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.radarrOnly)) {
+        NavigationStack {
+            ArrServiceSettingsView(
+                serviceType: .radarr,
+                previewIsLoadingStatus: true
+            )
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Service Detail - Unconfigured") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrServiceSettingsView(serviceType: .prowlarr)
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+#endif

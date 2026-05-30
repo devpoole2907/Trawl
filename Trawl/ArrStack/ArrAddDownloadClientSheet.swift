@@ -14,6 +14,7 @@ struct ArrDownloadClientEditorSheet: View {
     @State private var category = ""
     @State private var host = ""
     @State private var port = "8080"
+    @State private var urlBase = ""
     @State private var username = ""
     @State private var password = ""
     @State private var useSsl = false
@@ -35,6 +36,30 @@ struct ArrDownloadClientEditorSheet: View {
         self.existingClient = existingClient
         self.onComplete = onComplete
     }
+
+    #if DEBUG
+    init(
+        serviceType: ArrServiceType,
+        previewClient: ArrDownloadClient? = nil,
+        previewSchema: ArrDownloadClient? = .preview,
+        errorMessage: String? = nil
+    ) {
+        self.serviceType = serviceType
+        self.existingClient = previewClient
+        self.onComplete = { _ in }
+
+        let seed = previewClient ?? previewSchema
+        _name = State(initialValue: seed?.name ?? "qBittorrent")
+        _category = State(initialValue: serviceType == .sonarr ? "tv-sonarr" : "radarr")
+        _host = State(initialValue: seed?.hostDisplayValue ?? "qbit.local")
+        _port = State(initialValue: seed?.portDisplayValue ?? "8080")
+        _username = State(initialValue: "admin")
+        _password = State(initialValue: "preview-password")
+        _schemaTemplate = State(initialValue: previewSchema)
+        _errorMessage = State(initialValue: errorMessage)
+        _hasLoadedInitialState = State(initialValue: true)
+    }
+    #endif
 
     private var isEditing: Bool { existingClient != nil }
 
@@ -116,6 +141,16 @@ struct ArrDownloadClientEditorSheet: View {
                             #if os(iOS)
                             .keyboardType(.numberPad)
                             #endif
+                            .multilineTextAlignment(.trailing)
+                            .disabled(isQBittorrent && !isCustom)
+                    }
+
+                    LabeledContent("URL Base") {
+                        TextField("/qbit", text: $urlBase)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            #endif
+                            .autocorrectionDisabled()
                             .multilineTextAlignment(.trailing)
                             .disabled(isQBittorrent && !isCustom)
                     }
@@ -229,6 +264,7 @@ struct ArrDownloadClientEditorSheet: View {
         name = client.name ?? ""
         host = stringField("host", from: client)
         port = intField("port", from: client).map { String($0) } ?? "8080"
+        urlBase = stringField("urlBase", from: client)
         useSsl = boolField("useSsl", from: client)
         username = stringField("username", from: client)
         password = stringField("password", from: client)
@@ -240,6 +276,7 @@ struct ArrDownloadClientEditorSheet: View {
         guard let profile = selectedProfile else {
             host = ""
             port = "8080"
+            urlBase = ""
             useSsl = false
             username = ""
             password = ""
@@ -249,6 +286,7 @@ struct ArrDownloadClientEditorSheet: View {
         let parsed = parseQBitURL(profile.hostURL)
         host = parsed.host
         port = String(parsed.port)
+        urlBase = parsed.urlBase
         useSsl = parsed.useSsl
 
         do {
@@ -272,12 +310,18 @@ struct ArrDownloadClientEditorSheet: View {
         return match?.id.uuidString ?? Self.customProfileID
     }
 
-    private func parseQBitURL(_ urlString: String) -> (host: String, port: Int, useSsl: Bool) {
-        guard let url = URL(string: urlString) else { return ("", 8080, false) }
+    private func parseQBitURL(_ urlString: String) -> (host: String, port: Int, useSsl: Bool, urlBase: String) {
+        guard let url = URL(string: urlString) else { return ("", 8080, false, "") }
+        let scheme = url.scheme?.lowercased()
+        let usesSsl = scheme == "https"
+        let defaultPort = usesSsl ? 443 : (scheme == "http" ? 80 : 8080)
+        let path = url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
         return (
             host: url.host ?? "",
-            port: url.port ?? 8080,
-            useSsl: url.scheme?.lowercased() == "https"
+            port: url.port ?? defaultPort,
+            useSsl: usesSsl,
+            urlBase: path.isEmpty ? "" : "/\(path)"
         )
     }
 
@@ -305,6 +349,12 @@ struct ArrDownloadClientEditorSheet: View {
               let value = field.value,
               case .bool(let b) = value else { return false }
         return b
+    }
+
+    private func normalizedURLBase(_ rawValue: String) -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return trimmed.isEmpty ? "" : "/\(trimmed)"
     }
 
     // MARK: - Save
@@ -338,6 +388,10 @@ struct ArrDownloadClientEditorSheet: View {
         payload = payload.updatingField(named: "host", with: .string(trimmedHost))
         payload = payload.updatingField(named: "port", with: .int(portInt))
         payload = payload.updatingField(named: "useSsl", with: .bool(useSsl))
+        payload = payload.updatingField(
+            named: "urlBase",
+            with: .string(normalizedURLBase(urlBase))
+        )
 
         let trimmedUsername = username.trimmingCharacters(in: .whitespacesAndNewlines)
         payload = payload.updatingField(named: "username", with: .string(trimmedUsername))
@@ -375,3 +429,27 @@ struct ArrDownloadClientEditorSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Download Client Editor - Add") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(serviceType: .sonarr, previewSchema: .preview)
+    }
+}
+
+#Preview("Download Client Editor - Edit") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(serviceType: .sonarr, previewClient: .preview, previewSchema: .preview)
+    }
+}
+
+#Preview("Download Client Editor - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.sonarrOnly)) {
+        ArrDownloadClientEditorSheet(
+            serviceType: .sonarr,
+            previewSchema: .preview,
+            errorMessage: "qBittorrent schema is unavailable."
+        )
+    }
+}
+#endif

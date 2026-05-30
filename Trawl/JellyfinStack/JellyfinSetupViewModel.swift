@@ -312,3 +312,30 @@ private struct JellyfinProfileSnapshot {
         profile.serverVersion = serverVersion
     }
 }
+
+#if DEBUG
+extension JellyfinSetupViewModel {
+    convenience init(
+        previewHostURL: String = "",
+        previewUsername: String = "",
+        previewPassword: String = "",
+        previewAPIKey: String = "",
+        previewAuthMode: JellyfinAuthMode = .apiKey,
+        previewDisplayName: String = "Jellyfin",
+        previewAllowsUntrustedTLS: Bool = false,
+        previewIsAuthenticating: Bool = false,
+        previewError: String? = nil
+    ) {
+        self.init()
+        hostURL = previewHostURL
+        username = previewUsername
+        password = previewPassword
+        apiKey = previewAPIKey
+        authMode = previewAuthMode
+        displayName = previewDisplayName
+        allowsUntrustedTLS = previewAllowsUntrustedTLS
+        isAuthenticating = previewIsAuthenticating
+        error = previewError
+    }
+}
+#endif

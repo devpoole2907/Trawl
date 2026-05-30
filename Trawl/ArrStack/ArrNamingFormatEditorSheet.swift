@@ -626,3 +626,19 @@ private struct ArrNamingTokenFlowLayout: Layout {
         }
     }
 }
+
+#if DEBUG
+#Preview("Naming Format Editor - Episode") {
+    ArrNamingFormatEditorSheet(
+        target: .sonarr(.standardEpisode),
+        initialFormat: SonarrNamingConfig.preview.standardEpisodeFormat ?? ""
+    ) { _ in }
+}
+
+#Preview("Naming Format Editor - Movie") {
+    ArrNamingFormatEditorSheet(
+        target: .radarr(.standardMovie),
+        initialFormat: RadarrNamingConfig.preview.standardMovieFormat ?? ""
+    ) { _ in }
+}
+#endif

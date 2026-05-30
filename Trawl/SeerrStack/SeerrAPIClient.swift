@@ -212,6 +212,16 @@ actor SeerrAPIClient {
         try await deleteVoid("/api/v1/request/\(id)")
     }
 
+    func discoverTrendingMovies() async throws -> [SeerrDiscoverItem] {
+        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/movies/trending")
+        return response.results
+    }
+
+    func discoverTrendingTV() async throws -> [SeerrDiscoverItem] {
+        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/tv/trending")
+        return response.results
+    }
+
     func getMediaSummary(tmdbId: Int, mediaType: String) async throws -> SeerrMediaSummary {
         let path = mediaType == "tv" ? "/api/v1/tv/\(tmdbId)" : "/api/v1/movie/\(tmdbId)"
         return try await get(path)
@@ -244,6 +254,18 @@ actor SeerrAPIClient {
 
     func getPublicSettings() async throws -> SeerrPublicSettings {
         try await get("/api/v1/settings/public")
+    }
+
+    func getWebhookNotificationSettings() async throws -> SeerrWebhookNotificationSettings {
+        try await get("/api/v1/settings/notifications/webhook")
+    }
+
+    func updateWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {
+        try await postVoid("/api/v1/settings/notifications/webhook", jsonBody: settings)
+    }
+
+    func testWebhookNotificationSettings(_ settings: SeerrWebhookNotificationSettings) async throws {
+        try await postVoid("/api/v1/settings/notifications/webhook/test", jsonBody: settings)
     }
 
     // MARK: - HTTP Infrastructure
@@ -384,3 +406,11 @@ actor SeerrAPIClient {
         return params.map { URLQueryItem(name: $0.key, value: $0.value) }
     }
 }
+
+#if DEBUG
+extension SeerrAPIClient {
+    static func preview() -> SeerrAPIClient {
+        SeerrAPIClient(baseURL: "http://preview.invalid", allowsUntrustedTLS: false)
+    }
+}
+#endif

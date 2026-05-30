@@ -107,6 +107,7 @@ struct SonarrSeriesRow: View {
     let series: SonarrSeries
     let hasIssue: Bool
     var bazarrStatus: BazarrSubtitleStatus? = nil
+    var showTypeLabel: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -179,6 +180,9 @@ struct SonarrSeriesRow: View {
         if let year = series.year {
             items.append(.init(title: String(year), color: .secondary))
         }
+        if showTypeLabel {
+            items.append(.init(title: "Series", color: .secondary))
+        }
         if let network = series.network, !network.isEmpty {
             items.append(.init(title: network, color: .secondary))
         }
@@ -196,3 +200,74 @@ private struct SeriesRowMetadataItem {
     let title: String
     let color: Color
 }
+
+#if DEBUG
+extension SonarrSeriesListView {
+    init(previewViewModel: SonarrViewModel) {
+        self.init()
+        _viewModel = State(initialValue: previewViewModel)
+        _viewModelInstanceID = State(initialValue: previewViewModel.serviceManager.activeSonarrInstanceID)
+    }
+}
+
+#Preview("Loaded") {
+    SonarrPreviewHost { manager in
+        NavigationStack {
+            SonarrSeriesListView(previewViewModel: SonarrViewModel(
+                previewSeries: SonarrSeries.previewList,
+                serviceManager: manager
+            ))
+        }
+    }
+}
+
+#Preview("Loaded Heavy") {
+    SonarrPreviewHost { manager in
+        NavigationStack {
+            SonarrSeriesListView(previewViewModel: SonarrViewModel(
+                previewSeries: SonarrSeries.previewHeavyList,
+                serviceManager: manager
+            ))
+        }
+    }
+}
+
+#Preview("Empty") {
+    SonarrPreviewHost { manager in
+        NavigationStack {
+            SonarrSeriesListView(previewViewModel: SonarrViewModel(
+                previewSeries: [],
+                serviceManager: manager
+            ))
+        }
+    }
+}
+
+#Preview("Loading") {
+    SonarrPreviewHost { manager in
+        NavigationStack {
+            SonarrSeriesListView(previewViewModel: SonarrViewModel(
+                previewSeries: [],
+                isLoading: true,
+                serviceManager: manager
+            ))
+        }
+    }
+}
+
+#Preview("Error") {
+    SonarrPreviewHost(state: .sonarrConnectionError("The server returned 500 Internal Server Error.")) { _ in
+        NavigationStack {
+            SonarrSeriesListView()
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Unable to reach 192.168.1.50:8989.")) { _ in
+        NavigationStack {
+            SonarrSeriesListView()
+        }
+    }
+}
+#endif

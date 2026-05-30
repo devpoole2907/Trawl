@@ -11,6 +11,12 @@ struct QBittorrentRSSView: View {
     @State private var showCreateFeedAlert = false
     @State private var newFeedURL = ""
     @State private var itemPendingDeletion: String?
+    @State private var showingRulesSheet = false
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     var body: some View {
         List {
@@ -28,7 +34,7 @@ struct QBittorrentRSSView: View {
             } else {
                 Section("Feeds & Folders") {
                     ForEach(rssItemKeys, id: \.self) { key in
-                        rssItemRow(name: key, value: rssItems[key])
+                        rssItemRow(name: key, path: key, value: rssItems[key])
                     }
                 }
             }
@@ -47,11 +53,21 @@ struct QBittorrentRSSView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button {
+                    showingRulesSheet = true
+                } label: {
+                    Label("Auto-Download Rules", systemImage: "gearshape")
+                }
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Button {
                     showCreateFeedAlert = true
                 } label: {
                     Label("Add Feed", systemImage: "plus")
                 }
             }
+        }
+        .sheet(isPresented: $showingRulesSheet) {
+            QBittorrentRSSRulesSheet(feedOptions: feedOptions)
         }
         .alert("Add RSS Feed", isPresented: $showCreateFeedAlert) {
             TextField("Feed URL", text: $newFeedURL)
@@ -82,6 +98,9 @@ struct QBittorrentRSSView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             await loadRSSItems()
         }
         .refreshable {
@@ -93,11 +112,47 @@ struct QBittorrentRSSView: View {
         rssItems.keys.sorted()
     }
 
+    private var feedOptions: [QBittorrentRSSFeedOption] {
+        var options: [QBittorrentRSSFeedOption] = []
+        collectFeedOptions(in: rssItems, parentPath: "", into: &options)
+        return options.sorted {
+            $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+        }
+    }
+
+    private func collectFeedOptions(
+        in dictionary: [String: JSONValue],
+        parentPath: String,
+        into options: inout [QBittorrentRSSFeedOption]
+    ) {
+        for key in sortedKeys(in: dictionary) {
+            let path = rssItemPath(parentPath: parentPath, name: key)
+            switch dictionary[key] {
+            case .string(let url):
+                options.append(QBittorrentRSSFeedOption(path: path, url: url))
+            case .object(let child):
+                if case let .string(url) = child["url"] {
+                    options.append(QBittorrentRSSFeedOption(path: path, url: url))
+                } else {
+                    collectFeedOptions(in: child, parentPath: path, into: &options)
+                }
+            default:
+                continue
+            }
+        }
+    }
+
+    private func rssItemPath(parentPath: String, name: String) -> String {
+        guard !parentPath.isEmpty else { return name }
+        guard !name.isEmpty else { return parentPath }
+        return "\(parentPath)/\(name)"
+    }
+
     private func sortedKeys(in dictionary: [String: JSONValue]) -> [String] {
         dictionary.keys.sorted()
     }
     
-    private func rssItemRow(name: String, value: JSONValue?) -> AnyView {
+    private func rssItemRow(name: String, path: String, value: JSONValue?) -> AnyView {
         if case let .object(dict) = value {
             if case let .string(url) = dict["url"] {
                 return AnyView(
@@ -118,7 +173,7 @@ struct QBittorrentRSSView: View {
                     .padding(.vertical, 2)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            itemPendingDeletion = name
+                            itemPendingDeletion = path
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -129,7 +184,11 @@ struct QBittorrentRSSView: View {
             return AnyView(
                 DisclosureGroup {
                     ForEach(sortedKeys(in: dict), id: \.self) { subKey in
-                        rssItemRow(name: subKey, value: dict[subKey])
+                        rssItemRow(
+                            name: subKey,
+                            path: rssItemPath(parentPath: path, name: subKey),
+                            value: dict[subKey]
+                        )
                     }
                 } label: {
                     HStack(spacing: 12) {
@@ -143,7 +202,7 @@ struct QBittorrentRSSView: View {
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button(role: .destructive) {
-                        itemPendingDeletion = name
+                        itemPendingDeletion = path
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
@@ -162,7 +221,7 @@ struct QBittorrentRSSView: View {
             .padding(.vertical, 2)
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button(role: .destructive) {
-                    itemPendingDeletion = name
+                    itemPendingDeletion = path
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
@@ -232,3 +291,63 @@ struct QBittorrentRSSView: View {
         }
     }
 }
+
+#if DEBUG
+extension QBittorrentRSSView {
+    init(
+        previewRSSItems rssItems: [String: JSONValue],
+        isLoading: Bool = false,
+        actionErrorAlert: ErrorAlertItem? = nil
+    ) {
+        self.init()
+        self._rssItems = State(initialValue: rssItems)
+        self._isLoading = State(initialValue: isLoading)
+        self._actionErrorAlert = State(initialValue: actionErrorAlert)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [
+                "linux": .object([
+                    "Ubuntu Releases": .object(["url": .string("https://releases.ubuntu.com/rss.xml")]),
+                    "Fedora": .object(["url": .string("https://fedoraproject.org/rss.xml")])
+                ]),
+                "Movies Feed": .object(["url": .string("https://tracker.example.org/movies/rss")])
+            ])
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [:])
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(previewRSSItems: [:], isLoading: true)
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentRSSView(
+                previewRSSItems: [:],
+                actionErrorAlert: ErrorAlertItem(
+                    title: "Failed to Load RSS",
+                    message: "qBittorrent returned 403 Forbidden."
+                )
+            )
+        }
+    }
+}
+#endif

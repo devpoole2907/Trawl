@@ -342,6 +342,76 @@ struct UnifiedUserDetailView: View {
     }
 }
 
+#if DEBUG
+#Preview("User Detail - Linked") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserDetailView(
+                user: .previewLinkedAdmin,
+                jellyfinClient: .preview(),
+                seerrClient: .preview(),
+                seerrBaseURL: "http://seerr.preview",
+                onJellyfinUserUpdated: { _ in },
+                onSeerrUserUpdated: { _ in },
+                onSeerrUserDeleted: {},
+                onJellyfinUserDeleted: {}
+            )
+        }
+    }
+}
+
+#Preview("User Detail - Jellyfin Only") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserDetailView(
+                user: .previewJellyfinOnly,
+                jellyfinClient: .preview(),
+                seerrClient: .preview(),
+                seerrBaseURL: "http://seerr.preview",
+                onJellyfinUserUpdated: { _ in },
+                onSeerrUserUpdated: { _ in },
+                onSeerrUserDeleted: {},
+                onJellyfinUserDeleted: {}
+            )
+        }
+    }
+}
+
+#Preview("User Detail - Seerr Only") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserDetailView(
+                user: .previewSeerrOnly,
+                jellyfinClient: .preview(),
+                seerrClient: .preview(),
+                seerrBaseURL: "http://seerr.preview",
+                onJellyfinUserUpdated: { _ in },
+                onSeerrUserUpdated: { _ in },
+                onSeerrUserDeleted: {},
+                onJellyfinUserDeleted: {}
+            )
+        }
+    }
+}
+
+#Preview("User Detail - No Seerr") {
+    PreviewHost(profiles: .jellyfinOnly, seerr: .preview(.notConfigured)) {
+        NavigationStack {
+            UnifiedUserDetailView(
+                user: .previewDisabledJellyfin,
+                jellyfinClient: .preview(),
+                seerrClient: nil,
+                seerrBaseURL: nil,
+                onJellyfinUserUpdated: { _ in },
+                onSeerrUserUpdated: { _ in },
+                onSeerrUserDeleted: {},
+                onJellyfinUserDeleted: {}
+            )
+        }
+    }
+}
+#endif
+
 private struct ImportAlert: Identifiable {
     let id = UUID()
     let title: String

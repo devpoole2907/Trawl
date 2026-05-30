@@ -7,6 +7,9 @@ struct SeerrIssueDetailView: View {
 
     @State private var viewModel: SeerrIssueDetailViewModel
     @State private var errorAlert: ErrorAlertItem?
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     init(issue: SeerrIssue, apiClient: SeerrAPIClient, onUpdate: @escaping (SeerrIssue) -> Void) {
         self.apiClient = apiClient
@@ -149,7 +152,12 @@ struct SeerrIssueDetailView: View {
             .padding()
             .background(.ultraThinMaterial)
         }
-        .task { await viewModel.loadComments() }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            await viewModel.loadComments()
+        }
         .refreshable { await viewModel.loadComments() }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
@@ -159,3 +167,71 @@ struct SeerrIssueDetailView: View {
         }
     }
 }
+
+#if DEBUG
+extension SeerrIssueDetailView {
+    init(
+        previewViewModel: SeerrIssueDetailViewModel,
+        apiClient: SeerrAPIClient = .preview(),
+        onUpdate: @escaping (SeerrIssue) -> Void = { _ in }
+    ) {
+        self.apiClient = apiClient
+        self.onUpdate = onUpdate
+        self._viewModel = State(initialValue: previewViewModel)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Issue Detail - Open") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueDetailView(
+                previewViewModel: SeerrIssueDetailViewModel(
+                    previewIssue: .previewWithComments,
+                    previewComments: SeerrIssueComment.previewList
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issue Detail - Resolved") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueDetailView(
+                previewViewModel: SeerrIssueDetailViewModel(
+                    previewIssue: .previewResolved,
+                    previewComments: SeerrIssueComment.previewList
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issue Detail - No Comments") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueDetailView(
+                previewViewModel: SeerrIssueDetailViewModel(
+                    previewIssue: .preview,
+                    previewComments: []
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issue Detail - Loading Comments") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrIssueDetailView(
+                previewViewModel: SeerrIssueDetailViewModel(
+                    previewIssue: .preview,
+                    previewComments: [],
+                    isLoadingComments: true
+                )
+            )
+        }
+    }
+}
+#endif

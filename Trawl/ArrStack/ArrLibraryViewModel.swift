@@ -137,8 +137,10 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
             history = historyLoader.items
             historyTotalRecords = historyLoader.totalRecords
+        } catch is CancellationError {
+            return
         } catch {
-            self.error = error.localizedDescription
+            captureAndNotify(error, title: "History Load Failed")
         }
     }
 
@@ -384,15 +386,17 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         }
     }
 
-    func removeQueueItem(id: Int, blocklist: Bool = false) async {
-        guard let client else { return }
+    @discardableResult
+    func removeQueueItem(id: Int, blocklist: Bool = false) async -> Bool {
+        guard let client else { return false }
         do {
             try await client.deleteQueueItem(id: id, blocklist: blocklist)
             queue.removeAll { $0.id == id }
-            InAppNotificationCenter.shared.showSuccess(title: "Removed", message: "Queue item removed.")
+            error = nil
+            return true
         } catch {
             self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Remove Failed", message: error.localizedDescription)
+            return false
         }
     }
 
@@ -446,11 +450,11 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         }
 
         do {
-            return try await serviceManager.notificationSetupStatus(
+            return try await serviceManager.trawlNotificationSendsGrab(
                 for: profile,
                 workerURL: NotificationService.shared.workerURL,
                 deviceToken: token
-            ) == .configured
+            )
         } catch {
             return false
         }
@@ -659,6 +663,7 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     func toggleMonitored(_ item: Item) async
     func refreshFilters()
     func refreshJellyfinLibraryCache() async
+    func rebuildFilteredItems()
 }
 
 // MARK: - Wanted-page conformances
@@ -745,3 +750,33 @@ extension RadarrMovie: JellyfinMatchable {
     var jellyfinNumericProviderId: Int? { tmdbId }
     var jellyfinImdbProviderId: String? { imdbId }
 }
+
+#if DEBUG
+extension ArrLibraryViewModel {
+    func setPreviewHistory(
+        _ records: [ArrHistoryRecord],
+        totalRecords: Int? = nil,
+        isLoading: Bool = false,
+        error: String? = nil
+    ) {
+        history = records
+        historyTotalRecords = totalRecords ?? records.count
+        isLoadingHistory = isLoading
+        self.error = error
+    }
+}
+
+extension ArrMediaLibraryViewModel {
+    func setPreviewWantedRecords(
+        _ records: [WantedRecord],
+        totalRecords: Int? = nil,
+        isLoading: Bool = false,
+        error: String? = nil
+    ) {
+        wantedRecords = records
+        wantedMissingTotalRecords = totalRecords ?? records.count
+        isLoadingWantedMissing = isLoading
+        self.error = error
+    }
+}
+#endif

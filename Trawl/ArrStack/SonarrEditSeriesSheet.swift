@@ -85,3 +85,41 @@ struct SonarrEditSeriesSheet: View {
         if success { dismiss() }
     }
 }
+
+#if DEBUG
+#Preview("Typical Inputs") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrEditSeriesSheet(
+            viewModel: SonarrViewModel(previewSeries: [.preview], serviceManager: manager),
+            series: .preview
+        )
+    }
+}
+
+#Preview("Missing Metadata") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrEditSeriesSheet(
+            viewModel: SonarrViewModel(previewSeries: [.previewMissingArt], serviceManager: manager),
+            series: .previewMissingArt
+        )
+    }
+}
+
+#Preview("Long Title") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrEditSeriesSheet(
+            viewModel: SonarrViewModel(previewSeries: [.previewLongTitle], serviceManager: manager),
+            series: .previewLongTitle
+        )
+    }
+}
+
+#Preview("Ended Series") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrEditSeriesSheet(
+            viewModel: SonarrViewModel(previewSeries: [.previewEnded], serviceManager: manager),
+            series: .previewEnded
+        )
+    }
+}
+#endif

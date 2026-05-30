@@ -57,3 +57,9 @@ JellyfinStack/JellyfinLibrariesView.swift,
 ## SourceKit diagnostics
 
 SourceKit (the LSP) fires "cannot find type in scope" errors in `system-reminder` whenever a file references types defined in other files. These are **indexing noise** — they do not reflect real build errors. Ignore them entirely; use an actual `xcodebuild` run to validate.
+
+---
+
+## Unfamiliar iOS APIs
+
+Whenever the user's instructions or the code you're working with reference an iOS API (SwiftUI, UIKit, Foundation, etc.) that you are not fully confident about, use the `xcrun_DocumentationSearch` tool to look it up before writing or modifying code. If the search results are unclear or multiple interpretations are possible, ask the user for clarification before proceeding.

@@ -17,6 +17,18 @@ struct BazarrProvidersView: View {
     @State private var deathByCaptchaPassword = ""
     @State private var isSavingAntiCaptcha = false
     @State private var isEditingAntiCaptcha = false
+    private let loadsOnAppear: Bool
+
+    #if DEBUG
+    private let previewConnectionMessage: String?
+    #endif
+
+    init() {
+        loadsOnAppear = true
+        #if DEBUG
+        previewConnectionMessage = nil
+        #endif
+    }
 
     private var client: BazarrAPIClient? {
         serviceManager.activeBazarrEntry?.client
@@ -38,23 +50,7 @@ struct BazarrProvidersView: View {
     }
 
     var body: some View {
-        Group {
-            if !serviceManager.hasBazarrInstance {
-                ContentUnavailableView(
-                    "Bazarr Not Set Up",
-                    systemImage: "captions.bubble",
-                    description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
-                )
-            } else if client == nil {
-                ArrServiceConnectionStatusView(
-                    serviceType: .bazarr,
-                    title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
-                    message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
-                )
-            } else {
-                contentView
-            }
-        }
+        availabilityContent
         .navigationTitle("Providers")
         .navigationSubtitle("Bazarr")
         #if os(iOS)
@@ -111,7 +107,44 @@ struct BazarrProvidersView: View {
             Text("This removes the provider from Bazarr's enabled list. Saved provider settings are kept.")
         }
         .task(id: serviceManager.activeBazarrProfileID) {
+            guard loadsOnAppear else { return }
             await load()
+        }
+    }
+
+    @ViewBuilder
+    private var availabilityContent: some View {
+        #if DEBUG
+        if let previewConnectionMessage {
+            ArrServiceConnectionStatusView(
+                serviceType: .bazarr,
+                title: "Bazarr Unreachable",
+                message: previewConnectionMessage
+            )
+        } else {
+            serviceContent
+        }
+        #else
+        serviceContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var serviceContent: some View {
+        if !serviceManager.hasBazarrInstance {
+            ContentUnavailableView(
+                "Bazarr Not Set Up",
+                systemImage: "captions.bubble",
+                description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
+            )
+        } else if client == nil {
+            ArrServiceConnectionStatusView(
+                serviceType: .bazarr,
+                title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
+            )
+        } else {
+            contentView
         }
     }
 
@@ -479,6 +512,118 @@ struct BazarrProvidersView: View {
         return .enabled
     }
 }
+
+#if DEBUG
+extension BazarrProvidersView {
+    init(
+        previewSettings: [String: JSONValue],
+        previewProviderStatuses: [BazarrProvider] = BazarrProvider.previewList,
+        enabledProviderKeys: [String]? = nil,
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        searchText: String = "",
+        connectionMessage: String? = nil
+    ) {
+        loadsOnAppear = false
+        previewConnectionMessage = connectionMessage
+        _settings = State(wrappedValue: previewSettings)
+        _providerStatuses = State(wrappedValue: previewProviderStatuses)
+        _enabledProviderKeys = State(wrappedValue: enabledProviderKeys ?? previewSettings.enabledBazarrProviderKeys)
+        _isLoading = State(wrappedValue: isLoading)
+        _errorMessage = State(wrappedValue: errorMessage)
+        _searchText = State(wrappedValue: searchText)
+        _antiCaptchaProvider = State(wrappedValue: .antiCaptcha)
+        _antiCaptchaKey = State(wrappedValue: "preview-account-key")
+    }
+}
+
+private enum BazarrProvidersPreviewData {
+    static let settings: [String: JSONValue] = [
+        "general": .object([
+            "enabled_providers": .array([
+                .string("opensubtitlescom"),
+                .string("embeddedsubtitles"),
+                .string("addic7ed"),
+            ]),
+            "anti_captcha_provider": .string("anti-captcha"),
+        ]),
+        "opensubtitlescom": .object([
+            "username": .string("preview-user"),
+            "password": .string("preview-password"),
+            "use_hash": .string("true"),
+        ]),
+        "embeddedsubtitles": .object([
+            "included_codecs": .string("srt, ass"),
+            "timeout": .string("600"),
+        ]),
+        "addic7ed": .object([
+            "username": .string("subtitle-admin"),
+            "password": .string("preview-password"),
+            "vip": .string("false"),
+        ]),
+    ]
+
+    static let emptySettings: [String: JSONValue] = [
+        "general": .object([
+            "enabled_providers": .array([]),
+            "anti_captcha_provider": .string(""),
+        ]),
+    ]
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProvidersView(previewSettings: BazarrProvidersPreviewData.settings)
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProvidersView(previewSettings: BazarrProvidersPreviewData.emptySettings)
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProvidersView(
+                previewSettings: [:],
+                previewProviderStatuses: [],
+                enabledProviderKeys: [],
+                isLoading: true
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProvidersView(
+                previewSettings: BazarrProvidersPreviewData.emptySettings,
+                previewProviderStatuses: [],
+                errorMessage: "Bazarr could not load provider settings."
+            )
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProvidersView(
+                previewSettings: [:],
+                previewProviderStatuses: [],
+                connectionMessage: "Unable to reach 192.168.1.50:6767."
+            )
+        }
+    }
+}
+#endif
 
 private struct BazarrProviderPickerView: View {
     @Environment(\.dismiss) private var dismiss
@@ -1026,3 +1171,44 @@ private extension String {
         ["true", "1", "yes"].contains(lowercased())
     }
 }
+
+#if DEBUG
+#Preview("Provider Picker") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProviderPickerView(
+                enabledKeys: ["opensubtitlescom"],
+                settings: BazarrProvidersPreviewData.settings,
+                onSave: { _, _ in await Task.yield(); return true }
+            )
+        }
+    }
+}
+
+#Preview("Provider Editor Add") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProviderEditorView(
+                provider: BazarrProviderCatalog.definition(for: "subdl")!,
+                settings: BazarrProvidersPreviewData.settings,
+                mode: .add,
+                onSave: { _ in await Task.yield(); return true }
+            )
+        }
+    }
+}
+
+#Preview("Provider Editor Edit") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrProviderEditorView(
+                provider: BazarrProviderCatalog.definition(for: "opensubtitlescom")!,
+                settings: BazarrProvidersPreviewData.settings,
+                mode: .edit,
+                onRemove: {},
+                onSave: { _ in await Task.yield(); return true }
+            )
+        }
+    }
+}
+#endif

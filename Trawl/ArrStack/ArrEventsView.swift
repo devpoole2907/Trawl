@@ -10,6 +10,7 @@ struct UnifiedLogEntry: Identifiable, Sendable {
     let message: String
     let timestamp: Date
     let exceptionType: String?
+    let exception: String?
 }
 
 // MARK: - Service Selection
@@ -32,6 +33,36 @@ struct ArrEventsView: View {
     @State private var isSearchExpanded = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var showSettings = false
+    @State private var selectedEntry: UnifiedLogEntry?
+
+    #if DEBUG
+    init(previewEntries: [ArrServiceType: [UnifiedLogEntry]] = [:], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewEntries(previewEntries)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
+
+    init(previewLoadingServices: [ArrServiceType], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewLoading(previewLoadingServices)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
+
+    init(previewError: String, services: [ArrServiceType], selectedService: ArrServiceType? = nil) {
+        var previewVM = ArrEventsViewModel()
+        previewVM.setPreviewError(previewError, for: services)
+        _vm = State(initialValue: previewVM)
+        if let selectedService {
+            _selectedSelection = State(initialValue: .service(selectedService))
+        }
+    }
+    #endif
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -66,14 +97,21 @@ struct ArrEventsView: View {
     }
 
     private var displayedEntries: [UnifiedLogEntry] {
+        let query = committedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let raw: [UnifiedLogEntry]
-        switch selectedSelection {
-        case .all:
+        if !query.isEmpty {
             raw = availableServices
                 .flatMap { vm.entries(for: $0) }
                 .sorted { $0.timestamp > $1.timestamp }
-        case .service(let t):
-            raw = vm.entries(for: t)
+        } else {
+            switch selectedSelection {
+            case .all:
+                raw = availableServices
+                    .flatMap { vm.entries(for: $0) }
+                    .sorted { $0.timestamp > $1.timestamp }
+            case .service(let t):
+                raw = vm.entries(for: t)
+            }
         }
 
         let levelFiltered = raw.filter { entry in
@@ -82,10 +120,10 @@ struct ArrEventsView: View {
                 : selectedLevel.includesArrLevel(entry.level)
         }
 
-        guard !committedSearchText.isEmpty else { return levelFiltered }
+        guard !query.isEmpty else { return levelFiltered }
         return levelFiltered.filter {
-            $0.message.localizedCaseInsensitiveContains(committedSearchText) ||
-            ($0.logger ?? "").localizedCaseInsensitiveContains(committedSearchText)
+            $0.message.localizedCaseInsensitiveContains(query) ||
+            ($0.logger ?? "").localizedCaseInsensitiveContains(query)
         }
     }
 
@@ -164,7 +202,7 @@ struct ArrEventsView: View {
                 searchHint: "Search events",
                 isSearchExpanded: $isSearchExpanded,
                 searchPlacement: .leading,
-                alignment: .center
+                alignment: .leading
             )
         }
         .loadServicesPeriodically(
@@ -185,6 +223,13 @@ struct ArrEventsView: View {
                         }
                 }
             }
+        }
+        .sheet(item: $selectedEntry) { entry in
+            NavigationStack {
+                ArrEventDetailView(entry: entry)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
         }
         .onChange(of: searchText) { _, newValue in
             searchDebounceTask?.cancel()
@@ -226,10 +271,15 @@ struct ArrEventsView: View {
             } else {
                 Section {
                     ForEach(displayedEntries) { entry in
-                        UnifiedEventRow(
-                            entry: entry,
-                            showServiceBadge: selectedSelection == .all
-                        )
+                        Button {
+                            selectedEntry = entry
+                        } label: {
+                            UnifiedEventRow(
+                                entry: entry,
+                                showServiceBadge: selectedSelection == .all
+                            )
+                        }
+                        .buttonStyle(.plain)
                         .task {
                             guard case .service(let t) = selectedSelection,
                                   entry.id == vm.entries(for: t).last?.id
@@ -263,6 +313,9 @@ struct ArrEventsView: View {
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { return }
@@ -348,6 +401,102 @@ private struct UnifiedEventRow: View {
         case "error", "fatal", "critical": "xmark.octagon.fill"
         case "warn", "warning": "exclamationmark.triangle.fill"
         default: "circle.fill"
+        }
+    }
+}
+
+// MARK: - Arr Event Detail View
+
+private struct ArrEventDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: UnifiedLogEntry
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: levelIcon)
+                        .font(.title2)
+                        .foregroundStyle(levelColor)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.logger ?? entry.service.serviceIdentity.displayName)
+                            .font(.title3.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Label(entry.service.serviceIdentity.displayName, systemImage: entry.service.serviceIdentity.systemImage)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(entry.service.serviceIdentity.brandColor)
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(entry.message)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let exType = entry.exceptionType, !exType.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Exception Type")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(exType)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if let stack = entry.exception, !stack.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Stack Trace")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(stack)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("Event Detail")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private var levelColor: Color {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": .red
+        case "warn", "warning": .orange
+        default: .secondary
+        }
+    }
+
+    private var levelIcon: String {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": "xmark.octagon.fill"
+        case "warn", "warning": "exclamationmark.triangle.fill"
+        default: "info.circle.fill"
         }
     }
 }
@@ -525,7 +674,8 @@ final class ArrEventsViewModel {
             logger: record.logger,
             message: record.message ?? "",
             timestamp: timestamp,
-            exceptionType: record.exceptionType
+            exceptionType: record.exceptionType,
+            exception: record.exception
         )
     }
 
@@ -538,7 +688,8 @@ final class ArrEventsViewModel {
             logger: nil,
             message: entry.message,
             timestamp: timestamp,
-            exceptionType: nil
+            exceptionType: nil,
+            exception: nil
         )
     }
 
@@ -561,6 +712,63 @@ final class ArrEventsViewModel {
         return nil
     }
 }
+
+#if DEBUG
+extension ArrEventsViewModel {
+    func setPreviewEntries(_ entriesByService: [ArrServiceType: [UnifiedLogEntry]]) {
+        for (service, entries) in entriesByService {
+            mutate(service) {
+                $0.entries = entries.sorted { $0.timestamp > $1.timestamp }
+                $0.total = entries.count
+                $0.isLoading = false
+                $0.errorMessage = nil
+            }
+        }
+    }
+
+    func setPreviewLoading(_ services: [ArrServiceType]) {
+        for service in services {
+            mutate(service) {
+                $0.isLoading = true
+                $0.errorMessage = nil
+            }
+        }
+    }
+
+    func setPreviewError(_ error: String, for services: [ArrServiceType]) {
+        for service in services {
+            mutate(service) {
+                $0.isLoading = false
+                $0.errorMessage = error
+            }
+        }
+    }
+}
+
+extension UnifiedLogEntry {
+    static func preview(
+        id: String,
+        service: ArrServiceType,
+        level: String,
+        message: String,
+        logger: String? = "Trawl.Preview",
+        minutesAgo: Int = 0,
+        exceptionType: String? = nil,
+        exception: String? = nil
+    ) -> UnifiedLogEntry {
+        UnifiedLogEntry(
+            id: id,
+            service: service,
+            level: level,
+            logger: logger,
+            message: message,
+            timestamp: Date().addingTimeInterval(TimeInterval(-minutesAgo * 60)),
+            exceptionType: exceptionType,
+            exception: exception
+        )
+    }
+}
+#endif
 
 // MARK: - Level Filter
 
@@ -596,3 +804,60 @@ enum ArrLogLevelFilter: String, CaseIterable, Sendable {
         }
     }
 }
+
+#if DEBUG
+#Preview("Events - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewEntries: [
+                .sonarr: [
+                    .preview(id: "sonarr-1", service: .sonarr, level: "info", message: "RSS Sync completed", minutesAgo: 8),
+                    .preview(id: "sonarr-2", service: .sonarr, level: "warn", message: "Indexer TorrentLeech unavailable", minutesAgo: 24),
+                ],
+                .radarr: [
+                    .preview(id: "radarr-1", service: .radarr, level: "error", message: "Download client rejected release", minutesAgo: 31, exceptionType: "DownloadClientException"),
+                ],
+                .bazarr: [
+                    .preview(id: "bazarr-1", service: .bazarr, level: "warning", message: "Provider throttled requests", minutesAgo: 16),
+                ],
+            ])
+        }
+    }
+}
+
+#Preview("Events - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewEntries: [.sonarr: [], .radarr: []], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Events - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(previewLoadingServices: [.sonarr, .radarr], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Events - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrEventsView(
+                previewError: "Failed to load: The operation couldn't be completed.",
+                services: [.sonarr, .radarr],
+                selectedService: .sonarr
+            )
+        }
+    }
+}
+
+#Preview("Events - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrEventsView()
+        }
+    }
+}
+#endif

@@ -9,6 +9,14 @@ struct SeerrJellyfinImportSheet: View {
     @State private var selectedIDs: Set<String> = []
     @State private var isLoading = false
     @State private var loadError: String?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: SeerrAPIClient, onImport: @escaping ([String]) -> Void) {
+        self.apiClient = apiClient
+        self.onImport = onImport
+    }
 
     var body: some View {
         AppSheetShell(
@@ -46,6 +54,9 @@ struct SeerrJellyfinImportSheet: View {
                 }
             }
             .task {
+                #if DEBUG
+                if isPreview { return }
+                #endif
                 if availableUsers.isEmpty { await loadUsers() }
             }
             .refreshable { await loadUsers() }
@@ -125,3 +136,54 @@ struct SeerrJellyfinImportSheet: View {
         isLoading = false
     }
 }
+
+#if DEBUG
+extension SeerrJellyfinImportSheet {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewUsers: [SeerrJellyfinUser],
+        selectedIDs: Set<String> = [],
+        isLoading: Bool = false,
+        loadError: String? = nil,
+        onImport: @escaping ([String]) -> Void = { _ in }
+    ) {
+        self.apiClient = apiClient
+        self.onImport = onImport
+        self._availableUsers = State(initialValue: previewUsers)
+        self._selectedIDs = State(initialValue: selectedIDs)
+        self._isLoading = State(initialValue: isLoading)
+        self._loadError = State(initialValue: loadError)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Jellyfin Import - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        SeerrJellyfinImportSheet(
+            previewUsers: SeerrJellyfinUser.previewList,
+            selectedIDs: [SeerrJellyfinUser.preview.id]
+        )
+    }
+}
+
+#Preview("Seerr Jellyfin Import - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        SeerrJellyfinImportSheet(previewUsers: [])
+    }
+}
+
+#Preview("Seerr Jellyfin Import - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        SeerrJellyfinImportSheet(previewUsers: [], isLoading: true)
+    }
+}
+
+#Preview("Seerr Jellyfin Import - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load Jellyfin users."))) {
+        SeerrJellyfinImportSheet(
+            previewUsers: [],
+            loadError: "Seerr could not reach Jellyfin."
+        )
+    }
+}
+#endif

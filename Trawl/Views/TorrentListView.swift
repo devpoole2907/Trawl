@@ -6,6 +6,9 @@ struct TorrentListView: View {
     @Environment(TorrentService.self) private var torrentService
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.modelContext) private var modelContext
+    #if os(iOS)
+    @Environment(\.setTabChromeHidden) private var setTabChromeHidden
+    #endif
     @Query(sort: \ServerProfile.dateAdded) private var servers: [ServerProfile]
     @State private var viewModel: TorrentListViewModel?
     @State private var showAddSheet = false
@@ -16,6 +19,9 @@ struct TorrentListView: View {
     @State private var listScrollPosition: String?
     @State private var isFilterSearchExpanded = false
     private let title: String
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
 
     init(title: String = "Trawl") {
         self.title = title
@@ -25,7 +31,11 @@ struct TorrentListView: View {
     private var swiftUIEditMode: Binding<EditMode> {
         Binding(
             get: { editMode.isEditing ? .active : .inactive },
-            set: { editMode = $0.isEditing ? .active : .inactive }
+            set: { newMode in
+                withAnimation {
+                    editMode = newMode.isEditing ? .active : .inactive
+                }
+            }
         )
     }
     #endif
@@ -54,7 +64,8 @@ struct TorrentListView: View {
                     searchText: torrentSearchText,
                     searchHint: "Search torrents",
                     isSearchExpanded: $isFilterSearchExpanded,
-                    searchPlacement: .leading
+                    searchPlacement: .leading,
+                    alignment: .leading
                 )
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -106,6 +117,9 @@ struct TorrentListView: View {
             )
         }
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             if viewModel == nil {
                 let vm = TorrentListViewModel(
                     syncService: syncService,
@@ -121,6 +135,9 @@ struct TorrentListView: View {
             viewModel?.startSync()
         }
         .onChange(of: ObjectIdentifier(syncService)) {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             let vm = TorrentListViewModel(
                 syncService: syncService,
                 torrentService: torrentService,
@@ -139,6 +156,9 @@ struct TorrentListView: View {
             // Stop the active sync but keep the viewModel alive so scroll position is preserved
             // when the user returns to this tab.
             viewModel?.stopSync()
+            #if os(iOS)
+            setTabChromeHidden(false)
+            #endif
         }
     }
 
@@ -171,14 +191,19 @@ struct TorrentListView: View {
         }
         .animation(.default, value: vm.filteredTorrents.map(\.id))
         .onChange(of: vm.selectedFilter) {
-            withAnimation { editMode = .inactive }
-            vm.clearSelection()
+            withAnimation {
+                editMode = .inactive
+                vm.clearSelection()
+            }
         }
         .onChange(of: editMode) { _, newMode in
             if !newMode.isEditing {
                 vm.clearSelection()
             }
             vm.isSelecting = newMode.isEditing
+            #if os(iOS)
+            setTabChromeHidden(newMode.isEditing)
+            #endif
         }
     }
 
@@ -188,7 +213,9 @@ struct TorrentListView: View {
         
         if editMode.isEditing {
             Button {
-                vm.toggleSelection(torrent)
+                withAnimation {
+                    vm.toggleSelection(torrent)
+                }
             } label: {
                 HStack(spacing: 12) {
                     Image(systemName: vm.selectedHashes.contains(torrent.hash) ? "checkmark.circle.fill" : "circle")
@@ -275,22 +302,23 @@ struct TorrentListView: View {
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if editMode.isEditing, let vm = viewModel {
-            ToolbarItem(placement: .cancellationAction) {
-                Button("Cancel") {
-                    withAnimation { editMode = .inactive }
-                    vm.clearSelection()
+            ToolbarItem(placement: torrentSelectionLeadingToolbarPlacement) {
+                Button(torrentSelectAllButtonTitle(for: vm)) {
+                    toggleAllTorrents(for: vm)
+                }
+                .disabled(vm.filteredTorrents.isEmpty)
+            }
+
+            ToolbarItem(placement: torrentSelectionDoneToolbarPlacement) {
+                Button("Done") {
+                    withAnimation {
+                        editMode = .inactive
+                        vm.clearSelection()
+                    }
                 }
             }
 
-            ToolbarItemGroup(placement: torrentSelectionToolbarPlacement) {
-                Button(vm.selectedHashes.count == vm.filteredTorrents.count ? "Deselect All" : "Select All") {
-                    if vm.selectedHashes.count == vm.filteredTorrents.count {
-                        vm.selectedHashes = []
-                    } else {
-                        vm.selectAll()
-                    }
-                }
-
+            ToolbarItemGroup(placement: torrentSelectionActionToolbarPlacement) {
                 Button {
                     Task { await vm.pauseSelected() }
                 } label: {
@@ -325,12 +353,14 @@ struct TorrentListView: View {
             }
 
             ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
+                Button("Add Torrent", systemImage: "plus") {
+                    showAddSheet = true
+                }
+                .labelStyle(.iconOnly)
+            }
+            ToolbarSpacer(.flexible, placement: torrentTrailingToolbarPlacement)
+            ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
                 if let vm = viewModel {
-                    Button("Add Torrent", systemImage: "plus") {
-                        showAddSheet = true
-                    }
-                    .labelStyle(.iconOnly)
-
                     Menu {
                         ForEach(TorrentSortOrder.allCases) { order in
                             Button {
@@ -369,11 +399,6 @@ struct TorrentListView: View {
                     }
                     .accessibilityLabel("Torrent Actions")
                     .accessibilityHint("Shows more torrent list actions")
-                } else {
-                    Button("Add Torrent", systemImage: "plus") {
-                        showAddSheet = true
-                    }
-                    .labelStyle(.iconOnly)
                 }
             }
         }
@@ -482,6 +507,26 @@ struct TorrentListView: View {
         return count == 1 ? "Delete 1 Torrent?" : "Delete \(count) Torrents?"
     }
 
+    private func areAllTorrentsSelected(_ vm: TorrentListViewModel) -> Bool {
+        let filteredHashSet = Set(vm.filteredTorrents.map(\.hash))
+        return !filteredHashSet.isEmpty && vm.selectedHashes.isSuperset(of: filteredHashSet)
+    }
+
+    private func torrentSelectAllButtonTitle(for vm: TorrentListViewModel) -> String {
+        areAllTorrentsSelected(vm) ? "Deselect All" : "Select All"
+    }
+
+    private func toggleAllTorrents(for vm: TorrentListViewModel) {
+        withAnimation {
+            let filteredHashSet = Set(vm.filteredTorrents.map(\.hash))
+            if !filteredHashSet.isEmpty && vm.selectedHashes.isSuperset(of: filteredHashSet) {
+                vm.selectedHashes = []
+            } else {
+                vm.selectAll()
+            }
+        }
+    }
+
     @ViewBuilder
     private func emptyState(for vm: TorrentListViewModel) -> some View {
         let query = vm.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -542,7 +587,23 @@ private extension TorrentFilter {
     }
 }
 
-private var torrentSelectionToolbarPlacement: ToolbarItemPlacement {
+private var torrentSelectionLeadingToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarLeading
+    #else
+    .automatic
+    #endif
+}
+
+private var torrentSelectionDoneToolbarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .topBarTrailing
+    #else
+    .primaryAction
+    #endif
+}
+
+private var torrentSelectionActionToolbarPlacement: ToolbarItemPlacement {
     #if os(iOS)
     .bottomBar
     #else
@@ -565,3 +626,74 @@ private var torrentTrailingToolbarPlacement: ToolbarItemPlacement {
     .automatic
     #endif
 }
+
+#if DEBUG
+extension TorrentListView {
+    init(
+        title: String = "My qBittorrent",
+        previewViewModel: TorrentListViewModel?,
+        skipsAutomaticLoading: Bool = true
+    ) {
+        self.init(title: title)
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = skipsAutomaticLoading
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: Torrent.previewList))
+        }
+    }
+}
+
+#Preview("Loaded Heavy") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: Torrent.previewHeavyList))
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(previewTorrents: []))
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: nil)
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            TorrentListView(previewViewModel: TorrentListViewModel(
+                previewTorrents: Torrent.previewList,
+                actionErrorAlert: ErrorAlertItem(
+                    title: "Couldn't Refresh Torrents",
+                    message: "The qBittorrent server returned 500 Internal Server Error."
+                )
+            ))
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            TorrentListView(
+                title: "qBittorrent Offline",
+                previewViewModel: TorrentListViewModel(previewTorrents: [])
+            )
+        }
+    }
+}
+#endif

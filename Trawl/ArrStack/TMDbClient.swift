@@ -1,16 +1,14 @@
 import Foundation
 
-/// Lightweight TMDb API client for fetching trending content.
-/// Uses TMDb API v3 trending endpoints.
+/// Lightweight TMDb client that proxies requests through the Trawl worker.
+/// The worker holds the API key and caches responses for one hour.
 actor TMDbClient {
-    private let apiKey: String
     private let session: URLSession
     private let decoder = JSONDecoder()
-    private static let baseURL = "https://api.themoviedb.org/3"
+    private static let baseURL = "https://trawl-apns-worker.james-5d8.workers.dev/tmdb"
     static let imageBase = "https://image.tmdb.org/t/p"
 
-    init(apiKey: String) {
-        self.apiKey = apiKey
+    init() {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15
         self.session = URLSession(configuration: config)
@@ -28,15 +26,14 @@ actor TMDbClient {
         return result.results
     }
 
+    func tvExternalIds(tmdbId: Int) async throws -> TMDbExternalIds {
+        try await get("/tv/\(tmdbId)/external_ids")
+    }
+
     // MARK: - HTTP
 
     private func get<T: Decodable>(_ path: String) async throws -> T {
-        guard !apiKey.isEmpty else { throw TMDbError.noAPIKey }
-        guard var components = URLComponents(string: "\(Self.baseURL)\(path)") else {
-            throw TMDbError.invalidURL
-        }
-        components.queryItems = [URLQueryItem(name: "api_key", value: apiKey)]
-        guard let url = components.url else {
+        guard let url = URL(string: "\(Self.baseURL)\(path)") else {
             throw TMDbError.invalidURL
         }
         var request = URLRequest(url: url)
@@ -59,6 +56,14 @@ actor TMDbClient {
 }
 
 // MARK: - Models
+
+nonisolated struct TMDbExternalIds: Decodable, Sendable {
+    let tvdbId: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case tvdbId = "tvdb_id"
+    }
+}
 
 nonisolated struct TMDbPage: Decodable, Sendable {
     let results: [TMDbItem]
@@ -111,7 +116,6 @@ nonisolated struct TMDbItem: Decodable, Identifiable, Sendable {
 
 enum TMDbError: LocalizedError {
     case requestFailed(statusCode: Int, body: String?)
-    case noAPIKey
     case invalidURL
     case decodingFailed(Error)
 
@@ -119,8 +123,6 @@ enum TMDbError: LocalizedError {
         switch self {
         case .requestFailed(let statusCode, let body):
             "TMDb request failed (\(statusCode)): \(body ?? "Unknown error")"
-        case .noAPIKey:
-            "No TMDb API key configured."
         case .invalidURL:
             "Invalid TMDb URL."
         case .decodingFailed(let error):
@@ -128,3 +130,11 @@ enum TMDbError: LocalizedError {
         }
     }
 }
+
+#if DEBUG
+extension TMDbClient {
+    static func preview() -> TMDbClient {
+        TMDbClient()
+    }
+}
+#endif

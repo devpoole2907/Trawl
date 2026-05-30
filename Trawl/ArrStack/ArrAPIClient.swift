@@ -4,6 +4,7 @@ import OSLog
 protocol SharedArrClient: Actor, Sendable {
     var base: ArrAPIClient { get }
     var apiPath: String { get }
+    var importListExclusionsPath: String { get }
 
     func getBackups() async throws -> [ArrBackup]
     func createBackup() async throws
@@ -15,6 +16,7 @@ protocol SharedArrClient: Actor, Sendable {
 
 extension SharedArrClient {
     var apiPath: String { "/api/v3" }
+    var importListExclusionsPath: String { "\(apiPath)/importlistexclusion" }
 
     func getSystemStatus() async throws -> ArrSystemStatus { try await base.get("\(apiPath)/system/status") }
     func getHealth() async throws -> [ArrHealthCheck] { try await base.get("\(apiPath)/health") }
@@ -36,6 +38,7 @@ extension SharedArrClient {
         guard let id = notification.id else { throw ArrError.invalidResponse }
         return try await base.putCodable("\(apiPath)/notification/\(id)", body: notification)
     }
+    func testNotification(_ notification: ArrNotification) async throws { try await base.postVoidCodable("\(apiPath)/notification/test", body: notification) }
 
     func getQueue(
         page: Int = 1,
@@ -134,11 +137,27 @@ extension SharedArrClient {
         try await base.deleteWithBody("\(apiPath)/blocklist/bulk", jsonBody: ["ids": ids])
     }
 
+    func getImportListExclusions(
+        page: Int = 1,
+        pageSize: Int = ArrAPIClient.defaultPageSize
+    ) async throws -> ArrImportListExclusionPage {
+        let params = [
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "pageSize", value: String(pageSize))
+        ]
+        return try await base.get("\(importListExclusionsPath)/paged", queryItems: params)
+    }
+
+    func deleteImportListExclusion(id: Int) async throws {
+        try await base.delete("\(importListExclusionsPath)/\(id)")
+    }
+
     func getManualImport(
         folder: String,
         libraryItemId: Int? = nil,
         libraryItemIDQueryName: String,
-        filterExistingFiles: Bool = true
+        filterExistingFiles: Bool = true,
+        requestTimeout: TimeInterval? = nil
     ) async throws -> [JSONValue] {
         var params = [
             URLQueryItem(name: "folder", value: folder),
@@ -147,7 +166,7 @@ extension SharedArrClient {
         if let libraryItemId {
             params.append(URLQueryItem(name: libraryItemIDQueryName, value: String(libraryItemId)))
         }
-        return try await base.get("\(apiPath)/manualimport", queryItems: params)
+        return try await base.get("\(apiPath)/manualimport", queryItems: params, timeoutInterval: requestTimeout)
     }
 
     func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
@@ -236,6 +255,17 @@ extension SharedArrClient {
         return URLQueryItem(name: name, value: ISO8601DateFormatter().string(from: value))
     }
 
+    nonisolated func webcalURL(from url: URL) throws -> URL {
+        guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            throw ArrError.invalidURL
+        }
+        components.scheme = "webcal"
+        guard let webcalURL = components.url else {
+            throw ArrError.invalidURL
+        }
+        return webcalURL
+    }
+
     func wantedMissingParams(
         page: Int,
         pageSize: Int,
@@ -276,6 +306,7 @@ actor ArrAPIClient {
 
     nonisolated var baseURL: String { transport.baseURL }
     let apiKeyHeaderName: String
+    private let apiKey: String
     private let transport: HTTPTransport
 
     /// Re-exposed here (also lives on `SharedArrClient`) so tests and
@@ -291,6 +322,7 @@ actor ArrAPIClient {
 
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false, apiKeyHeaderName: String = "X-Api-Key") {
         self.apiKeyHeaderName = apiKeyHeaderName
+        self.apiKey = apiKey
         let mapper = HTTPErrorMapper(
             badURL: { ArrError.invalidURL },
             transport: { ArrError.networkError($0) },
@@ -396,12 +428,29 @@ actor ArrAPIClient {
 
     // MARK: - HTTP Infrastructure
 
-    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
-        try await transport.get(path, queryItems: queryItems)
+    func get<T: Decodable>(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> sending T {
+        try await transport.get(path, queryItems: queryItems, timeoutInterval: timeoutInterval)
     }
 
     func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {
         try await transport.getData(path, queryItems: queryItems)
+    }
+
+    func authenticatedFeedURL(_ path: String, queryItems: [URLQueryItem] = []) throws -> URL {
+        var items = queryItems
+        items.append(URLQueryItem(name: "apikey", value: apiKey))
+        guard var components = URLComponents(string: "\(baseURL)\(path)") else {
+            throw ArrError.invalidURL
+        }
+        components.queryItems = items
+        guard let url = components.url else {
+            throw ArrError.invalidURL
+        }
+        return url
     }
 
     func post<T: Decodable>(_ path: String, jsonBody: sending Any) async throws -> sending T {

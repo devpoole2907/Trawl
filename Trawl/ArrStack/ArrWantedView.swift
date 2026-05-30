@@ -19,6 +19,27 @@ struct ArrWantedView: View {
         self.showsCloseButton = showsCloseButton
     }
 
+    #if DEBUG
+    init(
+        previewSonarrWanted: [SonarrEpisode],
+        previewRadarrWanted: [RadarrMovie],
+        serviceManager: ArrServiceManager = .preview(.allConfigured),
+        initialScope: ArrWantedScope = .all,
+        showsCloseButton: Bool = false
+    ) {
+        let sonarrVM = SonarrViewModel(serviceManager: serviceManager)
+        sonarrVM.setPreviewWantedRecords(previewSonarrWanted)
+
+        let radarrVM = RadarrViewModel(serviceManager: serviceManager)
+        radarrVM.setPreviewWantedRecords(previewRadarrWanted)
+
+        _sonarrViewModel = State(initialValue: sonarrVM)
+        _radarrViewModel = State(initialValue: radarrVM)
+        _scope = State(initialValue: initialScope)
+        self.showsCloseButton = showsCloseButton
+    }
+    #endif
+
     private var hasConfiguredService: Bool {
         serviceManager.hasSonarrInstance || serviceManager.hasRadarrInstance || serviceManager.hasBazarrInstance
     }
@@ -201,6 +222,9 @@ struct ArrWantedView: View {
             }
         }
         .navigationTitle("Wanted / Missing")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
         .background(backgroundGradient)
         .toolbar {
             if showsCloseButton {
@@ -239,6 +263,9 @@ struct ArrWantedView: View {
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .task(id: reloadKey) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await initializeIfNeeded()
             await reloadWantedMissing()
         }
@@ -783,3 +810,39 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
         .padding(.vertical, 3)
         .background(color.opacity(0.14), in: Capsule())
 }
+
+#if DEBUG
+#Preview("Wanted - Loaded") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrWantedView(
+                previewSonarrWanted: SonarrEpisode.previewList,
+                previewRadarrWanted: RadarrMovie.previewList.filter { $0.hasFile != true },
+                serviceManager: manager
+            )
+        }
+    }
+}
+
+#Preview("Wanted - Empty") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: .allServices, arr: manager) {
+        NavigationStack {
+            ArrWantedView(
+                previewSonarrWanted: [],
+                previewRadarrWanted: [],
+                serviceManager: manager
+            )
+        }
+    }
+}
+
+#Preview("Wanted - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Sonarr refused the API key."))) {
+        NavigationStack {
+            ArrWantedView(initialScope: .series)
+        }
+    }
+}
+#endif

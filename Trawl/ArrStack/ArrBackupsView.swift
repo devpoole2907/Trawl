@@ -16,6 +16,19 @@ struct ArrBackupsView: View {
     @State private var preparingShareID: String?
     @State private var showingFilePicker = false
 
+    #if DEBUG
+    init(
+        previewStates: [ArrServiceType: [ArrBackup]] = [:],
+        selectedService: ArrServiceType = .sonarr,
+        error: String? = nil
+    ) {
+        _selectedService = State(initialValue: selectedService)
+        _states = State(initialValue: previewStates.mapValues {
+            BackupViewState(backups: $0, isLoading: false, isCreating: false, isUploading: false, error: error)
+        })
+    }
+    #endif
+
     private struct BackupViewState {
         var backups: [ArrBackup] = []
         var isLoading = false
@@ -329,6 +342,9 @@ struct ArrBackupsView: View {
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
         guard let client = client(for: service) else { unavailable.insert(service); return }
         unavailable.remove(service)
         states[service, default: BackupViewState()].isLoading = true
@@ -636,3 +652,49 @@ private struct ArrBackupRow: View {
         return backup.time
     }
 }
+
+#if DEBUG
+#Preview("Backups - Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(previewStates: [.sonarr: ArrBackup.previewList, .radarr: ArrBackup.previewList], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Backups - Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(previewStates: [.sonarr: []], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Backups - Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Backups - Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrBackupsView(
+                previewStates: [.sonarr: []],
+                selectedService: .sonarr,
+                error: "Failed to fetch backups: The operation couldn't be completed."
+            )
+        }
+    }
+}
+
+#Preview("Backups - Connection Issue") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
+        NavigationStack {
+            ArrBackupsView(selectedService: .sonarr)
+        }
+    }
+}
+#endif

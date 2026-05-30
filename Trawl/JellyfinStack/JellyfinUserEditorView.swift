@@ -18,6 +18,9 @@ struct JellyfinUserEditorView: View {
     @State private var scheduleEditorSession: JellyfinAccessScheduleEditorSession?
     @State private var tagEditorContext: JellyfinTagEditorContext?
     @State private var policySelectorContext: JellyfinPolicySelectorContext?
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     private enum PolicyField {
         case isAdministrator
@@ -212,6 +215,9 @@ struct JellyfinUserEditorView: View {
             viewModel.clearError()
         }
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await viewModel.loadParentalRatings()
             await viewModel.loadVirtualFolders()
             await viewModel.loadDevices()
@@ -1156,6 +1162,121 @@ private struct JellyfinPolicySelectorSheet: View {
         selectedIds.removeAll { $0 == id }
     }
 }
+
+#if DEBUG
+extension JellyfinUserEditorView {
+    init(
+        previewViewModel: JellyfinUserEditorViewModel,
+        isEditing: Bool = false,
+        syncMessage: String? = nil,
+        syncIsError: Bool = false
+    ) {
+        self.onSave = { _ in }
+        self.onDelete = {}
+        self._viewModel = State(initialValue: previewViewModel)
+        self._isEditing = State(initialValue: isEditing)
+        self._syncMessage = State(initialValue: syncMessage)
+        self._syncIsError = State(initialValue: syncIsError)
+        self.isPreview = true
+    }
+}
+
+#Preview("Jellyfin User Editor - Standard") {
+    PreviewHost(profiles: .allServices, jellyfin: .preview(.connected), seerr: .preview(.connected)) {
+        NavigationStack {
+            JellyfinUserEditorView(
+                previewViewModel: JellyfinUserEditorViewModel(previewUser: .preview)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin User Editor - Editing") {
+    PreviewHost(profiles: .allServices, jellyfin: .preview(.connected), seerr: .preview(.connected)) {
+        NavigationStack {
+            JellyfinUserEditorView(
+                previewViewModel: JellyfinUserEditorViewModel(
+                    previewUser: .previewRestricted,
+                    previewPolicy: .previewRestricted
+                ),
+                isEditing: true
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin User Editor - Disabled User") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected), seerr: .preview(.notConfigured)) {
+        NavigationStack {
+            JellyfinUserEditorView(
+                previewViewModel: JellyfinUserEditorViewModel(previewUser: .previewDisabled)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin User Editor - Error") {
+    PreviewHost(profiles: .allServices, jellyfin: .preview(.connected), seerr: .preview(.error("Seerr is unavailable."))) {
+        NavigationStack {
+            JellyfinUserEditorView(
+                previewViewModel: JellyfinUserEditorViewModel(
+                    previewUser: .previewLongName,
+                    errorMessage: "Saving user policy failed with 403 Forbidden."
+                ),
+                syncMessage: "Seerr is unavailable.",
+                syncIsError: true
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Reset Password") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        JellyfinResetPasswordSheet(userId: JellyfinUser.preview.id, apiClient: .preview())
+    }
+}
+
+#Preview("Jellyfin Access Schedule Editor") {
+    JellyfinAccessScheduleEditorSheet(session: .add()) { _, _ in }
+}
+
+private struct JellyfinPolicyTagPreviewWrapper: View {
+    @State private var tags = ["family", "kids"]
+
+    var body: some View {
+        JellyfinPolicyTagEditorSheet(
+            context: JellyfinTagEditorContext(kind: .allowed),
+            selectedTags: $tags,
+            availableTags: ["documentary", "sports", "horror"]
+        )
+    }
+}
+
+private struct JellyfinPolicySelectorPreviewWrapper: View {
+    @State private var selected = ["movies-id"]
+
+    var body: some View {
+        JellyfinPolicySelectorSheet(
+            selectedIds: $selected,
+            title: "Enabled Libraries",
+            selectedSectionTitle: "Enabled",
+            emptySelectedText: "No libraries enabled.",
+            emptyAvailableText: "No libraries found on server.",
+            availableItems: JellyfinVirtualFolder.previewList.map {
+                JellyfinPolicySelectorItem(id: $0.itemId, name: $0.name, icon: $0.collectionIcon)
+            }
+        )
+    }
+}
+
+#Preview("Jellyfin Policy Tags") {
+    JellyfinPolicyTagPreviewWrapper()
+}
+
+#Preview("Jellyfin Policy Selector") {
+    JellyfinPolicySelectorPreviewWrapper()
+}
+#endif
 
 private extension String {
     var nilIfEmpty: String? {

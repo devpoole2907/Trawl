@@ -52,6 +52,20 @@ struct ArrQualityDefinitionsView: View {
     @State private var editingDefinition: ArrQualityDefinition?
     @State private var showSettings = false
 
+    #if DEBUG
+    init(
+        previewDefinitions: [ArrQualityDefinition] = [],
+        selectedService: ArrServiceType = .sonarr,
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        _definitions = State(initialValue: previewDefinitions)
+        _selectedService = State(initialValue: selectedService)
+        _isLoading = State(initialValue: isLoading)
+        _errorMessage = State(initialValue: errorMessage)
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
@@ -109,6 +123,9 @@ struct ArrQualityDefinitionsView: View {
             .disabled(isSaving)
         }
         .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await load()
         }
         .onAppear {
@@ -250,6 +267,7 @@ private struct ArrQualityDefinitionRow: View {
                 .foregroundStyle(.tertiary)
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 
     private var rangeLabel: String {
@@ -654,3 +672,27 @@ private extension ArrQualityDefinition {
         self.preferredSize = clamped
     }
 }
+
+#if DEBUG
+#Preview("Quality Definitions - Loaded") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrQualityDefinitionsView(previewDefinitions: ArrQualityDefinition.previewList)
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Quality Definitions - Error") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrQualityDefinitionsView(errorMessage: "Quality definitions endpoint returned 503.")
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Quality Definition - Editor") {
+    ArrQualityDefinitionSheet(definition: .preview) { _ in }
+}
+#endif

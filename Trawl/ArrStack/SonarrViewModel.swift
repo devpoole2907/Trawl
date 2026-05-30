@@ -524,3 +524,98 @@ nonisolated enum SonarrSortOrder: String, CaseIterable, Identifiable, Sendable {
 
     var id: String { rawValue }
 }
+
+#if DEBUG
+extension SonarrViewModel {
+    enum PreviewState {
+        case loaded
+        case heavy
+        case empty
+        case loading
+        case error(String)
+    }
+
+    convenience init(
+        previewState: PreviewState,
+        serviceManager: ArrServiceManager = .preview(.sonarrOnly),
+        jellyfinManager: JellyfinServiceManager? = .preview()
+    ) {
+        switch previewState {
+        case .loaded:
+            self.init(previewSeries: SonarrSeries.previewList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .heavy:
+            self.init(previewSeries: SonarrSeries.previewHeavyList, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .empty:
+            self.init(previewSeries: [], serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .loading:
+            self.init(previewSeries: [], isLoading: true, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        case .error(let message):
+            self.init(previewSeries: [], error: message, serviceManager: serviceManager, jellyfinManager: jellyfinManager)
+        }
+    }
+
+    convenience init(
+        previewSeries: [SonarrSeries] = SonarrSeries.previewList,
+        isLoading: Bool = false,
+        error: String? = nil,
+        episodes: [Int: [SonarrEpisode]] = [:],
+        isLoadingEpisodes: Bool = false,
+        episodeFiles: [Int: [SonarrEpisodeFile]] = [:],
+        serviceManager: ArrServiceManager = .preview(.sonarrOnly),
+        jellyfinManager: JellyfinServiceManager? = .preview()
+    ) {
+        self.init(serviceManager: serviceManager, preloadedSeries: previewSeries, jellyfinManager: jellyfinManager)
+        self.client = nil
+        self.isLoading = isLoading
+        self.error = error
+        self.episodes = episodes
+        self.isLoadingEpisodes = isLoadingEpisodes
+        self.episodeFiles = episodeFiles
+    }
+
+    static func previewDetail(
+        _ series: SonarrSeries = .preview,
+        serviceManager: ArrServiceManager = .preview(.sonarrOnly),
+        isLoadingEpisodes: Bool = false,
+        error: String? = nil
+    ) -> SonarrViewModel {
+        SonarrViewModel(
+            previewSeries: [series],
+            error: error,
+            episodes: [series.id: SonarrEpisode.previewList],
+            isLoadingEpisodes: isLoadingEpisodes,
+            episodeFiles: [series.id: SonarrEpisodeFile.previewList],
+            serviceManager: serviceManager
+        )
+    }
+}
+
+@MainActor
+struct SonarrPreviewHost<Content: View>: View {
+    let profiles: PreviewSupport.ProfileScenario
+    let arr: ArrServiceManager
+    let sync: SyncService
+    let torrent: TorrentService
+    let content: (ArrServiceManager) -> Content
+
+    init(
+        profiles: PreviewSupport.ProfileScenario = .arrOnly,
+        state: ArrServiceManager.PreviewState = .sonarrOnly,
+        @ViewBuilder content: @escaping (ArrServiceManager) -> Content
+    ) {
+        self.profiles = profiles
+        self.arr = ArrServiceManager.preview(state)
+        self.sync = SyncService.preview()
+        self.torrent = TorrentService.preview()
+        self.content = content
+    }
+
+    var body: some View {
+        PreviewHost(profiles: profiles, arr: arr) {
+            content(arr)
+                .environment(sync)
+                .environment(torrent)
+        }
+    }
+}
+#endif

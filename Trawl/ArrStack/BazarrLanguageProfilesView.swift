@@ -10,6 +10,18 @@ struct BazarrLanguageProfilesView: View {
     @State private var searchText = ""
     @State private var addSheetPresented = false
     @State private var deleteTarget: BazarrLanguageProfile?
+    private let loadsOnAppear: Bool
+
+    #if DEBUG
+    private let previewConnectionMessage: String?
+    #endif
+
+    init() {
+        loadsOnAppear = true
+        #if DEBUG
+        previewConnectionMessage = nil
+        #endif
+    }
 
     private var client: BazarrAPIClient? {
         serviceManager.activeBazarrEntry?.client
@@ -22,23 +34,7 @@ struct BazarrLanguageProfilesView: View {
     }
 
     var body: some View {
-        Group {
-            if !serviceManager.hasBazarrInstance {
-                ContentUnavailableView(
-                    "Bazarr Not Set Up",
-                    systemImage: "captions.bubble",
-                    description: Text("Add a Bazarr server in Settings to manage language profiles.")
-                )
-            } else if client == nil {
-                ArrServiceConnectionStatusView(
-                    serviceType: .bazarr,
-                    title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
-                    message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
-                )
-            } else {
-                contentView
-            }
-        }
+        availabilityContent
         .navigationTitle("Language Profiles")
         .navigationSubtitle("Bazarr")
         #if os(iOS)
@@ -81,7 +77,44 @@ struct BazarrLanguageProfilesView: View {
             Text("This will permanently remove the language profile from Bazarr.")
         }
         .task(id: serviceManager.activeBazarrProfileID) {
+            guard loadsOnAppear else { return }
             await load()
+        }
+    }
+
+    @ViewBuilder
+    private var availabilityContent: some View {
+        #if DEBUG
+        if let previewConnectionMessage {
+            ArrServiceConnectionStatusView(
+                serviceType: .bazarr,
+                title: "Bazarr Unreachable",
+                message: previewConnectionMessage
+            )
+        } else {
+            serviceContent
+        }
+        #else
+        serviceContent
+        #endif
+    }
+
+    @ViewBuilder
+    private var serviceContent: some View {
+        if !serviceManager.hasBazarrInstance {
+            ContentUnavailableView(
+                "Bazarr Not Set Up",
+                systemImage: "captions.bubble",
+                description: Text("Add a Bazarr server in Settings to manage language profiles.")
+            )
+        } else if client == nil {
+            ArrServiceConnectionStatusView(
+                serviceType: .bazarr,
+                title: serviceManager.isConnecting(.bazarr) || serviceManager.isInitializing ? "Connecting to Bazarr" : "Bazarr Unreachable",
+                message: serviceManager.bazarrConnectionError ?? "Unable to reach your configured Bazarr server."
+            )
+        } else {
+            contentView
         }
     }
 
@@ -311,6 +344,134 @@ struct BazarrLanguageProfilesView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Profile Detail") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            LanguageProfileDetailView(
+                profile: .previewBilingual,
+                availableLanguages: BazarrLanguage.previewList,
+                allProfiles: BazarrLanguageProfile.previewList,
+                onSave: { _ in await Task.yield() }
+            )
+        }
+    }
+}
+
+#Preview("Profile Detail Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            LanguageProfileDetailView(
+                profile: .previewNoLanguages,
+                availableLanguages: BazarrLanguage.previewList,
+                allProfiles: BazarrLanguageProfile.previewList,
+                onSave: { _ in await Task.yield() }
+            )
+        }
+    }
+}
+
+#Preview("Editor Add") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        LanguageProfileEditorView(
+            mode: .add,
+            availableLanguages: BazarrLanguage.previewList,
+            onSave: { _ in await Task.yield() }
+        )
+    }
+}
+
+#Preview("Editor Edit") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        LanguageProfileEditorView(
+            mode: .edit(.previewBilingual),
+            availableLanguages: BazarrLanguage.previewList,
+            onSave: { _ in await Task.yield() }
+        )
+    }
+}
+
+#Preview("Language Picker") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        LanguagePickerSheet(
+            languages: BazarrLanguage.previewList,
+            alreadyAdded: ["en"],
+            onSelect: { _ in }
+        )
+    }
+}
+#endif
+
+#if DEBUG
+extension BazarrLanguageProfilesView {
+    init(
+        previewProfiles: [BazarrLanguageProfile],
+        previewLanguages: [BazarrLanguage] = BazarrLanguage.previewList,
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        searchText: String = "",
+        connectionMessage: String? = nil
+    ) {
+        loadsOnAppear = false
+        previewConnectionMessage = connectionMessage
+        _profiles = State(wrappedValue: previewProfiles)
+        _availableLanguages = State(wrappedValue: previewLanguages)
+        _isLoading = State(wrappedValue: isLoading)
+        _errorMessage = State(wrappedValue: errorMessage)
+        _searchText = State(wrappedValue: searchText)
+    }
+}
+
+#Preview("Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLanguageProfilesView(previewProfiles: BazarrLanguageProfile.previewList)
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLanguageProfilesView(previewProfiles: [])
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLanguageProfilesView(
+                previewProfiles: [],
+                isLoading: true
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLanguageProfilesView(
+                previewProfiles: [],
+                errorMessage: "Bazarr rejected the language profile request."
+            )
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrLanguageProfilesView(
+                previewProfiles: [],
+                connectionMessage: "Unable to reach 192.168.1.50:6767."
+            )
+        }
+    }
+}
+#endif
 
 // MARK: - Row
 

@@ -174,3 +174,86 @@ struct ServerListView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    PreviewHost(profiles: .custom { context in
+        let active = ServerProfile.preview(displayName: "Home qBittorrent", hostURL: "http://192.168.1.50:8080")
+        active.lastConnected = Date().addingTimeInterval(-900)
+        context.insert(active)
+
+        let seedbox = ServerProfile.preview(displayName: "Seedbox", hostURL: "https://seedbox.example.com")
+        seedbox.isActive = false
+        seedbox.lastConnected = Date().addingTimeInterval(-86_400)
+        context.insert(seedbox)
+    }) {
+        NavigationStack {
+            ServerListView()
+        }
+    }
+}
+
+#Preview("Empty") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            ServerListView()
+        }
+    }
+}
+
+#Preview("Loading") {
+    // ServerListView is SwiftData-driven; simulate loading state with skeleton rows.
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            List {
+                Section("Servers") {
+                    ForEach(0..<3, id: \.self) { _ in
+                        HStack(spacing: 12) {
+                            Image(systemName: "server.rack")
+                                .font(.title3)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28)
+                            VStack(alignment: .leading, spacing: 6) {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.secondary.opacity(0.2))
+                                    .frame(width: 160, height: 14)
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color.secondary.opacity(0.15))
+                                    .frame(width: 120, height: 11)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
+            .navigationTitle("Servers")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+    }
+}
+
+#Preview("Error") {
+    // ServerListView is SwiftData-driven; simulate a connection error banner.
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            List {
+                Section("Unavailable") {
+                    Label(
+                        "Could not connect to qBittorrent. Check your server settings.",
+                        systemImage: "exclamationmark.triangle"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Servers")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+        }
+    }
+}
+#endif

@@ -93,6 +93,9 @@ struct SeerrSettingsView: View {
     @State private var publicSettings: SeerrPublicSettings?
     @State private var settingsError: String?
     @State private var showRemoveConfirmation = false
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     private var profile: SeerrServiceProfile? {
         profiles.first(where: { $0.isEnabled }) ?? profiles.first
@@ -211,6 +214,9 @@ struct SeerrSettingsView: View {
         .formStyle(.grouped)
         #endif
         .task(id: syncKey) {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await seerrServiceManager.initialize(from: profiles)
             await loadPublicSettings()
         }
@@ -305,3 +311,97 @@ private extension SeerrPublicSettings {
         return "Unknown"
     }
 }
+
+#if DEBUG
+extension SeerrConnectionFormView {
+    init(
+        previewViewModel: SeerrSetupViewModel,
+        onComplete: (() -> Void)? = nil
+    ) {
+        self.onComplete = onComplete
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+extension SeerrSettingsView {
+    init(
+        previewPublicSettings: SeerrPublicSettings? = .preview,
+        settingsError: String? = nil
+    ) {
+        self._publicSettings = State(initialValue: previewPublicSettings)
+        self._settingsError = State(initialValue: settingsError)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Setup - Initial") {
+    PreviewHost(profiles: .empty, seerr: .preview(.notConfigured)) {
+        SeerrSetupSheet()
+    }
+}
+
+#Preview("Seerr Setup - Mid Input") {
+    PreviewHost(profiles: .empty, seerr: .preview(.notConfigured)) {
+        SeerrConnectionFormView(
+            previewViewModel: SeerrSetupViewModel(
+                previewHostURL: "http://192.168.1.50:5055",
+                previewUsername: "admin",
+                previewPassword: "password"
+            )
+        )
+    }
+}
+
+#Preview("Seerr Setup - Authenticating") {
+    PreviewHost(profiles: .empty, seerr: .preview(.connecting)) {
+        SeerrConnectionFormView(
+            previewViewModel: SeerrSetupViewModel(
+                previewHostURL: "http://192.168.1.50:5055",
+                previewUsername: "admin",
+                previewPassword: "password",
+                previewIsAuthenticating: true
+            )
+        )
+    }
+}
+
+#Preview("Seerr Setup - Error") {
+    PreviewHost(profiles: .empty, seerr: .preview(.error("Could not reach Seerr."))) {
+        SeerrConnectionFormView(
+            previewViewModel: SeerrSetupViewModel(
+                previewHostURL: "http://nope.example:5055",
+                previewUsername: "admin",
+                previewPassword: "password",
+                previewError: "Could not sign in. Check the URL and Jellyfin admin credentials."
+            )
+        )
+    }
+}
+
+#Preview("Seerr Settings - Connected") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrSettingsView(previewPublicSettings: .preview)
+        }
+    }
+}
+
+#Preview("Seerr Settings - Not Configured") {
+    PreviewHost(profiles: .empty, seerr: .preview(.notConfigured)) {
+        NavigationStack {
+            SeerrSettingsView(previewPublicSettings: nil)
+        }
+    }
+}
+
+#Preview("Seerr Settings - Connection Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Session expired. Please sign in again."))) {
+        NavigationStack {
+            SeerrSettingsView(
+                previewPublicSettings: nil,
+                settingsError: "Public settings could not be loaded."
+            )
+        }
+    }
+}
+#endif

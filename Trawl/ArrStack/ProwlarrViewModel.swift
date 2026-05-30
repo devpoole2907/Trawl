@@ -278,6 +278,14 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
         indexerStatuses.first { $0.indexerId == id }
     }
 
+    func isIndexerTemporarilyDisabled(id: Int) -> Bool {
+        statusForIndexer(id: id)?.isDisabled == true
+    }
+
+    func isIndexerAvailable(_ indexer: ProwlarrIndexer) -> Bool {
+        indexer.enable && !isIndexerTemporarilyDisabled(id: indexer.id)
+    }
+
     var torrentIndexers: [ProwlarrIndexer] {
         indexers.filter { $0.protocol == .torrent }
     }
@@ -770,3 +778,97 @@ final class ArrIndexerManagementViewModel {
         assign(items, to: profileID, serviceType: serviceType)
     }
 }
+
+#if DEBUG
+extension ProwlarrViewModel {
+    convenience init(
+        previewIndexers: [ProwlarrIndexer],
+        isLoadingIndexers: Bool = false,
+        indexerError: String? = nil,
+        indexerStatuses: [ProwlarrIndexerStatus] = [],
+        schemaIndexers: [ProwlarrIndexer] = [],
+        isLoadingSchema: Bool = false,
+        schemaError: String? = nil,
+        searchResults: [ProwlarrSearchResult] = [],
+        isSearching: Bool = false,
+        stats: ProwlarrIndexerStats? = nil,
+        isLoadingStats: Bool = false,
+        statsError: String? = nil,
+        testResult: String? = nil,
+        testSucceeded: Bool? = nil,
+        isTesting: Bool = false,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        self.indexers = previewIndexers
+        setLibraryItems(previewIndexers)
+        self.isLoadingIndexers = isLoadingIndexers
+        self.indexerStatuses = indexerStatuses
+        self.schemaIndexers = schemaIndexers
+        self.isLoadingSchema = isLoadingSchema
+        self.searchResults = searchResults
+        self.isSearching = isSearching
+        self.indexerStats = stats
+        self.isLoadingStats = isLoadingStats
+        self.testResult = testResult
+        self.testSucceeded = testSucceeded
+        self.isTesting = isTesting
+
+        var previewErrors: [ProwlarrOperation: String] = [:]
+        previewErrors[.indexer] = indexerError
+        previewErrors[.schema] = schemaError
+        previewErrors[.stats] = statsError
+        self.errors = previewErrors
+    }
+}
+
+extension ProwlarrApplicationsViewModel {
+    convenience init(
+        previewApplications: [ProwlarrApplication],
+        schemaApplications: [ProwlarrApplication] = ProwlarrApplication.previewSchemaList,
+        availableTags: [ArrTag] = ArrTag.previewList,
+        isLoadingApplications: Bool = false,
+        isLoadingSchema: Bool = false,
+        isSyncingApplications: Bool = false,
+        errorMessage: String? = nil,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        self.applications = previewApplications
+        self.schemaApplications = schemaApplications
+        self.availableTags = availableTags
+        self.isLoadingApplications = isLoadingApplications
+        self.isLoadingSchema = isLoadingSchema
+        self.isSyncingApplications = isSyncingApplications
+        self.errorMessage = errorMessage
+    }
+}
+
+extension ArrIndexerManagementViewModel {
+    convenience init(
+        previewSonarrIndexersByProfileID: [UUID: [ArrManagedIndexer]] = [:],
+        previewRadarrIndexersByProfileID: [UUID: [ArrManagedIndexer]] = [:],
+        previewSchemaByProfileID: [UUID: [ArrManagedIndexer]] = [:],
+        errorsByProfileID: [UUID: String] = [:],
+        schemaErrorsByProfileID: [UUID: String] = [:],
+        loadingProfileIDs: Set<UUID> = [],
+        loadingSchemaProfileIDs: Set<UUID> = [],
+        testResult: String? = nil,
+        testSucceeded: Bool? = nil,
+        isTesting: Bool = false,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        self.sonarrIndexersByProfileID = previewSonarrIndexersByProfileID
+        self.radarrIndexersByProfileID = previewRadarrIndexersByProfileID
+        self.schemaByProfileID = previewSchemaByProfileID
+        self.errorsByProfileID = errorsByProfileID
+        self.schemaErrorsByProfileID = schemaErrorsByProfileID
+        self.loadingProfileIDs = loadingProfileIDs
+        self.loadingSchemaProfileIDs = loadingSchemaProfileIDs
+        self.testResult = testResult
+        self.testSucceeded = testSucceeded
+        self.isTesting = isTesting
+    }
+}
+#endif

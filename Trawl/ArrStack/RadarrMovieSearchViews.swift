@@ -139,6 +139,26 @@ struct RadarrAddToLibrarySheet: View {
     }
 }
 
+#if DEBUG
+extension RadarrAddToLibrarySheet {
+    init(
+        previewViewModel viewModel: RadarrViewModel,
+        movie: RadarrMovie,
+        isAdding: Bool = false
+    ) {
+        self.viewModel = viewModel
+        self.movie = movie
+        self.onAdded = {}
+        let previewRootFolder = viewModel.rootFolders.first {
+            $0.path.localizedCaseInsensitiveContains("movie")
+        }?.path ?? viewModel.rootFolders.first?.path
+        _selectedQualityProfileId = State(initialValue: viewModel.qualityProfiles.first?.id)
+        _selectedRootFolderPath = State(initialValue: previewRootFolder)
+        _isAdding = State(initialValue: isAdding)
+    }
+}
+#endif
+
 // MARK: - Supporting enums
 
 enum RadarrDiscoverMinimumAvailability: String, CaseIterable, Identifiable {
@@ -537,3 +557,50 @@ struct RadarrInteractiveSearchSheet: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Add To Library Ready") {
+    let vm = RadarrViewModel(previewMovies: [])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        RadarrAddToLibrarySheet(previewViewModel: vm, movie: .previewAnnounced)
+    }
+}
+
+#Preview("Add To Library Error") {
+    let vm = RadarrViewModel(
+        previewMovies: [],
+        error: "Radarr rejected this movie because a matching TMDb ID already exists."
+    )
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        RadarrAddToLibrarySheet(previewViewModel: vm, movie: .previewAnnounced)
+    }
+}
+
+#Preview("Search Missing Movie") {
+    let movie = RadarrMovie.previewAnnounced
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieSearchView(viewModel: vm, movie: movie)
+        }
+    }
+}
+
+#Preview("Search Downloaded Movie") {
+    let movie = RadarrMovie.preview
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        NavigationStack {
+            RadarrMovieSearchView(viewModel: vm, movie: movie)
+        }
+    }
+}
+
+#Preview("Interactive Search") {
+    let movie = RadarrMovie.preview
+    let vm = RadarrViewModel(previewMovies: [movie])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        RadarrInteractiveSearchSheet(viewModel: vm, movie: movie)
+    }
+}
+#endif

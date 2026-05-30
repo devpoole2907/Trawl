@@ -71,12 +71,14 @@ final class ArrServiceManager {
     private(set) var prowlarrConnected: Bool = false
     private(set) var prowlarrIsConnecting: Bool = false
     private(set) var prowlarrConnectionError: String?
+    private(set) var prowlarrTags: [ArrTag] = []
 
     // MARK: - Bazarr (multi-instance)
     private(set) var bazarrInstances: [BazarrClientEntry] = []
     private(set) var activeBazarrProfileID: UUID?
 
     // MARK: - Global state
+    var lastManualImportTimestamp: Date = .distantPast
     private(set) var isInitializing: Bool = false
     private(set) var connectionErrors: [String: String] = [:]
     private var storedProfiles: [ArrServiceProfile] = []
@@ -87,8 +89,13 @@ final class ArrServiceManager {
     private(set) var prowlarrHealthChecks: [ArrHealthCheck] = []
     private(set) var sonarrBlocklist: [ArrBlocklistItem] = []
     private(set) var radarrBlocklist: [ArrBlocklistItem] = []
+    private(set) var sonarrImportListExclusions: [ArrImportListExclusion] = []
+    private(set) var radarrImportListExclusions: [ArrImportListExclusion] = []
     private(set) var isLoadingHealth = false
     private(set) var isLoadingBlocklist = false
+    private(set) var isLoadingImportListExclusions = false
+    private(set) var blocklistError: String?
+    private(set) var importListExclusionsError: String?
 
     // MARK: - Persistent ViewModels
     public private(set) var calendarViewModel: ArrCalendarViewModel!
@@ -136,6 +143,69 @@ final class ArrServiceManager {
 
     func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
         bazarrInstances.first(where: { $0.id == profileID })?.client
+    }
+
+    func iCalFeedLinks() async throws -> [ArrICalFeedLink] {
+        var links: [ArrICalFeedLink] = []
+
+        if let entry = activeSonarrEntry, entry.isConnected, let client = entry.client {
+            let url = try await client.iCalFeedURL()
+            links.append(try ArrICalFeedLink(
+                serviceType: .sonarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            ))
+        }
+
+        if let entry = activeRadarrEntry, entry.isConnected, let client = entry.client {
+            let url = try await client.iCalFeedURL()
+            links.append(try ArrICalFeedLink(
+                serviceType: .radarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            ))
+        }
+
+        if links.isEmpty {
+            throw ArrError.noServiceConfigured
+        }
+
+        return links
+    }
+
+    func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink {
+        switch serviceType {
+        case .sonarr:
+            guard let entry = activeSonarrEntry, entry.isConnected, let client = entry.client else {
+                throw ArrError.noServiceConfigured
+            }
+            let url = try await client.iCalFeedURL()
+            return try ArrICalFeedLink(
+                serviceType: .sonarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            )
+        case .radarr:
+            guard let entry = activeRadarrEntry, entry.isConnected, let client = entry.client else {
+                throw ArrError.noServiceConfigured
+            }
+            let url = try await client.iCalFeedURL()
+            return try ArrICalFeedLink(
+                serviceType: .radarr,
+                profileID: entry.id,
+                displayName: entry.displayName,
+                url: url,
+                webcalURL: client.webcalURL(from: url)
+            )
+        case .prowlarr, .bazarr:
+            throw ArrError.noServiceConfigured
+        }
     }
 
     func isConnected(_ serviceType: ArrServiceType) -> Bool {
@@ -242,40 +312,37 @@ final class ArrServiceManager {
         let pushURL = try pushNotificationURL(from: workerURL)
         let notifications = try await client.getNotifications()
         let existing = notifications.first { $0.name == notificationName }
+        let serviceType = profile.resolvedServiceType
 
-        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken) {
+        if let existing, trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType) {
             return
         }
 
-        let fields = [
-            ArrNotificationField(name: "url", value: .string(pushURL)),
-            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
-            ArrNotificationField(name: "headers", value: .array([
-                .object([
-                    "Key": .string("X-Trawl-Token"),
-                    "Value": .string(deviceToken)
-                ])
-            ]))
-        ]
+        let isSonarr = serviceType == .sonarr
+        let isRadarr = serviceType == .radarr
+        let isProwlarr = serviceType == .prowlarr
 
         let newNotification = ArrNotification(
             id: existing?.id,
             name: notificationName,
-            onGrab: true,
-            onDownload: true,
-            onUpgrade: true,
-            onRename: true,
+            onGrab: isProwlarr ? nil : true,
+            onDownload: isProwlarr ? nil : true,
+            onUpgrade: isProwlarr ? nil : true,
+            onRename: isProwlarr ? nil : true,
             onHealthIssue: true,
             onApplicationUpdate: true,
-            onSeriesDelete: false,
-            onEpisodeFileDelete: false,
-            onEpisodeFileDeleteForUpgrade: false,
-            onMovieDelete: false,
-            onMovieFileDelete: false,
-            onMovieFileDeleteForUpgrade: false,
+            onSeriesAdd: isSonarr ? false : nil,
+            onSeriesDelete: isSonarr ? false : nil,
+            onEpisodeFileDelete: isSonarr ? false : nil,
+            onEpisodeFileDeleteForUpgrade: isSonarr ? false : nil,
+            onMovieAdded: isRadarr ? false : nil,
+            onMovieDelete: isRadarr ? false : nil,
+            onMovieFileDelete: isRadarr ? false : nil,
+            onMovieFileDeleteForUpgrade: isRadarr ? false : nil,
+            includeHealthWarnings: true,
             implementation: "Webhook",
             configContract: "WebhookSettings",
-            fields: fields,
+            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
             tags: []
         )
 
@@ -310,9 +377,98 @@ final class ArrServiceManager {
             return .notAdded
         }
 
-        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken)
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType)
             ? .configured
             : .needsUpdate
+    }
+
+    func trawlNotification(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> ArrNotification {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+        let existing = notifications.first { $0.name == notificationName }
+        return notificationPayload(
+            existing: existing,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+    }
+
+    func saveTrawlNotification(
+        _ notification: ArrNotification,
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws {
+        let client = try notificationClient(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let payload = notificationPayload(
+            existing: notification,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+
+        if payload.id == nil {
+            _ = try await client.createNotification(payload)
+        } else {
+            _ = try await client.updateNotification(payload)
+        }
+    }
+
+    func testTrawlNotification(
+        _ notification: ArrNotification,
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws {
+        let client = try notificationClient(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let payload = notificationPayload(
+            existing: notification,
+            profile: profile,
+            pushURL: pushURL,
+            deviceToken: deviceToken
+        )
+        try await client.testNotification(payload)
+    }
+
+    func trawlNotificationSendsGrab(
+        for profile: ArrServiceProfile,
+        workerURL: String,
+        deviceToken: String
+    ) async throws -> Bool {
+        let client = try notificationClient(for: profile)
+        let notificationName = notificationName(for: profile)
+        let pushURL = try pushNotificationURL(from: workerURL)
+        let notifications = try await client.getNotifications()
+
+        guard let existing = notifications.first(where: { $0.name == notificationName }) else {
+            return false
+        }
+
+        return trawlNotificationMatches(existing, pushURL: pushURL, deviceToken: deviceToken, serviceType: profile.resolvedServiceType) && existing.onGrab == true
+    }
+
+    func tags(for profile: ArrServiceProfile) -> [ArrTag] {
+        guard let serviceType = profile.resolvedServiceType else { return [] }
+
+        switch serviceType {
+        case .sonarr:
+            return sonarrInstances.first(where: { $0.id == profile.id })?.tags ?? []
+        case .radarr:
+            return radarrInstances.first(where: { $0.id == profile.id })?.tags ?? []
+        case .prowlarr:
+            return prowlarrTags
+        case .bazarr:
+            return []
+        }
     }
 
     // MARK: - Backward-compatible Sonarr computed properties
@@ -536,12 +692,14 @@ final class ArrServiceManager {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 _ = try await client.getSystemStatus()
+                let fetchedTags = (try? await client.getTags()) ?? []
                 if activeProwlarrProfileID == nil || activeProwlarrProfileID == profile.id {
                     withAnimation(.snappy) {
                         prowlarrClient = client
                         activeProwlarrProfileID = profile.id
                         prowlarrConnected = true
                         prowlarrConnectionError = nil
+                        prowlarrTags = fetchedTags
                     }
                 }
                 connectionErrors.removeValue(forKey: profile.id.uuidString)
@@ -643,6 +801,7 @@ final class ArrServiceManager {
             prowlarrConnected = false
             prowlarrIsConnecting = false
             prowlarrConnectionError = nil
+            prowlarrTags = []
         }
         connectionErrors.removeAll()
         sonarrHealthChecks = []
@@ -650,6 +809,10 @@ final class ArrServiceManager {
         prowlarrHealthChecks = []
         sonarrBlocklist = []
         radarrBlocklist = []
+        sonarrImportListExclusions = []
+        radarrImportListExclusions = []
+        blocklistError = nil
+        importListExclusionsError = nil
     }
 
     /// Disconnect a single service and clear any cached state.
@@ -696,6 +859,7 @@ final class ArrServiceManager {
                     activeProwlarrProfileID = nil
                     prowlarrConnected = false
                     prowlarrConnectionError = nil
+                    prowlarrTags = []
                 }
             }
             if let id = profileID {
@@ -784,15 +948,36 @@ final class ArrServiceManager {
         guard sonarrConnected || radarrConnected else {
             sonarrBlocklist = []
             radarrBlocklist = []
+            blocklistError = nil
             return
         }
         isLoadingBlocklist = true
         defer { isLoadingBlocklist = false }
-        async let s = fetchBlocklist(sonarrClient)
-        async let r = fetchBlocklist(radarrClient)
+        async let s = fetchBlocklist(sonarrClient, serviceName: "Sonarr")
+        async let r = fetchBlocklist(radarrClient, serviceName: "Radarr")
         let (sv, rv) = await (s, r)
-        sonarrBlocklist = sv
-        radarrBlocklist = rv
+        sonarrBlocklist = sv.items
+        radarrBlocklist = rv.items
+        let errors = [sv.error, rv.error].compactMap { $0 }
+        blocklistError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    func loadImportListExclusions() async {
+        guard sonarrConnected || radarrConnected else {
+            sonarrImportListExclusions = []
+            radarrImportListExclusions = []
+            importListExclusionsError = nil
+            return
+        }
+        isLoadingImportListExclusions = true
+        defer { isLoadingImportListExclusions = false }
+        async let s = fetchImportListExclusions(sonarrClient, serviceName: "Sonarr")
+        async let r = fetchImportListExclusions(radarrClient, serviceName: "Radarr")
+        let (sv, rv) = await (s, r)
+        sonarrImportListExclusions = sv.items
+        radarrImportListExclusions = rv.items
+        let errors = [sv.error, rv.error].compactMap { $0 }
+        importListExclusionsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
     func removeBlocklistItem(id: Int, source: ArrServiceType) async {
@@ -821,14 +1006,121 @@ final class ArrServiceManager {
         radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
     }
 
+    func removeImportListExclusion(id: Int, source: ArrServiceType) async {
+        switch source {
+        case .sonarr:
+            guard let sonarrClient else { return }
+            do {
+                try await sonarrClient.deleteImportListExclusion(id: id)
+                sonarrImportListExclusions.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
+        case .radarr:
+            guard let radarrClient else { return }
+            do {
+                try await radarrClient.deleteImportListExclusion(id: id)
+                radarrImportListExclusions.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
+        case .prowlarr, .bazarr:
+            break
+        }
+    }
+
+    func clearImportListExclusions(sonarrIDs: [Int], radarrIDs: [Int]) async {
+        let successfulSonarrIDs = await withTaskGroup(of: Int?.self) { group in
+            if let client = sonarrClient {
+                for id in sonarrIDs {
+                    group.addTask {
+                        do {
+                            try await client.deleteImportListExclusion(id: id)
+                            return id
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+            }
+            var successful: [Int] = []
+            for await result in group {
+                if let id = result {
+                    successful.append(id)
+                }
+            }
+            return successful
+        }
+
+        let successfulRadarrIDs = await withTaskGroup(of: Int?.self) { group in
+            if let client = radarrClient {
+                for id in radarrIDs {
+                    group.addTask {
+                        do {
+                            try await client.deleteImportListExclusion(id: id)
+                            return id
+                        } catch {
+                            return nil
+                        }
+                    }
+                }
+            }
+            var successful: [Int] = []
+            for await result in group {
+                if let id = result {
+                    successful.append(id)
+                }
+            }
+            return successful
+        }
+
+        sonarrImportListExclusions.removeAll { successfulSonarrIDs.contains($0.id) }
+        radarrImportListExclusions.removeAll { successfulRadarrIDs.contains($0.id) }
+    }
+
     private func fetchHealth<C: SharedArrClient>(_ client: C?) async -> [ArrHealthCheck] {
         guard let client else { return [] }
         return (try? await client.getHealth()) ?? []
     }
 
-    private func fetchBlocklist<C: SharedArrClient>(_ client: C?) async -> [ArrBlocklistItem] {
-        guard let client else { return [] }
-        return (try? await client.getBlocklist().records) ?? []
+    private func fetchBlocklist<C: SharedArrClient>(
+        _ client: C?,
+        serviceName: String
+    ) async -> (items: [ArrBlocklistItem], error: String?) {
+        guard let client else { return ([], nil) }
+        do {
+            return (try await client.getBlocklist().records ?? [], nil)
+        } catch {
+            return ([], "\(serviceName): \(error.localizedDescription)")
+        }
+    }
+
+    private func fetchImportListExclusions<C: SharedArrClient>(
+        _ client: C?,
+        serviceName: String
+    ) async -> (items: [ArrImportListExclusion], error: String?) {
+        guard let client else { return ([], nil) }
+        do {
+            var allItems: [ArrImportListExclusion] = []
+            var page = 1
+            let pageSize = 100
+
+            while true {
+                let response = try await client.getImportListExclusions(page: page, pageSize: pageSize)
+                let records = response.records ?? []
+                allItems.append(contentsOf: records)
+
+                // Check if we've fetched all pages
+                if records.count < pageSize {
+                    break
+                }
+                page += 1
+            }
+
+            return (allItems, nil)
+        } catch {
+            return ([], "\(serviceName): \(error.localizedDescription)")
+        }
     }
 
     private func applyConfigurationUpdate<C: SharedArrClient>(
@@ -895,6 +1187,7 @@ final class ArrServiceManager {
                 prowlarrConnectionError = message
                 prowlarrConnected = false
                 activeProwlarrProfileID = nil
+                prowlarrTags = []
             }
         case .bazarr:
             updateEntry(in: &bazarrInstances, id: id) {
@@ -985,7 +1278,10 @@ final class ArrServiceManager {
             }
             return client
         case .prowlarr:
-            throw ArrError.unsupportedNotificationsService(serviceType.displayName)
+            guard activeProwlarrProfileID == profile.id, let prowlarrClient else {
+                throw ArrError.noServiceConfigured
+            }
+            return prowlarrClient
         case .bazarr:
             throw ArrError.unsupportedNotificationsService(serviceType.displayName)
         }
@@ -993,6 +1289,64 @@ final class ArrServiceManager {
 
     private func notificationName(for profile: ArrServiceProfile) -> String {
         "Trawl (\(profile.displayName))"
+    }
+
+    private func notificationPayload(
+        existing: ArrNotification?,
+        profile: ArrServiceProfile,
+        pushURL: String,
+        deviceToken: String
+    ) -> ArrNotification {
+        let serviceType = profile.resolvedServiceType
+        let isSonarr = serviceType == .sonarr
+        let isRadarr = serviceType == .radarr
+        let isProwlarr = serviceType == .prowlarr
+
+        return ArrNotification(
+            id: existing?.id,
+            name: notificationName(for: profile),
+            onGrab: isProwlarr ? nil : (existing?.onGrab ?? true),
+            onDownload: isProwlarr ? nil : (existing?.onDownload ?? true),
+            onUpgrade: isProwlarr ? nil : (existing?.onUpgrade ?? true),
+            onRename: isProwlarr ? nil : (existing?.onRename ?? true),
+            onHealthIssue: existing?.onHealthIssue ?? true,
+            onApplicationUpdate: existing?.onApplicationUpdate ?? true,
+            onSeriesAdd: isSonarr ? (existing?.onSeriesAdd ?? false) : nil,
+            onSeriesDelete: isSonarr ? (existing?.onSeriesDelete ?? false) : nil,
+            onEpisodeFileDelete: isSonarr ? (existing?.onEpisodeFileDelete ?? false) : nil,
+            onEpisodeFileDeleteForUpgrade: isSonarr ? (existing?.onEpisodeFileDeleteForUpgrade ?? false) : nil,
+            onMovieAdded: isRadarr ? (existing?.onMovieAdded ?? false) : nil,
+            onMovieDelete: isRadarr ? (existing?.onMovieDelete ?? false) : nil,
+            onMovieFileDelete: isRadarr ? (existing?.onMovieFileDelete ?? false) : nil,
+            onMovieFileDeleteForUpgrade: isRadarr ? (existing?.onMovieFileDeleteForUpgrade ?? false) : nil,
+            includeHealthWarnings: existing?.includeHealthWarnings ?? true,
+            implementation: "Webhook",
+            configContract: "WebhookSettings",
+            fields: notificationFields(pushURL: pushURL, deviceToken: deviceToken, serviceType: serviceType),
+            tags: existing?.tags ?? []
+        )
+    }
+
+    private func notificationFields(pushURL: String, deviceToken: String, serviceType: ArrServiceType?) -> [ArrNotificationField] {
+        if serviceType == .prowlarr {
+            return [
+                ArrNotificationField(name: "url", value: .string(pushURL)),
+                ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+                ArrNotificationField(name: "username", value: .string("trawl")),
+                ArrNotificationField(name: "password", value: .string(deviceToken))
+            ]
+        }
+
+        return [
+            ArrNotificationField(name: "url", value: .string(pushURL)),
+            ArrNotificationField(name: "method", value: .number(1)), // 1 = POST
+            ArrNotificationField(name: "headers", value: .array([
+                .object([
+                    "Key": .string("X-Trawl-Token"),
+                    "Value": .string(deviceToken)
+                ])
+            ]))
+        ]
     }
 
     private func pushNotificationURL(from workerURL: String) throws -> String {
@@ -1016,7 +1370,8 @@ final class ArrServiceManager {
     private func trawlNotificationMatches(
         _ notification: ArrNotification,
         pushURL: String,
-        deviceToken: String
+        deviceToken: String,
+        serviceType: ArrServiceType?
     ) -> Bool {
         let urlMatches: Bool = {
             guard case .string(let url) = notification.fields.first(where: { $0.name == "url" })?.value else { return false }
@@ -1035,34 +1390,50 @@ final class ArrServiceManager {
             }
         }()
         let tokenMatches: Bool = {
-            guard case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value else { return false }
-            return headers.contains { headerValue in
-                guard case .object(let header) = headerValue else { return false }
-
-                let key: String? = {
-                    if case .string(let value) = header["Key"] { return value }
-                    if case .string(let value) = header["key"] { return value }
-                    return nil
-                }()
-
-                let value: String? = {
-                    if case .string(let storedValue) = header["Value"] { return storedValue }
-                    if case .string(let storedValue) = header["value"] { return storedValue }
-                    return nil
-                }()
-
-                return key == "X-Trawl-Token" && value == deviceToken
+            if serviceType == .prowlarr {
+                return prowlarrAuthMatches(notification, deviceToken: deviceToken)
             }
-        }()
-        let triggersMatch =
-            notification.onGrab &&
-            notification.onDownload &&
-            notification.onUpgrade != false &&
-            notification.onRename != false &&
-            notification.onHealthIssue != false &&
-            notification.onApplicationUpdate != false
 
-        return urlMatches && methodMatches && tokenMatches && triggersMatch
+            if case .array(let headers) = notification.fields.first(where: { $0.name == "headers" })?.value {
+                return headers.contains { headerValue in
+                    guard case .object(let header) = headerValue else { return false }
+
+                    let key: String? = {
+                        if case .string(let value) = header["Key"] { return value }
+                        if case .string(let value) = header["key"] { return value }
+                        return nil
+                    }()
+
+                    let value: String? = {
+                        if case .string(let storedValue) = header["Value"] { return storedValue }
+                        if case .string(let storedValue) = header["value"] { return storedValue }
+                        return nil
+                    }()
+
+                    return key == "X-Trawl-Token" && value == deviceToken
+                }
+            }
+
+            guard case .string(let password) = notification.fields.first(where: { $0.name == "password" })?.value else { return false }
+            return password == deviceToken
+        }()
+        return urlMatches && methodMatches && tokenMatches
+    }
+
+    private func prowlarrAuthMatches(_ notification: ArrNotification, deviceToken: String) -> Bool {
+        guard case .string(let username) = notification.fields.first(where: { $0.name == "username" })?.value,
+              username.trimmingCharacters(in: .whitespacesAndNewlines).caseInsensitiveCompare("trawl") == .orderedSame else {
+            return false
+        }
+
+        guard case .string(let password) = notification.fields.first(where: { $0.name == "password" })?.value else {
+            return false
+        }
+
+        // Prowlarr masks saved webhook passwords, so masked or missing values must be rewritten.
+        let normalizedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDeviceToken = deviceToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalizedPassword.isEmpty && normalizedPassword == normalizedDeviceToken
     }
 
     private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {
@@ -1077,3 +1448,81 @@ final class ArrServiceManager {
         return components.url?.absoluteString ?? rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
+
+#if DEBUG
+extension ArrServiceManager {
+    enum PreviewState {
+        case allConfigured
+        case sonarrOnly
+        case radarrOnly
+        case noneConfigured
+        case sonarrConnecting
+        case sonarrConnectionError(String)
+    }
+
+    static func preview(_ state: PreviewState = .allConfigured) -> ArrServiceManager {
+        let manager = ArrServiceManager()
+        switch state {
+        case .allConfigured:
+            manager.installPreviewSonarr(connected: true)
+            manager.installPreviewRadarr(connected: true)
+            manager.installPreviewProwlarr(connected: true)
+            manager.installPreviewBazarr(connected: true)
+        case .sonarrOnly:
+            manager.installPreviewSonarr(connected: true)
+        case .radarrOnly:
+            manager.installPreviewRadarr(connected: true)
+        case .noneConfigured:
+            break
+        case .sonarrConnecting:
+            manager.installPreviewSonarr(connected: false, isConnecting: true)
+        case .sonarrConnectionError(let msg):
+            manager.installPreviewSonarr(connected: false, error: msg)
+        }
+        return manager
+    }
+
+    fileprivate func installPreviewSonarr(connected: Bool, isConnecting: Bool = false, error: String? = nil) {
+        let id = UUID()
+        var entry = SonarrClientEntry(id: id, displayName: "Sonarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        entry.isConnecting = isConnecting
+        entry.connectionError = error
+        entry.qualityProfiles = ArrQualityProfile.previewList
+        entry.rootFolders = ArrRootFolder.previewList
+        entry.tags = ArrTag.previewList
+        sonarrInstances = [entry]
+        activeSonarrProfileID = id
+    }
+
+    fileprivate func installPreviewRadarr(connected: Bool, isConnecting: Bool = false, error: String? = nil) {
+        let id = UUID()
+        var entry = RadarrClientEntry(id: id, displayName: "Radarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        entry.isConnecting = isConnecting
+        entry.connectionError = error
+        entry.qualityProfiles = ArrQualityProfile.previewList
+        entry.rootFolders = ArrRootFolder.previewList
+        entry.tags = ArrTag.previewList
+        radarrInstances = [entry]
+        activeRadarrProfileID = id
+    }
+
+    fileprivate func installPreviewProwlarr(connected: Bool) {
+        prowlarrClient = connected ? .preview() : nil
+        prowlarrConnected = connected
+        activeProwlarrProfileID = UUID()
+    }
+
+    fileprivate func installPreviewBazarr(connected: Bool) {
+        let id = UUID()
+        var entry = BazarrClientEntry(id: id, displayName: "Bazarr (preview)")
+        entry.client = connected ? .preview() : nil
+        entry.isConnected = connected
+        bazarrInstances = [entry]
+        activeBazarrProfileID = id
+    }
+}
+#endif

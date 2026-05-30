@@ -1,5 +1,6 @@
 import WidgetKit
 import SwiftUI
+import AppIntents
 
 // MARK: - Timeline Entry
 
@@ -59,46 +60,45 @@ struct CalendarEntry: TimelineEntry {
 
 // MARK: - Provider
 
-struct CalendarProvider: TimelineProvider {
+struct CalendarProvider: AppIntentTimelineProvider {
     typealias Entry = CalendarEntry
+    typealias Intent = SelectCalendarScopeIntent
 
     func placeholder(in context: Context) -> CalendarEntry {
         .placeholder
     }
 
-    func getSnapshot(in context: Context, completion: @escaping (CalendarEntry) -> Void) {
-        if context.isPreview {
-            completion(.placeholder)
-            return
-        }
-        Task {
-            let entry = await fetchEntry()
-            completion(entry)
-        }
+    func snapshot(for configuration: SelectCalendarScopeIntent, in context: Context) async -> CalendarEntry {
+        if context.isPreview { return .placeholder }
+        return await fetchEntry(scope: configuration.scope)
     }
 
-    func getTimeline(in context: Context, completion: @escaping (Timeline<CalendarEntry>) -> Void) {
-        Task {
-            do {
-                let allEvents = try await WidgetDataFetcher.fetchUpcomingReleases(days: 14)
-                let entries = buildEntries(from: allEvents)
-                let nextUpdate: Date
-                if entries.isEmpty {
-                    nextUpdate = Calendar.current.date(byAdding: .hour, value: 6, to: .now) ?? .now
-                } else {
-                    nextUpdate = Calendar.current.date(byAdding: .hour, value: 5, to: .now) ?? .now
-                }
-                completion(Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate)))
-            } catch {
-                let nextUpdate = Calendar.current.date(byAdding: .hour, value: 12, to: .now) ?? .now
-                completion(Timeline(entries: [.empty], policy: .after(nextUpdate)))
-            }
-        }
-    }
-
-    private func fetchEntry() async -> CalendarEntry {
+    func timeline(for configuration: SelectCalendarScopeIntent, in context: Context) async -> Timeline<CalendarEntry> {
         do {
-            let events = try await WidgetDataFetcher.fetchUpcomingReleases(days: 14)
+            let allEvents = try await WidgetDataFetcher.fetchUpcomingReleases(
+                days: 14,
+                includeUnmonitored: configuration.scope.includeUnmonitored
+            )
+            let entries = buildEntries(from: allEvents)
+            let nextUpdate: Date
+            if entries.isEmpty {
+                nextUpdate = Calendar.current.date(byAdding: .hour, value: 6, to: .now) ?? .now
+            } else {
+                nextUpdate = Calendar.current.date(byAdding: .hour, value: 5, to: .now) ?? .now
+            }
+            return Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate))
+        } catch {
+            let nextUpdate = Calendar.current.date(byAdding: .hour, value: 12, to: .now) ?? .now
+            return Timeline(entries: [.empty], policy: .after(nextUpdate))
+        }
+    }
+
+    private func fetchEntry(scope: CalendarScopeOption) async -> CalendarEntry {
+        do {
+            let events = try await WidgetDataFetcher.fetchUpcomingReleases(
+                days: 14,
+                includeUnmonitored: scope.includeUnmonitored
+            )
             return CalendarEntry(date: .now, events: events)
         } catch {
             return .empty
@@ -134,7 +134,8 @@ struct CalendarWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     private var maxEvents: Int { family == .systemLarge ? 7 : 3 }
-    private var showPoster: Bool { family == .systemLarge }
+    private var posterWidth: CGFloat { family == .systemLarge ? 28 : 24 }
+    private var posterHeight: CGFloat { family == .systemLarge ? 42 : 36 }
 
     var body: some View {
         if entry.events.isEmpty {
@@ -187,19 +188,7 @@ struct CalendarWidgetEntryView: View {
     private func eventRow(_ event: WidgetCalendarEvent, isLast: Bool) -> some View {
         Link(destination: CalendarWidget.trawlCalendarURL) {
             HStack(spacing: 10) {
-                if showPoster {
-                    posterThumbnail(event)
-                } else {
-                    // Type icon matching main app's artwork placeholder style
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(accentColor(for: event.accentColorName).opacity(0.12))
-                        Image(systemName: event.placeholderIcon)
-                            .font(.system(size: 10))
-                            .foregroundStyle(accentColor(for: event.accentColorName))
-                    }
-                    .frame(width: 22, height: 33)
-                }
+                posterThumbnail(event)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 4) {
@@ -248,22 +237,15 @@ struct CalendarWidgetEntryView: View {
     @ViewBuilder
     private func posterThumbnail(_ event: WidgetCalendarEvent) -> some View {
         Group {
-            if let url = event.posterURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                    default:
-                        placeholderPoster(event)
-                    }
-                }
+            if let path = event.posterLocalPath, let uiImage = UIImage(contentsOfFile: path) {
+                Image(uiImage: uiImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
             } else {
                 placeholderPoster(event)
             }
         }
-        .frame(width: 28, height: 42)
+        .frame(width: posterWidth, height: posterHeight)
         .clipShape(RoundedRectangle(cornerRadius: 4))
     }
 
@@ -296,7 +278,11 @@ struct CalendarWidget: Widget {
     static let trawlCalendarURL = URL(string: "trawl://calendar")!
 
     var body: some WidgetConfiguration {
-        StaticConfiguration(kind: kind, provider: CalendarProvider()) { entry in
+        AppIntentConfiguration(
+            kind: kind,
+            intent: SelectCalendarScopeIntent.self,
+            provider: CalendarProvider()
+        ) { entry in
             CalendarWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Upcoming Releases")

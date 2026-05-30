@@ -8,6 +8,13 @@ struct JellyfinScheduledTasksView: View {
     @State private var viewModel: JellyfinScheduledTasksViewModel?
     @State private var errorAlert: ErrorAlertItem?
     @State private var taskPendingStop: JellyfinScheduledTask?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: JellyfinAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         Group {
@@ -22,6 +29,9 @@ struct JellyfinScheduledTasksView: View {
         .navigationTitle("Scheduled Tasks")
         .navigationSubtitle("Jellyfin")
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             let vm = JellyfinScheduledTasksViewModel(apiClient: apiClient)
             viewModel = vm
             await vm.startPolling()
@@ -97,60 +107,22 @@ struct JellyfinScheduledTasksView: View {
         }
     }
 
-    @ViewBuilder
     private func taskRow(_ task: JellyfinScheduledTask, viewModel: JellyfinScheduledTasksViewModel) -> some View {
-        ScheduledTaskRowView(
-            icon: task.isRunning ? "clock.arrow.2.circlepath" : "clock",
-            iconColor: task.isRunning ? .green : .secondary,
-            title: task.name,
-            subtitle: task.description,
-            badge: ScheduledTaskRowBadge(task.stateBadge, color: stateColor(task.state)),
-            progress: task.isRunning ? task.currentProgressPercentage : nil,
-            result: taskResult(task.lastExecutionResult)
+        ScheduledTaskControlRow(item: task, action: taskAction(task, viewModel: viewModel))
+    }
+
+    private func taskAction(
+        _ task: JellyfinScheduledTask,
+        viewModel: JellyfinScheduledTasksViewModel
+    ) -> ScheduledTaskRowAction {
+        ScheduledTaskRowAction.runOrStopTask(
+            title: task.scheduledTaskRowTitle,
+            isRunning: task.isRunning || task.isCancelling
         ) {
-            if task.isRunning || task.isCancelling {
-                Button {
-                    taskPendingStop = task
-                } label: {
-                    Image(systemName: "stop.circle")
-                        .font(.title3)
-                        .foregroundStyle(.red)
-                }
-                .buttonStyle(.plain)
-            } else {
-                Button {
-                    Task { await viewModel.startTask(id: task.id) }
-                } label: {
-                    Image(systemName: "play.circle")
-                        .font(.title3)
-                        .foregroundStyle(.green)
-                }
-                .buttonStyle(.plain)
-            }
+            await viewModel.startTask(id: task.id)
+        } stop: {
+            taskPendingStop = task
         }
-    }
-
-    private func stateColor(_ state: String) -> Color {
-        switch state {
-        case "Running": .green
-        case "Cancelling": .orange
-        default: .secondary
-        }
-    }
-
-    private func taskResult(_ result: JellyfinScheduledTaskResult?) -> ScheduledTaskRowResult? {
-        guard let result else { return nil }
-
-        var detail: String?
-        if let start = result.startTimeUtc, let end = result.endTimeUtc {
-            detail = durationText(start: start, end: end)
-        }
-
-        return ScheduledTaskRowResult(
-            title: result.statusBadge,
-            detail: detail,
-            color: result.isSuccess ? .green : .red
-        )
     }
 
     private var groupedCategories: [(key: String, value: [JellyfinScheduledTask])] {
@@ -159,28 +131,66 @@ struct JellyfinScheduledTasksView: View {
         return grouped.sorted { $0.key < $1.key }
     }
 
-    private func durationText(start: String, end: String) -> String {
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let parse = { (raw: String) -> Date? in
-            isoFormatter.date(from: raw) ?? ISO8601DateFormatter().date(from: raw)
-        }
-        guard let startDate = parse(start), let endDate = parse(end) else { return "" }
-        let interval = endDate.timeIntervalSince(startDate)
-        if interval < 60 {
-            return "\(Int(interval))s"
-        } else if interval < 3600 {
-            return "\(Int(interval / 60))m"
-        } else {
-            return "\(Int(interval / 3600))h \(Int(interval.truncatingRemainder(dividingBy: 3600) / 60))m"
-        }
-    }
-
     private var stopTaskAlertPresented: Binding<Bool> {
         Binding(
             get: { taskPendingStop != nil },
             set: { if !$0 { taskPendingStop = nil } }
         )
+    }
+}
+
+extension JellyfinScheduledTask: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name
+    }
+
+    var scheduledTaskRowSubtitle: String? {
+        ScheduledTaskRowFormatter.cleanedText(description)
+    }
+
+    var scheduledTaskRowSubtitleLineLimit: Int? {
+        nil
+    }
+
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: isRunning, isCancelling: isCancelling)
+    }
+
+    var scheduledTaskRowProgress: Double? {
+        isRunning ? currentProgressPercentage : nil
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        lastExecutionResult?.scheduledTaskRowDetails ?? []
+    }
+
+    var scheduledTaskRowResult: ScheduledTaskRowResult? {
+        lastExecutionResult?.scheduledTaskRowResult
+    }
+}
+
+private extension JellyfinScheduledTaskResult {
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        [
+            ScheduledTaskRowDetail.lastRun(from: endTimeUtc ?? startTimeUtc),
+            ScheduledTaskRowFormatter.durationText(start: startTimeUtc, end: endTimeUtc).map { .duration($0) }
+        ].compactMap { $0 }
+    }
+
+    var scheduledTaskRowResult: ScheduledTaskRowResult? {
+        guard !isSuccess else { return nil }
+
+        return ScheduledTaskRowResult(
+            title: statusBadge,
+            detail: ScheduledTaskRowFormatter.cleanedText(errorMessage),
+            color: statusColor
+        )
+    }
+
+    var statusColor: Color {
+        if status == "Cancelled" { return .orange }
+        if isFailure { return .red }
+        return .secondary
     }
 }
 
@@ -256,3 +266,73 @@ final class JellyfinScheduledTasksViewModel {
         errorMessage = nil
     }
 }
+
+#if DEBUG
+extension JellyfinScheduledTasksView {
+    init(
+        apiClient: JellyfinAPIClient = .preview(),
+        previewViewModel: JellyfinScheduledTasksViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+        self.isPreview = true
+    }
+}
+
+extension JellyfinScheduledTasksViewModel {
+    convenience init(
+        previewTasks: [JellyfinScheduledTask],
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: JellyfinAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.tasks = previewTasks
+        self.isLoading = isLoading
+        self.errorMessage = errorMessage
+    }
+}
+
+#Preview("Jellyfin Tasks - Loaded") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: JellyfinScheduledTask.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Empty") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: [])
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Loading") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connecting)) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(previewTasks: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Jellyfin Tasks - Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Unable to load tasks."))) {
+        NavigationStack {
+            JellyfinScheduledTasksView(
+                previewViewModel: JellyfinScheduledTasksViewModel(
+                    previewTasks: [],
+                    errorMessage: "Task scheduler endpoint timed out."
+                )
+            )
+        }
+    }
+}
+#endif

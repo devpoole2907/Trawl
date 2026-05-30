@@ -125,3 +125,59 @@ struct SeerrUserEditorView: View {
         }
     }
 }
+
+#if DEBUG
+extension SeerrUserEditorView {
+    init(
+        previewViewModel: SeerrUserEditorViewModel,
+        isEditing: Bool = false,
+        onSave: @escaping (SeerrUser) -> Void = { _ in }
+    ) {
+        self.onSave = onSave
+        self._viewModel = State(initialValue: previewViewModel)
+        self._isEditing = State(initialValue: isEditing)
+    }
+}
+
+#Preview("Seerr User Editor - Standard") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrUserEditorView(
+                previewViewModel: SeerrUserEditorViewModel(previewUser: .previewRequester)
+            )
+        }
+    }
+}
+
+#Preview("Seerr User Editor - Editing") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrUserEditorView(
+                previewViewModel: SeerrUserEditorViewModel(previewUser: .previewRequester),
+                isEditing: true
+            )
+        }
+    }
+}
+
+#Preview("Seerr User Editor - Admin") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrUserEditorView(
+                previewViewModel: SeerrUserEditorViewModel(previewUser: .previewAdmin),
+                isEditing: true
+            )
+        }
+    }
+}
+
+#Preview("Seerr User Editor - Long Name") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrUserEditorView(
+                previewViewModel: SeerrUserEditorViewModel(previewUser: .previewLongName)
+            )
+        }
+    }
+}
+#endif

@@ -14,6 +14,22 @@ struct ArrNamingConfigView: View {
     @State private var saveTask: Task<Void, Never>?
     @State private var showSettings = false
 
+    #if DEBUG
+    init(
+        previewSonarrConfig: SonarrNamingConfig? = .preview,
+        previewRadarrConfig: RadarrNamingConfig? = .preview,
+        selectedService: ArrServiceType = .sonarr,
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        _sonarrConfig = State(initialValue: previewSonarrConfig)
+        _radarrConfig = State(initialValue: previewRadarrConfig)
+        _selectedService = State(initialValue: selectedService)
+        _isLoading = State(initialValue: isLoading)
+        _errorMessage = State(initialValue: errorMessage)
+    }
+    #endif
+
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
@@ -84,6 +100,9 @@ struct ArrNamingConfigView: View {
             )
         }
         .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await load()
         }
         .onAppear {
@@ -376,3 +395,32 @@ struct ArrNamingConfigView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Naming - Sonarr") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrNamingConfigView(selectedService: .sonarr)
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Naming - Radarr") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrNamingConfigView(selectedService: .radarr)
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Naming - Error") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrNamingConfigView(previewSonarrConfig: nil, previewRadarrConfig: nil, errorMessage: "Naming configuration could not be loaded.")
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+#endif

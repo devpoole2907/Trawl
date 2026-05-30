@@ -23,17 +23,6 @@ struct AppLockView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Button {
-                Task { await controller.authenticate() }
-            } label: {
-                Label(unlockButtonTitle, systemImage: unlockButtonIcon)
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .disabled(controller.isAuthenticating)
-
             if let error = controller.lastError, error.code != .userCancel {
                 Text(error.localizedDescription)
                     .font(.footnote)
@@ -45,6 +34,9 @@ struct AppLockView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(.ultraThinMaterial)
         .ignoresSafeArea()
+        .prominentBottomButton(LocalizedStringKey(unlockButtonTitle), systemImage: unlockButtonIcon, isDisabled: controller.isAuthenticating) {
+            Task { await controller.authenticate() }
+        }
         .task {
             await controller.authenticate()
         }
@@ -80,3 +72,32 @@ struct AppLockView: View {
         }
     }
 }
+
+#if DEBUG
+extension AppLockController {
+    static func preview(
+        isAuthenticating: Bool = false,
+        lastError: LAError? = nil
+    ) -> AppLockController {
+        let controller = AppLockController()
+        controller.isAuthenticating = isAuthenticating
+        controller.lastError = lastError
+        return controller
+    }
+}
+
+#Preview("Locked") {
+    AppLockView()
+        .environment(AppLockController.preview())
+}
+
+#Preview("Authenticating") {
+    AppLockView()
+        .environment(AppLockController.preview(isAuthenticating: true))
+}
+
+#Preview("Error") {
+    AppLockView()
+        .environment(AppLockController.preview(lastError: LAError(.authenticationFailed)))
+}
+#endif

@@ -5,6 +5,8 @@ struct SeerrIssueListView: View {
 
     @State private var viewModel: SeerrIssueListViewModel
     @State private var errorAlert: ErrorAlertItem?
+    @State private var issueSearchText = ""
+    @State private var isSearchExpanded = false
 
     init(apiClient: SeerrAPIClient) {
         self.apiClient = apiClient
@@ -27,8 +29,17 @@ struct SeerrIssueListView: View {
             TrawlSegmentBar("Status", selection: Binding(
                 get: { viewModel.selectedFilter },
                 set: { newFilter in withAnimation { viewModel.selectedFilter = newFilter } }
-            ), items: SeerrIssueFilter.allCases.map(\.segmentBarItem), alignment: .center)
+            ),
+            items: SeerrIssueFilter.allCases.map(\.segmentBarItem),
+            searchText: $issueSearchText,
+            searchHint: "Search issues",
+            isSearchExpanded: $isSearchExpanded,
+            searchPlacement: .leading,
+            alignment: .leading)
             .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+        .onChange(of: issueSearchText) { _, newValue in
+            Task { await viewModel.updateSearchIssues(for: newValue) }
         }
         .errorAlert(item: $errorAlert)
         .onChange(of: viewModel.errorMessage) { _, message in
@@ -40,36 +51,41 @@ struct SeerrIssueListView: View {
 
     @ViewBuilder
     private var issueContentView: some View {
+        let query = issueSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         ArrLoadingErrorEmptyView(
-            isLoading: viewModel.isLoading,
+            isLoading: viewModel.isLoading || (!query.isEmpty && viewModel.isLoadingSearch && viewModel.searchIssues.isEmpty),
             error: viewModel.errorMessage,
-            isEmpty: viewModel.issues.isEmpty,
+            isEmpty: query.isEmpty ? viewModel.issues.isEmpty : filteredSearchIssues(matching: query).isEmpty,
             emptyTitle: "No Issues",
             emptyIcon: "checkmark.bubble",
-            emptyDescription: "No issues match the current status filter.",
+            emptyDescription: query.isEmpty ? "No issues match the current status filter." : "No issues match your search.",
             onRetry: { Task { await viewModel.loadIssues() } }
         ) {
             List {
-                Section {
-                    ForEach(viewModel.issues) { issue in
-                        NavigationLink {
-                            SeerrIssueDetailView(issue: issue, apiClient: apiClient) { updatedIssue in
-                                viewModel.refreshIssue(updatedIssue)
+                if query.isEmpty {
+                    Section {
+                        ForEach(viewModel.issues) { issue in
+                            issueNavigationLink(issue)
+                        }
+
+                        if viewModel.hasMore {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                                .task { await viewModel.loadMore() }
+                        }
+                    } header: {
+                        Text(viewModel.selectedFilter.rawValue)
+                    } footer: {
+                        Text(issueCountText)
+                    }
+                } else {
+                    ForEach(issueSearchSections(matching: query)) { section in
+                        Section(section.title) {
+                            ForEach(section.issues) { issue in
+                                issueNavigationLink(issue)
                             }
-                        } label: {
-                            SeerrIssueRow(issue: issue)
                         }
                     }
-
-                    if viewModel.hasMore {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                            .task { await viewModel.loadMore() }
-                    }
-                } header: {
-                    Text(viewModel.selectedFilter.rawValue)
-                } footer: {
-                    Text(issueCountText)
                 }
             }
 #if os(iOS)
@@ -78,6 +94,29 @@ struct SeerrIssueListView: View {
             .listStyle(.inset)
 #endif
             .scrollContentBackground(.hidden)
+        }
+    }
+
+    private func issueNavigationLink(_ issue: SeerrIssue) -> some View {
+        NavigationLink {
+            SeerrIssueDetailView(issue: issue, apiClient: apiClient) { updatedIssue in
+                viewModel.refreshIssue(updatedIssue)
+            }
+        } label: {
+            SeerrIssueRow(issue: issue)
+        }
+    }
+
+    private func filteredSearchIssues(matching query: String) -> [SeerrIssue] {
+        viewModel.searchIssues.filter { $0.matchesIssueSearch(query) }
+    }
+
+    private func issueSearchSections(matching query: String) -> [IssueSearchSection] {
+        let matches = filteredSearchIssues(matching: query)
+        return SeerrIssueFilter.allCases.compactMap { filter in
+            let issues = matches.filter { $0.issueStatus == filter.issueStatus }
+            guard !issues.isEmpty else { return nil }
+            return IssueSearchSection(title: filter.rawValue, issues: issues)
         }
     }
 
@@ -106,6 +145,35 @@ struct SeerrIssueListView: View {
             )
         }
         .ignoresSafeArea()
+    }
+}
+
+private struct IssueSearchSection: Identifiable {
+    let title: String
+    let issues: [SeerrIssue]
+
+    var id: String { title }
+}
+
+private extension SeerrIssueFilter {
+    var issueStatus: SeerrIssueStatus {
+        switch self {
+        case .open: .open
+        case .resolved: .resolved
+        }
+    }
+}
+
+private extension SeerrIssue {
+    func matchesIssueSearch(_ query: String) -> Bool {
+        [
+            media?.displayTitle,
+            createdBy?.displayName,
+            modifiedBy?.displayName,
+            issueKind?.title,
+            issueStatus?.title
+        ].contains { $0?.localizedCaseInsensitiveContains(query) == true } ||
+        comments?.contains { $0.message.localizedCaseInsensitiveContains(query) } == true
     }
 }
 
@@ -168,3 +236,71 @@ private struct SeerrIssueRow: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+extension SeerrIssueListView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewViewModel: SeerrIssueListViewModel
+    ) {
+        self.apiClient = apiClient
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+#Preview("Seerr Issues - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: SeerrIssue.previewList)
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Loaded Heavy") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(
+                    previewIssues: SeerrIssue.previewHeavyList,
+                    totalResults: SeerrIssue.previewHeavyList.count
+                )
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: [])
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(previewIssues: [], isLoading: true)
+            )
+        }
+    }
+}
+
+#Preview("Seerr Issues - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load issues."))) {
+        NavigationStack {
+            SeerrIssueListView(
+                previewViewModel: SeerrIssueListViewModel(
+                    previewIssues: [],
+                    errorMessage: "Issue list endpoint returned 500."
+                )
+            )
+        }
+    }
+}
+#endif

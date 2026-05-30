@@ -171,6 +171,18 @@ final class TorrentService {
         try await apiClient.getTrackers(hash: hash)
     }
 
+    func addTorrentTrackers(hash: String, urls: [String]) async throws {
+        try await apiClient.addTorrentTrackers(hash: hash, urls: urls)
+    }
+
+    func removeTorrentTrackers(hash: String, urls: [String]) async throws {
+        try await apiClient.removeTorrentTrackers(hash: hash, urls: urls)
+    }
+
+    func editTorrentTracker(hash: String, origURL: String, newURL: String) async throws {
+        try await apiClient.editTorrentTracker(hash: hash, origURL: origURL, newURL: newURL)
+    }
+
     func getMainLog() async throws -> [QBittorrentLogEntry] {
         try await apiClient.getMainLog()
     }
@@ -233,3 +245,11 @@ final class TorrentService {
         try await apiClient.toggleFirstLastPiecePriority(hashes: hashes)
     }
 }
+
+#if DEBUG
+extension TorrentService {
+    static func preview() -> TorrentService {
+        TorrentService(apiClient: .preview())
+    }
+}
+#endif

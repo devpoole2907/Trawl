@@ -12,6 +12,13 @@ struct SeerrLogsView: View {
     @State private var selectedEntry: SeerrServerLogEntry?
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var isSearchExpanded = false
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: SeerrAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         List {
@@ -68,12 +75,16 @@ struct SeerrLogsView: View {
                 searchText: $searchText,
                 searchHint: "Search logs",
                 isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading
+                searchPlacement: .leading,
+                alignment: .leading
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .refreshable { await loadLogs() }
         .task(id: "\(level.apiValue)|\(committedSearchText)") {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await loadLogs()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
@@ -105,7 +116,7 @@ struct SeerrLogsView: View {
         do {
             let result = try await apiClient.getLogs(
                 take: 100,
-                filter: level.apiValue,
+                filter: committedSearchText.isEmpty ? level.apiValue : SeerrLogLevelFilter.debug.apiValue,
                 search: committedSearchText
             )
             withAnimation(.default) {
@@ -118,6 +129,69 @@ struct SeerrLogsView: View {
         isLoading = false
     }
 }
+
+#if DEBUG
+extension SeerrLogsView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewEntries: [SeerrServerLogEntry],
+        level: SeerrLogLevelFilter = .debug,
+        searchText: String = "",
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._entries = State(initialValue: previewEntries)
+        self._level = State(initialValue: level)
+        self._searchText = State(initialValue: searchText)
+        self._committedSearchText = State(initialValue: searchText)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Logs - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrLogsView(previewEntries: SeerrServerLogEntry.previewList)
+        }
+    }
+}
+
+#Preview("Seerr Logs - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrLogsView(previewEntries: [])
+        }
+    }
+}
+
+#Preview("Seerr Logs - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrLogsView(previewEntries: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Seerr Logs - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load logs."))) {
+        NavigationStack {
+            SeerrLogsView(
+                previewEntries: [],
+                errorMessage: "Server log endpoint timed out."
+            )
+        }
+    }
+}
+
+#Preview("Seerr Log Detail") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        SeerrLogDetailSheet(entry: .preview)
+    }
+}
+#endif
 
 struct SeerrLogRow: View {
     let entry: SeerrServerLogEntry

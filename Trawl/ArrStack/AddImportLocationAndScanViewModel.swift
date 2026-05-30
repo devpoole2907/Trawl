@@ -113,6 +113,7 @@ struct AddImportLocationSheet: View {
 @MainActor
 final class ManualImportScanViewModel {
     private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrManualImportView")
+    private static let manualImportScanRequestTimeout: TimeInterval = 180
     private let progressiveRevealBatchSize = 25
     private let progressiveRevealDelay: Duration = .milliseconds(16)
 
@@ -123,6 +124,7 @@ final class ManualImportScanViewModel {
 
     var isScanning = false
     var isImporting = false
+    private var activeImportJobCount = 0
     var importableFiles: [ManualImportItem] = []
     var blockedFiles: [ManualImportItem] = []
     var groupedImportableFiles: [ManualImportGroup] = []
@@ -139,6 +141,8 @@ final class ManualImportScanViewModel {
     var seasonFolder: Bool = true
     var hasPerformedInitialScan = false
     var scanStatusMessage = "Preparing scan…"
+    var scanError: String?
+    var isScanTakingLong = false
 
     // Identify sheet
     var identifyingTarget: ManualImportIdentifyTarget?
@@ -176,6 +180,16 @@ final class ManualImportScanViewModel {
 
     var isBusy: Bool {
         isScanning || isImporting
+    }
+
+    private func beginImportActivity() {
+        activeImportJobCount += 1
+        isImporting = activeImportJobCount > 0
+    }
+
+    private func endImportActivity() {
+        activeImportJobCount = max(0, activeImportJobCount - 1)
+        isImporting = activeImportJobCount > 0
     }
 
     var allSelected: Bool {
@@ -249,13 +263,24 @@ final class ManualImportScanViewModel {
 
     func loadFiles() async {
         isScanning = true
+        scanError = nil
+        isScanTakingLong = false
         scanStatusMessage = "Preparing scan…"
         let shouldResumeAutoIdentify = autoIdentifyEnabled
         if autoIdentifyTask != nil {
             stopAutoIdentify()
             autoIdentifyEnabled = shouldResumeAutoIdentify
         }
-        defer { isScanning = false }
+        let slowTimer = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(15))
+            guard !Task.isCancelled else { return }
+            self?.isScanTakingLong = true
+        }
+        defer {
+            isScanning = false
+            isScanTakingLong = false
+            slowTimer.cancel()
+        }
 
         do {
             Self.logger.info("Manual import scan starting for \(self.service.displayName, privacy: .public) path \(self.path, privacy: .public) libraryItemID \(self.libraryItemID ?? -1)")
@@ -334,7 +359,8 @@ final class ManualImportScanViewModel {
             autoIdentifyLastOutcomeMessage = nil
         } catch {
             Self.logger.error("Manual import scan failed for \(self.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            scanStatusMessage = "Scan failed: \(error.localizedDescription)"
+            scanError = error.localizedDescription
+            scanStatusMessage = "Scan failed"
             InAppNotificationCenter.shared.showError(title: "Scan Failed", message: error.localizedDescription)
             importableFiles = []
             blockedFiles = []
@@ -413,15 +439,17 @@ final class ManualImportScanViewModel {
         }
 
         guard !selectedFiles.isEmpty else { return false }
-        isImporting = true
-        defer { isImporting = false }
+        beginImportActivity()
+        defer { endImportActivity() }
 
         let importedIDs = selectedFiles
         let savedItems = importableFiles.filter { importedIDs.contains($0.id) }
         let filesToImport = savedItems.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
 
+        let count = filesToImport.count
+        let jobID = registerImportJob(itemCount: count, primaryItem: savedItems.first)
+
         do {
-            let count = filesToImport.count
             let navAction = navigationAction
             let tabName = service == .sonarr ? "Series" : "Movies"
             let fileWord = count == 1 ? "file" : "files"
@@ -444,6 +472,7 @@ final class ManualImportScanViewModel {
 
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
+                notificationCenter.completeImportJob(id: jobID, succeeded: true)
                 notificationCenter.showSuccess(
                     title: "Import Started",
                     message: "\(count) \(fileWord) submitted to \(service.displayName). Import is still running."
@@ -455,6 +484,8 @@ final class ManualImportScanViewModel {
                 // Items were already optimistically removed. Don't reload — rescanning the folder
                 // will find the file again (hardlinks/copies leave the source in place) and undo
                 // the removal, making it look like the import failed when it didn't.
+                serviceManager.lastManualImportTimestamp = Date()
+                notificationCenter.completeImportJob(id: jobID, succeeded: true)
                 notificationCenter.showSuccess(
                     title: "Import Complete",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
@@ -464,6 +495,7 @@ final class ManualImportScanViewModel {
             } else {
                 let reason = manualImportFailureMessage(for: command)
                 Self.logger.error("Command failed — \(reason, privacy: .private)")
+                notificationCenter.completeImportJob(id: jobID, succeeded: false, errorMessage: reason)
                 notificationCenter.showError(title: "Import Failed", message: reason)
                 withAnimation(.snappy) {
                     importableFiles.append(contentsOf: savedItems)
@@ -474,9 +506,11 @@ final class ManualImportScanViewModel {
             }
         } catch is CancellationError {
             Self.logger.info("Task cancelled")
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: "Cancelled")
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
             Self.logger.error("Manual import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import Started",
                 message: "\(savedItems.count) \(savedItems.count == 1 ? "file" : "files") submitted to \(service.displayName). The import is still running; check Activity for progress."
@@ -484,6 +518,7 @@ final class ManualImportScanViewModel {
             return false
         } catch {
             Self.logger.error("Threw error — \(error, privacy: .private)")
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: error.localizedDescription)
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             withAnimation(.snappy) {
                 importableFiles.append(contentsOf: savedItems)
@@ -492,6 +527,32 @@ final class ManualImportScanViewModel {
             selectedFiles = importedIDs
             return false
         }
+    }
+
+    private func registerImportJob(itemCount: Int, primaryItem: ManualImportItem?) -> UUID {
+        let tint: ImportJobTint
+        switch service {
+        case .sonarr: tint = .sonarr
+        case .radarr: tint = .radarr
+        case .prowlarr, .bazarr: tint = .generic
+        }
+        let trimmedTitle = primaryItem?.mediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let primaryName: String
+        if !trimmedTitle.isEmpty {
+            primaryName = trimmedTitle
+        } else if let fileName = primaryItem?.fileName, !fileName.isEmpty {
+            primaryName = fileName
+        } else {
+            primaryName = folderName
+        }
+        return InAppNotificationCenter.shared.startImportJob(
+            serviceTitle: service.displayName,
+            serviceSystemImage: service.serviceIdentity.systemImage,
+            serviceTint: tint,
+            folderName: folderName,
+            primaryName: primaryName,
+            fileCount: itemCount
+        )
     }
 
 
@@ -530,7 +591,8 @@ final class ManualImportScanViewModel {
             return try await client.getManualImport(
                 folder: folder,
                 libraryItemId: libraryItemID,
-                libraryItemIDQueryName: "seriesId"
+                libraryItemIDQueryName: "seriesId",
+                requestTimeout: Self.manualImportScanRequestTimeout
             )
         case .radarr:
             guard let client = serviceManager.radarrClient else {
@@ -540,7 +602,8 @@ final class ManualImportScanViewModel {
             return try await client.getManualImport(
                 folder: folder,
                 libraryItemId: libraryItemID,
-                libraryItemIDQueryName: "movieId"
+                libraryItemIDQueryName: "movieId",
+                requestTimeout: Self.manualImportScanRequestTimeout
             )
         case .prowlarr, .bazarr:
             throw ManualImportServiceClientUnavailableError(service: service)
@@ -994,7 +1057,7 @@ final class ManualImportScanViewModel {
         isAddingToLibrary = false
 
         if importAfterAdding {
-            await importIdentifiedCascade(originalIDs: Set(blockedItems.map(\.id)))
+            await importIdentifiedItems(originalIDs: Set(blockedItems.map(\.id)))
         }
         return true
     }
@@ -1013,7 +1076,7 @@ final class ManualImportScanViewModel {
         let resolvedSeries: SonarrSeries
         do {
             let seasons = (series.seasons ?? []).map {
-                SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: importAfterAdding)
+                SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: false)
             }
             let body = SonarrAddSeriesBody(
                 tvdbId: tvdbId,
@@ -1028,8 +1091,8 @@ final class ManualImportScanViewModel {
                 seasonFolder: true,
                 seriesType: "standard",
                 addOptions: SonarrAddOptions(
-                    monitor: importAfterAdding ? "all" : "none",
-                    searchForMissingEpisodes: importAfterAdding,
+                    monitor: "none",
+                    searchForMissingEpisodes: false,
                     searchForCutoffUnmetEpisodes: false
                 ),
                 tags: nil
@@ -1051,18 +1114,53 @@ final class ManualImportScanViewModel {
         isAddingToLibrary = false
 
         if importAfterAdding {
-            await importIdentifiedCascade(originalIDs: Set(blockedItems.map(\.id)))
+            let didImport = await importIdentifiedItems(originalIDs: Set(blockedItems.map(\.id)))
+            if didImport {
+                await monitorImportedEpisodes(seriesID: resolvedSeries.id, from: blockedItems)
+            }
         }
         return true
     }
 
-    /// Imports only the files that were just identified by a catalog "Add & Import" flow,
+    private func monitorImportedEpisodes(seriesID: Int, from items: [ManualImportItem]) async {
+        guard service == .sonarr,
+              let client = serviceManager.sonarrClient else { return }
+
+        let importedKeys = Self.importedEpisodeKeys(from: items)
+        guard !importedKeys.isEmpty else { return }
+
+        do {
+            let episodes = try await client.getEpisodes(seriesId: seriesID)
+            let episodeIDs = episodes.compactMap { episode -> Int? in
+                let key = ManualImportEpisodeKey(seasonNumber: episode.seasonNumber, episodeNumber: episode.episodeNumber)
+                return importedKeys.contains(key) ? episode.id : nil
+            }
+            guard !episodeIDs.isEmpty else { return }
+            _ = try await client.setEpisodeMonitored(episodeIds: episodeIDs, monitored: true)
+        } catch {
+            Self.logger.error("Failed to monitor imported episodes for series \(seriesID): \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    nonisolated static func importedEpisodeKeys(from items: [ManualImportItem]) -> Set<ManualImportEpisodeKey> {
+        var keys: Set<ManualImportEpisodeKey> = []
+        for item in items {
+            guard let seasonNumber = item.seasonNumber else { continue }
+            for episode in item.episodes {
+                keys.insert(ManualImportEpisodeKey(seasonNumber: seasonNumber, episodeNumber: episode.number))
+            }
+        }
+        return keys
+    }
+
+    /// Imports only the files that were just identified by an identify-sheet action,
     /// not whatever else is sitting in `selectedFiles`. `importableFiles` carries the post-identify
     /// versions keyed by their original `id`.
-    private func importIdentifiedCascade(originalIDs: Set<String>) async {
+    @discardableResult
+    func importIdentifiedItems(originalIDs: Set<String>) async -> Bool {
         let toImport = importableFiles.filter { originalIDs.contains($0.id) }
-        guard !toImport.isEmpty else { return }
-        await importItems(toImport)
+        guard !toImport.isEmpty else { return false }
+        return await importItems(toImport)
     }
 
     private func storeLibraryMovie(_ movie: RadarrMovie) {
@@ -1147,13 +1245,14 @@ final class ManualImportScanViewModel {
     func importItems(_ items: [ManualImportItem]) async -> Bool {
         let filesToImport = items.filter { $0.isImportable }
         guard !filesToImport.isEmpty else { return false }
-        isImporting = true
-        defer { isImporting = false }
+        beginImportActivity()
+        defer { endImportActivity() }
 
         let count = filesToImport.count
         let fileWord = count == 1 ? "file" : "files"
         let tabName = service == .sonarr ? "Series" : "Movies"
         let ids = Set(filesToImport.map(\.id))
+        let jobID = registerImportJob(itemCount: count, primaryItem: filesToImport.first)
 
         withAnimation(.snappy) {
             importableFiles.removeAll { ids.contains($0.id) }
@@ -1166,6 +1265,7 @@ final class ManualImportScanViewModel {
             let command = try await manualImport(files: fileJSONs)
             if command.succeeded {
                 let fileNamesSummary = importedFileNamesSummary(items: filesToImport)
+                InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
                 InAppNotificationCenter.shared.showSuccess(
                     title: "Imported",
                     message: "\(count) \(fileWord) imported by \(service.displayName):\n\(fileNamesSummary)",
@@ -1175,6 +1275,7 @@ final class ManualImportScanViewModel {
             } else {
                 let reason = manualImportFailureMessage(for: command)
                 Self.logger.error("importItems failed — \(reason, privacy: .private)")
+                InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: reason)
                 InAppNotificationCenter.shared.showError(title: "Import Failed", message: reason)
                 withAnimation(.snappy) {
                     importableFiles.append(contentsOf: filesToImport)
@@ -1183,9 +1284,11 @@ final class ManualImportScanViewModel {
                 return false
             }
         } catch is CancellationError {
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: "Cancelled")
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
             Self.logger.error("Grouped import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import In Progress",
                 message: "\(count) \(fileWord) submitted to \(service.displayName). The import is still running; check Activity for progress."
@@ -1193,6 +1296,7 @@ final class ManualImportScanViewModel {
             return false
         } catch {
             Self.logger.error("importItems threw — \(error, privacy: .private)")
+            InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: error.localizedDescription)
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             withAnimation(.snappy) {
                 importableFiles.append(contentsOf: filesToImport)

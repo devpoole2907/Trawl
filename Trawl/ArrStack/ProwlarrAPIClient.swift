@@ -90,3 +90,11 @@ actor ProwlarrAPIClient: SharedArrClient {
         try await base.get("/api/v1/tag")
     }
 }
+
+#if DEBUG
+extension ProwlarrAPIClient {
+    static func preview() -> ProwlarrAPIClient {
+        ProwlarrAPIClient(baseURL: "http://preview.invalid", apiKey: "preview-key")
+    }
+}
+#endif

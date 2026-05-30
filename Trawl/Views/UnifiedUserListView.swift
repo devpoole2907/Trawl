@@ -12,6 +12,7 @@ struct UnifiedUserListView: View {
     @State private var viewModelSeerrClientID: ObjectIdentifier?
     @State private var showingAddUser = false
     @State private var showingJellyfinImport = false
+    @State private var pendingDeletion: PendingUserDeletion?
 
     private var seerrClientID: ObjectIdentifier? {
         seerrClient.map(ObjectIdentifier.init)
@@ -100,38 +101,16 @@ struct UnifiedUserListView: View {
                                 UnifiedUserRowView(user: user, seerrBaseURL: seerrBaseURL)
                             }
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if let seerr = user.seerrUser, let client = seerrClient {
+                                if let seerr = user.seerrUser, seerrClient != nil {
                                     Button(role: .destructive) {
-                                        Task {
-                                            do {
-                                                try await client.deleteUser(id: seerr.id)
-                                                viewModel.removeSeerrUser(seerr)
-                                            } catch {
-                                                inAppNotificationCenter.showError(
-                                                    title: "Remove Failed",
-                                                    message: error.localizedDescription,
-                                                    source: .inApp
-                                                )
-                                            }
-                                        }
+                                        pendingDeletion = .seerr(seerr)
                                     } label: {
                                         Label("Remove from Seerr", systemImage: "person.badge.minus")
                                     }
                                 }
                                 if let jf = user.jellyfinUser, !user.isInSeerr {
                                     Button(role: .destructive) {
-                                        Task {
-                                            do {
-                                                try await jellyfinClient.deleteUser(id: jf.id)
-                                                viewModel.removeJellyfinUser(jf)
-                                            } catch {
-                                                inAppNotificationCenter.showError(
-                                                    title: "Delete Failed",
-                                                    message: error.localizedDescription,
-                                                    source: .inApp
-                                                )
-                                            }
-                                        }
+                                        pendingDeletion = .jellyfin(jf)
                                     } label: {
                                         Label("Delete from Jellyfin", systemImage: "trash")
                                     }
@@ -207,7 +186,47 @@ struct UnifiedUserListView: View {
                 }
             }
         }
+        .alert(
+            pendingDeletion?.title ?? "Delete User?",
+            isPresented: Binding(
+                get: { pendingDeletion != nil },
+                set: { if !$0 { pendingDeletion = nil } }
+            ),
+            presenting: pendingDeletion
+        ) { deletion in
+            Button("Cancel", role: .cancel) {}
+            Button(deletion.confirmationTitle, role: .destructive) {
+                Task { await confirmDeletion(deletion, viewModel: viewModel) }
+            }
+        } message: { deletion in
+            Text(deletion.message)
+        }
         .moreDestinationBackground(.userManagement)
+    }
+
+    private func confirmDeletion(
+        _ deletion: PendingUserDeletion,
+        viewModel: UnifiedUserViewModel
+    ) async {
+        pendingDeletion = nil
+
+        do {
+            switch deletion {
+            case .seerr(let user):
+                guard let seerrClient else { return }
+                try await seerrClient.deleteUser(id: user.id)
+                viewModel.removeSeerrUser(user)
+            case .jellyfin(let user):
+                try await jellyfinClient.deleteUser(id: user.id)
+                viewModel.removeJellyfinUser(user)
+            }
+        } catch {
+            inAppNotificationCenter.showError(
+                title: deletion.failureTitle,
+                message: error.localizedDescription,
+                source: .inApp
+            )
+        }
     }
 
     private func importJellyfinUsers(
@@ -232,6 +251,122 @@ struct UnifiedUserListView: View {
         }
     }
 }
+
+private enum PendingUserDeletion: Identifiable {
+    case seerr(SeerrUser)
+    case jellyfin(JellyfinUser)
+
+    var id: String {
+        switch self {
+        case .seerr(let user):
+            "seerr-\(user.id)"
+        case .jellyfin(let user):
+            "jellyfin-\(user.id)"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .seerr:
+            "Remove Seerr User?"
+        case .jellyfin:
+            "Delete Jellyfin User?"
+        }
+    }
+
+    var confirmationTitle: String {
+        switch self {
+        case .seerr:
+            "Remove"
+        case .jellyfin:
+            "Delete"
+        }
+    }
+
+    var message: String {
+        switch self {
+        case .seerr(let user):
+            "This removes \(user.displayName) from Seerr."
+        case .jellyfin(let user):
+            "This permanently deletes \(user.name) from Jellyfin."
+        }
+    }
+
+    var failureTitle: String {
+        switch self {
+        case .seerr:
+            "Remove Failed"
+        case .jellyfin:
+            "Delete Failed"
+        }
+    }
+}
+
+#if DEBUG
+extension UnifiedUserListView {
+    init(
+        previewUsers: [UnifiedUserViewModel.UnifiedUser],
+        isLoading: Bool = false,
+        jellyfinLoadError: String? = nil,
+        seerrLoadError: String? = nil,
+        jellyfinClient: JellyfinAPIClient = .preview(),
+        seerrClient: SeerrAPIClient? = .preview(),
+        seerrBaseURL: String? = "http://seerr.preview"
+    ) {
+        self.jellyfinClient = jellyfinClient
+        self.seerrClient = seerrClient
+        self.seerrBaseURL = seerrBaseURL
+        self._viewModel = State(initialValue: UnifiedUserViewModel(
+            jellyfinClient: jellyfinClient,
+            seerrClient: seerrClient,
+            users: previewUsers,
+            isLoading: isLoading,
+            jellyfinLoadError: jellyfinLoadError,
+            seerrLoadError: seerrLoadError
+        ))
+        self._viewModelSeerrClientID = State(initialValue: seerrClient.map(ObjectIdentifier.init))
+    }
+}
+
+#Preview("Users - Linked Services") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(previewUsers: UnifiedUserViewModel.UnifiedUser.previewList)
+        }
+    }
+}
+
+#Preview("Users - Jellyfin Only") {
+    PreviewHost(profiles: .jellyfinOnly, seerr: .preview(.notConfigured)) {
+        NavigationStack {
+            UnifiedUserListView(
+                previewUsers: [.previewJellyfinOnly, .previewDisabledJellyfin],
+                seerrClient: nil,
+                seerrBaseURL: nil
+            )
+        }
+    }
+}
+
+#Preview("Users - Loading") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(previewUsers: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Users - Partial Error") {
+    PreviewHost(profiles: .allServices) {
+        NavigationStack {
+            UnifiedUserListView(
+                previewUsers: [.previewLinked, .previewSeerrOnly],
+                seerrLoadError: "Seerr returned a gateway timeout."
+            )
+        }
+    }
+}
+#endif
 
 private struct UnifiedAddUserSheet: View {
     let create: (String, String?) async throws -> JellyfinUser

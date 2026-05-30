@@ -69,3 +69,22 @@ final class SeerrUserEditorViewModel {
         errorMessage = nil
     }
 }
+
+#if DEBUG
+extension SeerrUserEditorViewModel {
+    convenience init(
+        previewUser: SeerrUser = .preview,
+        permissionsValue: Int? = nil,
+        isSaving: Bool = false,
+        errorMessage: String? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(user: previewUser, apiClient: apiClient)
+        let value = permissionsValue ?? previewUser.permissions ?? 0
+        self.permissionsValue = value
+        self.originalPermissionsValue = value
+        self.isSaving = isSaving
+        self.errorMessage = errorMessage
+    }
+}
+#endif

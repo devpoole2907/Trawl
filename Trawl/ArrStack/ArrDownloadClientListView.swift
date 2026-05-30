@@ -18,6 +18,26 @@ struct ArrDownloadClientListView: View {
     @State private var reachability: [Int: Bool] = [:]
     @State private var isCheckingIDs: Set<Int> = []
 
+    init(serviceType: ArrServiceType) {
+        self.serviceType = serviceType
+    }
+
+    #if DEBUG
+    init(
+        serviceType: ArrServiceType,
+        previewClients: [ArrDownloadClient],
+        isLoading: Bool = false,
+        loadError: String? = nil,
+        reachability: [Int: Bool] = [:]
+    ) {
+        self.serviceType = serviceType
+        _clients = State(initialValue: previewClients)
+        _isLoading = State(initialValue: isLoading)
+        _loadError = State(initialValue: loadError)
+        _reachability = State(initialValue: reachability)
+    }
+    #endif
+
     private var supportsDownloadClients: Bool {
         serviceType == .sonarr || serviceType == .radarr
     }
@@ -128,6 +148,9 @@ struct ArrDownloadClientListView: View {
             checkReachabilityForAll()
         }
         .task(id: serviceManager.isConnected(serviceType)) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
             await loadClients()
             checkReachabilityForAll()
         }
@@ -359,6 +382,7 @@ struct ArrDownloadClientListView: View {
             }
         }
         .padding(.vertical, 2)
+        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -549,3 +573,36 @@ struct ArrDownloadClientListView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Download Clients - Loaded") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrDownloadClientListView(
+                serviceType: .sonarr,
+                previewClients: ArrDownloadClient.previewList,
+                reachability: [1: true, 2: false, 3: true]
+            )
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Download Clients - Empty") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrOnly)) {
+        NavigationStack {
+            ArrDownloadClientListView(serviceType: .sonarr, previewClients: [])
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+
+#Preview("Download Clients - Unsupported") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrDownloadClientListView(serviceType: .prowlarr, previewClients: [])
+        }
+        .environment(InAppNotificationCenter.shared)
+    }
+}
+#endif

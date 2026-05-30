@@ -73,3 +73,21 @@ struct ArrMediaManagementView: View {
     }
 
 }
+
+#if DEBUG
+#Preview("Media Management - Configured") {
+    PreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            ArrMediaManagementView()
+        }
+    }
+}
+
+#Preview("Media Management - Empty") {
+    PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
+        NavigationStack {
+            ArrMediaManagementView()
+        }
+    }
+}
+#endif

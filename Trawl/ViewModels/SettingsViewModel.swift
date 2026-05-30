@@ -115,3 +115,30 @@ final class SettingsViewModel {
     }
 
 }
+
+#if DEBUG
+extension SettingsViewModel {
+    convenience init(
+        previewPollingInterval: Double = 2.0,
+        notificationsEnabled: Bool = true,
+        notificationPermissionGranted: Bool = true,
+        serverProfile: ServerProfile? = ServerProfile.preview(),
+        appVersion: String? = "1.0",
+        qbVersion: String? = "qBittorrent v5.0.3",
+        artworkCacheSizeDescription: String = "42 MB",
+        isClearingArtworkCache: Bool = false,
+        deviceToken: String? = "preview-device-token"
+    ) {
+        self.init()
+        self.pollingInterval = previewPollingInterval
+        self.notificationsEnabled = notificationsEnabled
+        self.notificationPermissionGranted = notificationPermissionGranted
+        self.serverProfile = serverProfile
+        self.appVersion = appVersion
+        self.qbVersion = qbVersion
+        self.artworkCacheSizeDescription = artworkCacheSizeDescription
+        self.isClearingArtworkCache = isClearingArtworkCache
+        self.deviceToken = deviceToken
+    }
+}
+#endif

@@ -10,10 +10,12 @@ struct BazarrMovieDetailView: View {
     @State private var showProfilePicker = false
     @State private var selectedProfileId: Int?
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
+    private let loadsOnAppear: Bool
 
     init(radarrId: Int, viewModel: BazarrViewModel) {
         self.radarrId = radarrId
         _viewModel = State(wrappedValue: viewModel)
+        loadsOnAppear = true
     }
 
     var body: some View {
@@ -52,7 +54,10 @@ struct BazarrMovieDetailView: View {
                 }
             }
         }
-        .task { await load() }
+        .task {
+            guard loadsOnAppear else { return }
+            await load()
+        }
         .refreshable { await load() }
     }
 
@@ -246,3 +251,88 @@ struct BazarrMovieDetailView: View {
         }
     }
 }
+
+#if DEBUG
+extension BazarrMovieDetailView {
+    init(
+        previewMovie: BazarrMovie? = BazarrMovie.preview,
+        isLoading: Bool = false,
+        error: String? = nil,
+        viewModel: BazarrViewModel? = nil
+    ) {
+        let resolvedMovieId = previewMovie?.radarrId ?? BazarrMovie.preview.radarrId
+        radarrId = resolvedMovieId
+        _viewModel = State(wrappedValue: viewModel ?? BazarrViewModel(
+            previewSeries: BazarrSeries.previewList,
+            previewMovies: previewMovie.map { [$0] } ?? [],
+            selectedTab: .movies
+        ))
+        _movie = State(wrappedValue: previewMovie)
+        _isLoading = State(wrappedValue: isLoading)
+        _error = State(wrappedValue: error)
+        loadsOnAppear = false
+    }
+}
+
+#Preview("Typical") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(previewMovie: .preview)
+        }
+    }
+}
+
+#Preview("Missing Subtitles") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(previewMovie: .previewMissingSubtitles)
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(previewMovie: .previewMissingArt)
+        }
+    }
+}
+
+#Preview("Long Title") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(previewMovie: .previewLongTitle)
+        }
+    }
+}
+
+#Preview("Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(
+                previewMovie: .preview,
+                isLoading: true
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(
+                previewMovie: .preview,
+                error: "Bazarr could not load this movie."
+            )
+        }
+    }
+}
+
+#Preview("Not Found") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieDetailView(previewMovie: nil)
+        }
+    }
+}
+#endif

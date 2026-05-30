@@ -95,6 +95,7 @@ struct UnifiedIndexerListItem: Identifiable {
 
 enum UnifiedIndexerRowWarningState {
     case connected
+    case temporarilyDisabled
     case disabled
 }
 
@@ -146,13 +147,22 @@ struct UnifiedIndexerRowView: View {
     }
 
     private var statusColor: Color {
-        isEnabled ? barColor : .secondary.opacity(0.4)
+        switch warningState {
+        case .connected:
+            barColor
+        case .temporarilyDisabled:
+            .orange
+        case .disabled:
+            .secondary.opacity(0.4)
+        }
     }
 
     private var warningIcon: String {
         switch warningState {
         case .connected:
             "circle.fill"
+        case .temporarilyDisabled:
+            "exclamationmark.triangle.fill"
         case .disabled:
             "circle"
         }
@@ -162,6 +172,8 @@ struct UnifiedIndexerRowView: View {
         switch warningState {
         case .connected:
             .green
+        case .temporarilyDisabled:
+            .orange
         case .disabled:
             .secondary
         }

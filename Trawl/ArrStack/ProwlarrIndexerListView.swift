@@ -12,6 +12,11 @@ struct ProwlarrIndexerListView: View {
     @State private var addDestination: AddIndexerDestination?
     @State private var searchText = ""
     @State private var showTestAllConfirm = false
+    private let loadsDataOnAppear: Bool
+
+    init(loadsDataOnAppear: Bool = true) {
+        self.loadsDataOnAppear = loadsDataOnAppear
+    }
 
     var body: some View {
         Group {
@@ -41,6 +46,7 @@ struct ProwlarrIndexerListView: View {
             if applicationsViewModel == nil {
                 applicationsViewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
             }
+            guard loadsDataOnAppear else { return }
             await reloadData()
         }
         .sheet(item: $addDestination) { destination in
@@ -78,6 +84,13 @@ struct ProwlarrIndexerListView: View {
                     ForEach(unavailableSources) { source in
                         unavailableRow(source)
                     }
+                }
+            }
+
+            if serviceManager.prowlarrConnected, let error = prowlarrViewModel.indexerError {
+                Section("Prowlarr") {
+                    Label(error, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
                 }
             }
 
@@ -200,7 +213,7 @@ struct ProwlarrIndexerListView: View {
                     sourceLabel: item.sourceLabel,
                     barColor: item.barColor,
                     priority: indexer.priority,
-                    isEnabled: indexer.enable,
+                    isEnabled: prowlarrViewModel.isIndexerAvailable(indexer),
                     warningState: item.warningState
                 )
             }
@@ -515,14 +528,23 @@ struct ProwlarrIndexerListView: View {
 
         if serviceManager.prowlarrConnected {
             let prowlarrItems = prowlarrViewModel.indexers.map { indexer in
-                UnifiedIndexerListItem(
+                let warningState: UnifiedIndexerRowWarningState =
+                    if !indexer.enable {
+                        .disabled
+                    } else if prowlarrViewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
+                        .temporarilyDisabled
+                    } else {
+                        .connected
+                    }
+
+                return UnifiedIndexerListItem(
                     kind: .prowlarr(indexer),
                     title: indexer.name ?? "Unknown",
                     implementationName: indexer.implementationName ?? indexer.implementation,
                     protocolName: indexer.protocol?.displayName,
                     sourceLabel: "Prowlarr",
                     barColor: color(for: .prowlarr),
-                    warningState: indexer.enable ? .connected : .disabled,
+                    warningState: warningState,
                     section: section(for: indexer.protocol?.rawValue)
                 )
             }
@@ -843,3 +865,186 @@ struct ProwlarrIndexerListView: View {
         .ignoresSafeArea()
     }
 }
+
+#if DEBUG
+extension ProwlarrIndexerListView {
+    init(
+        previewProwlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel,
+        applicationsViewModel: ProwlarrApplicationsViewModel? = nil,
+        searchText: String = ""
+    ) {
+        self.init(loadsDataOnAppear: false)
+        self._prowlarrViewModel = State(initialValue: previewProwlarrViewModel)
+        self._directViewModel = State(initialValue: directViewModel)
+        self._applicationsViewModel = State(initialValue: applicationsViewModel)
+        self._searchText = State(initialValue: searchText)
+    }
+}
+
+enum ProwlarrPreviewSupport {
+    @MainActor
+    static func profiles(matching manager: ArrServiceManager, includeRemotes: Bool = true) -> PreviewSupport.ProfileScenario {
+        .custom { context in
+            let prowlarr = ArrServiceProfile.preview(
+                .prowlarr,
+                displayName: "Prowlarr",
+                hostURL: "http://192.168.1.52:9696"
+            )
+            if let id = manager.activeInstanceID(.prowlarr) {
+                prowlarr.id = id
+            }
+            context.insert(prowlarr)
+
+            guard includeRemotes else { return }
+
+            let sonarr = ArrServiceProfile.preview(
+                .sonarr,
+                displayName: "Sonarr",
+                hostURL: "http://192.168.1.50:8989"
+            )
+            if let id = manager.activeInstanceID(.sonarr) {
+                sonarr.id = id
+            }
+            context.insert(sonarr)
+
+            let radarr = ArrServiceProfile.preview(
+                .radarr,
+                displayName: "Radarr 4K",
+                hostURL: "http://192.168.1.51:7878"
+            )
+            if let id = manager.activeInstanceID(.radarr) {
+                radarr.id = id
+            }
+            context.insert(radarr)
+        }
+    }
+
+    @MainActor
+    static func directViewModel(for manager: ArrServiceManager) -> ArrIndexerManagementViewModel {
+        var sonarrIndexers: [UUID: [ArrManagedIndexer]] = [:]
+        var radarrIndexers: [UUID: [ArrManagedIndexer]] = [:]
+        var schema: [UUID: [ArrManagedIndexer]] = [:]
+
+        if let sonarrID = manager.activeInstanceID(.sonarr) {
+            sonarrIndexers[sonarrID] = ArrManagedIndexer.previewList
+            schema[sonarrID] = ArrManagedIndexer.previewSchemaList
+        }
+
+        if let radarrID = manager.activeInstanceID(.radarr) {
+            radarrIndexers[radarrID] = [
+                ArrManagedIndexer.previewUsenet,
+                ArrManagedIndexer.previewDisabled,
+            ]
+            schema[radarrID] = ArrManagedIndexer.previewSchemaList
+        }
+
+        return ArrIndexerManagementViewModel(
+            previewSonarrIndexersByProfileID: sonarrIndexers,
+            previewRadarrIndexersByProfileID: radarrIndexers,
+            previewSchemaByProfileID: schema,
+            serviceManager: manager
+        )
+    }
+
+    @MainActor
+    static func applicationsViewModel(for manager: ArrServiceManager) -> ProwlarrApplicationsViewModel {
+        ProwlarrApplicationsViewModel(
+            previewApplications: ProwlarrApplication.previewList,
+            serviceManager: manager
+        )
+    }
+}
+
+#Preview("Loaded") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    indexerStatuses: ProwlarrIndexerStatus.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                ),
+                directViewModel: ProwlarrPreviewSupport.directViewModel(for: manager),
+                applicationsViewModel: ProwlarrPreviewSupport.applicationsViewModel(for: manager)
+            )
+        }
+    }
+}
+
+#Preview("Loaded - Heavy") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewHeavyList,
+                    stats: .previewHeavy,
+                    serviceManager: manager
+                ),
+                directViewModel: ProwlarrPreviewSupport.directViewModel(for: manager),
+                applicationsViewModel: ProwlarrPreviewSupport.applicationsViewModel(for: manager)
+            )
+        }
+    }
+}
+
+#Preview("Empty") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(previewIndexers: [], serviceManager: manager),
+                directViewModel: ArrIndexerManagementViewModel(serviceManager: manager),
+                applicationsViewModel: ProwlarrPreviewSupport.applicationsViewModel(for: manager)
+            )
+        }
+    }
+}
+
+#Preview("Loading") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(
+                    previewIndexers: [],
+                    isLoadingIndexers: true,
+                    serviceManager: manager
+                ),
+                directViewModel: ArrIndexerManagementViewModel(serviceManager: manager)
+            )
+        }
+    }
+}
+
+#Preview("Error") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(
+                    previewIndexers: [],
+                    indexerError: "The server returned 500 Internal Server Error.",
+                    serviceManager: manager
+                ),
+                directViewModel: ArrIndexerManagementViewModel(serviceManager: manager)
+            )
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    let manager = ArrServiceManager.preview(.noneConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerListView(
+                previewProwlarrViewModel: ProwlarrViewModel(previewIndexers: [], serviceManager: manager),
+                directViewModel: ArrIndexerManagementViewModel(serviceManager: manager)
+            )
+        }
+    }
+}
+#endif

@@ -794,3 +794,11 @@ nonisolated private struct BazarrValueResponse<Value: Decodable>: Decodable {
         value = try container.decode(Value.self, forKey: .data)
     }
 }
+
+#if DEBUG
+extension BazarrAPIClient {
+    static func preview() -> BazarrAPIClient {
+        BazarrAPIClient(baseURL: "http://preview.invalid", apiKey: "preview-key")
+    }
+}
+#endif

@@ -3,6 +3,8 @@ import SwiftData
 
 enum MoreDestination: Hashable {
     case activity
+    case activityQueue
+    case activityHistory
     case categoriesAndTags
     case rssFeeds
     case diskSpace
@@ -65,6 +67,8 @@ enum MoreDestination: Hashable {
 }
 
 enum MoreDestinationAccent {
+    case settings
+    case activity
     case calendar
     case manualImport
     case categoriesAndTags
@@ -95,6 +99,8 @@ enum MoreDestinationAccent {
 
     var color: Color {
         switch self {
+        case .settings: return .secondary
+        case .activity: return .indigo
         case .calendar: return .purple
         case .manualImport: return .blue
         case .categoriesAndTags: return .brown
@@ -422,7 +428,7 @@ struct MoreView: View {
 
                         NavigationLink(value: MoreDestination.blocklist) {
                             moreRow(icon: "nosign", color: .red,
-                                    title: "Blocklist", subtitle: "Releases blocked from being grabbed")
+                                    title: "Blocked & Excluded", subtitle: "Blocked releases and import-list exclusions")
                         }
                     }
 
@@ -446,7 +452,7 @@ struct MoreView: View {
 
                         NavigationLink(value: MoreDestination.torrentManagement) {
                             moreRow(icon: "arrow.down.circle.fill", color: MoreDestinationAccent.torrentManagement.color,
-                                    title: "Torrents", subtitle: "Transfer stats, categories, RSS feeds, and settings")
+                                    title: "Torrents", subtitle: "Transfer stats, categories, and RSS feeds")
                         }
 
                         NavigationLink(value: MoreDestination.integrations) {
@@ -536,7 +542,13 @@ struct MoreView: View {
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
                 case .activity:
-                    ArrActivityView()
+                    ArrActivityHubView()
+                        .moreDestinationTitleStyle()
+                case .activityQueue:
+                    ArrActivityQueueView()
+                        .moreDestinationTitleStyle()
+                case .activityHistory:
+                    ArrHistoryView()
                         .moreDestinationTitleStyle()
                 case .categoriesAndTags:
                     qbittorrentCategoriesAndTagsDestination
@@ -1167,6 +1179,148 @@ struct MoreView: View {
     }
 }
 
+#if DEBUG
+@MainActor
+private enum MorePreviewFixtures {
+    static func appServices() -> AppServices {
+        AppServices.disconnected()
+    }
+
+    static func notificationCenter() -> InAppNotificationCenter {
+        InAppNotificationCenter(
+            previewNotifications: notificationEntries,
+            lastReadDate: Date().addingTimeInterval(-3_600)
+        )
+    }
+
+    static var notificationEntries: [NotificationLogEntry] {
+        [
+            NotificationLogEntry(
+                title: "Sonarr Health Warning",
+                message: "Indexer sync completed, but one indexer reported a stale certificate.",
+                style: .error,
+                source: .system,
+                timestamp: Date().addingTimeInterval(-240)
+            ),
+            NotificationLogEntry(
+                title: "Download Complete",
+                message: "Dune Part Two imported successfully through qBittorrent and Radarr.",
+                style: .success,
+                source: .inApp,
+                timestamp: Date().addingTimeInterval(-1_800)
+            ),
+            NotificationLogEntry(
+                title: "Jellyfin User Import",
+                message: "Three Jellyfin users are ready to import into Seerr.",
+                style: .progress,
+                source: .inApp,
+                timestamp: Date().addingTimeInterval(-7_200)
+            ),
+        ]
+    }
+}
+
+private struct MorePreviewHost<Content: View>: View {
+    let profiles: PreviewSupport.ProfileScenario
+    let arr: ArrServiceManager
+    let jellyfin: JellyfinServiceManager
+    let seerr: SeerrServiceManager
+    let appServices: AppServices?
+    let content: (AppServices?) -> Content
+
+    init(
+        profiles: PreviewSupport.ProfileScenario = .allServices,
+        arr: ArrServiceManager = .preview(),
+        jellyfin: JellyfinServiceManager = .preview(),
+        seerr: SeerrServiceManager = .preview(),
+        appServices: AppServices? = MorePreviewFixtures.appServices(),
+        @ViewBuilder content: @escaping (AppServices?) -> Content
+    ) {
+        self.profiles = profiles
+        self.arr = arr
+        self.jellyfin = jellyfin
+        self.seerr = seerr
+        self.appServices = appServices
+        self.content = content
+    }
+
+    var body: some View {
+        PreviewHost(
+            profiles: profiles,
+            arr: arr,
+            jellyfin: jellyfin,
+            seerr: seerr,
+            appServices: appServices,
+            notificationCenter: MorePreviewFixtures.notificationCenter()
+        ) {
+            content(appServices)
+        }
+    }
+}
+
+#Preview("More - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Sonarr Only") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrOnly),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Connection Issue") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrConnectionError("Could not reach the Sonarr preview host.")),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+
+#Preview("More - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { appServices in
+        MoreView(
+            appServices: appServices,
+            path: .constant([]),
+            isQBittorrentConnecting: false,
+            onRetryQBittorrent: nil
+        )
+    }
+}
+#endif
+
 private struct MoreSearchResultRow: View {
     let entry: MoreSearchIndexEntry
 
@@ -1308,10 +1462,10 @@ private enum MoreSearchIndex {
                 destination: .blocklist,
                 icon: "nosign",
                 color: .red,
-                title: "Blocklist",
-                subtitle: "Releases blocked from being grabbed",
+                title: "Blocked & Excluded",
+                subtitle: "Blocked releases and import-list exclusions",
                 category: "Monitoring",
-                keywords: ["blocked", "blacklist", "failed", "grabbed", "release"]
+                keywords: ["blocked", "blacklist", "failed", "grabbed", "release", "exclusion", "import list"]
             ),
             .init(
                 id: "media-management",
@@ -1429,9 +1583,9 @@ private enum MoreSearchIndex {
                 icon: "arrow.down.circle.fill",
                 color: MoreDestinationAccent.torrentManagement.color,
                 title: "Torrents",
-                subtitle: "Transfer stats, categories, RSS feeds, and settings",
+                subtitle: "Transfer stats, categories, and RSS feeds",
                 category: "Torrents",
-                keywords: ["qbittorrent", "downloads", "rss", "speed", "limits"]
+                keywords: ["qbittorrent", "downloads", "rss", "speed"]
             ),
             .init(
                 id: "transfer-stats",
@@ -1462,16 +1616,6 @@ private enum MoreSearchIndex {
                 subtitle: "Feeds and automatic download rules",
                 category: "Torrents",
                 keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"]
-            ),
-            .init(
-                id: "qbittorrent-settings",
-                destination: .qbittorrentSettings,
-                icon: "gearshape.fill",
-                color: ServiceIdentity.qbittorrent.brandColor,
-                title: "qBittorrent Settings",
-                subtitle: "Server, speed limits, and save location",
-                category: "Settings",
-                keywords: ["torrent", "downloads", "connection", "server", "speed", "limits"]
             ),
             .init(
                 id: "integrations",
@@ -1869,12 +2013,25 @@ private struct IntegrationsManagementView: View {
     }
 }
 
+#if DEBUG
+#Preview("Integrations Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            IntegrationsManagementView()
+        }
+    }
+}
+#endif
+
 private struct LinkedApplicationsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var statusModel = LinkedApplicationsStatusViewModel()
+    #if DEBUG
+    private var skipsStatusRefresh = false
+    #endif
 
     var body: some View {
         List {
@@ -1926,6 +2083,9 @@ private struct LinkedApplicationsManagementView: View {
             )
         }
         .task {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             await statusModel.load(
                 arrServiceManager: arrServiceManager,
                 seerrServiceManager: seerrServiceManager,
@@ -1934,6 +2094,9 @@ private struct LinkedApplicationsManagementView: View {
             )
         }
         .onAppear {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             Task {
                 await statusModel.load(
                     arrServiceManager: arrServiceManager,
@@ -1946,9 +2109,55 @@ private struct LinkedApplicationsManagementView: View {
     }
 }
 
+#if DEBUG
+extension LinkedApplicationsManagementView {
+    init(previewStatusModel: LinkedApplicationsStatusViewModel) {
+        self._statusModel = State(initialValue: previewStatusModel)
+        self.skipsStatusRefresh = true
+    }
+}
+
+#Preview("Linked Applications - Mixed") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            LinkedApplicationsManagementView(
+                previewStatusModel: LinkedApplicationsStatusViewModel(
+                    indexerStatus: .connected,
+                    subtitleStatus: .partiallyConnected,
+                    requestRoutingStatus: .connected
+                )
+            )
+        }
+    }
+}
+
+#Preview("Linked Applications - Not Configured") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            LinkedApplicationsManagementView(
+                previewStatusModel: LinkedApplicationsStatusViewModel(
+                    indexerStatus: .notConfigured,
+                    subtitleStatus: .notConfigured,
+                    requestRoutingStatus: .notConfigured
+                )
+            )
+        }
+    }
+}
+#endif
+
 private struct DownloadClientsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @State private var statusModel = DownloadClientsStatusViewModel()
+    #if DEBUG
+    private var skipsStatusRefresh = false
+    #endif
 
     var body: some View {
         List {
@@ -1985,15 +2194,62 @@ private struct DownloadClientsManagementView: View {
             await statusModel.load(arrServiceManager: arrServiceManager)
         }
         .task {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             await statusModel.load(arrServiceManager: arrServiceManager)
         }
         .onAppear {
+            #if DEBUG
+            guard !skipsStatusRefresh else { return }
+            #endif
             Task {
                 await statusModel.load(arrServiceManager: arrServiceManager)
             }
         }
     }
 }
+
+#if DEBUG
+extension DownloadClientsManagementView {
+    init(previewStatusModel: DownloadClientsStatusViewModel) {
+        self._statusModel = State(initialValue: previewStatusModel)
+        self.skipsStatusRefresh = true
+    }
+}
+
+#Preview("Download Clients Hub - Connected") {
+    MorePreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            DownloadClientsManagementView(
+                previewStatusModel: DownloadClientsStatusViewModel(
+                    sonarrStatus: .connected,
+                    radarrStatus: .partiallyEnabled
+                )
+            )
+        }
+    }
+}
+
+#Preview("Download Clients Hub - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            DownloadClientsManagementView(
+                previewStatusModel: DownloadClientsStatusViewModel(
+                    sonarrStatus: .notConfigured,
+                    radarrStatus: .notConfigured
+                )
+            )
+        }
+    }
+}
+#endif
 
 @MainActor
 @Observable
@@ -2002,6 +2258,18 @@ private final class DownloadClientsStatusViewModel {
     private(set) var radarrStatus: IntegrationRelationshipStatus = .loading
 
     private var isLoading = false
+
+    init() {}
+
+    #if DEBUG
+    init(
+        sonarrStatus: IntegrationRelationshipStatus,
+        radarrStatus: IntegrationRelationshipStatus
+    ) {
+        self.sonarrStatus = sonarrStatus
+        self.radarrStatus = radarrStatus
+    }
+    #endif
 
     func load(arrServiceManager: ArrServiceManager) async {
         guard !isLoading else { return }
@@ -2087,6 +2355,20 @@ private final class LinkedApplicationsStatusViewModel {
     private(set) var requestRoutingStatus: IntegrationRelationshipStatus = .loading
 
     private var isLoading = false
+
+    init() {}
+
+    #if DEBUG
+    init(
+        indexerStatus: IntegrationRelationshipStatus,
+        subtitleStatus: IntegrationRelationshipStatus,
+        requestRoutingStatus: IntegrationRelationshipStatus
+    ) {
+        self.indexerStatus = indexerStatus
+        self.subtitleStatus = subtitleStatus
+        self.requestRoutingStatus = requestRoutingStatus
+    }
+    #endif
 
     func load(
         arrServiceManager: ArrServiceManager,
@@ -2377,10 +2659,9 @@ private struct IntegrationRelationshipRow: View {
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.secondary)
 
-            HStack(spacing: -6) {
+            HStack(spacing: 5) {
                 ForEach(targets, id: \.self) { target in
                     serviceIcon(target)
-                        .background(Circle().fill(.background))
                 }
             }
         }
@@ -2426,6 +2707,16 @@ private struct SubtitleManagementView: View {
     }
 }
 
+#if DEBUG
+#Preview("Subtitles Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            SubtitleManagementView()
+        }
+    }
+}
+#endif
+
 private struct TorrentManagementView: View {
     var body: some View {
         List {
@@ -2456,15 +2747,6 @@ private struct TorrentManagementView: View {
                         subtitle: "Feeds and automatic download rules"
                     )
                 }
-
-                NavigationLink(value: MoreDestination.qbittorrentSettings) {
-                    NavigationMenuRow(
-                        icon: "gearshape.fill",
-                        color: ServiceIdentity.qbittorrent.brandColor,
-                        title: "qBittorrent Settings",
-                        subtitle: "Server, speed limits, and save location"
-                    )
-                }
             }
         }
         #if os(iOS)
@@ -2474,6 +2756,16 @@ private struct TorrentManagementView: View {
         .moreDestinationBackground(.torrentManagement)
     }
 }
+
+#if DEBUG
+#Preview("Torrent Management Hub") {
+    MorePreviewHost(profiles: .qBittorrentOnly) { _ in
+        NavigationStack {
+            TorrentManagementView()
+        }
+    }
+}
+#endif
 
 private struct RequestManagementView: View {
     let seerrProfile: SeerrServiceProfile?
@@ -2508,6 +2800,24 @@ private struct RequestManagementView: View {
         .moreDestinationBackground(.requestManagement)
     }
 }
+
+#if DEBUG
+#Preview("Requests Hub - Configured") {
+    MorePreviewHost(profiles: .seerrOnly) { _ in
+        NavigationStack {
+            RequestManagementView(seerrProfile: .preview())
+        }
+    }
+}
+
+#Preview("Requests Hub - Empty") {
+    MorePreviewHost(profiles: .empty, seerr: .preview(.notConfigured), appServices: nil) { _ in
+        NavigationStack {
+            RequestManagementView(seerrProfile: nil)
+        }
+    }
+}
+#endif
 
 private struct LogsAndEventsHubView: View {
     let hasQBittorrentLog: Bool
@@ -2584,6 +2894,104 @@ private struct LogsAndEventsHubView: View {
     }
 }
 
+#if DEBUG
+#Preview("Logs Hub - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            LogsAndEventsHubView(hasQBittorrentLog: true)
+        }
+    }
+}
+
+#Preview("Logs Hub - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            LogsAndEventsHubView(hasQBittorrentLog: false)
+        }
+    }
+}
+#endif
+
+private struct ArrActivityHubView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+
+    private var hasAnyActivitySource: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasProwlarrInstance ||
+            arrServiceManager.hasBazarrInstance
+    }
+
+    private var hasQueueCapableService: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasBazarrInstance
+    }
+
+    var body: some View {
+        List {
+            if hasAnyActivitySource {
+                Section {
+                    if hasQueueCapableService {
+                        NavigationLink(value: MoreDestination.activityQueue) {
+                            NavigationMenuRow(
+                                icon: "arrow.down.circle.fill",
+                                color: MoreDestinationAccent.activity.color,
+                                title: "Queue",
+                                subtitle: "Downloads, imports, and background tasks"
+                            )
+                        }
+                    }
+
+                    NavigationLink(value: MoreDestination.activityHistory) {
+                        NavigationMenuRow(
+                            icon: "clock.arrow.circlepath",
+                            color: MoreDestinationAccent.activity.color,
+                            title: "History",
+                            subtitle: "Past grabs, imports, and indexer events"
+                        )
+                    }
+                }
+            } else {
+                ContentUnavailableView(
+                    "No Services Configured",
+                    systemImage: "server.rack",
+                    description: Text("Connect Sonarr, Radarr, Prowlarr, or Bazarr to view activity.")
+                )
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Activity")
+        .moreDestinationBackground(.activity)
+    }
+}
+
+#if DEBUG
+#Preview("Arr Activity Hub - Configured") {
+    MorePreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            ArrActivityHubView()
+        }
+    }
+}
+
+#Preview("Arr Activity Hub - Empty") {
+    MorePreviewHost(profiles: .empty, arr: .preview(.noneConfigured), appServices: nil) { _ in
+        NavigationStack {
+            ArrActivityHubView()
+        }
+    }
+}
+#endif
+
 private struct TasksHubView: View {
     let jellyfinProfile: JellyfinServiceProfile?
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -2648,6 +3056,30 @@ private struct TasksHubView: View {
     }
 }
 
+#if DEBUG
+#Preview("Tasks Hub - All Services") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            TasksHubView(jellyfinProfile: .preview())
+        }
+    }
+}
+
+#Preview("Tasks Hub - Arr Only") {
+    MorePreviewHost(
+        profiles: .arrOnly,
+        arr: .preview(.sonarrOnly),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
+        NavigationStack {
+            TasksHubView(jellyfinProfile: nil)
+        }
+    }
+}
+#endif
+
 private struct JellyfinManagementView: View {
     let jellyfinProfile: JellyfinServiceProfile?
 
@@ -2689,6 +3121,16 @@ private struct JellyfinManagementView: View {
         .moreDestinationBackground(.jellyfin)
     }
 }
+
+#if DEBUG
+#Preview("Jellyfin Management Hub") {
+    MorePreviewHost(profiles: .jellyfinOnly) { _ in
+        NavigationStack {
+            JellyfinManagementView(jellyfinProfile: .preview())
+        }
+    }
+}
+#endif
 
 private struct MoreServicesGradientBackground: View {
     let services: [ServiceIdentity]
@@ -2801,22 +3243,61 @@ struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(ArrServiceManager.self) private var arrServiceManager
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
+    @State private var queuedImportCommands: [QueuedImportCommand] = []
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
+    private var unreadNotificationCount: Int {
+        inAppNotificationCenter.recentNotifications.filter { $0.timestamp > effectiveUnreadSinceDate }.count
+    }
+    private var effectiveUnreadSinceDate: Date {
+        unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
+    }
+
+    private var activeJobs: [ActiveImportJob] {
+        inAppNotificationCenter.activeImportJobs
+    }
+
+    private var hasImportActivity: Bool {
+        !activeJobs.isEmpty || !displayedImportCommands.isEmpty
+    }
+
+    private var displayedImportCommands: [QueuedImportCommand] {
+        guard !activeJobs.isEmpty else { return queuedImportCommands }
+        return queuedImportCommands.filter(\.isQueued)
+    }
+
+    private var subtitleText: String {
+        let running = inAppNotificationCenter.runningImportJobsCount
+        let displayedCommands = displayedImportCommands
+        let queued = displayedCommands.filter(\.isQueued).count
+        let remoteActive = displayedCommands.count
+        let active = running + remoteActive
+        if active > 0 {
+            let word = active == 1 ? "import" : "imports"
+            if queued > 0 {
+                return "\(active) \(word) active, \(queued) queued · \(unreadNotificationCount) unread"
+            }
+            return "\(active) \(word) in progress · \(unreadNotificationCount) unread"
+        }
+        return "\(unreadNotificationCount) unread"
+    }
 
     var body: some View {
         AppSheetShell(
             title: "Notifications",
-            subtitle: notificationCount > 0 ? "\(notificationCount) notification\(notificationCount == 1 ? "" : "s")" : nil,
-            confirmTitle: notificationCount > 0 ? "Clear" : nil,
-            onConfirm: notificationCount > 0 ? { showClearConfirmation = true } : nil,
+            subtitle: subtitleText,
+            cancelTitle: "Close",
+            cancelSystemImage: "xmark",
+            showsCancel: false,
+            usesInlineLargeTitle: true,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
             Group {
-                if inAppNotificationCenter.recentNotifications.isEmpty {
+                if !hasImportActivity && inAppNotificationCenter.recentNotifications.isEmpty {
                     ContentUnavailableView {
                         Label("No Notifications Yet", systemImage: "bell.slash")
                     } description: {
@@ -2831,9 +3312,55 @@ struct RecentNotificationsSheet: View {
                         }
                     }
                 } else {
-                    List(inAppNotificationCenter.recentNotifications) { entry in
-                        notificationRow(for: entry)
+                    List {
+                        if hasImportActivity {
+                            Section {
+                                ForEach(activeJobs) { job in
+                                    activeImportJobRow(job)
+                                        .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
+                                            if job.status != .running {
+                                                Button(role: .destructive) {
+                                                    inAppNotificationCenter.removeImportJob(id: job.id)
+                                                } label: {
+                                                    Label("Dismiss", systemImage: "xmark")
+                                                }
+                                            }
+                                        }
+                                }
+
+                                ForEach(displayedImportCommands) { command in
+                                    queuedImportCommandRow(command)
+                                }
+                            } header: {
+                                HStack {
+                                    Text("Imports")
+                                    Spacer(minLength: 8)
+                                    if activeJobs.contains(where: { $0.status != .running }) {
+                                        Button("Clear Finished") {
+                                            inAppNotificationCenter.clearFinishedImportJobs()
+                                        }
+                                        .font(.caption.weight(.semibold))
+                                        .textCase(nil)
+                                    }
+                                }
+                            }
+                        }
+
+                        if !inAppNotificationCenter.recentNotifications.isEmpty {
+                            Section {
+                                ForEach(inAppNotificationCenter.recentNotifications) { entry in
+                                    notificationRow(for: entry)
+                                }
+                            } header: {
+                                Text("Recent")
+                            }
+                        }
                     }
+                    #if os(iOS)
+                    .listStyle(.insetGrouped)
+                    #else
+                    .listStyle(.inset)
+                    #endif
                 }
             }
             .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
@@ -2844,10 +3371,37 @@ struct RecentNotificationsSheet: View {
             } message: {
                 Text("All recent notifications will be removed.")
             }
+            #if os(iOS)
+            .toolbar {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        NotificationSettingsHubView()
+                    } label: {
+                        Label("Notification Settings", systemImage: "gearshape")
+                    }
+                }
+
+                if notificationCount > 0 {
+                    ToolbarSpacer(.flexible, placement: .topBarTrailing)
+                    ToolbarItemGroup(placement: .topBarTrailing) {
+                        Button("Clear") {
+                            showClearConfirmation = true
+                        }
+                    }
+                }
+            }
+            #endif
         }
         .onAppear {
             unreadSinceDate = inAppNotificationCenter.lastReadDate
             inAppNotificationCenter.markAllRead()
+        }
+        .task {
+            await refreshQueuedImportCommands()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                await refreshQueuedImportCommands()
+            }
         }
     }
 
@@ -2936,6 +3490,181 @@ struct RecentNotificationsSheet: View {
         message.count > Self.longMessageThreshold || message.contains("\n")
     }
 
+    private func tintColor(for tint: ImportJobTint) -> Color {
+        switch tint {
+        case .sonarr: return ServiceIdentity.sonarr.brandColor
+        case .radarr: return ServiceIdentity.radarr.brandColor
+        case .generic: return .accentColor
+        }
+    }
+
+    private func tintColor(for service: QueuedImportCommand.Service) -> Color {
+        switch service {
+        case .sonarr: return ServiceIdentity.sonarr.brandColor
+        case .radarr: return ServiceIdentity.radarr.brandColor
+        }
+    }
+
+    private func refreshQueuedImportCommands() async {
+        var commands: [QueuedImportCommand] = []
+
+        if let client = arrServiceManager.sonarrClient {
+            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .sonarr))
+        }
+        if let client = arrServiceManager.radarrClient {
+            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .radarr))
+        }
+
+        queuedImportCommands = commands.sorted {
+            ($0.queued ?? "") > ($1.queued ?? "")
+        }
+    }
+
+    private func loadQueuedImportCommands<Client: SharedArrClient>(
+        client: Client,
+        service: QueuedImportCommand.Service
+    ) async -> [QueuedImportCommand] {
+        do {
+            return try await client.getCommandQueue()
+                .filter { $0.isActiveManualImport }
+                .map { QueuedImportCommand(command: $0, service: service) }
+        } catch {
+            return []
+        }
+    }
+
+    @ViewBuilder
+    private func activeImportJobRow(_ job: ActiveImportJob) -> some View {
+        let tint = tintColor(for: job.serviceTint)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                switch job.status {
+                case .running:
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(tint)
+                case .succeeded:
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.green)
+                case .failed:
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.title3)
+                        .foregroundStyle(.red)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: job.serviceSystemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text(job.serviceTitle)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(activeImportJobStatusText(job))
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(activeImportJobStatusColor(job))
+                    Spacer(minLength: 0)
+                }
+
+                Text(job.primaryName)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                Text(activeImportJobSubtitle(job))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+
+                if let error = job.errorMessage, job.status == .failed {
+                    Text(error)
+                        .font(.caption2)
+                        .foregroundStyle(.red)
+                        .lineLimit(2)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    private func activeImportJobStatusText(_ job: ActiveImportJob) -> String {
+        switch job.status {
+        case .running: return "Importing"
+        case .succeeded: return "Imported"
+        case .failed: return "Failed"
+        }
+    }
+
+    private func activeImportJobStatusColor(_ job: ActiveImportJob) -> Color {
+        switch job.status {
+        case .running: return .secondary
+        case .succeeded: return .green
+        case .failed: return .red
+        }
+    }
+
+    private func activeImportJobSubtitle(_ job: ActiveImportJob) -> String {
+        let fileWord = job.fileCount == 1 ? "file" : "files"
+        let countText = "\(job.fileCount) \(fileWord)"
+        let timeText: String
+        if let completedAt = job.completedAt {
+            timeText = completedAt.formatted(date: .omitted, time: .shortened)
+        } else {
+            timeText = job.startedAt.formatted(date: .omitted, time: .shortened)
+        }
+        return "\(countText) · \(job.folderName) · \(timeText)"
+    }
+
+    @ViewBuilder
+    private func queuedImportCommandRow(_ command: QueuedImportCommand) -> some View {
+        let tint = tintColor(for: command.service)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.title3)
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: command.service.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text(command.service.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(command.statusText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+
+                Text(command.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                Text(command.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
     @ViewBuilder
     private func notificationRow(for entry: NotificationLogEntry) -> some View {
         let long = isLongMessage(entry.message)
@@ -2999,6 +3728,598 @@ struct RecentNotificationsSheet: View {
         .padding(.vertical, 2)
     }
 }
+
+private struct QueuedImportCommand: Identifiable, Sendable {
+    enum Service: Sendable {
+        case sonarr
+        case radarr
+
+        var title: String {
+            switch self {
+            case .sonarr: "Sonarr"
+            case .radarr: "Radarr"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .sonarr: ServiceIdentity.sonarr.systemImage
+            case .radarr: ServiceIdentity.radarr.systemImage
+            }
+        }
+
+        var idPrefix: String {
+            switch self {
+            case .sonarr: "sonarr"
+            case .radarr: "radarr"
+            }
+        }
+    }
+
+    let id: String
+    let service: Service
+    let commandID: Int?
+    let queued: String?
+    let status: String?
+
+    init(command: ArrCommand, service: Service) {
+        self.service = service
+        self.commandID = command.id
+        self.queued = command.queued
+        self.status = command.status
+        self.id = "\(service.idPrefix)-\(command.id?.description ?? command.queued ?? UUID().uuidString)"
+    }
+
+    var title: String {
+        if let commandID {
+            return "Manual Import #\(commandID)"
+        }
+        return "Manual Import"
+    }
+
+    var subtitle: String {
+        let prefix = isQueued ? "Waiting in command queue" : "Running in \(service.title)"
+        guard let queued, !queued.isEmpty else { return prefix }
+        return "\(prefix) · \(queued)"
+    }
+
+    var isQueued: Bool {
+        normalizedStatus == "queued"
+    }
+
+    var statusText: String {
+        switch normalizedStatus {
+        case "queued": return "Queued"
+        case "started": return "Importing"
+        default: return status?.capitalized ?? "Active"
+        }
+    }
+
+    private var normalizedStatus: String {
+        (status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
+private extension ArrCommand {
+    var isActiveManualImport: Bool {
+        let command = (commandName ?? name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let normalizedStatus = (status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return command == "manualimport" && !isTerminal && normalizedStatus != "completed"
+    }
+}
+
+private struct NotificationSettingsHubView: View {
+    @Environment(\.openURL) private var openURL
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Query private var allProfiles: [ArrServiceProfile]
+    @Query private var seerrProfiles: [SeerrServiceProfile]
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(ArrServiceType.webhookNotificationServices) { serviceType in
+                    let profile = profile(for: serviceType)
+                    NavigationLink {
+                        ArrWebhookNotificationConfigView(
+                            serviceType: serviceType,
+                            profile: profile,
+                            isConnected: isConnected(serviceType)
+                        )
+                    } label: {
+                        ArrWebhookNotificationHubRow(
+                            serviceType: serviceType,
+                            profile: profile,
+                            isConnected: isConnected(serviceType),
+                            showsProfileSubtitle: false
+                        )
+                    }
+                }
+
+                NavigationLink {
+                    SeerrWebhookNotificationConfigView(
+                        profile: seerrProfile,
+                        isConnected: isSeerrConnected
+                    )
+                } label: {
+                    SeerrWebhookNotificationHubRow(
+                        profile: seerrProfile,
+                        isConnected: isSeerrConnected
+                    )
+                }
+            } header: {
+                Text("App Webhooks")
+            } footer: {
+                Text("Creates or updates the same Trawl webhook offered from each app's settings.")
+            }
+
+            #if os(iOS)
+            Section {
+                Button("Open Trawl Notification Settings", systemImage: "gearshape") {
+                    if let url = URL(string: UIApplication.openSettingsURLString) {
+                        openURL(url)
+                    }
+                }
+            } header: {
+                Text("Device Notifications")
+            } footer: {
+                Text("System notification permission is required before app webhooks can send push notifications.")
+            }
+            #endif
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        .navigationBarTitleDisplayMode(.inline)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle("Notification Settings")
+    }
+
+    private func profile(for serviceType: ArrServiceType) -> ArrServiceProfile? {
+        arrServiceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
+    }
+
+    private func isConnected(_ serviceType: ArrServiceType) -> Bool {
+        guard let profile = profile(for: serviceType) else { return false }
+        return arrServiceManager.isConnected(serviceType, profileID: profile.id)
+    }
+
+    private var seerrProfile: SeerrServiceProfile? {
+        seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+    }
+
+    private var isSeerrConnected: Bool {
+        guard let seerrProfile else { return false }
+        return seerrServiceManager.activeProfileID == seerrProfile.id && seerrServiceManager.isConnected
+    }
+}
+
+private struct SeerrWebhookNotificationHubRow: View {
+    let profile: SeerrServiceProfile?
+    let isConnected: Bool
+
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @State private var status: ArrNotificationSetupStatus?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: ServiceIdentity.seerr.systemImage)
+                .foregroundStyle(ServiceIdentity.seerr.brandColor)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Seerr")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(.primary)
+
+                statusLabel
+                    .font(.caption2)
+            }
+
+            Spacer(minLength: 8)
+        }
+        .padding(.vertical, 4)
+        .task(id: taskID) {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive { return }
+            #endif
+            await refreshStatus()
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await loadStatus() }
+            }
+        }
+        #endif
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        if profile == nil {
+            Label("Add a Seerr server first", systemImage: "minus.circle.fill")
+                .foregroundStyle(.secondary)
+        } else if !isConnected {
+            Label("Seerr is unavailable", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+        } else if status == nil {
+            Label("Open to configure request and issue events", systemImage: "slider.horizontal.3")
+                .foregroundStyle(.secondary)
+        } else if let status {
+            webhookStatusRow(status)
+        }
+    }
+
+    private var taskID: String {
+        #if os(iOS)
+        "seerr-\(profile?.id.uuidString ?? "none")-\(isConnected)-\(deviceToken ?? "nil")"
+        #else
+        "seerr-\(profile?.id.uuidString ?? "none")-\(isConnected)"
+        #endif
+    }
+
+    @MainActor
+    private func refreshStatus() async {
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+        await loadStatus()
+    }
+
+    @MainActor
+    private func loadStatus() async {
+        guard isConnected, profile != nil else {
+            status = nil
+            return
+        }
+
+        #if os(iOS)
+        let token = if let deviceToken {
+            deviceToken
+        } else {
+            await NotificationService.shared.deviceToken
+        }
+        #else
+        let token: String? = nil
+        #endif
+
+        guard let token, !token.isEmpty else {
+            status = nil
+            return
+        }
+
+        status = try? await seerrServiceManager.webhookNotificationSetupStatus(
+            workerURL: NotificationService.shared.workerURL,
+            deviceToken: token
+        )
+    }
+}
+
+private struct SeerrWebhookNotificationConfigView: View {
+    let profile: SeerrServiceProfile?
+    let isConnected: Bool
+
+    @Environment(\.dismiss) private var dismiss
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @State private var draft = SeerrWebhookNotificationDraft()
+    @State private var isLoading = false
+    @State private var isSaving = false
+    @State private var isTesting = false
+    @State private var loadError: String?
+    #if os(iOS)
+    @State private var deviceToken: String?
+    #endif
+
+    private var canSave: Bool {
+        isConnected && profile != nil && !isSaving && !isLoading && hasDeviceToken
+    }
+
+    private var canTest: Bool {
+        canSave && !isTesting
+    }
+
+    private var hasDeviceToken: Bool {
+        #if os(iOS)
+        deviceToken?.isEmpty == false
+        #else
+        false
+        #endif
+    }
+
+    var body: some View {
+        Form {
+            if let loadError {
+                Section {
+                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                }
+            }
+
+            if profile == nil || !isConnected || !hasDeviceToken {
+                Section {
+                    Label(unavailableMessage, systemImage: "bell.slash")
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                ForEach(SeerrWebhookNotificationTrigger.all) { trigger in
+                    Toggle(isOn: binding(for: trigger.type)) {
+                        Label(trigger.title, systemImage: trigger.systemImage)
+                    }
+                }
+            } header: {
+                Text("Notification Triggers")
+            } footer: {
+                Text("Select which request and issue events should trigger this notification")
+            }
+
+            Section {
+                Button {
+                    Task { await testNotification() }
+                } label: {
+                    if isTesting {
+                        HStack {
+                            ProgressView()
+                                .padding(.trailing, 8)
+                            Text("Testing...")
+                        }
+                    } else {
+                        Label("Test", systemImage: "paperplane")
+                    }
+                }
+                .disabled(!canTest)
+            }
+        }
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .navigationTitle("Seerr Notifications")
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                if isSaving {
+                    ProgressView()
+                } else {
+                    Button("Save") {
+                        Task { await save() }
+                    }
+                    .disabled(!canSave)
+                }
+            }
+        }
+        .task(id: "\(profile?.id.uuidString ?? "none")-\(isConnected)") {
+            #if DEBUG
+            if ArrPreviewRuntime.isActive {
+                draft = .preview
+                return
+            }
+            #endif
+            await load()
+        }
+        #if os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.apnsTokenReceivedNotification)) { notification in
+            if let token = notification.object as? String {
+                deviceToken = token
+                Task { await load() }
+            }
+        }
+        #endif
+    }
+
+    private var unavailableMessage: String {
+        if profile == nil {
+            return "Add a Seerr server before configuring notifications."
+        }
+        if !isConnected {
+            return "Seerr needs to be connected before webhook setup."
+        }
+        if !hasDeviceToken {
+            return "Enable notifications in Trawl settings first."
+        }
+        return "Notification configuration is unavailable."
+    }
+
+    @MainActor
+    private func load() async {
+        guard isConnected, profile != nil else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        #if os(iOS)
+        deviceToken = await NotificationService.shared.deviceToken
+        #endif
+
+        guard let token = currentDeviceToken else { return }
+
+        do {
+            let settings = try await seerrServiceManager.trawlWebhookNotificationSettings(
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            draft = SeerrWebhookNotificationDraft(settings: settings)
+            loadError = nil
+        } catch {
+            loadError = error.localizedDescription
+        }
+    }
+
+    private var currentDeviceToken: String? {
+        #if os(iOS)
+        guard let deviceToken, !deviceToken.isEmpty else { return nil }
+        return deviceToken
+        #else
+        return nil
+        #endif
+    }
+
+    private func binding(for type: SeerrNotificationType) -> Binding<Bool> {
+        Binding(
+            get: { draft.isEnabled(type) },
+            set: { draft.setEnabled($0, for: type) }
+        )
+    }
+
+    @MainActor
+    private func save() async {
+        guard let token = currentDeviceToken else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await seerrServiceManager.saveTrawlWebhookNotificationSettings(
+                draft.settings,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Saved", message: "Seerr notifications updated.")
+            dismiss()
+        } catch {
+            inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func testNotification() async {
+        guard let token = currentDeviceToken else { return }
+        isTesting = true
+        defer { isTesting = false }
+
+        do {
+            try await seerrServiceManager.testTrawlWebhookNotificationSettings(
+                draft.settings,
+                workerURL: NotificationService.shared.workerURL,
+                deviceToken: token
+            )
+            inAppNotificationCenter.showSuccess(title: "Test Sent", message: "Seerr accepted the webhook test.")
+        } catch {
+            inAppNotificationCenter.showError(title: "Test Failed", message: error.localizedDescription)
+        }
+    }
+}
+
+private struct SeerrWebhookNotificationDraft {
+    var enabledTypes: Set<SeerrNotificationType> = Set(SeerrWebhookNotificationTrigger.all.map(\.type))
+
+    init() {}
+
+    init(settings: SeerrWebhookNotificationSettings) {
+        let visibleTypes = Set(SeerrWebhookNotificationTrigger.all.map(\.type))
+        enabledTypes = Set(visibleTypes.filter { settings.types & $0.rawValue != 0 })
+        if enabledTypes.isEmpty {
+            enabledTypes = visibleTypes
+        }
+    }
+
+    static var preview: SeerrWebhookNotificationDraft {
+        var draft = SeerrWebhookNotificationDraft()
+        draft.enabledTypes.remove(.issueReopened)
+        return draft
+    }
+
+    var settings: SeerrWebhookNotificationSettings {
+        let typeMask = enabledTypes.reduce(SeerrNotificationType.testNotification.rawValue) { partialResult, type in
+            partialResult | type.rawValue
+        }
+
+        return SeerrWebhookNotificationSettings(
+            enabled: true,
+            types: typeMask,
+            options: SeerrWebhookNotificationOptions(
+                webhookUrl: nil,
+                authHeader: nil,
+                jsonPayload: nil,
+                supportVariables: true,
+                customHeaders: nil
+            )
+        )
+    }
+
+    func isEnabled(_ type: SeerrNotificationType) -> Bool {
+        enabledTypes.contains(type)
+    }
+
+    mutating func setEnabled(_ isEnabled: Bool, for type: SeerrNotificationType) {
+        if isEnabled {
+            enabledTypes.insert(type)
+        } else {
+            enabledTypes.remove(type)
+        }
+    }
+}
+
+private struct SeerrWebhookNotificationTrigger: Identifiable {
+    let type: SeerrNotificationType
+    let title: String
+    let systemImage: String
+
+    var id: Int { type.rawValue }
+
+    static let all: [SeerrWebhookNotificationTrigger] = [
+        .init(type: .mediaPending, title: "Request Pending Approval", systemImage: "hourglass.badge.plus"),
+        .init(type: .mediaAutoRequested, title: "Request Automatically Submitted", systemImage: "wand.and.sparkles"),
+        .init(type: .mediaAutoApproved, title: "Request Automatically Approved", systemImage: "checkmark.seal.fill"),
+        .init(type: .mediaApproved, title: "Request Approved", systemImage: "checkmark.circle.fill"),
+        .init(type: .mediaDeclined, title: "Request Declined", systemImage: "xmark.circle.fill"),
+        .init(type: .mediaAvailable, title: "Request Available", systemImage: "play.tv.fill"),
+        .init(type: .mediaFailed, title: "Request Processing Failed", systemImage: "exclamationmark.triangle.fill"),
+        .init(type: .issueCreated, title: "Issue Reported", systemImage: "exclamationmark.bubble.fill"),
+        .init(type: .issueComment, title: "Issue Comment", systemImage: "text.bubble.fill"),
+        .init(type: .issueResolved, title: "Issue Resolved", systemImage: "checkmark.message.fill"),
+        .init(type: .issueReopened, title: "Issue Reopened", systemImage: "arrow.counterclockwise.circle.fill")
+    ]
+}
+
+@ViewBuilder
+private func webhookStatusRow(_ status: ArrNotificationSetupStatus) -> some View {
+    switch status {
+    case .configured:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook is configured",
+            systemImage: "checkmark.circle.fill",
+            color: .green
+        )
+    case .needsUpdate:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook needs updating",
+            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+            color: .orange
+        )
+    case .notAdded:
+        WebhookStatusInlineRow(
+            text: "Trawl webhook has not been added",
+            systemImage: "minus.circle.fill",
+            color: .secondary
+        )
+    }
+}
+
+#if DEBUG
+#Preview("Recent Notifications - Loaded") {
+    NavigationStack {
+        RecentNotificationsSheet()
+            .environment(MorePreviewFixtures.notificationCenter())
+    }
+}
+
+#Preview("Recent Notifications - Empty") {
+    NavigationStack {
+        RecentNotificationsSheet()
+            .environment(InAppNotificationCenter(previewNotifications: []))
+    }
+}
+#endif
 
 private struct NotificationDetailView: View {
     let entry: NotificationLogEntry

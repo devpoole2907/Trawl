@@ -7,6 +7,13 @@ struct SeerrJobsView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var pollingTask: Task<Void, Never>?
+    #if DEBUG
+    private var isPreview = false
+    #endif
+
+    init(apiClient: SeerrAPIClient) {
+        self.apiClient = apiClient
+    }
 
     var body: some View {
         List {
@@ -51,6 +58,9 @@ struct SeerrJobsView: View {
         .navigationTitle("Seerr Jobs")
         .refreshable { await load() }
         .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await load()
             startPolling()
         }
@@ -96,81 +106,104 @@ struct SeerrJobsView: View {
     }
 }
 
+#if DEBUG
+extension SeerrJobsView {
+    init(
+        apiClient: SeerrAPIClient = .preview(),
+        previewJobs: [SeerrJob],
+        isLoading: Bool = false,
+        errorMessage: String? = nil
+    ) {
+        self.apiClient = apiClient
+        self._jobs = State(initialValue: previewJobs)
+        self._isLoading = State(initialValue: isLoading)
+        self._errorMessage = State(initialValue: errorMessage)
+        self.isPreview = true
+    }
+}
+
+#Preview("Seerr Jobs - Loaded") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: SeerrJob.previewList)
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Empty") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connected)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: [])
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Loading") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.connecting)) {
+        NavigationStack {
+            SeerrJobsView(previewJobs: [], isLoading: true)
+        }
+    }
+}
+
+#Preview("Seerr Jobs - Error") {
+    PreviewHost(profiles: .seerrOnly, seerr: .preview(.error("Unable to load jobs."))) {
+        NavigationStack {
+            SeerrJobsView(
+                previewJobs: [],
+                errorMessage: "Scheduled jobs endpoint returned 503."
+            )
+        }
+    }
+}
+#endif
+
 // MARK: - Row
 
 private struct SeerrJobRow: View {
     let job: SeerrJob
     let onRun: () async -> Void
     let onCancel: () async -> Void
-    @State private var isActioning = false
 
     var body: some View {
-        ScheduledTaskRowView(
-            icon: job.running == true ? "clock.arrow.2.circlepath" : "clock",
-            iconColor: job.running == true ? .green : .secondary,
-            title: job.name ?? job.id,
-            badge: job.running == true ? ScheduledTaskRowBadge("RUNNING", color: .green) : nil,
-            details: jobDetails
+        ScheduledTaskControlRow(item: job, action: jobAction)
+    }
+
+    private var jobAction: ScheduledTaskRowAction {
+        ScheduledTaskRowAction.runOrStopTask(
+            title: job.scheduledTaskRowTitle,
+            isRunning: job.running == true,
+            stopVerb: "Cancel"
         ) {
-            if job.running == true {
-                Button {
-                    Task {
-                        isActioning = true
-                        await onCancel()
-                        isActioning = false
-                    }
-                } label: {
-                    if isActioning {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "stop.fill")
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isActioning)
-            } else {
-                Button {
-                    Task {
-                        isActioning = true
-                        await onRun()
-                        isActioning = false
-                    }
-                } label: {
-                    if isActioning {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Image(systemName: "play.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .disabled(isActioning)
-            }
+            await onRun()
+        } stop: {
+            await onCancel()
         }
     }
+}
 
-    private var jobDetails: [ScheduledTaskRowDetail] {
-        var details: [ScheduledTaskRowDetail] = []
-
-        if let interval = job.interval {
-            details.append(ScheduledTaskRowDetail(icon: "clock", text: interval))
-        }
-        if let next = job.nextExecutionTime {
-            details.append(ScheduledTaskRowDetail(icon: "arrow.clockwise", text: relativeDate(next)))
-        }
-
-        return details
+extension SeerrJob: ScheduledTaskRowRepresentable {
+    var scheduledTaskRowTitle: String {
+        name ?? id
     }
 
-    private func relativeDate(_ raw: String) -> String {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: raw) { return date.formatted(.relative(presentation: .named)) }
-        return raw
+    var scheduledTaskRowStatus: ScheduledTaskRowStatus {
+        .activity(isRunning: running == true)
+    }
+
+    var scheduledTaskRowSubtitle: String? {
+        guard let type = ScheduledTaskRowFormatter.cleanedText(type), type.lowercased() != "process" else { return nil }
+        return type.capitalized
+    }
+
+    var scheduledTaskRowDetails: [ScheduledTaskRowDetail] {
+        [
+            ScheduledTaskRowFormatter.cadenceText(from: interval).map { ScheduledTaskRowDetail.interval($0) },
+            nextExecutionDetail
+        ].compactMap { $0 }
+    }
+
+    private var nextExecutionDetail: ScheduledTaskRowDetail? {
+        ScheduledTaskRowDetail.nextRun(from: nextExecutionTime)
     }
 }

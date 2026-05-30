@@ -1,6 +1,6 @@
 import Foundation
 
-struct TorrentProperties: Codable, Sendable {
+struct TorrentProperties: Codable, Equatable, Sendable {
     let savePath: String
     let creationDate: Int
     let pieceSize: Int64

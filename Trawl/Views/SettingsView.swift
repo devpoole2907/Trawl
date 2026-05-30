@@ -11,16 +11,12 @@ struct SettingsView: View {
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(AppLockController.self) private var appLockController
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
     @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @State private var tmdbAPIKey: String = ""
-    @State private var tmdbAPIKeySaveTask: Task<Void, Never>?
-    @State private var didLoadTmdbAPIKey = false
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
@@ -33,6 +29,9 @@ struct SettingsView: View {
     @Environment(\.navigateToJellyfinSettings) private var navigateToJellyfinSettings
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
     
     init(showsDoneButton: Bool = true) {
         self.showsDoneButton = showsDoneButton
@@ -52,35 +51,16 @@ struct SettingsView: View {
                 }
             }
             .task {
+                #if DEBUG
+                guard !skipsAutomaticLoading else { return }
+                #endif
                 viewModel.configure(torrentService: torrentService, syncService: syncService, arrServiceManager: arrServiceManager)
                 await viewModel.loadSettings(modelContext: modelContext)
-
-                // Load TMDb API key from Keychain
-                if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-                    tmdbAPIKey = key
-                }
-                didLoadTmdbAPIKey = true
             }
             .task(id: arrProfilesSyncKey) {
                 arrServiceManager.syncProfiles(arrProfiles)
             }
-            .onChange(of: tmdbAPIKey) { _, newValue in
-                guard didLoadTmdbAPIKey else { return }
-                tmdbAPIKeySaveTask?.cancel()
-                tmdbAPIKeySaveTask = Task { @MainActor in
-                    try? await Task.sleep(for: .milliseconds(400))
-                    guard !Task.isCancelled else { return }
-                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty {
-                        try? await KeychainHelper.shared.delete(key: "tmdb.apiKey")
-                    } else {
-                        try? await KeychainHelper.shared.save(key: "tmdb.apiKey", value: trimmed)
-                    }
-                }
-            }
-            .onDisappear {
-                tmdbAPIKeySaveTask?.cancel()
-            }
+            .moreDestinationBackground(.settings)
     }
 
     // MARK: - Computed
@@ -228,68 +208,6 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
             }
 
-            Section {
-                SecureField("API Key", text: $tmdbAPIKey)
-                    .textContentType(.password)
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-            } header: {
-                Label("TMDb", systemImage: "flame")
-            } footer: {
-                Text("Required for Popular This Week on the Search tab. Get a free key at themoviedb.org.")
-            }
-
-            Section("Notifications") {
-                Toggle("Download Notifications", isOn: $viewModel.notificationsEnabled)
-                    .onChange(of: viewModel.notificationsEnabled) {
-                        Task { await viewModel.toggleNotifications() }
-                    }
-                if viewModel.notificationsEnabled && !viewModel.notificationPermissionGranted {
-                    Label("Notification permission not granted. Enable in System Settings.", systemImage: "exclamationmark.triangle")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                }
-
-                #if os(iOS)
-                if viewModel.notificationsEnabled, let deviceToken = viewModel.deviceToken {
-                    VStack(alignment: .leading, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("Account ID")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-
-                            HStack {
-                                Text(deviceToken)
-                                    .font(.system(.caption, design: .monospaced))
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-
-                                Spacer()
-
-                                Button {
-                                    UIPasteboard.general.string = deviceToken
-                                    inAppNotificationCenter.showSuccess(title: "Copied", message: "ID copied to clipboard")
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.borderless)
-                            }
-                            .padding(8)
-                            .background(Color.secondary.opacity(0.1))
-                            .cornerRadius(8)
-                        }
-
-                        Text("Use the 'One-Tap Setup' inside Radarr or Sonarr settings to link your notifications automatically.")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.vertical, 4)
-                }
-                #endif
-            }
-
             #if os(iOS)
             Section {
                 Toggle(securityToggleTitle, isOn: Binding(
@@ -362,6 +280,7 @@ struct SettingsView: View {
             }
             
         }
+        .scrollContentBackground(.hidden)
         #if os(macOS)
         .formStyle(.grouped)
         .padding(20)
@@ -465,6 +384,11 @@ struct QBittorrentSettingsView: View {
     @State private var speedLimitErrorAlert: ErrorAlertItem?
     @State private var isUpdatingAlternativeSpeed = false
     @State private var isUpdatingDefaultSavePath = false
+    #if DEBUG
+    private var skipsAutomaticLoading = false
+    #endif
+
+    init() {}
 
     var body: some View {
         Form {
@@ -617,6 +541,9 @@ struct QBittorrentSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
         .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
             viewModel.configure(torrentService: torrentService, syncService: syncService)
             await viewModel.loadSettings(modelContext: modelContext)
             await loadSpeedLimitSettings()
@@ -953,3 +880,86 @@ extension EnvironmentValues {
         set { self[NavigateToJellyfinSettingsKey.self] = newValue }
     }
 }
+
+#if DEBUG
+extension SettingsView {
+    init(
+        previewViewModel: SettingsViewModel,
+        showsDoneButton: Bool = true
+    ) {
+        self.init(showsDoneButton: showsDoneButton)
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+extension QBittorrentSettingsView {
+    init(
+        previewViewModel: SettingsViewModel,
+        globalDownloadLimit: Int64 = 0,
+        globalUploadLimit: Int64 = 5_242_880,
+        alternativeSpeedEnabled: Bool = true,
+        defaultSavePath: String = "/downloads"
+    ) {
+        self.init()
+        self._viewModel = State(initialValue: previewViewModel)
+        self._globalDownloadLimit = State(initialValue: globalDownloadLimit)
+        self._globalUploadLimit = State(initialValue: globalUploadLimit)
+        self._alternativeSpeedEnabled = State(initialValue: alternativeSpeedEnabled)
+        self._defaultSavePath = State(initialValue: defaultSavePath)
+        self._didLoadSpeedLimits = State(initialValue: true)
+        self.skipsAutomaticLoading = true
+    }
+}
+
+#Preview("Settings Fully Configured") {
+    PreviewHost(
+        profiles: .allServices,
+        arr: .preview(.allConfigured),
+        jellyfin: .preview(.connected),
+        seerr: .preview(.connected)
+    ) {
+        NavigationStack {
+            SettingsView(previewViewModel: SettingsViewModel())
+        }
+    }
+}
+
+#Preview("Settings Nothing Configured") {
+    PreviewHost(
+        profiles: .empty,
+        arr: .preview(.noneConfigured),
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured)
+    ) {
+        NavigationStack {
+            SettingsView(previewViewModel: SettingsViewModel(
+                notificationsEnabled: false,
+                notificationPermissionGranted: false,
+                serverProfile: nil,
+                qbVersion: nil,
+                deviceToken: nil
+            ))
+        }
+    }
+}
+
+#Preview("qBittorrent Settings") {
+    PreviewHost(profiles: .qBittorrentOnly) {
+        NavigationStack {
+            QBittorrentSettingsView(previewViewModel: SettingsViewModel())
+        }
+    }
+}
+
+#Preview("qBittorrent Settings Empty") {
+    PreviewHost(profiles: .empty) {
+        NavigationStack {
+            QBittorrentSettingsView(previewViewModel: SettingsViewModel(
+                serverProfile: nil,
+                qbVersion: nil
+            ), globalDownloadLimit: 0, globalUploadLimit: 0, alternativeSpeedEnabled: false, defaultSavePath: "")
+        }
+    }
+}
+#endif

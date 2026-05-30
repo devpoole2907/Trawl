@@ -198,3 +198,30 @@ private extension String {
         isEmpty ? nil : self
     }
 }
+
+#if DEBUG
+extension JellyfinUserEditorViewModel {
+    convenience init(
+        previewUser: JellyfinUser = .preview,
+        previewPolicy: JellyfinUserPolicy? = nil,
+        isSaving: Bool = false,
+        errorMessage: String? = nil,
+        parentalRatings: [JellyfinParentalRating] = JellyfinParentalRating.previewList,
+        virtualFolders: [JellyfinVirtualFolder] = JellyfinVirtualFolder.previewList,
+        devices: [JellyfinDeviceInfo] = JellyfinDeviceInfo.previewList,
+        channels: [JellyfinLibraryItem] = JellyfinLibraryItem.previewList,
+        apiClient: JellyfinAPIClient = .preview()
+    ) {
+        self.init(user: previewUser, apiClient: apiClient)
+        let seededPolicy = previewPolicy ?? previewUser.policy ?? .previewStandard
+        policy = seededPolicy
+        originalPolicy = seededPolicy
+        self.isSaving = isSaving
+        self.errorMessage = errorMessage
+        self.parentalRatings = parentalRatings
+        self.virtualFolders = virtualFolders
+        self.devices = devices
+        self.channels = channels
+    }
+}
+#endif

@@ -3,8 +3,14 @@ import SwiftUI
 struct ProwlarrAddIndexerSheet: View {
     @Environment(\.dismiss) private var dismiss
     let viewModel: ProwlarrViewModel
+    private let loadsSchemaOnAppear: Bool
 
     @State private var searchText = ""
+
+    init(viewModel: ProwlarrViewModel, loadsSchemaOnAppear: Bool = true) {
+        self.viewModel = viewModel
+        self.loadsSchemaOnAppear = loadsSchemaOnAppear
+    }
 
     private var filteredSchema: [ProwlarrIndexer] {
         guard !searchText.isEmpty else { return viewModel.schemaIndexers }
@@ -64,6 +70,7 @@ struct ProwlarrAddIndexerSheet: View {
             }
             .searchable(text: $searchText, prompt: "Search indexers")
             .task {
+                guard loadsSchemaOnAppear else { return }
                 await viewModel.loadSchema()
             }
         }
@@ -93,6 +100,77 @@ struct ProwlarrAddIndexerSheet: View {
         .padding(.vertical, 2)
     }
 }
+
+#if DEBUG
+#Preview("Loaded") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        ProwlarrAddIndexerSheet(
+            viewModel: ProwlarrViewModel(
+                previewIndexers: [],
+                schemaIndexers: ProwlarrIndexer.previewSchemaList,
+                serviceManager: manager
+            ),
+            loadsSchemaOnAppear: false
+        )
+    }
+}
+
+#Preview("Empty") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        ProwlarrAddIndexerSheet(
+            viewModel: ProwlarrViewModel(previewIndexers: [], schemaIndexers: [], serviceManager: manager),
+            loadsSchemaOnAppear: false
+        )
+    }
+}
+
+#Preview("Loading") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        ProwlarrAddIndexerSheet(
+            viewModel: ProwlarrViewModel(
+                previewIndexers: [],
+                isLoadingSchema: true,
+                serviceManager: manager
+            ),
+            loadsSchemaOnAppear: false
+        )
+    }
+}
+
+#Preview("Error") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        ProwlarrAddIndexerSheet(
+            viewModel: ProwlarrViewModel(
+                previewIndexers: [],
+                schemaError: "Prowlarr could not return indexer schemas.",
+                serviceManager: manager
+            ),
+            loadsSchemaOnAppear: false
+        )
+    }
+}
+
+#Preview("Configure") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            IndexerConfigView(
+                schema: .previewSchema,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: [],
+                    schemaIndexers: ProwlarrIndexer.previewSchemaList,
+                    serviceManager: manager
+                ),
+                onAdded: {}
+            )
+        }
+    }
+}
+#endif
 
 // MARK: - Config View
 

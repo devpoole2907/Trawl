@@ -23,8 +23,10 @@ enum SeerrIssueFilter: String, CaseIterable, Identifiable {
 @Observable
 final class SeerrIssueListViewModel {
     private(set) var issues: [SeerrIssue] = []
+    private(set) var searchIssues: [SeerrIssue] = []
     private(set) var isLoading = false
     private(set) var isLoadingMore = false
+    private(set) var isLoadingSearch = false
     private(set) var errorMessage: String?
     var selectedFilter: SeerrIssueFilter = .open {
         didSet {
@@ -42,6 +44,8 @@ final class SeerrIssueListViewModel {
     private var totalResults = 0
     private var hasLoaded = false
     private var requestVersion = 0
+    private var searchVersion = 0
+    private var hasLoadedAllIssuesForSearch = false
 
     init(apiClient: SeerrAPIClient) {
         self.apiClient = apiClient
@@ -58,6 +62,39 @@ final class SeerrIssueListViewModel {
     func loadIfNeeded() async {
         guard !hasLoaded else { return }
         await loadIssues()
+    }
+
+    func updateSearchIssues(for searchText: String) async {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !query.isEmpty else {
+            searchVersion += 1
+            isLoadingSearch = false
+            searchIssues = []
+            hasLoadedAllIssuesForSearch = false
+            return
+        }
+
+        guard !hasLoadedAllIssuesForSearch, !isLoadingSearch else { return }
+
+        searchVersion += 1
+        let capturedVersion = searchVersion
+        isLoadingSearch = true
+        defer {
+            if capturedVersion == searchVersion {
+                isLoadingSearch = false
+            }
+        }
+
+        do {
+            let loadedIssues = try await loadAllIssuesForSearch()
+            guard capturedVersion == searchVersion else { return }
+            searchIssues = loadedIssues
+            hasLoadedAllIssuesForSearch = true
+        } catch {
+            guard capturedVersion == searchVersion else { return }
+            errorMessage = error.localizedDescription
+        }
     }
 
     func loadIssues() async {
@@ -124,9 +161,65 @@ final class SeerrIssueListViewModel {
         if let index = issues.firstIndex(where: { $0.id == issue.id }) {
             issues[index] = issue
         }
+        if let index = searchIssues.firstIndex(where: { $0.id == issue.id }) {
+            searchIssues[index] = issue
+        }
     }
 
     func clearError() {
         errorMessage = nil
     }
+
+    private func loadAllIssuesForSearch() async throws -> [SeerrIssue] {
+        var loaded: [SeerrIssue] = []
+        for filter in SeerrIssueFilter.allCases {
+            loaded.append(contentsOf: try await loadAllIssues(filter: filter))
+        }
+        return loaded.sorted { ($0.createdAt ?? "") > ($1.createdAt ?? "") }
+    }
+
+    private func loadAllIssues(filter: SeerrIssueFilter) async throws -> [SeerrIssue] {
+        let searchPageSize = 100
+        var skip = 0
+        var total = Int.max
+        var loaded: [SeerrIssue] = []
+
+        while skip < total {
+            let response = try await apiClient.getIssues(
+                take: searchPageSize,
+                skip: skip,
+                sort: "added",
+                filter: filter.apiValue
+            )
+            loaded.append(contentsOf: response.results)
+            total = response.pageInfo.results ?? loaded.count
+            guard !response.results.isEmpty else { break }
+            skip += searchPageSize
+        }
+
+        return loaded
+    }
 }
+
+#if DEBUG
+extension SeerrIssueListViewModel {
+    convenience init(
+        previewIssues: [SeerrIssue],
+        isLoading: Bool = false,
+        isLoadingMore: Bool = false,
+        errorMessage: String? = nil,
+        selectedFilter: SeerrIssueFilter = .open,
+        totalResults: Int? = nil,
+        apiClient: SeerrAPIClient = .preview()
+    ) {
+        self.init(apiClient: apiClient)
+        self.issues = previewIssues
+        self.isLoading = isLoading
+        self.isLoadingMore = isLoadingMore
+        self.errorMessage = errorMessage
+        self.selectedFilter = selectedFilter
+        self.totalResults = totalResults ?? previewIssues.count
+        self.hasLoaded = true
+    }
+}
+#endif

@@ -8,7 +8,7 @@ final class SearchViewModel {
     var searchText = ""
     var isSearchPresented = false
     var scope: SearchScope = .arr
-    var filter: ResultKind = .all
+    var filter: SearchResultFilter = .all
     var actionErrorAlert: ErrorAlertItem?
     var arrAddInFlightIDs: Set<String> = []
 
@@ -22,7 +22,6 @@ final class SearchViewModel {
     // Arr lookup
     var sonarrLookupVM: SonarrViewModel?
     var radarrLookupVM: RadarrViewModel?
-    var arrFilter: ArrResultKind = .all
     var hasSearchedArr = false
     var arrLookupTask: Task<Void, Never>?
     private var activeArrLookupTerm = ""
@@ -31,7 +30,6 @@ final class SearchViewModel {
     private var radarrLookupContextKey = ""
 
     // TMDb trending
-    var tmdbAPIKey: String = ""
     var trendingMovies: [TMDbItem] = []
     var trendingTV: [TMDbItem] = []
     var isLoadingTrending = false
@@ -42,7 +40,6 @@ final class SearchViewModel {
     var seriesMatches: [Int: SonarrSeries] = [:]
 
     // Incremental Library Matches
-    var matchedTorrents: [Torrent] = []
     var matchedSeries: [SonarrSeries] = []
     var matchedMovies: [RadarrMovie] = []
     var librarySearchTask: Task<Void, Never>?
@@ -118,7 +115,7 @@ final class SearchViewModel {
         }
     }
 
-    func startArrLookup(arrServiceManager: ArrServiceManager, immediate: Bool = false) {
+    func startArrLookup(arrServiceManager: ArrServiceManager, immediate: Bool = false, force: Bool = false) {
         let term = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !term.isEmpty else {
             resetArrLookup()
@@ -127,7 +124,7 @@ final class SearchViewModel {
 
         let isCurrentlySearchingTerm = activeArrLookupTerm == term
             && ((sonarrLookupVM?.isSearching ?? false) || (radarrLookupVM?.isSearching ?? false))
-        if isCurrentlySearchingTerm || (lastCompletedArrLookupTerm == term && !immediate) {
+        if !force && (isCurrentlySearchingTerm || lastCompletedArrLookupTerm == term) {
             return
         }
 
@@ -183,12 +180,11 @@ final class SearchViewModel {
         radarrLookupVM?.clearSearchResults()
     }
 
-    func startLibrarySearch(appServices: AppServices?) {
+    func startLibrarySearch() {
         librarySearchTask?.cancel()
 
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         if query.isEmpty {
-            matchedTorrents = []
             matchedSeries = []
             matchedMovies = []
             return
@@ -196,24 +192,8 @@ final class SearchViewModel {
 
         let sonarrTitleIndex = sonarrTitleIndex
         let radarrTitleIndex = radarrTitleIndex
-        let syncService = appServices?.syncService
 
         librarySearchTask = Task { @MainActor in
-            if let syncService {
-                let torrents = syncService.torrents.values
-                    .filter { $0.name.lowercased().contains(query) }
-                    .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
-
-                matchedTorrents = []
-                for chunk in torrents.chunked(into: 5) {
-                    guard !Task.isCancelled else { return }
-                    withAnimation(.spring(response: 0.3)) {
-                        matchedTorrents.append(contentsOf: chunk)
-                    }
-                    try? await Task.sleep(for: .milliseconds(10))
-                }
-            }
-
             let series = sonarrTitleIndex
                 .filter { $0.lower.contains(query) }
                 .map(\.series)
@@ -277,24 +257,28 @@ final class SearchViewModel {
         createLookupViewModels(arrServiceManager: arrServiceManager)
     }
 
-    func loadStoredTMDbAPIKeyAndTrending(arrServiceManager: ArrServiceManager) async {
-        if let key = try? await KeychainHelper.shared.read(key: "tmdb.apiKey") {
-            tmdbAPIKey = key
-        }
-        await loadTrending(arrServiceManager: arrServiceManager)
-    }
-
-    func loadTrending(arrServiceManager: ArrServiceManager) async {
-        guard !tmdbAPIKey.isEmpty else {
-            trendingMovies = []
-            trendingTV = []
-            return
-        }
+    func loadTrending(arrServiceManager: ArrServiceManager, seerrServiceManager: SeerrServiceManager) async {
         isLoadingTrending = true
         trendingError = nil
         defer { isLoadingTrending = false }
 
-        let client = TMDbClient(apiKey: tmdbAPIKey)
+        if let seerrClient = seerrServiceManager.activeClient, seerrServiceManager.isConnected {
+            do {
+                async let moviesTask = seerrClient.discoverTrendingMovies()
+                async let tvTask = seerrClient.discoverTrendingTV()
+                let (rawMovies, rawTV) = try await (moviesTask, tvTask)
+                let movies = rawMovies.map { $0.toTMDbItem(mediaType: "movie") }
+                let tv = rawTV.map { $0.toTMDbItem(mediaType: "tv") }
+                trendingMovies = movies
+                trendingTV = tv
+                await resolveTrendingMatches(movies: movies, tv: tv, arrServiceManager: arrServiceManager)
+                return
+            } catch {
+                // fall through to worker proxy
+            }
+        }
+
+        let client = TMDbClient()
         do {
             async let moviesTask = client.trendingMovies()
             async let tvTask = client.trendingTV()
@@ -533,3 +517,104 @@ final class SearchViewModel {
         return "connected:\(fingerprint)"
     }
 }
+
+#if DEBUG
+extension SearchViewModel {
+    convenience init(
+        previewSearchText: String = "",
+        isSearchPresented: Bool = false,
+        scope: SearchScope = .arr,
+        filter: SearchResultFilter = .all,
+        sonarrSeries: [SonarrSeries] = SonarrSeries.previewList,
+        radarrMovies: [RadarrMovie] = RadarrMovie.previewList,
+        matchedSeries: [SonarrSeries] = [],
+        matchedMovies: [RadarrMovie] = [],
+        trendingMovies: [TMDbItem] = TMDbItem.previewMovies,
+        trendingTV: [TMDbItem] = TMDbItem.previewTV,
+        isLoadingLibrary: Bool = false,
+        hasSearchedArr: Bool = false,
+        isLoadingTrending: Bool = false,
+        trendingError: String? = nil,
+        actionErrorAlert: ErrorAlertItem? = nil
+    ) {
+        self.init()
+        self.searchText = previewSearchText
+        self.isSearchPresented = isSearchPresented
+        self.scope = scope
+        self.filter = filter
+        self.sonarrSeries = sonarrSeries
+        self.radarrMovies = radarrMovies
+        self.sonarrTitleIndex = sonarrSeries.map { (lower: $0.title.lowercased(), series: $0) }
+        self.radarrTitleIndex = radarrMovies.map { (lower: $0.title.lowercased(), movie: $0) }
+        self.matchedSeries = matchedSeries
+        self.matchedMovies = matchedMovies
+        self.trendingMovies = trendingMovies
+        self.trendingTV = trendingTV
+        self.isLoadingLibrary = isLoadingLibrary
+        self.hasSearchedArr = hasSearchedArr
+        self.isLoadingTrending = isLoadingTrending
+        self.trendingError = trendingError
+        self.actionErrorAlert = actionErrorAlert
+    }
+}
+
+extension TMDbItem {
+    static let previewMovies: [TMDbItem] = [
+        TMDbItem(
+            id: 693134,
+            title: "Dune: Part Two",
+            name: nil,
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "Paul Atreides unites with Chani and the Fremen.",
+            voteAverage: 8.2,
+            releaseDate: "2024-03-01",
+            firstAirDate: nil,
+            mediaType: "movie",
+            genreIds: [878, 12]
+        ),
+        TMDbItem(
+            id: 872585,
+            title: "Oppenheimer",
+            name: nil,
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "The story of J. Robert Oppenheimer and the atomic bomb.",
+            voteAverage: 8.1,
+            releaseDate: "2023-07-21",
+            firstAirDate: nil,
+            mediaType: "movie",
+            genreIds: [18, 36]
+        )
+    ]
+
+    static let previewTV: [TMDbItem] = [
+        TMDbItem(
+            id: 95396,
+            title: nil,
+            name: "Severance",
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "Employees split their memories between work and home.",
+            voteAverage: 8.4,
+            releaseDate: nil,
+            firstAirDate: "2022-02-18",
+            mediaType: "tv",
+            genreIds: [18, 9648]
+        ),
+        TMDbItem(
+            id: 136315,
+            title: nil,
+            name: "The Bear",
+            posterPath: nil,
+            backdropPath: nil,
+            overview: "A young chef returns home to run his family's sandwich shop.",
+            voteAverage: 8.3,
+            releaseDate: nil,
+            firstAirDate: "2022-06-23",
+            mediaType: "tv",
+            genreIds: [18, 35]
+        )
+    ]
+}
+#endif

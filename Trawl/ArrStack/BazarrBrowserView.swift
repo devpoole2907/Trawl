@@ -3,15 +3,18 @@ import SwiftUI
 struct BazarrSeriesListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var viewModel: BazarrViewModel
+    private let loadsOnAppear: Bool
 
     init() {
         _viewModel = State(wrappedValue: BazarrViewModel(serviceManager: ArrServiceManager()))
+        loadsOnAppear = true
     }
 
     var body: some View {
         BazarrBrowserView(viewModel: viewModel)
             .environment(viewModel)
             .task(id: serviceManager.activeBazarrProfileID) {
+                guard loadsOnAppear else { return }
                 viewModel = BazarrViewModel(serviceManager: serviceManager)
                 await viewModel.loadSeries()
                 await viewModel.loadMovies()
@@ -22,15 +25,18 @@ struct BazarrSeriesListView: View {
 struct BazarrMovieListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var viewModel: BazarrViewModel
+    private let loadsOnAppear: Bool
 
     init() {
         _viewModel = State(wrappedValue: BazarrViewModel(serviceManager: ArrServiceManager()))
+        loadsOnAppear = true
     }
 
     var body: some View {
         BazarrBrowserView(viewModel: viewModel, initialTab: .movies)
             .environment(viewModel)
             .task(id: serviceManager.activeBazarrProfileID) {
+                guard loadsOnAppear else { return }
                 viewModel = BazarrViewModel(serviceManager: serviceManager)
                 await viewModel.loadSeries()
                 await viewModel.loadMovies()
@@ -232,3 +238,165 @@ struct BazarrBrowserView: View {
         .padding(.vertical, 4)
     }
 }
+
+#if DEBUG
+extension BazarrSeriesListView {
+    init(previewViewModel: BazarrViewModel) {
+        _viewModel = State(wrappedValue: previewViewModel)
+        loadsOnAppear = false
+    }
+}
+
+extension BazarrMovieListView {
+    init(previewViewModel: BazarrViewModel) {
+        _viewModel = State(wrappedValue: previewViewModel)
+        loadsOnAppear = false
+    }
+}
+
+#Preview("Series Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: BazarrSeries.previewList,
+                previewMovies: BazarrMovie.previewList
+            ))
+        }
+    }
+}
+
+#Preview("Series Loaded Heavy") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: BazarrSeries.previewHeavyList,
+                previewMovies: BazarrMovie.previewList
+            ))
+        }
+    }
+}
+
+#Preview("Series Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: BazarrMovie.previewList
+            ))
+        }
+    }
+}
+
+#Preview("Series Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                isLoadingSeries: true
+            ))
+        }
+    }
+}
+
+#Preview("Series Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                seriesError: "The Bazarr API returned 500 Internal Server Error."
+            ))
+        }
+    }
+}
+
+#Preview("Series Connection Issue") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrSeriesListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                isConnected: false,
+                connectionError: "Unable to reach 192.168.1.50:6767."
+            ))
+        }
+    }
+}
+
+#Preview("Movies Loaded") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: BazarrSeries.previewList,
+                previewMovies: BazarrMovie.previewList,
+                selectedTab: .movies
+            ))
+        }
+    }
+}
+
+#Preview("Movies Loaded Heavy") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: BazarrSeries.previewList,
+                previewMovies: BazarrMovie.previewHeavyList,
+                selectedTab: .movies
+            ))
+        }
+    }
+}
+
+#Preview("Movies Empty") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: BazarrSeries.previewList,
+                previewMovies: [],
+                selectedTab: .movies
+            ))
+        }
+    }
+}
+
+#Preview("Movies Loading") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                isLoadingMovies: true,
+                selectedTab: .movies
+            ))
+        }
+    }
+}
+
+#Preview("Movies Error") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                moviesError: "The Bazarr API returned 502 Bad Gateway.",
+                selectedTab: .movies
+            ))
+        }
+    }
+}
+
+#Preview("Movies Connection Issue") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
+        NavigationStack {
+            BazarrMovieListView(previewViewModel: BazarrViewModel(
+                previewSeries: [],
+                previewMovies: [],
+                selectedTab: .movies,
+                isConnected: false,
+                connectionError: "Unable to reach 192.168.1.50:6767."
+            ))
+        }
+    }
+}
+#endif

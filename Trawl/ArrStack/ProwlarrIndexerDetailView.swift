@@ -12,21 +12,32 @@ struct ProwlarrIndexerDetailView: View {
         viewModel.statusForIndexer(id: indexer.id)
     }
 
+    private var currentIndexer: ProwlarrIndexer {
+        viewModel.indexers.first(where: { $0.id == indexer.id }) ?? indexer
+    }
+
+    private var currentStateLabel: String {
+        if viewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
+            return "Temporarily Disabled"
+        }
+
+        return currentIndexer.enable ? "Active" : "Disabled"
+    }
+
     var body: some View {
         List {
             // MARK: Status Section
             Section("Status") {
-                Toggle("Enabled", isOn: Binding(
+                Toggle("Enabled in Prowlarr", isOn: Binding(
                     get: {
-                        viewModel.indexers.first(where: { $0.id == indexer.id })?.enable ?? indexer.enable
+                        currentIndexer.enable
                     },
                     set: { _ in
-                        guard let currentIndexer = viewModel.indexers.first(where: { $0.id == indexer.id }) else {
-                            return
-                        }
                         Task { await viewModel.toggleIndexer(currentIndexer) }
                     }
                 ))
+
+                detailRow(label: "Current State", value: currentStateLabel)
 
                 if let proto = indexer.protocol {
                     detailRow(label: "Protocol", value: proto.displayName)
@@ -45,7 +56,7 @@ struct ProwlarrIndexerDetailView: View {
                 }
 
                 if status?.isDisabled == true {
-                    Label("Temporarily disabled by Prowlarr", systemImage: "exclamationmark.triangle.fill")
+                    Label("Prowlarr temporarily disabled this indexer after recent failures.", systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 }
@@ -187,3 +198,70 @@ struct ProwlarrIndexerDetailView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Typical") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .preview,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    indexerStatuses: ProwlarrIndexerStatus.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Disabled") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewDisabled,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    indexerStatuses: ProwlarrIndexerStatus.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Long Name") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewLongName,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: ProwlarrIndexer.previewList,
+                    stats: .preview,
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrIndexerDetailView(
+                indexer: .previewMissingMetadata,
+                viewModel: ProwlarrViewModel(
+                    previewIndexers: [.previewMissingMetadata],
+                    serviceManager: manager
+                )
+            )
+        }
+    }
+}
+#endif

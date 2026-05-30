@@ -257,3 +257,97 @@ private struct SearchResultRow: View {
         .buttonStyle(.plain)
     }
 }
+
+#if DEBUG
+extension SonarrAddSeriesSheet {
+    init(
+        previewViewModel: SonarrViewModel,
+        searchQuery: String = "",
+        selectedSeries: SonarrSeries? = nil,
+        optionsExpanded: Bool = false
+    ) {
+        self.viewModel = previewViewModel
+        _searchQuery = State(initialValue: searchQuery)
+        _selectedSeries = State(initialValue: selectedSeries)
+        _selectedQualityProfileId = State(initialValue: previewViewModel.qualityProfiles.first?.id)
+        _selectedRootFolderPath = State(initialValue: previewViewModel.rootFolders.first?.path)
+        _monitorOption = State(initialValue: "all")
+        _searchForMissing = State(initialValue: true)
+        _optionsExpanded = State(initialValue: optionsExpanded)
+        _isAdding = State(initialValue: false)
+        _qualityProfileForDetails = State(initialValue: nil)
+    }
+}
+
+#Preview("Initial") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddSeriesSheet(previewViewModel: SonarrViewModel(
+            previewSeries: SonarrSeries.previewList,
+            serviceManager: manager
+        ))
+    }
+}
+
+#Preview("No Results") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddSeriesSheet(
+            previewViewModel: SonarrViewModel(previewSeries: SonarrSeries.previewList, serviceManager: manager),
+            searchQuery: "unmatched show"
+        )
+    }
+}
+
+#Preview("Selected") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddSeriesSheet(
+            previewViewModel: SonarrViewModel(previewSeries: SonarrSeries.previewList, serviceManager: manager),
+            searchQuery: "silo",
+            selectedSeries: .previewDiscover,
+            optionsExpanded: true
+        )
+    }
+}
+
+#Preview("Loading (Mid-Search)") {
+    // Simulate the spinner shown while a search is in-flight.
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { _ in
+        ArrSheetShell(
+            title: "Add Series",
+            confirmTitle: "Add",
+            isConfirmDisabled: true,
+            onConfirm: {}
+        ) {
+            List {
+                Section {
+                    ArrAddItemSearchBar(text: .constant("breaking bad"), placeholder: "Search TV shows...") {}
+                }
+                Section {
+                    HStack {
+                        Spacer()
+                        ProgressView("Searching…")
+                        Spacer()
+                    }
+                }
+            }
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #else
+            .listStyle(.inset)
+            #endif
+        }
+    }
+}
+
+#Preview("Error (Search Failed)") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Preview offline.")) { manager in
+        SonarrAddSeriesSheet(
+            previewViewModel: SonarrViewModel(
+                previewSeries: SonarrSeries.previewList,
+                error: "Sonarr returned 503 Service Unavailable.",
+                serviceManager: manager
+            ),
+            searchQuery: "breaking bad"
+        )
+    }
+}
+#endif

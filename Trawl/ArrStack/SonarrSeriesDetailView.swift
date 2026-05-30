@@ -357,7 +357,11 @@ struct SonarrSeriesDetailView: View {
 
         if !activeQueueItems.isEmpty {
             ArrDetailQueueCard(items: activeQueueItems) { item in
-                ArrDetailQueueItemRow(item: item)
+                ArrDetailQueueItemRow(
+                    item: item,
+                    isRemoving: queueActionInFlightIDs.contains(item.id),
+                    onSetPendingAction: { pendingQueueAction = $0 }
+                )
             }
         }
 
@@ -464,7 +468,7 @@ struct SonarrSeriesDetailView: View {
                     }
                 }
             } label: {
-                seriesSearchButtonLabel(
+                detailSearchButtonLabel(
                     title: "Automatic",
                     subtitle: "Search all monitored",
                     systemImage: "magnifyingglass",
@@ -478,7 +482,7 @@ struct SonarrSeriesDetailView: View {
             Button {
                 showSeriesInteractiveSearchSheet = true
             } label: {
-                seriesSearchButtonLabel(
+                detailSearchButtonLabel(
                     title: "Interactive",
                     subtitle: "Pick a release",
                     systemImage: "person.fill",
@@ -490,7 +494,7 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
-    private func seriesSearchButtonLabel(
+    private func detailSearchButtonLabel(
         title: String,
         subtitle: String,
         systemImage: String,
@@ -588,10 +592,12 @@ struct SonarrSeriesDetailView: View {
         queueActionInFlightIDs.insert(item.id)
         defer { queueActionInFlightIDs.remove(item.id) }
 
-        await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
-        let wasRemoved = !viewModel.queue.contains(where: { $0.id == item.id })
+        let wasRemoved = await viewModel.removeQueueItem(id: item.id, blocklist: blocklist)
 
         if wasRemoved {
+            if blocklist {
+                await serviceManager.loadBlocklist()
+            }
             InAppNotificationCenter.shared.showSuccess(
                 title: blocklist ? "Blocked" : "Removed",
                 message: blocklist
@@ -912,3 +918,72 @@ struct SonarrSeriesDetailView: View {
         }
     }
 }
+
+#if DEBUG
+#Preview("Library") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Missing Metadata") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(.previewMissingArt, serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.previewMissingArt.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Discover") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel(previewSeries: [], serviceManager: manager)
+        NavigationStack {
+            SonarrSeriesDetailView(series: .previewDiscover, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Loading Episodes") {
+    SonarrPreviewHost { manager in
+        let series = SonarrSeries.preview
+        let viewModel = SonarrViewModel(
+            previewSeries: [series],
+            episodes: [series.id: []],
+            isLoadingEpisodes: true,
+            serviceManager: manager
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: series.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Error") {
+    SonarrPreviewHost { manager in
+        let viewModel = SonarrViewModel.previewDetail(
+            serviceManager: manager,
+            error: "Sonarr returned 500 Internal Server Error."
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    SonarrPreviewHost(state: .sonarrConnectionError("Unable to reach Sonarr — check host and port.")) { manager in
+        let viewModel = SonarrViewModel(
+            previewSeries: [.preview],
+            error: "Unable to reach Sonarr — check host and port.",
+            serviceManager: manager
+        )
+        NavigationStack {
+            SonarrSeriesDetailView(seriesId: SonarrSeries.preview.id, viewModel: viewModel)
+        }
+    }
+}
+#endif

@@ -15,9 +15,17 @@ final class InAppNotificationCenter {
     private(set) var currentBanner: InAppBannerItem?
     private(set) var recentNotifications: [NotificationLogEntry] = InAppNotificationCenter.loadPersistedNotifications()
     private(set) var lastReadDate: Date = InAppNotificationCenter.loadLastReadDate()
+    private(set) var activeImportJobs: [ActiveImportJob] = []
     var isPresentingRecentNotifications = false
     var currentBannerHasAction: Bool { currentBanner?.action != nil }
     var unreadCount: Int { recentNotifications.filter { $0.timestamp > lastReadDate }.count }
+    var runningImportJobsCount: Int { activeImportJobs.filter { $0.status == .running }.count }
+    var hasRunningImportJobs: Bool { activeImportJobs.contains { $0.status == .running } }
+
+    // Current banner frame in window coordinates. Used by the iOS passthrough
+    // window's hit test so touches inside the banner reach SwiftUI's gesture
+    // system. ObservationIgnored — read imperatively from UIKit, not via views.
+    @ObservationIgnored var bannerFrame: CGRect = .zero
 
     private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
@@ -244,6 +252,59 @@ final class InAppNotificationCenter {
         isPresentingRecentNotifications = true
     }
 
+    // MARK: - Active Import Jobs
+
+    /// Register a live import job for visibility in the notifications sheet.
+    /// Returns an opaque ID the caller uses to mark completion.
+    @discardableResult
+    func startImportJob(
+        serviceTitle: String,
+        serviceSystemImage: String,
+        serviceTint: ImportJobTint,
+        folderName: String,
+        primaryName: String,
+        fileCount: Int
+    ) -> UUID {
+        let job = ActiveImportJob(
+            id: UUID(),
+            serviceTitle: serviceTitle,
+            serviceSystemImage: serviceSystemImage,
+            serviceTint: serviceTint,
+            folderName: folderName,
+            primaryName: primaryName,
+            fileCount: fileCount,
+            startedAt: Date(),
+            status: .running,
+            completedAt: nil,
+            errorMessage: nil
+        )
+        activeImportJobs.insert(job, at: 0)
+        return job.id
+    }
+
+    func completeImportJob(id: UUID, succeeded: Bool, errorMessage: String? = nil) {
+        guard let index = activeImportJobs.firstIndex(where: { $0.id == id }) else { return }
+        activeImportJobs[index].status = succeeded ? .succeeded : .failed
+        activeImportJobs[index].completedAt = Date()
+        activeImportJobs[index].errorMessage = errorMessage
+        if succeeded {
+            // Auto-remove succeeded jobs after a short delay so they linger long enough
+            // for the user to see them in the sheet, then disappear.
+            Task { [weak self] in
+                try? await Task.sleep(for: .seconds(45))
+                self?.removeImportJob(id: id)
+            }
+        }
+    }
+
+    func removeImportJob(id: UUID) {
+        activeImportJobs.removeAll { $0.id == id }
+    }
+
+    func clearFinishedImportJobs() {
+        activeImportJobs.removeAll { $0.status != .running }
+    }
+
     private func enqueue(_ banner: InAppBannerItem) {
         queuedBanners.append(banner)
 
@@ -356,6 +417,24 @@ final class InAppNotificationCenter {
     }
 }
 
+#if DEBUG
+extension InAppNotificationCenter {
+    convenience init(
+        previewNotifications: [NotificationLogEntry],
+        lastReadDate: Date = .distantPast
+    ) {
+        self.init()
+        dismissTask?.cancel()
+        dismissTask = nil
+        currentBanner = nil
+        queuedBanners = []
+        recentNotifications = previewNotifications
+        self.lastReadDate = lastReadDate
+        isPresentingRecentNotifications = false
+    }
+}
+#endif
+
 struct InAppBannerAction {
     let label: String
     let handler: () -> Void
@@ -406,4 +485,26 @@ extension InAppBannerItem: Equatable {
     static func == (lhs: InAppBannerItem, rhs: InAppBannerItem) -> Bool {
         lhs.id == rhs.id
     }
+}
+
+enum ImportJobTint: String, Sendable {
+    case sonarr
+    case radarr
+    case generic
+}
+
+struct ActiveImportJob: Identifiable, Sendable {
+    enum Status: String, Sendable { case running, succeeded, failed }
+
+    let id: UUID
+    let serviceTitle: String
+    let serviceSystemImage: String
+    let serviceTint: ImportJobTint
+    let folderName: String
+    let primaryName: String
+    let fileCount: Int
+    let startedAt: Date
+    var status: Status
+    var completedAt: Date?
+    var errorMessage: String?
 }

@@ -738,6 +738,32 @@ struct ProwlarrTests {
         return try JSONDecoder().decode(ProwlarrSearchResult.self, from: data)
     }
 
+    private func makeStatus(indexerId: Int, disabledTill: String?) throws -> ProwlarrIndexerStatus {
+        var json: [String: Any] = [
+            "id": indexerId,
+            "indexerId": indexerId,
+        ]
+        if let disabledTill {
+            json["disabledTill"] = disabledTill
+        }
+        let data = try JSONSerialization.data(withJSONObject: json)
+        return try JSONDecoder().decode(ProwlarrIndexerStatus.self, from: data)
+    }
+
+    @Test("Temporary disable status affects availability")
+    func temporaryDisableStatusAffectsAvailability() throws {
+        let indexer = ProwlarrIndexer(
+            id: 5, name: "NZBGeek", enable: true, implementation: nil, implementationName: nil,
+            configContract: nil, infoLink: nil, tags: nil, priority: nil, appProfileId: nil,
+            shouldSearch: nil, supportsRss: nil, supportsSearch: nil, protocol: nil, fields: nil
+        )
+        let status = try makeStatus(indexerId: indexer.id, disabledTill: "2099-01-01T00:00:00Z")
+        let viewModel = ProwlarrViewModel(previewIndexers: [indexer], indexerStatuses: [status])
+
+        #expect(viewModel.isIndexerTemporarilyDisabled(id: indexer.id))
+        #expect(!viewModel.isIndexerAvailable(indexer))
+    }
+
     @Test("Search Result IDs")
     func searchResultID() throws {
         let result1 = try makeResult(guid: "my-unique-guid")
@@ -894,6 +920,30 @@ struct MiscellaneousParsingTests {
         #expect(item.protocol_ == "torrent")
         #expect(item.progress == 0.5)
         #expect(item.timeleft == "00:30:00")
+    }
+
+    @Test("Manual Import Imported Episode Keys")
+    func manualImportImportedEpisodeKeys() throws {
+        let json = #"""
+        {
+          "path": "/downloads/Better.Call.Saul.S02E01-E02.mkv",
+          "seasonNumber": 2,
+          "episodes": [
+            { "episodeNumber": 1, "title": "Switch" },
+            { "episodeNumber": 2, "title": "Cobbler" }
+          ]
+        }
+        """#
+        let data = try #require(json.data(using: .utf8))
+        let value = try JSONDecoder().decode(JSONValue.self, from: data)
+        let item = try #require(ManualImportItem(json: value))
+
+        let keys = ManualImportScanViewModel.importedEpisodeKeys(from: [item])
+
+        #expect(keys == [
+            ManualImportEpisodeKey(seasonNumber: 2, episodeNumber: 1),
+            ManualImportEpisodeKey(seasonNumber: 2, episodeNumber: 2)
+        ])
     }
 
     @Test("ArrQueuePage Decoding")

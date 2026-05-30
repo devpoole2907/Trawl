@@ -8,11 +8,13 @@ struct ProwlarrApplicationsListView: View {
     @State private var viewModel: ProwlarrApplicationsViewModel
     @State private var editorContext: ProwlarrApplicationEditorContext?
     @State private var applicationPendingDelete: ProwlarrApplication?
+    private let loadsDataOnAppear: Bool
 
-    init() {
+    init(loadsDataOnAppear: Bool = true) {
         // Initialize viewModel synchronously in init to ensure it's available for .sheet(item:)
         let placeholder = ProwlarrApplicationsViewModel(serviceManager: ArrServiceManager())
         _viewModel = State(initialValue: placeholder)
+        self.loadsDataOnAppear = loadsDataOnAppear
     }
 
     var body: some View {
@@ -23,6 +25,7 @@ struct ProwlarrApplicationsListView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .task {
+            guard loadsDataOnAppear else { return }
             // Replace placeholder with actual service manager
             viewModel = ProwlarrApplicationsViewModel(serviceManager: serviceManager)
             await viewModel.loadApplications()
@@ -320,6 +323,7 @@ struct ProwlarrApplicationEditorSheet: View {
 
     let viewModel: ProwlarrApplicationsViewModel
     let context: ProwlarrApplicationEditorContext
+    private let loadsInitialStateOnAppear: Bool
 
     @State private var name = ""
     @State private var syncLevel: ProwlarrApplicationSyncLevel = .fullSync
@@ -334,6 +338,16 @@ struct ProwlarrApplicationEditorSheet: View {
     @State private var hasLoadedInitialState = false
 
     private static let customProfileID = "custom"
+
+    init(
+        viewModel: ProwlarrApplicationsViewModel,
+        context: ProwlarrApplicationEditorContext,
+        loadsInitialStateOnAppear: Bool = true
+    ) {
+        self.viewModel = viewModel
+        self.context = context
+        self.loadsInitialStateOnAppear = loadsInitialStateOnAppear
+    }
 
     private var application: ProwlarrApplication? {
         context.application
@@ -485,6 +499,7 @@ struct ProwlarrApplicationEditorSheet: View {
                 }
             }
             .task {
+                guard loadsInitialStateOnAppear else { return }
                 await loadInitialStateIfNeeded()
             }
             .onChange(of: selectedRemoteProfileID) { _, newProfileID in
@@ -639,3 +654,172 @@ struct ProwlarrApplicationEditorSheet: View {
         }
     }
 }
+
+#if DEBUG
+extension ProwlarrApplicationsListView {
+    init(previewViewModel: ProwlarrApplicationsViewModel) {
+        self.init(loadsDataOnAppear: false)
+        self._viewModel = State(initialValue: previewViewModel)
+    }
+}
+
+extension ProwlarrApplicationEditorSheet {
+    init(
+        previewViewModel: ProwlarrApplicationsViewModel,
+        context: ProwlarrApplicationEditorContext,
+        previewName: String? = nil,
+        previewSyncLevel: ProwlarrApplicationSyncLevel = .fullSync,
+        previewSelectedTagIDs: Set<Int> = [1],
+        previewProwlarrURL: String = "http://192.168.1.52:9696",
+        previewSelectedRemoteProfileID: String = ProwlarrApplicationEditorSheet.customProfileID,
+        previewRemoteURL: String = "",
+        previewAPIKey: String = "preview-api-key",
+        previewErrorMessage: String? = nil,
+        previewIsSaving: Bool = false
+    ) {
+        self.init(
+            viewModel: previewViewModel,
+            context: context,
+            loadsInitialStateOnAppear: false
+        )
+
+        let fallbackRemoteURL = switch context.appType {
+        case .sonarr:
+            "http://192.168.1.50:8989"
+        case .radarr:
+            "http://192.168.1.51:7878"
+        }
+
+        self._name = State(initialValue: previewName ?? context.application?.name ?? context.appType.displayName)
+        self._syncLevel = State(initialValue: context.application?.syncLevel ?? previewSyncLevel)
+        self._selectedTagIDs = State(initialValue: Set(context.application?.tags ?? Array(previewSelectedTagIDs)))
+        self._prowlarrURL = State(initialValue: context.application?.stringFieldValue(named: "prowlarrUrl") ?? previewProwlarrURL)
+        self._selectedRemoteProfileID = State(initialValue: previewSelectedRemoteProfileID)
+        self._remoteURL = State(initialValue: context.application?.stringFieldValue(named: "baseUrl") ?? (previewRemoteURL.isEmpty ? fallbackRemoteURL : previewRemoteURL))
+        self._apiKey = State(initialValue: context.application?.stringFieldValue(named: "apiKey") ?? previewAPIKey)
+        self._seededAPIKey = State(initialValue: context.application?.stringFieldValue(named: "apiKey") ?? previewAPIKey)
+        self._isSaving = State(initialValue: previewIsSaving)
+        self._localErrorMessage = State(initialValue: previewErrorMessage)
+        self._hasLoadedInitialState = State(initialValue: true)
+    }
+}
+
+#Preview("Loaded") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: ProwlarrApplication.previewList,
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrApplicationsListView(previewViewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Empty") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: [],
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrApplicationsListView(previewViewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Loading") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: [],
+        isLoadingApplications: true,
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrApplicationsListView(previewViewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Error") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: [],
+        errorMessage: "Prowlarr returned 401 Unauthorized.",
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        NavigationStack {
+            ProwlarrApplicationsListView(previewViewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Connection Issue") {
+    let manager = ArrServiceManager.preview(.noneConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: [],
+        errorMessage: "Prowlarr not connected.",
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager, includeRemotes: false), arr: manager) {
+        NavigationStack {
+            ProwlarrApplicationsListView(previewViewModel: viewModel)
+        }
+    }
+}
+
+#Preview("Editor - Existing") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let selectedID = manager.activeInstanceID(.sonarr)?.uuidString ?? "custom"
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: ProwlarrApplication.previewList,
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        ProwlarrApplicationEditorSheet(
+            previewViewModel: viewModel,
+            context: .edit(.previewSonarr),
+            previewSelectedRemoteProfileID: selectedID
+        )
+    }
+}
+
+#Preview("Editor - Create Sonarr") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let selectedID = manager.activeInstanceID(.sonarr)?.uuidString ?? "custom"
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: ProwlarrApplication.previewList,
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        ProwlarrApplicationEditorSheet(
+            previewViewModel: viewModel,
+            context: .create(.sonarr),
+            previewName: "Sonarr",
+            previewSelectedRemoteProfileID: selectedID
+        )
+    }
+}
+
+#Preview("Editor - Error") {
+    let manager = ArrServiceManager.preview(.allConfigured)
+    let viewModel = ProwlarrApplicationsViewModel(
+        previewApplications: ProwlarrApplication.previewList,
+        errorMessage: "The API key was rejected by Sonarr.",
+        serviceManager: manager
+    )
+    PreviewHost(profiles: ProwlarrPreviewSupport.profiles(matching: manager), arr: manager) {
+        ProwlarrApplicationEditorSheet(
+            previewViewModel: viewModel,
+            context: .create(.radarr),
+            previewName: "Radarr 4K",
+            previewRemoteURL: "http://192.168.1.51:7878",
+            previewErrorMessage: "The API key was rejected by Radarr."
+        )
+    }
+}
+#endif

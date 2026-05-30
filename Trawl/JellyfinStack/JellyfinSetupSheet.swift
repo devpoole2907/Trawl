@@ -25,6 +25,9 @@ private struct JellyfinConnectionFormView: View {
 
     var profile: JellyfinServiceProfile?
     var onComplete: (() -> Void)?
+    #if DEBUG
+    private var skipsInitialSeed = false
+    #endif
 
     private var submitTitle: String {
         profile == nil ? "Connect" : "Save Connection"
@@ -119,6 +122,9 @@ private struct JellyfinConnectionFormView: View {
         .formStyle(.grouped)
         #endif
         .task(id: profile?.id) {
+            #if DEBUG
+            if skipsInitialSeed { return }
+            #endif
             viewModel.seed(from: profile)
         }
     }
@@ -134,6 +140,29 @@ private struct JellyfinConnectionFormView: View {
     }
 }
 
+#if DEBUG
+extension JellyfinConnectionFormView {
+    init(
+        profile: JellyfinServiceProfile? = nil,
+        onComplete: (() -> Void)? = nil
+    ) {
+        self.profile = profile
+        self.onComplete = onComplete
+    }
+
+    init(
+        previewViewModel: JellyfinSetupViewModel,
+        profile: JellyfinServiceProfile? = nil,
+        onComplete: (() -> Void)? = nil
+    ) {
+        self.profile = profile
+        self.onComplete = onComplete
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsInitialSeed = true
+    }
+}
+#endif
+
 struct JellyfinSettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
@@ -144,6 +173,9 @@ struct JellyfinSettingsView: View {
     @State private var showRemoveConfirmation = false
     @State private var showRestartConfirmation = false
     @State private var showShutdownConfirmation = false
+    #if DEBUG
+    private var isPreview = false
+    #endif
 
     private var profile: JellyfinServiceProfile? {
         profiles.first(where: { $0.isEnabled }) ?? profiles.first
@@ -315,6 +347,9 @@ struct JellyfinSettingsView: View {
         .formStyle(.grouped)
         #endif
         .task(id: syncKey) {
+            #if DEBUG
+            if isPreview { return }
+            #endif
             await jellyfinServiceManager.initialize(from: profiles)
         }
         .refreshable {
@@ -464,6 +499,14 @@ struct JellyfinSettingsView: View {
     }
 }
 
+#if DEBUG
+extension JellyfinSettingsView {
+    init(preview: Bool) {
+        self.isPreview = preview
+    }
+}
+#endif
+
 private extension JellyfinAuthMode {
     var settingsLabel: String? {
         switch self {
@@ -474,3 +517,73 @@ private extension JellyfinAuthMode {
         }
     }
 }
+
+#if DEBUG
+#Preview("Jellyfin Setup - Initial") {
+    PreviewHost(profiles: .empty, jellyfin: .preview(.notConfigured)) {
+        JellyfinSetupSheet()
+    }
+}
+
+#Preview("Jellyfin Setup - Mid Input") {
+    PreviewHost(profiles: .empty, jellyfin: .preview(.notConfigured)) {
+        JellyfinConnectionFormView(
+            previewViewModel: JellyfinSetupViewModel(
+                previewHostURL: "http://192.168.1.50:8096",
+                previewUsername: "admin",
+                previewPassword: "password",
+                previewAuthMode: .userPass,
+                previewDisplayName: "Home Jellyfin"
+            )
+        )
+    }
+}
+
+#Preview("Jellyfin Setup - Authenticating") {
+    PreviewHost(profiles: .empty, jellyfin: .preview(.connecting)) {
+        JellyfinConnectionFormView(
+            previewViewModel: JellyfinSetupViewModel(
+                previewHostURL: "http://192.168.1.50:8096",
+                previewAPIKey: "preview-api-key",
+                previewIsAuthenticating: true
+            )
+        )
+    }
+}
+
+#Preview("Jellyfin Setup - Error") {
+    PreviewHost(profiles: .empty, jellyfin: .preview(.error("Could not reach Jellyfin at 192.168.1.50:8096."))) {
+        JellyfinConnectionFormView(
+            previewViewModel: JellyfinSetupViewModel(
+                previewHostURL: "http://nope.invalid:8096",
+                previewAPIKey: "preview-api-key",
+                previewError: "Could not reach server. Check the URL and try again."
+            )
+        )
+    }
+}
+
+#Preview("Jellyfin Settings - Connected") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.connected)) {
+        NavigationStack { JellyfinSettingsView(preview: true) }
+    }
+}
+
+#Preview("Jellyfin Settings - Not Configured") {
+    PreviewHost(profiles: .empty, jellyfin: .preview(.notConfigured)) {
+        NavigationStack { JellyfinSettingsView(preview: true) }
+    }
+}
+
+#Preview("Jellyfin Settings - Connection Error") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.error("Session expired. Please reconnect."))) {
+        NavigationStack { JellyfinSettingsView(preview: true) }
+    }
+}
+
+#Preview("Jellyfin Settings - Reauthentication") {
+    PreviewHost(profiles: .jellyfinOnly, jellyfin: .preview(.requiresReauthentication)) {
+        NavigationStack { JellyfinSettingsView(preview: true) }
+    }
+}
+#endif
