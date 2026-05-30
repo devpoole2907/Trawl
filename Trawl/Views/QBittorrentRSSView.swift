@@ -34,7 +34,7 @@ struct QBittorrentRSSView: View {
             } else {
                 Section("Feeds & Folders") {
                     ForEach(rssItemKeys, id: \.self) { key in
-                        rssItemRow(name: key, value: rssItems[key])
+                        rssItemRow(name: key, path: key, value: rssItems[key])
                     }
                 }
             }
@@ -67,7 +67,7 @@ struct QBittorrentRSSView: View {
             }
         }
         .sheet(isPresented: $showingRulesSheet) {
-            QBittorrentRSSRulesSheet(feedURLs: feedURLs)
+            QBittorrentRSSRulesSheet(feedOptions: feedOptions)
         }
         .alert("Add RSS Feed", isPresented: $showCreateFeedAlert) {
             TextField("Feed URL", text: $newFeedURL)
@@ -112,28 +112,47 @@ struct QBittorrentRSSView: View {
         rssItems.keys.sorted()
     }
 
-    private var feedURLs: [String] {
-        var urls: [String] = []
-        collectFeedURLs(in: rssItems, into: &urls)
-        return Array(Set(urls)).sorted()
+    private var feedOptions: [QBittorrentRSSFeedOption] {
+        var options: [QBittorrentRSSFeedOption] = []
+        collectFeedOptions(in: rssItems, parentPath: "", into: &options)
+        return options.sorted {
+            $0.path.localizedCaseInsensitiveCompare($1.path) == .orderedAscending
+        }
     }
 
-    private func collectFeedURLs(in dictionary: [String: JSONValue], into urls: inout [String]) {
-        for value in dictionary.values {
-            guard case let .object(child) = value else { continue }
-            if case let .string(url) = child["url"] {
-                urls.append(url)
-            } else {
-                collectFeedURLs(in: child, into: &urls)
+    private func collectFeedOptions(
+        in dictionary: [String: JSONValue],
+        parentPath: String,
+        into options: inout [QBittorrentRSSFeedOption]
+    ) {
+        for key in sortedKeys(in: dictionary) {
+            let path = rssItemPath(parentPath: parentPath, name: key)
+            switch dictionary[key] {
+            case .string(let url):
+                options.append(QBittorrentRSSFeedOption(path: path, url: url))
+            case .object(let child):
+                if case let .string(url) = child["url"] {
+                    options.append(QBittorrentRSSFeedOption(path: path, url: url))
+                } else {
+                    collectFeedOptions(in: child, parentPath: path, into: &options)
+                }
+            default:
+                continue
             }
         }
+    }
+
+    private func rssItemPath(parentPath: String, name: String) -> String {
+        guard !parentPath.isEmpty else { return name }
+        guard !name.isEmpty else { return parentPath }
+        return "\(parentPath)/\(name)"
     }
 
     private func sortedKeys(in dictionary: [String: JSONValue]) -> [String] {
         dictionary.keys.sorted()
     }
     
-    private func rssItemRow(name: String, value: JSONValue?) -> AnyView {
+    private func rssItemRow(name: String, path: String, value: JSONValue?) -> AnyView {
         if case let .object(dict) = value {
             if case let .string(url) = dict["url"] {
                 return AnyView(
@@ -154,7 +173,7 @@ struct QBittorrentRSSView: View {
                     .padding(.vertical, 2)
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button(role: .destructive) {
-                            itemPendingDeletion = name
+                            itemPendingDeletion = path
                         } label: {
                             Label("Delete", systemImage: "trash")
                         }
@@ -165,7 +184,11 @@ struct QBittorrentRSSView: View {
             return AnyView(
                 DisclosureGroup {
                     ForEach(sortedKeys(in: dict), id: \.self) { subKey in
-                        rssItemRow(name: subKey, value: dict[subKey])
+                        rssItemRow(
+                            name: subKey,
+                            path: rssItemPath(parentPath: path, name: subKey),
+                            value: dict[subKey]
+                        )
                     }
                 } label: {
                     HStack(spacing: 12) {
@@ -179,7 +202,7 @@ struct QBittorrentRSSView: View {
                 }
                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                     Button(role: .destructive) {
-                        itemPendingDeletion = name
+                        itemPendingDeletion = path
                     } label: {
                         Label("Delete", systemImage: "trash")
                     }
@@ -198,7 +221,7 @@ struct QBittorrentRSSView: View {
             .padding(.vertical, 2)
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button(role: .destructive) {
-                    itemPendingDeletion = name
+                    itemPendingDeletion = path
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }

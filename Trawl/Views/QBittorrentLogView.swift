@@ -75,6 +75,9 @@ struct QBittorrentLogView: View {
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)
+        .refreshable {
+            await load()
+        }
         .background(backgroundGradient)
         .navigationTitle("Logs")
         .navigationSubtitle("qBittorrent")
@@ -102,9 +105,6 @@ struct QBittorrentLogView: View {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
             #endif
-            await load()
-        }
-        .refreshable {
             await load()
         }
     }

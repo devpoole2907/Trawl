@@ -401,7 +401,7 @@ extension TorrentListViewModel {
         self.isAlternativeSpeedEnabled = isAlternativeSpeedEnabled
         self.isUpdatingAlternativeSpeed = isUpdatingAlternativeSpeed
 
-        let torrentMap = Dictionary(uniqueKeysWithValues: previewTorrents.map { ($0.hash, $0) })
+        let torrentMap = Dictionary(previewTorrents.map { ($0.hash, $0) }, uniquingKeysWith: { first, _ in first })
         let result = Self.compute(
             torrents: torrentMap,
             filter: selectedFilter,

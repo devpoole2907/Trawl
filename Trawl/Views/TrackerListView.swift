@@ -92,10 +92,10 @@ struct TrackerListView: View {
         }
         .errorAlert(item: $actionErrorAlert)
         .task {
-            await viewModel.loadTrackers()
+            try? await viewModel.loadTrackers()
         }
         .refreshable {
-            await viewModel.loadTrackers()
+            try? await viewModel.loadTrackers()
         }
     }
 
@@ -115,7 +115,11 @@ struct TrackerListView: View {
     private func refreshTrackers() async {
         guard !isRefreshing else { return }
         isRefreshing = true
-        async let refresh: Void = viewModel.loadTrackers()
+        async let refresh: Void = {
+            do {
+                try await viewModel.loadTrackers()
+            } catch {}
+        }()
         async let feedback: Void = {
             try? await Task.sleep(for: .seconds(2))
         }()
@@ -288,13 +292,6 @@ private struct AddTrackersSheet: View {
             .filter { isValidTrackerURL($0) }
     }
 
-    private func isValidTrackerURL(_ string: String) -> Bool {
-        guard !string.isEmpty, let url = URL(string: string), let scheme = url.scheme?.lowercased() else {
-            return false
-        }
-        return scheme == "http" || scheme == "https" || scheme == "udp"
-    }
-
     private func submit() async {
         let urls = parsedURLs
         guard !urls.isEmpty else { return }
@@ -375,12 +372,12 @@ private struct EditTrackerSheet: View {
     }
 
     private var canSave: Bool {
-        !trimmedNewURL.isEmpty && trimmedNewURL != tracker.url
+        isValidTrackerURL(trimmedNewURL) && trimmedNewURL != tracker.url
     }
 
     private func submit() async {
         let candidate = trimmedNewURL
-        guard !candidate.isEmpty, candidate != tracker.url else { return }
+        guard isValidTrackerURL(candidate), candidate != tracker.url else { return }
         isSubmitting = true
         do {
             try await onSubmit(candidate)
@@ -393,6 +390,13 @@ private struct EditTrackerSheet: View {
         }
         isSubmitting = false
     }
+}
+
+private func isValidTrackerURL(_ string: String) -> Bool {
+    guard !string.isEmpty, let url = URL(string: string), let scheme = url.scheme?.lowercased() else {
+        return false
+    }
+    return scheme == "http" || scheme == "https" || scheme == "udp"
 }
 
 private var trackerRefreshToolbarPlacement: ToolbarItemPlacement {

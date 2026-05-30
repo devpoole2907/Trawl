@@ -1009,15 +1009,17 @@ final class ArrServiceManager {
     func removeImportListExclusion(id: Int, source: ArrServiceType) async {
         switch source {
         case .sonarr:
+            guard let sonarrClient else { return }
             do {
-                try await sonarrClient?.deleteImportListExclusion(id: id)
+                try await sonarrClient.deleteImportListExclusion(id: id)
                 sonarrImportListExclusions.removeAll { $0.id == id }
             } catch {
                 // Deletion failed, do not remove from local array
             }
         case .radarr:
+            guard let radarrClient else { return }
             do {
-                try await radarrClient?.deleteImportListExclusion(id: id)
+                try await radarrClient.deleteImportListExclusion(id: id)
                 radarrImportListExclusions.removeAll { $0.id == id }
             } catch {
                 // Deletion failed, do not remove from local array
@@ -1424,19 +1426,14 @@ final class ArrServiceManager {
             return false
         }
 
-        guard let passwordValue = notification.fields.first(where: { $0.name == "password" })?.value else {
-            return true
-        }
-
-        switch passwordValue {
-        case .string(let password):
-            let normalized = password.trimmingCharacters(in: .whitespacesAndNewlines)
-            return normalized == deviceToken || normalized.isEmpty || normalized.allSatisfy { $0 == "*" }
-        case .null:
-            return true
-        default:
+        guard case .string(let password) = notification.fields.first(where: { $0.name == "password" })?.value else {
             return false
         }
+
+        // Prowlarr masks saved webhook passwords, so masked or missing values must be rewritten.
+        let normalizedPassword = password.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedDeviceToken = deviceToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !normalizedPassword.isEmpty && normalizedPassword == normalizedDeviceToken
     }
 
     private func normalizedNotificationComparisonURL(_ rawValue: String) -> String {

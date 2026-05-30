@@ -55,7 +55,11 @@ struct TorrentDetailView: View {
                 viewModel = vm
                 async let properties: Void = vm.loadProperties()
                 async let files: Void = vm.loadFiles()
-                async let trackers: Void = vm.loadTrackers()
+                async let trackers: Void = {
+                    do {
+                        try await vm.loadTrackers()
+                    } catch {}
+                }()
                 _ = await (properties, files, trackers)
                 if let properties = vm.properties {
                     selectedDownloadLimit = max(0, properties.dlLimit)
@@ -107,7 +111,11 @@ struct TorrentDetailView: View {
             await syncService.refreshNow()
             async let properties: Void = vm.loadProperties()
             async let files: Void = vm.loadFiles()
-            async let trackers: Void = vm.loadTrackers()
+            async let trackers: Void = {
+                do {
+                    try await vm.loadTrackers()
+                } catch {}
+            }()
             _ = await (properties, files, trackers)
         }
         .alert("Delete Torrent?", isPresented: $showDeleteAlert) {

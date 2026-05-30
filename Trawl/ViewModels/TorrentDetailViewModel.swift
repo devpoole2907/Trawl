@@ -95,12 +95,13 @@ final class TorrentDetailViewModel {
         }
     }
 
-    func loadTrackers() async {
+    func loadTrackers() async throws {
         do {
             trackers = try await torrentService.getTrackers(hash: torrentHash)
             error = nil
         } catch {
             self.error = error.localizedDescription
+            throw error
         }
     }
 
@@ -108,17 +109,17 @@ final class TorrentDetailViewModel {
     // is reserved for the trackers-load failure surface, not action failures.
     func addTrackers(_ urls: [String]) async throws {
         try await torrentService.addTorrentTrackers(hash: torrentHash, urls: urls)
-        await loadTrackers()
+        try await loadTrackers()
     }
 
     func removeTrackers(_ urls: [String]) async throws {
         try await torrentService.removeTorrentTrackers(hash: torrentHash, urls: urls)
-        await loadTrackers()
+        try await loadTrackers()
     }
 
     func editTracker(originalURL: String, newURL: String) async throws {
         try await torrentService.editTorrentTracker(hash: torrentHash, origURL: originalURL, newURL: newURL)
-        await loadTrackers()
+        try await loadTrackers()
     }
 
     // MARK: - Actions

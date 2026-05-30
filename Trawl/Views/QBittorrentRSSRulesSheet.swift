@@ -1,10 +1,17 @@
 import SwiftUI
 
+nonisolated struct QBittorrentRSSFeedOption: Identifiable, Hashable, Sendable {
+    let path: String
+    let url: String?
+
+    var id: String { path }
+}
+
 struct QBittorrentRSSRulesSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(AppServices.self) private var appServices
 
-    let feedURLs: [String]
+    let feedOptions: [QBittorrentRSSFeedOption]
 
     @State private var rules: [String: QBittorrentRSSRule] = [:]
     @State private var isLoading = false
@@ -15,8 +22,8 @@ struct QBittorrentRSSRulesSheet: View {
     private var skipsAutomaticLoading = false
     #endif
 
-    init(feedURLs: [String]) {
-        self.feedURLs = feedURLs
+    init(feedOptions: [QBittorrentRSSFeedOption]) {
+        self.feedOptions = feedOptions
     }
 
     var body: some View {
@@ -73,7 +80,7 @@ struct QBittorrentRSSRulesSheet: View {
                 QBittorrentRSSRuleEditorView(
                     mode: .create,
                     initialRule: QBittorrentRSSRule(),
-                    feedURLs: feedURLs,
+                    feedOptions: feedOptions,
                     existingRuleNames: Set(rules.keys),
                     onSave: { name, rule in
                         try await saveRule(name: name, rule: rule)
@@ -110,7 +117,7 @@ struct QBittorrentRSSRulesSheet: View {
             QBittorrentRSSRuleEditorView(
                 mode: .edit(name: name),
                 initialRule: rule,
-                feedURLs: feedURLs,
+                feedOptions: feedOptions,
                 existingRuleNames: Set(rules.keys),
                 onSave: { savedName, savedRule in
                     try await saveRule(name: savedName, rule: savedRule)
@@ -212,7 +219,7 @@ private struct QBittorrentRSSRuleEditorView: View {
     @Environment(\.dismiss) private var dismiss
 
     let mode: RuleEditorMode
-    let feedURLs: [String]
+    let feedOptions: [QBittorrentRSSFeedOption]
     let existingRuleNames: Set<String>
     let onSave: (String, QBittorrentRSSRule) async throws -> Void
 
@@ -224,12 +231,12 @@ private struct QBittorrentRSSRuleEditorView: View {
     init(
         mode: RuleEditorMode,
         initialRule: QBittorrentRSSRule,
-        feedURLs: [String],
+        feedOptions: [QBittorrentRSSFeedOption],
         existingRuleNames: Set<String>,
         onSave: @escaping (String, QBittorrentRSSRule) async throws -> Void
     ) {
         self.mode = mode
-        self.feedURLs = feedURLs
+        self.feedOptions = feedOptions
         self.existingRuleNames = existingRuleNames
         self.onSave = onSave
         switch mode {
@@ -238,7 +245,7 @@ private struct QBittorrentRSSRuleEditorView: View {
         case .edit(let name):
             self._name = State(initialValue: name)
         }
-        self._rule = State(initialValue: initialRule)
+        self._rule = State(initialValue: Self.normalizedRule(initialRule, feedOptions: feedOptions))
     }
 
     private var isEditing: Bool {
@@ -339,15 +346,23 @@ private struct QBittorrentRSSRuleEditorView: View {
             }
 
             Section {
-                if feedURLs.isEmpty {
+                if feedOptions.isEmpty {
                     Text("No RSS feeds are configured.")
                         .foregroundStyle(.secondary)
                 } else {
-                    ForEach(feedURLs, id: \.self) { url in
-                        Toggle(isOn: feedBinding(for: url)) {
-                            Text(url)
-                                .font(.footnote)
-                                .lineLimit(2)
+                    ForEach(feedOptions) { option in
+                        Toggle(isOn: feedBinding(for: option.path)) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(option.path)
+                                    .font(.footnote.weight(.medium))
+                                    .lineLimit(2)
+                                if let url = option.url, !url.isEmpty {
+                                    Text(url)
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                }
+                            }
                         }
                     }
                 }
@@ -373,19 +388,39 @@ private struct QBittorrentRSSRuleEditorView: View {
         .disabled(isSaving)
     }
 
-    private func feedBinding(for url: String) -> Binding<Bool> {
+    private func feedBinding(for path: String) -> Binding<Bool> {
         Binding(
-            get: { rule.affectedFeeds.contains(url) },
+            get: { rule.affectedFeeds.contains(path) },
             set: { included in
                 if included {
-                    if !rule.affectedFeeds.contains(url) {
-                        rule.affectedFeeds.append(url)
+                    if !rule.affectedFeeds.contains(path) {
+                        rule.affectedFeeds.append(path)
                     }
                 } else {
-                    rule.affectedFeeds.removeAll { $0 == url }
+                    rule.affectedFeeds.removeAll { $0 == path }
                 }
             }
         )
+    }
+
+    private static func normalizedRule(
+        _ rule: QBittorrentRSSRule,
+        feedOptions: [QBittorrentRSSFeedOption]
+    ) -> QBittorrentRSSRule {
+        var pathsByURL: [String: String] = [:]
+        for option in feedOptions {
+            guard let url = option.url, pathsByURL[url] == nil else { continue }
+            pathsByURL[url] = option.path
+        }
+
+        var normalizedRule = rule
+        var seenFeeds = Set<String>()
+        normalizedRule.affectedFeeds = rule.affectedFeeds.compactMap { feed in
+            let normalizedFeed = pathsByURL[feed] ?? feed
+            guard seenFeeds.insert(normalizedFeed).inserted else { return nil }
+            return normalizedFeed
+        }
+        return normalizedRule
     }
 
     private var addPausedBinding: Binding<AddPausedOption> {
@@ -466,14 +501,14 @@ private enum ContentLayoutOption: Hashable {
 extension QBittorrentRSSRulesSheet {
     init(
         previewRules: [String: QBittorrentRSSRule],
-        feedURLs: [String] = [
-            "https://releases.ubuntu.com/rss.xml",
-            "https://tracker.example.org/movies/rss"
+        feedOptions: [QBittorrentRSSFeedOption] = [
+            QBittorrentRSSFeedOption(path: "linux/Ubuntu Releases", url: "https://releases.ubuntu.com/rss.xml"),
+            QBittorrentRSSFeedOption(path: "Movies Feed", url: "https://tracker.example.org/movies/rss")
         ],
         isLoading: Bool = false,
         actionErrorAlert: ErrorAlertItem? = nil
     ) {
-        self.init(feedURLs: feedURLs)
+        self.init(feedOptions: feedOptions)
         self._rules = State(initialValue: previewRules)
         self._isLoading = State(initialValue: isLoading)
         self._actionErrorAlert = State(initialValue: actionErrorAlert)
@@ -488,13 +523,13 @@ extension QBittorrentRSSRulesSheet {
                 enabled: true,
                 mustContain: "ubuntu 24.04",
                 useRegex: false,
-                affectedFeeds: ["https://releases.ubuntu.com/rss.xml"],
+                affectedFeeds: ["linux/Ubuntu Releases"],
                 assignedCategory: "linux"
             ),
             "Documentaries": QBittorrentRSSRule(
                 enabled: false,
                 mustContain: "1080p",
-                affectedFeeds: ["https://tracker.example.org/movies/rss"]
+                affectedFeeds: ["Movies Feed"]
             )
         ])
     }
