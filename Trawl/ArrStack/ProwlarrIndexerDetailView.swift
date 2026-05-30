@@ -12,21 +12,32 @@ struct ProwlarrIndexerDetailView: View {
         viewModel.statusForIndexer(id: indexer.id)
     }
 
+    private var currentIndexer: ProwlarrIndexer {
+        viewModel.indexers.first(where: { $0.id == indexer.id }) ?? indexer
+    }
+
+    private var currentStateLabel: String {
+        if viewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
+            return "Temporarily Disabled"
+        }
+
+        return currentIndexer.enable ? "Active" : "Disabled"
+    }
+
     var body: some View {
         List {
             // MARK: Status Section
             Section("Status") {
-                Toggle("Enabled", isOn: Binding(
+                Toggle("Enabled in Prowlarr", isOn: Binding(
                     get: {
-                        viewModel.indexers.first(where: { $0.id == indexer.id })?.enable ?? indexer.enable
+                        currentIndexer.enable
                     },
                     set: { _ in
-                        guard let currentIndexer = viewModel.indexers.first(where: { $0.id == indexer.id }) else {
-                            return
-                        }
                         Task { await viewModel.toggleIndexer(currentIndexer) }
                     }
                 ))
+
+                detailRow(label: "Current State", value: currentStateLabel)
 
                 if let proto = indexer.protocol {
                     detailRow(label: "Protocol", value: proto.displayName)
@@ -45,7 +56,7 @@ struct ProwlarrIndexerDetailView: View {
                 }
 
                 if status?.isDisabled == true {
-                    Label("Temporarily disabled by Prowlarr", systemImage: "exclamationmark.triangle.fill")
+                    Label("Prowlarr temporarily disabled this indexer after recent failures.", systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
                         .foregroundStyle(.orange)
                 }

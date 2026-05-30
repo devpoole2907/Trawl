@@ -1,6 +1,8 @@
 import Foundation
 import OSLog
 import SwiftData
+import CryptoKit
+import UIKit
 
 /// One-shot data helpers for WidgetKit timeline providers.
 /// Follows the same SwiftData + Keychain pattern as the Share extension.
@@ -155,22 +157,24 @@ enum WidgetDataFetcher {
     static func fetchActiveTorrents(serverID: String? = nil) async throws -> WidgetActiveTorrentsSnapshot {
         let snapshot = try await fetchServerSnapshot(serverID: serverID)
         let client = try await makeQBittorrentClient(from: snapshot)
-        let torrents = try await client.getTorrents()
+        let torrents = try await client.getTorrentSummaries()
         let active = torrents
             .filter(isActiveTorrent)
             .sorted { lhs, rhs in
-                if lhs.dlspeed != rhs.dlspeed { return lhs.dlspeed > rhs.dlspeed }
-                if lhs.progress != rhs.progress { return lhs.progress > rhs.progress }
-                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+                let lhsSpeed = lhs.dlspeed ?? 0, rhsSpeed = rhs.dlspeed ?? 0
+                if lhsSpeed != rhsSpeed { return lhsSpeed > rhsSpeed }
+                let lhsProgress = lhs.progress ?? 0, rhsProgress = rhs.progress ?? 0
+                if lhsProgress != rhsProgress { return lhsProgress > rhsProgress }
+                return (lhs.name ?? "").localizedCaseInsensitiveCompare(rhs.name ?? "") == .orderedAscending
             }
 
         let top = active.first.map { torrent in
             WidgetActiveTorrentSnapshot(
-                name: torrent.name,
-                progress: max(0, min(1, torrent.progress)),
-                dlspeed: torrent.dlspeed,
-                etaText: widgetETAText(for: torrent.eta),
-                state: torrent.state.displayName
+                name: torrent.name ?? "Unknown",
+                progress: max(0, min(1, torrent.progress ?? 0)),
+                dlspeed: torrent.dlspeed ?? 0,
+                etaText: widgetETAText(for: torrent.eta ?? 0),
+                state: (torrent.state ?? .unknown).displayName
             )
         }
 
@@ -311,7 +315,10 @@ enum WidgetDataFetcher {
     // MARK: - Calendar (Sonarr + Radarr)
 
     /// Fetches upcoming episodes and movie releases for the next `days` days.
-    static func fetchUpcomingReleases(days: Int = 14) async throws -> [WidgetCalendarEvent] {
+    /// - Parameter includeUnmonitored: When `true` (default), includes unmonitored
+    ///   series/movies — matching the main app's calendar. When `false`, only
+    ///   monitored items are returned.
+    static func fetchUpcomingReleases(days: Int = 14, includeUnmonitored: Bool = true) async throws -> [WidgetCalendarEvent] {
         let profiles = try await fetchArrProfiles(serviceTypes: [.sonarr, .radarr])
 
         guard !profiles.isEmpty else { throw WidgetError.noArrServicesConfigured }
@@ -323,14 +330,115 @@ enum WidgetDataFetcher {
 
         await withTaskGroup(of: [WidgetCalendarEvent].self) { group in
             for profile in profiles {
-                group.addTask { await fetchArrEvents(profile: profile, apiStart: apiStart, filterStart: filterStart, end: end) }
+                group.addTask {
+                    await fetchArrEvents(
+                        profile: profile,
+                        apiStart: apiStart,
+                        filterStart: filterStart,
+                        end: end,
+                        includeUnmonitored: includeUnmonitored
+                    )
+                }
             }
             for await batch in group {
                 events.append(contentsOf: batch)
             }
         }
 
-        return events.sorted { $0.date < $1.date }
+        let sorted = events.sorted { $0.date < $1.date }
+        return await prefetchPosters(for: sorted)
+    }
+
+    // MARK: - Poster prefetch
+    //
+    // WidgetKit captures its render as a snapshot, so `AsyncImage` network loads
+    // never complete in time. Instead we download poster thumbnails here (the
+    // timeline provider awaits this) into the shared App Group container and let
+    // the view load them synchronously from disk.
+
+    private static func posterCacheDirectory() -> URL? {
+        guard let base = AppGroup.sharedContainerURL else { return nil }
+        let dir = base.appendingPathComponent("WidgetPosters", isDirectory: true)
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        }
+        return dir
+    }
+
+    /// Downloads (or reuses cached) poster thumbnails and returns the events with
+    /// `posterLocalPath` populated. Only the first handful of unique posters are
+    /// fetched to keep the provider fast and the cache small.
+    private static func prefetchPosters(for events: [WidgetCalendarEvent]) async -> [WidgetCalendarEvent] {
+        guard let dir = posterCacheDirectory() else { return events }
+        prunePosterCache(in: dir)
+
+        // Fetch unique posters in the order they'll be displayed, capped.
+        var seen = Set<URL>()
+        let uniqueURLs = events.compactMap(\.posterURL).filter { seen.insert($0).inserted }.prefix(20)
+
+        var pathByURL: [URL: String] = [:]
+        await withTaskGroup(of: (URL, String?).self) { group in
+            for url in uniqueURLs {
+                group.addTask { (url, await downloadPosterThumbnail(url, into: dir)) }
+            }
+            for await (url, path) in group {
+                if let path { pathByURL[url] = path }
+            }
+        }
+
+        guard !pathByURL.isEmpty else { return events }
+        return events.map { event in
+            guard let url = event.posterURL, let path = pathByURL[url] else { return event }
+            var copy = event
+            copy.posterLocalPath = path
+            return copy
+        }
+    }
+
+    private static func downloadPosterThumbnail(_ url: URL, into dir: URL) async -> String? {
+        let fileName = SHA256.hash(data: Data(url.absoluteString.utf8))
+            .map { String(format: "%02x", $0) }.joined() + ".jpg"
+        let fileURL = dir.appendingPathComponent(fileName)
+
+        if FileManager.default.fileExists(atPath: fileURL.path) { return fileURL.path }
+
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode),
+                  let image = UIImage(data: data),
+                  let thumb = downscaledImage(image, maxDimension: 200),
+                  let jpeg = thumb.jpegData(compressionQuality: 0.8) else { return nil }
+            try jpeg.write(to: fileURL, options: .atomic)
+            return fileURL.path
+        } catch {
+            return nil
+        }
+    }
+
+    private static func downscaledImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage? {
+        let longest = max(image.size.width, image.size.height)
+        guard longest > maxDimension else { return image }
+        let scale = maxDimension / longest
+        let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = true
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
+    }
+
+    /// Removes cached thumbnails not touched in the last 30 days.
+    private static func prunePosterCache(in dir: URL) {
+        let cutoff = Date().addingTimeInterval(-30 * 24 * 60 * 60)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: dir,
+            includingPropertiesForKeys: [.contentModificationDateKey]
+        ) else { return }
+        for file in files {
+            let modified = (try? file.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
+            if let modified, modified < cutoff {
+                try? FileManager.default.removeItem(at: file)
+            }
+        }
     }
 
     // MARK: - Private helpers
@@ -638,13 +746,13 @@ enum WidgetDataFetcher {
         }
     }
 
-    private static func isActiveTorrent(_ torrent: Torrent) -> Bool {
-        switch torrent.state {
+    private static func isActiveTorrent(_ torrent: TorrentInfoSummary) -> Bool {
+        switch torrent.state ?? .unknown {
         case .downloading, .forcedDL, .metaDL, .stalledDL, .queuedDL, .checkingDL, .allocating, .moving:
             true
         case .uploading, .forcedUP, .stalledUP, .queuedUP, .checkingUP, .pausedDL, .pausedUP,
              .stoppedDL, .stoppedUP, .error, .missingFiles, .checkingResumeData, .unknown:
-            torrent.dlspeed > 0
+            (torrent.dlspeed ?? 0) > 0
         }
     }
 
@@ -685,7 +793,8 @@ enum WidgetDataFetcher {
         profile: ArrProfileSnapshot,
         apiStart: Date,
         filterStart: Date,
-        end: Date
+        end: Date,
+        includeUnmonitored: Bool
     ) async -> [WidgetCalendarEvent] {
         do {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
@@ -703,7 +812,7 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: false, includeSeries: true)
+                let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored, includeSeries: true)
                 return episodes.compactMap { ep -> WidgetCalendarEvent? in
                     guard let date = parseISO(ep.airDateUtc) ?? parseDayDate(ep.airDate),
                           date >= filterStart else { return nil }
@@ -726,7 +835,7 @@ enum WidgetDataFetcher {
                     apiKey: apiKey,
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
-                let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: false)
+                let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored)
                 return movies.flatMap { movie -> [WidgetCalendarEvent] in
                     let releases: [(String?, String, String)] = [
                         (movie.digitalRelease, "Digital", "blue"),

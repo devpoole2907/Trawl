@@ -10,6 +10,7 @@ struct UnifiedLogEntry: Identifiable, Sendable {
     let message: String
     let timestamp: Date
     let exceptionType: String?
+    let exception: String?
 }
 
 // MARK: - Service Selection
@@ -32,6 +33,7 @@ struct ArrEventsView: View {
     @State private var isSearchExpanded = false
     @State private var searchDebounceTask: Task<Void, Never>?
     @State private var showSettings = false
+    @State private var selectedEntry: UnifiedLogEntry?
 
     #if DEBUG
     init(previewEntries: [ArrServiceType: [UnifiedLogEntry]] = [:], selectedService: ArrServiceType? = nil) {
@@ -222,6 +224,13 @@ struct ArrEventsView: View {
                 }
             }
         }
+        .sheet(item: $selectedEntry) { entry in
+            NavigationStack {
+                ArrEventDetailView(entry: entry)
+            }
+            .presentationDetents([.medium, .large])
+            .presentationDragIndicator(.visible)
+        }
         .onChange(of: searchText) { _, newValue in
             searchDebounceTask?.cancel()
             searchDebounceTask = Task {
@@ -262,10 +271,15 @@ struct ArrEventsView: View {
             } else {
                 Section {
                     ForEach(displayedEntries) { entry in
-                        UnifiedEventRow(
-                            entry: entry,
-                            showServiceBadge: selectedSelection == .all
-                        )
+                        Button {
+                            selectedEntry = entry
+                        } label: {
+                            UnifiedEventRow(
+                                entry: entry,
+                                showServiceBadge: selectedSelection == .all
+                            )
+                        }
+                        .buttonStyle(.plain)
                         .task {
                             guard case .service(let t) = selectedSelection,
                                   entry.id == vm.entries(for: t).last?.id
@@ -387,6 +401,102 @@ private struct UnifiedEventRow: View {
         case "error", "fatal", "critical": "xmark.octagon.fill"
         case "warn", "warning": "exclamationmark.triangle.fill"
         default: "circle.fill"
+        }
+    }
+}
+
+// MARK: - Arr Event Detail View
+
+private struct ArrEventDetailView: View {
+    @Environment(\.dismiss) private var dismiss
+    let entry: UnifiedLogEntry
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: levelIcon)
+                        .font(.title2)
+                        .foregroundStyle(levelColor)
+                        .frame(width: 28)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(entry.logger ?? entry.service.serviceIdentity.displayName)
+                            .font(.title3.weight(.semibold))
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
+                            Label(entry.service.serviceIdentity.displayName, systemImage: entry.service.serviceIdentity.systemImage)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(entry.service.serviceIdentity.brandColor)
+                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(entry.message)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    if let exType = entry.exceptionType, !exType.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Exception Type")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(exType)
+                                .font(.caption)
+                                .foregroundStyle(.red)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+
+                    if let stack = entry.exception, !stack.isEmpty {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Stack Trace")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Text(stack)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.primary)
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .navigationTitle("Event Detail")
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Done") { dismiss() }
+            }
+        }
+    }
+
+    private var levelColor: Color {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": .red
+        case "warn", "warning": .orange
+        default: .secondary
+        }
+    }
+
+    private var levelIcon: String {
+        switch entry.level.lowercased() {
+        case "error", "fatal", "critical": "xmark.octagon.fill"
+        case "warn", "warning": "exclamationmark.triangle.fill"
+        default: "info.circle.fill"
         }
     }
 }
@@ -564,7 +674,8 @@ final class ArrEventsViewModel {
             logger: record.logger,
             message: record.message ?? "",
             timestamp: timestamp,
-            exceptionType: record.exceptionType
+            exceptionType: record.exceptionType,
+            exception: record.exception
         )
     }
 
@@ -577,7 +688,8 @@ final class ArrEventsViewModel {
             logger: nil,
             message: entry.message,
             timestamp: timestamp,
-            exceptionType: nil
+            exceptionType: nil,
+            exception: nil
         )
     }
 
@@ -641,7 +753,8 @@ extension UnifiedLogEntry {
         message: String,
         logger: String? = "Trawl.Preview",
         minutesAgo: Int = 0,
-        exceptionType: String? = nil
+        exceptionType: String? = nil,
+        exception: String? = nil
     ) -> UnifiedLogEntry {
         UnifiedLogEntry(
             id: id,
@@ -650,7 +763,8 @@ extension UnifiedLogEntry {
             logger: logger,
             message: message,
             timestamp: Date().addingTimeInterval(TimeInterval(-minutesAgo * 60)),
-            exceptionType: exceptionType
+            exceptionType: exceptionType,
+            exception: exception
         )
     }
 }

@@ -3243,8 +3243,10 @@ struct RecentNotificationsSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(ArrServiceManager.self) private var arrServiceManager
     @State private var showClearConfirmation = false
     @State private var unreadSinceDate: Date = .distantPast
+    @State private var queuedImportCommands: [QueuedImportCommand] = []
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
     private var unreadNotificationCount: Int {
@@ -3258,11 +3260,27 @@ struct RecentNotificationsSheet: View {
         inAppNotificationCenter.activeImportJobs
     }
 
+    private var hasImportActivity: Bool {
+        !activeJobs.isEmpty || !displayedImportCommands.isEmpty
+    }
+
+    private var displayedImportCommands: [QueuedImportCommand] {
+        guard !activeJobs.isEmpty else { return queuedImportCommands }
+        return queuedImportCommands.filter(\.isQueued)
+    }
+
     private var subtitleText: String {
         let running = inAppNotificationCenter.runningImportJobsCount
-        if running > 0 {
-            let word = running == 1 ? "import" : "imports"
-            return "\(running) \(word) in progress · \(unreadNotificationCount) unread"
+        let displayedCommands = displayedImportCommands
+        let queued = displayedCommands.filter(\.isQueued).count
+        let remoteActive = displayedCommands.count
+        let active = running + remoteActive
+        if active > 0 {
+            let word = active == 1 ? "import" : "imports"
+            if queued > 0 {
+                return "\(active) \(word) active, \(queued) queued · \(unreadNotificationCount) unread"
+            }
+            return "\(active) \(word) in progress · \(unreadNotificationCount) unread"
         }
         return "\(unreadNotificationCount) unread"
     }
@@ -3279,7 +3297,7 @@ struct RecentNotificationsSheet: View {
             dragIndicator: .visible
         ) {
             Group {
-                if activeJobs.isEmpty && inAppNotificationCenter.recentNotifications.isEmpty {
+                if !hasImportActivity && inAppNotificationCenter.recentNotifications.isEmpty {
                     ContentUnavailableView {
                         Label("No Notifications Yet", systemImage: "bell.slash")
                     } description: {
@@ -3295,7 +3313,7 @@ struct RecentNotificationsSheet: View {
                     }
                 } else {
                     List {
-                        if !activeJobs.isEmpty {
+                        if hasImportActivity {
                             Section {
                                 ForEach(activeJobs) { job in
                                     activeImportJobRow(job)
@@ -3308,6 +3326,10 @@ struct RecentNotificationsSheet: View {
                                                 }
                                             }
                                         }
+                                }
+
+                                ForEach(displayedImportCommands) { command in
+                                    queuedImportCommandRow(command)
                                 }
                             } header: {
                                 HStack {
@@ -3373,6 +3395,13 @@ struct RecentNotificationsSheet: View {
         .onAppear {
             unreadSinceDate = inAppNotificationCenter.lastReadDate
             inAppNotificationCenter.markAllRead()
+        }
+        .task {
+            await refreshQueuedImportCommands()
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(5))
+                await refreshQueuedImportCommands()
+            }
         }
     }
 
@@ -3469,6 +3498,41 @@ struct RecentNotificationsSheet: View {
         }
     }
 
+    private func tintColor(for service: QueuedImportCommand.Service) -> Color {
+        switch service {
+        case .sonarr: return ServiceIdentity.sonarr.brandColor
+        case .radarr: return ServiceIdentity.radarr.brandColor
+        }
+    }
+
+    private func refreshQueuedImportCommands() async {
+        var commands: [QueuedImportCommand] = []
+
+        if let client = arrServiceManager.sonarrClient {
+            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .sonarr))
+        }
+        if let client = arrServiceManager.radarrClient {
+            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .radarr))
+        }
+
+        queuedImportCommands = commands.sorted {
+            ($0.queued ?? "") > ($1.queued ?? "")
+        }
+    }
+
+    private func loadQueuedImportCommands<Client: SharedArrClient>(
+        client: Client,
+        service: QueuedImportCommand.Service
+    ) async -> [QueuedImportCommand] {
+        do {
+            return try await client.getCommandQueue()
+                .filter { $0.isActiveManualImport }
+                .map { QueuedImportCommand(command: $0, service: service) }
+        } catch {
+            return []
+        }
+    }
+
     @ViewBuilder
     private func activeImportJobRow(_ job: ActiveImportJob) -> some View {
         let tint = tintColor(for: job.serviceTint)
@@ -3559,6 +3623,49 @@ struct RecentNotificationsSheet: View {
     }
 
     @ViewBuilder
+    private func queuedImportCommandRow(_ command: QueuedImportCommand) -> some View {
+        let tint = tintColor(for: command.service)
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(tint.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                Image(systemName: "clock.badge.exclamationmark")
+                    .font(.title3)
+                    .foregroundStyle(tint)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Image(systemName: command.service.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text(command.service.title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(tint)
+                    Text("·")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text(command.statusText)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                }
+
+                Text(command.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(2)
+
+                Text(command.subtitle)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
     private func notificationRow(for entry: NotificationLogEntry) -> some View {
         let long = isLongMessage(entry.message)
         Group {
@@ -3619,6 +3726,91 @@ struct RecentNotificationsSheet: View {
                 .padding(.leading, 15)
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct QueuedImportCommand: Identifiable, Sendable {
+    enum Service: Sendable {
+        case sonarr
+        case radarr
+
+        var title: String {
+            switch self {
+            case .sonarr: "Sonarr"
+            case .radarr: "Radarr"
+            }
+        }
+
+        var systemImage: String {
+            switch self {
+            case .sonarr: ServiceIdentity.sonarr.systemImage
+            case .radarr: ServiceIdentity.radarr.systemImage
+            }
+        }
+
+        var idPrefix: String {
+            switch self {
+            case .sonarr: "sonarr"
+            case .radarr: "radarr"
+            }
+        }
+    }
+
+    let id: String
+    let service: Service
+    let commandID: Int?
+    let queued: String?
+    let status: String?
+
+    init(command: ArrCommand, service: Service) {
+        self.service = service
+        self.commandID = command.id
+        self.queued = command.queued
+        self.status = command.status
+        self.id = "\(service.idPrefix)-\(command.id?.description ?? command.queued ?? UUID().uuidString)"
+    }
+
+    var title: String {
+        if let commandID {
+            return "Manual Import #\(commandID)"
+        }
+        return "Manual Import"
+    }
+
+    var subtitle: String {
+        let prefix = isQueued ? "Waiting in command queue" : "Running in \(service.title)"
+        guard let queued, !queued.isEmpty else { return prefix }
+        return "\(prefix) · \(queued)"
+    }
+
+    var isQueued: Bool {
+        normalizedStatus == "queued"
+    }
+
+    var statusText: String {
+        switch normalizedStatus {
+        case "queued": return "Queued"
+        case "started": return "Importing"
+        default: return status?.capitalized ?? "Active"
+        }
+    }
+
+    private var normalizedStatus: String {
+        (status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+    }
+}
+
+private extension ArrCommand {
+    var isActiveManualImport: Bool {
+        let command = (commandName ?? name ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        let normalizedStatus = (status ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return command == "manualimport" && !isTerminal && normalizedStatus != "completed"
     }
 }
 

@@ -259,11 +259,28 @@ struct ManualImportScanView: View {
                         Text(viewModel.scanStatusMessage)
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        if viewModel.isScanTakingLong {
+                            Text("Taking longer than usual…")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
+                                .transition(.opacity)
+                        }
                     }
+                    .animation(.easeIn, value: viewModel.isScanTakingLong)
                 }
                 .padding(.vertical, 2)
             } else if viewModel.hasPerformedInitialScan {
                 countChipsRow
+            } else if let errorMessage = viewModel.scanError {
+                ContentUnavailableView {
+                    Label("Scan Failed", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Retry") { Task { await viewModel.loadFiles() } }
+                        .buttonStyle(.bordered)
+                }
+                .listRowBackground(Color.clear)
             }
 
             if viewModel.isImporting {
@@ -729,6 +746,11 @@ private struct ManualImportBlockedGroupInlineView: View {
 struct ManualImportEpisode: Sendable {
     let number: Int
     let title: String
+}
+
+nonisolated struct ManualImportEpisodeKey: Hashable, Sendable {
+    let seasonNumber: Int
+    let episodeNumber: Int
 }
 
 struct ManualImportItem: Identifiable, Sendable {
@@ -1794,7 +1816,7 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private var isConfirmDisabled: Bool {
-        selectedResult == nil || viewModel.isAddingToLibrary || viewModel.isImporting
+        selectedResult == nil || viewModel.isAddingToLibrary
     }
 
     private var currentMatch: CurrentMatch? {
@@ -1934,7 +1956,7 @@ private struct ManualImportIdentifySheet: View {
                                 .buttonStyle(.plain)
                                 .disabled(isLastIncluded)
 
-                                Text(item.fileName)
+                                Text(item.path)
                                     .font(.caption)
                                     .foregroundStyle(isExcluded ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.secondary))
                                     .lineLimit(2)
@@ -1951,7 +1973,7 @@ private struct ManualImportIdentifySheet: View {
                         }
                     }
                 } else {
-                    Text(currentItems.first?.fileName ?? target.displayLabel)
+                    Text(currentItems.first?.path ?? target.displayLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(2)

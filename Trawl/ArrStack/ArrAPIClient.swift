@@ -156,7 +156,8 @@ extension SharedArrClient {
         folder: String,
         libraryItemId: Int? = nil,
         libraryItemIDQueryName: String,
-        filterExistingFiles: Bool = true
+        filterExistingFiles: Bool = true,
+        requestTimeout: TimeInterval? = nil
     ) async throws -> [JSONValue] {
         var params = [
             URLQueryItem(name: "folder", value: folder),
@@ -165,7 +166,7 @@ extension SharedArrClient {
         if let libraryItemId {
             params.append(URLQueryItem(name: libraryItemIDQueryName, value: String(libraryItemId)))
         }
-        return try await base.get("\(apiPath)/manualimport", queryItems: params)
+        return try await base.get("\(apiPath)/manualimport", queryItems: params, timeoutInterval: requestTimeout)
     }
 
     func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
@@ -427,8 +428,12 @@ actor ArrAPIClient {
 
     // MARK: - HTTP Infrastructure
 
-    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
-        try await transport.get(path, queryItems: queryItems)
+    func get<T: Decodable>(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> sending T {
+        try await transport.get(path, queryItems: queryItems, timeoutInterval: timeoutInterval)
     }
 
     func getData(_ path: String, queryItems: [URLQueryItem] = []) async throws -> Data {

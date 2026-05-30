@@ -79,6 +79,19 @@ actor QBittorrentAPIClient {
         return try decode([Torrent].self, from: data)
     }
 
+    /// Lightweight, fault-tolerant variant of `/api/v2/torrents/info` for consumers
+    /// (e.g. widgets) that only need a few fields. Every field is optional so a
+    /// server that omits a column never fails the whole decode — unlike the strict
+    /// `Torrent` model, which the live app fills via `syncMainData` instead.
+    func getTorrentSummaries(filter: String? = nil) async throws -> [TorrentInfoSummary] {
+        var queryItems: [URLQueryItem] = []
+        if let filter { queryItems.append(.init(name: "filter", value: filter)) }
+
+        let request = try buildRequest(path: "/api/v2/torrents/info", queryItems: queryItems)
+        let (data, _) = try await performRequest(request)
+        return try decode([TorrentInfoSummary].self, from: data)
+    }
+
     func addTorrentMagnet(
         magnetURL: String,
         savePath: String?,

@@ -113,7 +113,12 @@ actor HTTPTransport {
         }
     }
 
-    func buildRequest(path: String, method: String, queryItems: [URLQueryItem] = []) throws -> URLRequest {
+    func buildRequest(
+        path: String,
+        method: String,
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) throws -> URLRequest {
         guard var components = URLComponents(string: "\(baseURL)\(path)") else {
             throw errorMapper.badURL()
         }
@@ -123,6 +128,9 @@ actor HTTPTransport {
         }
         var request = URLRequest(url: url)
         request.httpMethod = method
+        if let timeoutInterval {
+            request.timeoutInterval = timeoutInterval
+        }
         applyAuth(to: &request)
         return request
     }
@@ -254,8 +262,12 @@ actor HTTPTransport {
 
     // MARK: - HTTP method conveniences
 
-    func get<T: Decodable>(_ path: String, queryItems: [URLQueryItem] = []) async throws -> sending T {
-        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems)
+    func get<T: Decodable>(
+        _ path: String,
+        queryItems: [URLQueryItem] = [],
+        timeoutInterval: TimeInterval? = nil
+    ) async throws -> sending T {
+        let request = try buildRequest(path: path, method: "GET", queryItems: queryItems, timeoutInterval: timeoutInterval)
         return try await perform(request)
     }
 

@@ -16,4 +16,8 @@ struct WidgetCalendarEvent: Codable, Identifiable, Sendable {
     /// Release-kind label shown as a chip — nil for episodes
     let badgeLabel: String?
     let isDownloaded: Bool
+    /// Local file path to a pre-downloaded poster thumbnail in the shared App
+    /// Group container. Populated by the timeline provider because `AsyncImage`
+    /// network loads don't complete during widget snapshotting.
+    var posterLocalPath: String?
 }

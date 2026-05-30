@@ -213,7 +213,7 @@ struct ProwlarrIndexerListView: View {
                     sourceLabel: item.sourceLabel,
                     barColor: item.barColor,
                     priority: indexer.priority,
-                    isEnabled: indexer.enable,
+                    isEnabled: prowlarrViewModel.isIndexerAvailable(indexer),
                     warningState: item.warningState
                 )
             }
@@ -528,14 +528,23 @@ struct ProwlarrIndexerListView: View {
 
         if serviceManager.prowlarrConnected {
             let prowlarrItems = prowlarrViewModel.indexers.map { indexer in
-                UnifiedIndexerListItem(
+                let warningState: UnifiedIndexerRowWarningState =
+                    if !indexer.enable {
+                        .disabled
+                    } else if prowlarrViewModel.isIndexerTemporarilyDisabled(id: indexer.id) {
+                        .temporarilyDisabled
+                    } else {
+                        .connected
+                    }
+
+                return UnifiedIndexerListItem(
                     kind: .prowlarr(indexer),
                     title: indexer.name ?? "Unknown",
                     implementationName: indexer.implementationName ?? indexer.implementation,
                     protocolName: indexer.protocol?.displayName,
                     sourceLabel: "Prowlarr",
                     barColor: color(for: .prowlarr),
-                    warningState: indexer.enable ? .connected : .disabled,
+                    warningState: warningState,
                     section: section(for: indexer.protocol?.rawValue)
                 )
             }

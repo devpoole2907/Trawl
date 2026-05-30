@@ -117,3 +117,13 @@ struct Torrent: Codable, Identifiable, Hashable, Sendable {
         }
     }
 }
+
+/// Fault-tolerant subset of `/api/v2/torrents/info` for lightweight consumers.
+/// Every field is optional so a server that omits a column can't fail the decode.
+struct TorrentInfoSummary: Codable, Sendable {
+    var name: String?
+    var progress: Double?
+    var dlspeed: Int64?
+    var eta: Int?
+    var state: TorrentState?
+}

@@ -278,6 +278,14 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
         indexerStatuses.first { $0.indexerId == id }
     }
 
+    func isIndexerTemporarilyDisabled(id: Int) -> Bool {
+        statusForIndexer(id: id)?.isDisabled == true
+    }
+
+    func isIndexerAvailable(_ indexer: ProwlarrIndexer) -> Bool {
+        indexer.enable && !isIndexerTemporarilyDisabled(id: indexer.id)
+    }
+
     var torrentIndexers: [ProwlarrIndexer] {
         indexers.filter { $0.protocol == .torrent }
     }
