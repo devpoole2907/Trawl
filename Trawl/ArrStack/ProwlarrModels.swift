@@ -762,3 +762,140 @@ nonisolated struct ProwlarrProviderMessage: Codable, Sendable {
     var message: String?
     var type: String?
 }
+
+// MARK: - Indexer Proxies
+
+/// A Prowlarr indexer proxy (HTTP / SOCKS4 / SOCKS5 / FlareSolverr). This is a standard Prowlarr
+/// "provider" resource with the same schema-driven field shape as ``ProwlarrApplication``, so it reuses
+/// the generic ``ProwlarrApplicationField`` / ``ProwlarrApplicationValue`` field types.
+nonisolated struct ProwlarrIndexerProxy: Codable, Identifiable, Sendable {
+    var id: Int
+    var name: String?
+    var fields: [ProwlarrApplicationField]?
+    var implementationName: String?
+    var implementation: String?
+    var configContract: String?
+    var infoLink: String?
+    var message: ProwlarrProviderMessage?
+    var tags: [Int]?
+    var presets: [ProwlarrIndexerProxy]?
+
+    init(
+        id: Int,
+        name: String?,
+        fields: [ProwlarrApplicationField]?,
+        implementationName: String?,
+        implementation: String?,
+        configContract: String?,
+        infoLink: String?,
+        message: ProwlarrProviderMessage?,
+        tags: [Int]?,
+        presets: [ProwlarrIndexerProxy]?
+    ) {
+        self.id = id
+        self.name = name
+        self.fields = fields
+        self.implementationName = implementationName
+        self.implementation = implementation
+        self.configContract = configContract
+        self.infoLink = infoLink
+        self.message = message
+        self.tags = tags
+        self.presets = presets
+    }
+
+    // Schema endpoint omits `id` for template entries.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        fields = try container.decodeIfPresent([ProwlarrApplicationField].self, forKey: .fields)
+        implementationName = try container.decodeIfPresent(String.self, forKey: .implementationName)
+        implementation = try container.decodeIfPresent(String.self, forKey: .implementation)
+        configContract = try container.decodeIfPresent(String.self, forKey: .configContract)
+        infoLink = try container.decodeIfPresent(String.self, forKey: .infoLink)
+        message = try container.decodeIfPresent(ProwlarrProviderMessage.self, forKey: .message)
+        tags = try container.decodeIfPresent([Int].self, forKey: .tags)
+        presets = try container.decodeIfPresent([ProwlarrIndexerProxy].self, forKey: .presets)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case fields
+        case implementationName
+        case implementation
+        case configContract
+        case infoLink
+        case message
+        case tags
+        case presets
+    }
+
+    /// Display label for the proxy type, e.g. "Http", "Socks5", "FlareSolverr".
+    var typeName: String {
+        implementationName ?? implementation ?? "Proxy"
+    }
+
+    /// SF Symbol that best represents the proxy type.
+    var systemImage: String {
+        let identifier = (implementation ?? implementationName ?? "").lowercased()
+        if identifier.contains("flaresolverr") {
+            return "shield.checkerboard"
+        }
+        if identifier.contains("socks") {
+            return "network"
+        }
+        return "shield.lefthalf.filled"
+    }
+
+    func stringFieldValue(named name: String) -> String? {
+        guard let field = fields?.first(where: { $0.name == name }),
+              let value = field.value else {
+            return nil
+        }
+
+        // Extract raw string value instead of using displayString so empty strings are preserved.
+        switch value {
+        case .string(let str):
+            return str
+        default:
+            return value.displayString
+        }
+    }
+
+    func updatingField(named fieldName: String, with value: ProwlarrApplicationValue) -> ProwlarrIndexerProxy {
+        var updated = self
+
+        if let fields = updated.fields, let index = fields.firstIndex(where: { $0.name == fieldName }) {
+            var nextFields = fields
+            let field = fields[index]
+            nextFields[index] = ProwlarrApplicationField(
+                name: field.name,
+                label: field.label,
+                value: value,
+                type: field.type,
+                advanced: field.advanced,
+                hidden: field.hidden,
+                selectOptions: field.selectOptions
+            )
+            updated.fields = nextFields
+            return updated
+        }
+
+        var nextFields = updated.fields ?? []
+        nextFields.append(
+            ProwlarrApplicationField(
+                name: fieldName,
+                label: nil,
+                value: value,
+                type: nil,
+                advanced: nil,
+                hidden: nil,
+                selectOptions: nil
+            )
+        )
+        updated.fields = nextFields
+        return updated
+    }
+}

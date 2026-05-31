@@ -285,6 +285,110 @@ extension ProwlarrApplicationField {
     }
 }
 
+extension ProwlarrIndexerProxy {
+    static let previewHttp = ProwlarrIndexerProxy.makePreview(
+        id: 1,
+        name: "Home HTTP Proxy",
+        implementation: "Http",
+        implementationName: "Http",
+        configContract: "HttpSettings",
+        fields: ProwlarrApplicationField.previewProxyFields(host: "10.0.0.5", port: 8080, includeCredentials: true)
+    )
+    static let previewSocks5 = ProwlarrIndexerProxy.makePreview(
+        id: 2,
+        name: "VPN SOCKS5",
+        implementation: "Socks5",
+        implementationName: "Socks5",
+        configContract: "Socks5Settings",
+        fields: ProwlarrApplicationField.previewProxyFields(host: "127.0.0.1", port: 1080, includeCredentials: false)
+    )
+    static let previewFlareSolverr = ProwlarrIndexerProxy.makePreview(
+        id: 3,
+        name: "FlareSolverr",
+        implementation: "FlareSolverr",
+        implementationName: "FlareSolverr",
+        configContract: "FlareSolverrSettings",
+        fields: [
+            .init(name: "host", label: "Host", value: .string("http://flaresolverr:8191/"), type: "textbox", advanced: false, hidden: nil, selectOptions: nil),
+            .init(name: "requestTimeout", label: "Request Timeout", value: .int(60), type: "number", advanced: false, hidden: nil, selectOptions: nil),
+        ]
+    )
+
+    static let previewList: [ProwlarrIndexerProxy] = [
+        previewHttp,
+        previewSocks5,
+        previewFlareSolverr,
+    ]
+
+    static let previewSchemaList: [ProwlarrIndexerProxy] = [
+        previewSchema(implementation: "Http", configContract: "HttpSettings"),
+        previewSchema(implementation: "Socks4", configContract: "Socks4Settings"),
+        previewSchema(implementation: "Socks5", configContract: "Socks5Settings"),
+        ProwlarrIndexerProxy.makePreview(
+            id: 0,
+            name: "FlareSolverr",
+            implementation: "FlareSolverr",
+            implementationName: "FlareSolverr",
+            configContract: "FlareSolverrSettings",
+            tags: nil,
+            fields: [
+                .init(name: "host", label: "Host", value: .string(""), type: "textbox", advanced: false, hidden: nil, selectOptions: nil),
+                .init(name: "requestTimeout", label: "Request Timeout", value: .int(60), type: "number", advanced: false, hidden: nil, selectOptions: nil),
+            ]
+        ),
+    ]
+
+    static func previewSchema(implementation: String, configContract: String) -> ProwlarrIndexerProxy {
+        makePreview(
+            id: 0,
+            name: implementation,
+            implementation: implementation,
+            implementationName: implementation,
+            configContract: configContract,
+            tags: nil,
+            fields: ProwlarrApplicationField.previewProxyFields(host: "", port: implementation.lowercased().contains("socks") ? 1080 : 8080, includeCredentials: true)
+        )
+    }
+
+    fileprivate static func makePreview(
+        id: Int = 1,
+        name: String? = "Proxy",
+        implementation: String = "Http",
+        implementationName: String = "Http",
+        configContract: String = "HttpSettings",
+        infoLink: String? = "https://wiki.servarr.com/prowlarr/settings#indexer-proxies",
+        tags: [Int]? = [1],
+        fields: [ProwlarrApplicationField]? = nil
+    ) -> ProwlarrIndexerProxy {
+        ProwlarrIndexerProxy(
+            id: id,
+            name: name,
+            fields: fields ?? ProwlarrApplicationField.previewProxyFields(host: "10.0.0.5", port: 8080, includeCredentials: true),
+            implementationName: implementationName,
+            implementation: implementation,
+            configContract: configContract,
+            infoLink: infoLink,
+            message: nil,
+            tags: tags,
+            presets: nil
+        )
+    }
+}
+
+extension ProwlarrApplicationField {
+    static func previewProxyFields(host: String, port: Int, includeCredentials: Bool) -> [ProwlarrApplicationField] {
+        var fields: [ProwlarrApplicationField] = [
+            .init(name: "host", label: "Host", value: .string(host), type: "textbox", advanced: false, hidden: nil, selectOptions: nil),
+            .init(name: "port", label: "Port", value: .int(port), type: "number", advanced: false, hidden: nil, selectOptions: nil),
+        ]
+        if includeCredentials {
+            fields.append(.init(name: "username", label: "Username", value: .string(""), type: "textbox", advanced: false, hidden: nil, selectOptions: nil))
+            fields.append(.init(name: "password", label: "Password", value: .string(""), type: "password", advanced: false, hidden: nil, selectOptions: nil))
+        }
+        return fields
+    }
+}
+
 extension ProwlarrApplicationSelectOption {
     static let preview = ProwlarrApplicationSelectOption(name: "Full Sync", value: .string("fullSync"), order: 1, hint: nil)
     static let previewList: [ProwlarrApplicationSelectOption] = [

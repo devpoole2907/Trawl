@@ -544,6 +544,152 @@ final class ProwlarrApplicationsViewModel {
 
 @MainActor
 @Observable
+final class ProwlarrProxiesViewModel {
+    private let serviceManager: ArrServiceManager
+
+    private(set) var proxies: [ProwlarrIndexerProxy] = []
+    private(set) var schemaProxies: [ProwlarrIndexerProxy] = []
+    private(set) var availableTags: [ArrTag] = []
+    private(set) var isLoadingProxies = false
+    private(set) var isLoadingSchema = false
+    private(set) var isTesting = false
+    private(set) var errorMessage: String?
+
+    init(serviceManager: ArrServiceManager) {
+        self.serviceManager = serviceManager
+    }
+
+    private var client: ProwlarrAPIClient? { serviceManager.prowlarrClient }
+
+    var sortedProxies: [ProwlarrIndexerProxy] {
+        proxies.sorted { ($0.name ?? "") < ($1.name ?? "") }
+    }
+
+    /// Schema templates, one per proxy type (Http, Socks4, Socks5, FlareSolverr).
+    var sortedSchemas: [ProwlarrIndexerProxy] {
+        schemaProxies.sorted { ($0.typeName) < ($1.typeName) }
+    }
+
+    func loadProxies() async {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return
+        }
+
+        isLoadingProxies = true
+        errorMessage = nil
+        defer { isLoadingProxies = false }
+
+        do {
+            async let loadedProxies = client.getIndexerProxies()
+            async let loadedTags = client.getTags()
+            let (fetched, tags) = try await (loadedProxies, loadedTags)
+            proxies = fetched
+            availableTags = tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func loadSchemaIfNeeded() async {
+        guard schemaProxies.isEmpty else { return }
+        await reloadSchema()
+    }
+
+    func reloadSchema() async {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return
+        }
+
+        isLoadingSchema = true
+        errorMessage = nil
+        defer { isLoadingSchema = false }
+
+        do {
+            schemaProxies = try await client.getIndexerProxySchema()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func schema(matching proxy: ProwlarrIndexerProxy) -> ProwlarrIndexerProxy? {
+        schemaProxies.first {
+            $0.implementation == proxy.implementation || $0.configContract == proxy.configContract
+        }
+    }
+
+    func saveProxy(_ proxy: ProwlarrIndexerProxy) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        errorMessage = nil
+        var saveSucceeded = false
+
+        do {
+            if proxy.id == 0 {
+                _ = try await client.createIndexerProxy(proxy)
+            } else {
+                _ = try await client.updateIndexerProxy(proxy)
+            }
+            saveSucceeded = true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+
+        // Refresh the proxy list, but don't let refresh-side state affect the save result.
+        await loadProxies()
+
+        return saveSucceeded
+    }
+
+    func deleteProxy(_ proxy: ProwlarrIndexerProxy) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        errorMessage = nil
+
+        do {
+            try await client.deleteIndexerProxy(id: proxy.id)
+            proxies.removeAll { $0.id == proxy.id }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func testProxy(_ proxy: ProwlarrIndexerProxy) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        isTesting = true
+        errorMessage = nil
+        defer { isTesting = false }
+
+        do {
+            try await client.testIndexerProxy(proxy)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+}
+
+@MainActor
+@Observable
 final class ArrIndexerManagementViewModel {
     private let serviceManager: ArrServiceManager
 
@@ -840,6 +986,28 @@ extension ProwlarrApplicationsViewModel {
         self.isLoadingApplications = isLoadingApplications
         self.isLoadingSchema = isLoadingSchema
         self.isSyncingApplications = isSyncingApplications
+        self.errorMessage = errorMessage
+    }
+}
+
+extension ProwlarrProxiesViewModel {
+    convenience init(
+        previewProxies: [ProwlarrIndexerProxy],
+        schemaProxies: [ProwlarrIndexerProxy] = ProwlarrIndexerProxy.previewSchemaList,
+        availableTags: [ArrTag] = ArrTag.previewList,
+        isLoadingProxies: Bool = false,
+        isLoadingSchema: Bool = false,
+        isTesting: Bool = false,
+        errorMessage: String? = nil,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        self.proxies = previewProxies
+        self.schemaProxies = schemaProxies
+        self.availableTags = availableTags
+        self.isLoadingProxies = isLoadingProxies
+        self.isLoadingSchema = isLoadingSchema
+        self.isTesting = isTesting
         self.errorMessage = errorMessage
     }
 }

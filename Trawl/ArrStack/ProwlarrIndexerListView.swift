@@ -79,6 +79,21 @@ struct ProwlarrIndexerListView: View {
                 prowlarrStatsOverviewSection(stats: stats)
             }
 
+            if serviceManager.prowlarrConnected {
+                Section("Management") {
+                    NavigationLink {
+                        ProwlarrProxiesListView()
+                    } label: {
+                        NavigationMenuRow(
+                            icon: "shield.lefthalf.filled",
+                            color: .yellow,
+                            title: "Proxies",
+                            subtitle: "HTTP and SOCKS proxies for indexers"
+                        )
+                    }
+                }
+            }
+
             if !unavailableSources.isEmpty {
                 Section("Unavailable") {
                     ForEach(unavailableSources) { source in

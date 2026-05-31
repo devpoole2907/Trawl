@@ -84,6 +84,32 @@ actor ProwlarrAPIClient: SharedArrClient {
         try await base.postVoidCodable("/api/v1/applications/test", body: application)
     }
 
+    // MARK: - Indexer Proxies
+
+    func getIndexerProxies() async throws -> [ProwlarrIndexerProxy] {
+        try await base.get("/api/v1/indexerProxy")
+    }
+
+    func getIndexerProxySchema() async throws -> [ProwlarrIndexerProxy] {
+        try await base.get("/api/v1/indexerProxy/schema")
+    }
+
+    func createIndexerProxy(_ proxy: ProwlarrIndexerProxy) async throws -> ProwlarrIndexerProxy {
+        try await base.postCodable("/api/v1/indexerProxy", body: proxy)
+    }
+
+    func updateIndexerProxy(_ proxy: ProwlarrIndexerProxy) async throws -> ProwlarrIndexerProxy {
+        try await base.putCodable("/api/v1/indexerProxy/\(proxy.id)", body: proxy)
+    }
+
+    func deleteIndexerProxy(id: Int) async throws {
+        try await base.delete("/api/v1/indexerProxy/\(id)")
+    }
+
+    func testIndexerProxy(_ proxy: ProwlarrIndexerProxy) async throws {
+        try await base.postVoidCodable("/api/v1/indexerProxy/test", body: proxy)
+    }
+
     // MARK: - Tags
 
     func getTags() async throws -> [ArrTag] {
