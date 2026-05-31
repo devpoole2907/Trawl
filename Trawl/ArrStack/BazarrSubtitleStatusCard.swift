@@ -2,8 +2,10 @@ import SwiftUI
 
 struct BazarrSubtitleStatusCard: View {
     enum Media {
-        case movie(radarrId: Int, title: String)
-        case series(seriesId: Int, title: String)
+        /// `embeddedSubtitles` is the Radarr `mediaInfo.subtitles` string (embedded tracks only).
+        case movie(radarrId: Int, title: String, embeddedSubtitles: String?, hasFile: Bool)
+        /// `embeddedLanguages` is the union of embedded subtitle languages across Sonarr episode files.
+        case series(seriesId: Int, title: String, embeddedLanguages: [String], episodeFileCount: Int)
     }
 
     let media: Media
@@ -23,47 +25,92 @@ struct BazarrSubtitleStatusCard: View {
     private var accent: Color { .teal }
 
     var body: some View {
-        if serviceManager.hasBazarrInstance {
-            cardContent
-                .task(id: taskID) {
-                    isExpanded = false
-                    movie = nil
-                    series = nil
-                    episodes = []
-                    await load()
+        cardContent
+            .task(id: taskID) {
+                isExpanded = false
+                movie = nil
+                series = nil
+                episodes = []
+                await load()
+            }
+            .sheet(isPresented: $showInteractiveSearch) {
+                if let movie {
+                    BazarrInteractiveSearchSheet(
+                        radarrId: movie.radarrId,
+                        missingLanguages: movie.missingSubtitles,
+                        viewModel: BazarrViewModel(serviceManager: serviceManager),
+                        onDownloaded: {
+                            await serviceManager.refreshActiveBazarrSubtitleCache()
+                            await load(force: true)
+                        }
+                    )
                 }
-                .sheet(isPresented: $showInteractiveSearch) {
-                    if let movie {
-                        BazarrInteractiveSearchSheet(
-                            radarrId: movie.radarrId,
-                            missingLanguages: movie.missingSubtitles,
-                            viewModel: BazarrViewModel(serviceManager: serviceManager),
-                            onDownloaded: {
-                                await serviceManager.refreshActiveBazarrSubtitleCache()
-                                await load(force: true)
-                            }
-                        )
-                    }
-                }
-                .sheet(isPresented: $showProfilePicker) {
-                    profilePickerSheet
-                }
-        }
+            }
+            .sheet(isPresented: $showProfilePicker) {
+                profilePickerSheet
+            }
+    }
+
+    // MARK: - Media accessors
+
+    private var mediaRadarrId: Int? {
+        if case .movie(let id, _, _, _) = media { return id }
+        return nil
+    }
+
+    private var embeddedMovieSubtitles: String? {
+        if case .movie(_, _, let subs, _) = media { return subs }
+        return nil
+    }
+
+    private var movieHasFile: Bool {
+        if case .movie(_, _, _, let hasFile) = media { return hasFile }
+        return false
+    }
+
+    private var seriesEmbeddedLanguages: [String] {
+        if case .series(_, _, let langs, _) = media { return langs }
+        return []
+    }
+
+    private var seriesEpisodeFileCount: Int {
+        if case .series(_, _, _, let count) = media { return count }
+        return 0
     }
 
     private var taskID: String {
         let connectionKey = "\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
         switch media {
-        case .movie(let id, _): return "movie-\(id)-\(connectionKey)"
-        case .series(let id, _): return "series-\(id)-\(connectionKey)"
+        case .movie(let id, _, _, _): return "movie-\(id)-\(connectionKey)"
+        case .series(let id, _, _, _): return "series-\(id)-\(connectionKey)"
         }
     }
 
-    private var title: String {
+    private var title: String { "Subtitles" }
+
+    // MARK: - Coverage
+
+    /// Unified coverage merging Bazarr (when it has a profile) with embedded Arr media info.
+    private var coverage: SubtitleCoverage {
         switch media {
-        case .movie: "Subtitles"
-        case .series: "Subtitles"
+        case .movie:
+            return SubtitleCoverage.coverage(
+                bazarrMovie: movie,
+                embeddedSubtitles: embeddedMovieSubtitles,
+                hasFile: movieHasFile
+            )
+        case .series:
+            return SubtitleCoverage.coverage(
+                bazarrSeries: series,
+                embeddedSubtitleFileCount: seriesEpisodeFileCount == 0 ? nil : (seriesEmbeddedLanguages.isEmpty ? 0 : seriesEpisodeFileCount),
+                episodeFileCount: seriesEpisodeFileCount
+            )
         }
+    }
+
+    /// Whether Bazarr is actively managing this item (connected + profile assigned).
+    private var isTrackedByBazarr: Bool {
+        serviceManager.hasAnyConnectedBazarrInstance && hasAssignedProfile
     }
 
     @ViewBuilder
@@ -72,11 +119,11 @@ struct BazarrSubtitleStatusCard: View {
             header
 
             if isExpanded {
-                if !serviceManager.hasAnyConnectedBazarrInstance {
+                if serviceManager.hasBazarrInstance && !serviceManager.hasAnyConnectedBazarrInstance {
                     disconnectedContent
-                } else if isLoading && movie == nil && series == nil {
+                } else if isLoading && movie == nil && series == nil && serviceManager.hasAnyConnectedBazarrInstance {
                     loadingContent
-                } else if let errorMessage {
+                } else if let errorMessage, serviceManager.hasAnyConnectedBazarrInstance {
                     errorContent(errorMessage)
                 } else {
                     loadedContent
@@ -116,24 +163,17 @@ struct BazarrSubtitleStatusCard: View {
 
     @ViewBuilder
     private var statusBadge: some View {
-        if isLoading {
+        if isLoading && movie == nil && series == nil && serviceManager.hasAnyConnectedBazarrInstance {
             ProgressView()
                 .controlSize(.small)
                 .tint(.white)
-        } else if missingCount > 0 {
-            Text("\(missingCount) missing")
+        } else if coverage.hasIndicator {
+            Text(coverage.badgeLabel)
                 .font(.caption.weight(.semibold))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
-                .background(Color.red.opacity(0.16), in: Capsule())
-                .foregroundStyle(.red)
-        } else if hasLoadedMedia {
-            Text("Complete")
-                .font(.caption.weight(.semibold))
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(accent.opacity(0.16), in: Capsule())
-                .foregroundStyle(accent)
+                .background(coverage.badgeColor.opacity(0.16), in: Capsule())
+                .foregroundStyle(coverage.badgeColor)
         }
     }
 
@@ -185,68 +225,72 @@ struct BazarrSubtitleStatusCard: View {
 
     @ViewBuilder
     private var loadedContent: some View {
-        if hasLoadedMedia {
-            VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
+            // Let users assign/change a Bazarr profile whenever Bazarr is connected
+            // and tracking this item — this is how you start managing subtitles.
+            if serviceManager.hasAnyConnectedBazarrInstance && hasLoadedMedia {
                 profileButton
+            }
 
-                Text(summaryText)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            Text(summaryText)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
 
-                if !presentSubtitleKeys.isEmpty {
-                    languageChipsView(
-                        keys: presentSubtitleKeys,
-                        label: "Present",
-                        foreground: .teal
-                    )
-                }
+            if !presentSubtitleKeys.isEmpty {
+                languageChipsView(
+                    keys: presentSubtitleKeys,
+                    label: isTrackedByBazarr ? "Present" : "Present (not tracked)",
+                    foreground: .teal
+                )
+            }
 
-                if !missingLanguageKeys.isEmpty {
-                    languageChipsView(
-                        keys: missingLanguageKeys,
-                        label: "Missing",
-                        foreground: .red
-                    )
-                }
+            if !missingLanguageKeys.isEmpty {
+                languageChipsView(
+                    keys: missingLanguageKeys,
+                    label: "Missing",
+                    foreground: .red
+                )
+            }
 
-                if missingCount > 0 {
-                    HStack(spacing: 12) {
+            if missingCount > 0 {
+                HStack(spacing: 12) {
+                    Button {
+                        Task { await searchMissing() }
+                    } label: {
+                        searchButtonLabel(
+                            title: "Automatic",
+                            subtitle: "Search for missing",
+                            systemImage: "magnifyingglass",
+                            isLoading: isSearching
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity)
+                    .disabled(isSearching)
+
+                    if case .movie = media {
                         Button {
-                            Task { await searchMissing() }
+                            showInteractiveSearch = true
                         } label: {
                             searchButtonLabel(
-                                title: "Automatic",
-                                subtitle: "Search for missing",
-                                systemImage: "magnifyingglass",
-                                isLoading: isSearching
+                                title: "Interactive",
+                                subtitle: "Pick a release",
+                                systemImage: "person.fill",
+                                trailingSystemImage: "arrow.up.forward.square"
                             )
                         }
                         .buttonStyle(.plain)
                         .frame(maxWidth: .infinity)
-                        .disabled(isSearching)
-
-                        if case .movie = media {
-                            Button {
-                                showInteractiveSearch = true
-                            } label: {
-                                searchButtonLabel(
-                                    title: "Interactive",
-                                    subtitle: "Pick a release",
-                                    systemImage: "person.fill",
-                                    trailingSystemImage: "arrow.up.forward.square"
-                                )
-                            }
-                            .buttonStyle(.plain)
-                            .frame(maxWidth: .infinity)
-                        }
                     }
                 }
             }
-        } else {
-            Text("Bazarr has not imported this item yet. Make sure Bazarr is connected to the matching Sonarr/Radarr library.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+
+            if !serviceManager.hasBazarrInstance {
+                Label("Add Bazarr to download and manage subtitles automatically.", systemImage: "info.circle")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
@@ -375,6 +419,12 @@ struct BazarrSubtitleStatusCard: View {
         movie != nil || series != nil
     }
 
+    /// Whether Bazarr has a language profile assigned to this item. Without one
+    /// Bazarr requests no languages, so "missing" counts are meaningless.
+    private var hasAssignedProfile: Bool {
+        currentProfileId != nil
+    }
+
     private var activeLanguageProfiles: [BazarrLanguageProfile] {
         serviceManager.activeBazarrEntry?.languageProfiles ?? []
     }
@@ -392,6 +442,8 @@ struct BazarrSubtitleStatusCard: View {
     }
 
     private var missingCount: Int {
+        // Only meaningful when Bazarr is tracking (a profile is assigned).
+        guard isTrackedByBazarr else { return 0 }
         if let movie {
             return movie.missingSubtitles.count
         }
@@ -402,33 +454,62 @@ struct BazarrSubtitleStatusCard: View {
     }
 
     private var summaryText: String {
-        if let movie {
-            if movie.missingSubtitles.isEmpty {
-                return movie.subtitles.isEmpty ? "Bazarr is tracking this movie. No missing subtitles are reported." : "\(movie.subtitles.count) subtitle file\(movie.subtitles.count == 1 ? "" : "s") available."
+        switch coverage {
+        case .tracked(let missing):
+            if missing == 0 {
+                if case .series = media {
+                    return "Bazarr reports all tracked episode subtitles are present."
+                }
+                return movie?.subtitles.isEmpty == false
+                    ? "\(movie!.subtitles.count) subtitle file\(movie!.subtitles.count == 1 ? "" : "s") available."
+                    : "Bazarr is tracking this item. No missing subtitles are reported."
             }
-            return "\(movie.missingSubtitles.count) language\(movie.missingSubtitles.count == 1 ? "" : "s") missing for this movie."
-        }
-        if let series {
-            if series.episodeMissingCount == 0 {
-                return "Bazarr reports all tracked episode subtitles are present."
+            if case .series(_, _, _, _) = media, let series {
+                return "\(series.episodeMissingCount) missing subtitle\(series.episodeMissingCount == 1 ? "" : "s") across \(series.episodeFileCount) episode file\(series.episodeFileCount == 1 ? "" : "s")."
             }
-            return "\(series.episodeMissingCount) missing subtitle\(series.episodeMissingCount == 1 ? "" : "s") across \(series.episodeFileCount) episode file\(series.episodeFileCount == 1 ? "" : "s")."
+            return "\(missing) language\(missing == 1 ? "" : "s") missing."
+        case .presentUntracked:
+            let count = presentSubtitleKeys.count
+            if serviceManager.hasAnyConnectedBazarrInstance {
+                return "Subtitles are present but no language profile is assigned, so Bazarr isn't tracking them. Assign a profile to manage missing languages."
+            }
+            return "\(count) subtitle language\(count == 1 ? "" : "s") detected on disk. Not tracked by Bazarr."
+        case .noneFound:
+            if serviceManager.hasAnyConnectedBazarrInstance {
+                return "No subtitles found, and no language profile is assigned."
+            }
+            return "No embedded subtitles detected on disk. External .srt sidecar files aren't visible without Bazarr."
+        case .unknown:
+            return serviceManager.hasAnyConnectedBazarrInstance
+                ? "Bazarr has not imported this item yet. Make sure Bazarr is connected to the matching Sonarr/Radarr library."
+                : "No subtitle information is available for this item."
         }
-        return ""
     }
 
     private typealias SubtitleKey = (code2: String, hi: Bool, forced: Bool)
 
     private var presentSubtitleKeys: [SubtitleKey] {
-        if let movie {
+        // Prefer Bazarr's richer info (knows HI/forced and external sidecars).
+        if let movie, !movie.subtitles.isEmpty {
             return uniqueSubtitleKeys(movie.subtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
-        return uniqueSubtitleKeys(episodes.flatMap { episode in
-            episode.subtitles.map { ($0.code2, $0.hi, $0.forced) }
-        })
+        if !episodes.isEmpty {
+            let keys = episodes.flatMap { episode in
+                episode.subtitles.map { ($0.code2, $0.hi, $0.forced) }
+            }
+            if !keys.isEmpty { return uniqueSubtitleKeys(keys) }
+        }
+        // Fallback to embedded languages from Radarr/Sonarr media info (no HI/forced detail).
+        switch media {
+        case .movie:
+            return uniqueSubtitleKeys(SubtitleCoverage.embeddedLanguages(from: embeddedMovieSubtitles).map { ($0, false, false) })
+        case .series:
+            return uniqueSubtitleKeys(seriesEmbeddedLanguages.map { ($0, false, false) })
+        }
     }
 
     private var missingLanguageKeys: [SubtitleKey] {
+        guard isTrackedByBazarr else { return [] }
         if let movie {
             return uniqueSubtitleKeys(movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
@@ -484,10 +565,10 @@ struct BazarrSubtitleStatusCard: View {
 
         do {
             switch media {
-            case .movie(let radarrId, _):
+            case .movie(let radarrId, _, _, _):
                 let page = try await client.getMovies(ids: [radarrId])
                 movie = page.data.first
-            case .series(let seriesId, _):
+            case .series(let seriesId, _, _, _):
                 let page = try await client.getSeries(ids: [seriesId])
                 series = page.data.first
                 if let s = series {
@@ -506,10 +587,10 @@ struct BazarrSubtitleStatusCard: View {
 
         do {
             switch media {
-            case .movie(let radarrId, let title):
+            case .movie(let radarrId, let title, _, _):
                 try await client.runMovieAction(radarrId: radarrId, action: .searchMissing)
                 InAppNotificationCenter.shared.showSuccess(title: "Subtitle Search Started", message: "\(title) was sent to Bazarr.")
-            case .series(let seriesId, let title):
+            case .series(let seriesId, let title, _, _):
                 try await client.runSeriesAction(seriesId: seriesId, action: .searchMissing)
                 InAppNotificationCenter.shared.showSuccess(title: "Subtitle Search Started", message: "\(title) was sent to Bazarr.")
             }
@@ -531,12 +612,12 @@ struct BazarrSubtitleStatusCard: View {
         var apiError: Error?
         do {
             switch media {
-            case .movie(let radarrId, _):
+            case .movie(let radarrId, _, _, _):
                 try await client.updateMovieProfile(
                     radarrIds: [radarrId],
                     profileIds: [selectedProfileId.map(String.init)]
                 )
-            case .series(let seriesId, _):
+            case .series(let seriesId, _, _, _):
                 try await client.updateSeriesProfile(
                     seriesIds: [seriesId],
                     profileIds: [selectedProfileId.map(String.init)]

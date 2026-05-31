@@ -146,7 +146,9 @@ struct BazarrSeriesDetailView: View {
     private func seasonRow(season: Int, episodes: [BazarrEpisode]) -> some View {
         let missing = episodes.filter { !$0.missingSubtitles.isEmpty }.count
         let total = episodes.count
-        let isComplete = missing == 0 && total > 0
+        // Only "complete" when a profile is actually requesting languages; otherwise
+        // an empty missing list just means Bazarr isn't tracking anything.
+        let isComplete = series?.profileId != nil && missing == 0 && total > 0
         return HStack {
             VStack(alignment: .leading, spacing: 3) {
                 Text(season == 0 ? "Specials" : "Season \(season)")
@@ -167,6 +169,7 @@ struct BazarrSeriesDetailView: View {
 
     private var statusText: String {
         guard let series else { return "" }
+        if series.profileId == nil { return "No Language Profile Assigned" }
         let status = BazarrViewModel.subtitleStatus(for: series)
         switch status {
         case .allPresent: return "All Subtitles Present"

@@ -80,7 +80,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                 case .wanted:
                     movie.hasFile != true && movie.monitored == true && movie.isAvailable == true
                 case .subtitlesPresent:
-                    serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) == .allPresent
+                    serviceManager.subtitleCoverage(for: movie).isFullyCovered
                 case .inJellyfinLibrary:
                     isInJellyfinLibrary(movie)
                 }

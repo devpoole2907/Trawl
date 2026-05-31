@@ -383,7 +383,7 @@ struct RadarrMovieDetailView: View {
                 queue: viewModel.queue,
                 isInLibrary: isInLibrary,
                 hasBazarr: serviceManager.hasAnyConnectedBazarrInstance,
-                radarrBazarrStatus: serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
+                subtitleCoverage: serviceManager.subtitleCoverage(for: movie)
             )),
             genres: movie.genres ?? []
         )
@@ -435,7 +435,12 @@ struct RadarrMovieDetailView: View {
         }
 
         if isInLibrary {
-            BazarrSubtitleStatusCard(media: .movie(radarrId: movie.id, title: movie.title))
+            BazarrSubtitleStatusCard(media: .movie(
+                radarrId: movie.id,
+                title: movie.title,
+                embeddedSubtitles: movie.movieFile?.mediaInfo?.subtitles,
+                hasFile: movie.hasFile == true || movie.movieFile != nil
+            ))
         }
 
         if !activeQueueItems.isEmpty {

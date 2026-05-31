@@ -18,8 +18,8 @@ struct ArrBadgeContext {
     let queue: [ArrQueueItem]
     let isInLibrary: Bool
     let hasBazarr: Bool
-    var sonarrBazarrEpisodes: [BazarrEpisode] = []
-    var radarrBazarrStatus: BazarrSubtitleStatus?
+    /// Unified subtitle coverage (works with or without Bazarr). `.unknown` hides the badge.
+    var subtitleCoverage: SubtitleCoverage = .unknown
 }
 
 protocol BadgeRenderable {
@@ -80,12 +80,11 @@ extension SonarrSeries: BadgeRenderable {
             }
         }
 
-        if context.hasBazarr, !context.sonarrBazarrEpisodes.isEmpty {
-            let allComplete = context.sonarrBazarrEpisodes.allSatisfy { $0.missingSubtitles.isEmpty }
+        if context.subtitleCoverage.hasIndicator {
             badges.append(ArrDetailBadge(
                 icon: "captions.bubble.fill",
-                label: allComplete ? "Complete" : "Missing",
-                color: allComplete ? .teal : .orange
+                label: context.subtitleCoverage.badgeLabel,
+                color: context.subtitleCoverage.badgeColor
             ))
         }
 
@@ -122,11 +121,11 @@ extension RadarrMovie: BadgeRenderable {
             ))
         }
 
-        if context.hasBazarr, let status = context.radarrBazarrStatus {
+        if context.subtitleCoverage.hasIndicator {
             badges.append(ArrDetailBadge(
                 icon: "captions.bubble.fill",
-                label: status == .allPresent ? "Complete" : "Missing",
-                color: status == .allPresent ? .teal : .orange
+                label: context.subtitleCoverage.badgeLabel,
+                color: context.subtitleCoverage.badgeColor
             ))
         }
 

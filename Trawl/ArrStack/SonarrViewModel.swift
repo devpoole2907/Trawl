@@ -90,7 +90,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                     guard let stats = series.statistics else { return false }
                     return (stats.episodeCount ?? 0) > (stats.episodeFileCount ?? 0)
                 case .subtitlesPresent:
-                    return serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: series.id) == .allPresent
+                    return serviceManager.subtitleCoverage(for: series).isFullyCovered
                 case .inJellyfinLibrary:
                     return isInJellyfinLibrary(series)
                 }

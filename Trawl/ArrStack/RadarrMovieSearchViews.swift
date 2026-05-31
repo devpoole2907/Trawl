@@ -265,11 +265,11 @@ struct RadarrMovieSearchView: View {
                                 )
                             }
 
-                            if serviceManager.hasAnyConnectedBazarrInstance,
-                               let status = serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id) {
+                            let subtitleCoverage = serviceManager.subtitleCoverage(for: movie)
+                            if subtitleCoverage.hasIndicator {
                                 movieStatusBadge(
-                                    status == .allPresent ? "Complete" : "None",
-                                    tint: status == .allPresent ? .teal : .secondary,
+                                    subtitleCoverage.badgeLabel,
+                                    tint: subtitleCoverage.badgeColor,
                                     systemImage: "captions.bubble.fill"
                                 )
                             }

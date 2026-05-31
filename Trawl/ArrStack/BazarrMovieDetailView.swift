@@ -175,6 +175,11 @@ struct BazarrMovieDetailView: View {
 
     private var statusText: String {
         guard let movie else { return "" }
+        // No profile means Bazarr requests no languages, so an empty missing list
+        // doesn't imply the subtitles are complete.
+        if movie.profileId == nil {
+            return movie.subtitles.isEmpty ? "No Profile · No Subtitles" : "No Profile · \(movie.subtitles.count) On Disk"
+        }
         return movie.missingSubtitles.isEmpty ? "All Subtitles Present" : "\(movie.missingSubtitles.count) Language(s) Missing"
     }
 

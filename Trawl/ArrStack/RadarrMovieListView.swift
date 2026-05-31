@@ -80,7 +80,7 @@ struct RadarrMovieListView: View {
                         hasIssue: vm.queue.contains {
                             $0.movieId == movie.id && $0.isImportIssueQueueItem
                         },
-                        bazarrStatus: serviceManager.bazarrSubtitleStatus(forRadarrId: movie.id)
+                        subtitleCoverage: serviceManager.subtitleCoverage(for: movie)
                     )
                 },
                 detailDestination: { movieId in
@@ -233,7 +233,7 @@ struct RadarrMovieListView: View {
 struct RadarrMovieRow: View {
     let movie: RadarrMovie
     let hasIssue: Bool
-    var bazarrStatus: BazarrSubtitleStatus? = nil
+    var subtitleCoverage: SubtitleCoverage = .unknown
     var showTypeLabel: Bool = false
 
     var body: some View {
@@ -276,13 +276,13 @@ struct RadarrMovieRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if let bazarrStatus {
+                    if subtitleCoverage.hasIndicator {
                         Text("•")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Image(systemName: "captions.bubble.fill")
                             .font(.caption2)
-                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
+                            .foregroundStyle(subtitleCoverage.iconTint)
                     }
                 }
             }

@@ -775,16 +775,37 @@ final class ArrServiceManager {
         return episodes
     }
 
-    func bazarrSubtitleStatus(forSonarrSeriesId sonarrId: Int) -> BazarrSubtitleStatus? {
+    /// Cached Bazarr movie for a Radarr id, if Bazarr is connected and tracking it.
+    func cachedBazarrMovie(forRadarrId radarrId: Int) -> BazarrMovie? {
         guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
-        guard let series = entry.cachedSeries.first(where: { $0.sonarrSeriesId == sonarrId }) else { return nil }
-        return BazarrViewModel.subtitleStatus(for: series)
+        return entry.cachedMovies.first { $0.radarrId == radarrId }
     }
 
-    func bazarrSubtitleStatus(forRadarrId radarrId: Int) -> BazarrSubtitleStatus? {
+    /// Cached Bazarr series for a Sonarr id, if Bazarr is connected and tracking it.
+    func cachedBazarrSeries(forSonarrSeriesId sonarrId: Int) -> BazarrSeries? {
         guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
-        guard let movie = entry.cachedMovies.first(where: { $0.radarrId == radarrId }) else { return nil }
-        return BazarrViewModel.subtitleStatus(for: movie)
+        return entry.cachedSeries.first { $0.sonarrSeriesId == sonarrId }
+    }
+
+    /// Unified subtitle coverage for a movie, merging Bazarr (when tracking) with
+    /// the embedded subtitle tracks reported by Radarr's media info.
+    func subtitleCoverage(for movie: RadarrMovie) -> SubtitleCoverage {
+        SubtitleCoverage.coverage(
+            bazarrMovie: cachedBazarrMovie(forRadarrId: movie.id),
+            embeddedSubtitles: movie.movieFile?.mediaInfo?.subtitles,
+            hasFile: movie.hasFile == true || movie.movieFile != nil
+        )
+    }
+
+    /// Unified subtitle coverage for a series. In list contexts the embedded
+    /// (Sonarr) episode-file data isn't loaded, so this reflects Bazarr tracking
+    /// only and returns `.unknown` when Bazarr isn't managing the series.
+    func subtitleCoverage(for series: SonarrSeries) -> SubtitleCoverage {
+        SubtitleCoverage.coverage(
+            bazarrSeries: cachedBazarrSeries(forSonarrSeriesId: series.id),
+            embeddedSubtitleFileCount: nil,
+            episodeFileCount: nil
+        )
     }
 
     /// Disconnect all services.

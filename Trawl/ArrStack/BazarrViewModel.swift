@@ -9,6 +9,90 @@ enum BazarrSubtitleStatus {
     case unknown
 }
 
+/// Unified subtitle coverage that works whether or not Bazarr is configured.
+///
+/// Bazarr is authoritative when it has a language profile assigned to the item
+/// (only then does it track wanted-vs-missing). Otherwise we fall back to the
+/// embedded subtitle tracks reported by Radarr/Sonarr media info. Note the
+/// fallback only sees *embedded* tracks — external `.srt` sidecars are invisible
+/// to the Arr apps and only show up once Bazarr is managing the item.
+enum SubtitleCoverage: Equatable, Sendable {
+    case unknown                 // no file, or no information available
+    case noneFound               // file present, no subtitles detected
+    case presentUntracked        // subtitles present, not managed by a Bazarr profile
+    case tracked(missing: Int)   // Bazarr profile active; missing == 0 means complete
+
+    /// Splits an Arr `mediaInfo.subtitles` string (e.g. "English / Spanish") into languages.
+    static func embeddedLanguages(from raw: String?) -> [String] {
+        guard let raw else { return [] }
+        return raw
+            .split(whereSeparator: { $0 == "/" || $0 == "," })
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+    }
+
+    static func coverage(bazarrMovie: BazarrMovie?, embeddedSubtitles: String?, hasFile: Bool) -> SubtitleCoverage {
+        if let bazarrMovie, bazarrMovie.profileId != nil {
+            return .tracked(missing: bazarrMovie.missingSubtitles.count)
+        }
+        let bazarrHasSubs = bazarrMovie.map { !$0.subtitles.isEmpty } ?? false
+        let embeddedHasSubs = !embeddedLanguages(from: embeddedSubtitles).isEmpty
+        if bazarrHasSubs || embeddedHasSubs { return .presentUntracked }
+        return hasFile ? .noneFound : .unknown
+    }
+
+    /// `embeddedSubtitleFileCount` / `episodeFileCount` come from Sonarr episode files
+    /// and are only known where they've been loaded (e.g. the series detail view).
+    static func coverage(bazarrSeries: BazarrSeries?, embeddedSubtitleFileCount: Int?, episodeFileCount: Int?) -> SubtitleCoverage {
+        if let bazarrSeries, bazarrSeries.profileId != nil {
+            if bazarrSeries.episodeFileCount == 0 { return .unknown }
+            return .tracked(missing: bazarrSeries.episodeMissingCount)
+        }
+        guard let embeddedSubtitleFileCount else { return .unknown }
+        if embeddedSubtitleFileCount > 0 { return .presentUntracked }
+        if let episodeFileCount, episodeFileCount > 0 { return .noneFound }
+        return .unknown
+    }
+
+    /// Whether to show a subtitle indicator at all (hidden when we know nothing).
+    var hasIndicator: Bool { self != .unknown }
+
+    /// True when the item is fully covered (complete via Bazarr, or present without tracking).
+    var isFullyCovered: Bool {
+        switch self {
+        case .tracked(let missing): return missing == 0
+        case .presentUntracked: return true
+        case .noneFound, .unknown: return false
+        }
+    }
+
+    /// Tint for the compact captions icon used in list rows.
+    var iconTint: Color {
+        switch self {
+        case .tracked(let missing): return missing == 0 ? .teal : .orange
+        case .presentUntracked: return .teal
+        case .noneFound, .unknown: return .secondary
+        }
+    }
+
+    var badgeLabel: String {
+        switch self {
+        case .unknown: return ""
+        case .noneFound: return "No Subs"
+        case .presentUntracked: return "Subs Present"
+        case .tracked(let missing): return missing == 0 ? "Subs Complete" : "\(missing) Missing"
+        }
+    }
+
+    var badgeColor: Color {
+        switch self {
+        case .unknown, .noneFound: return .secondary
+        case .presentUntracked: return .teal
+        case .tracked(let missing): return missing == 0 ? .teal : .orange
+        }
+    }
+}
+
 @MainActor
 @Observable
 final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> {
@@ -84,6 +168,9 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
     // MARK: - Subtitle Status
 
     static func subtitleStatus(for series: BazarrSeries) -> BazarrSubtitleStatus {
+        // With no language profile assigned, Bazarr requests no languages, so
+        // `episodeMissingCount` is always 0 — that means "not tracked", not "complete".
+        if series.profileId == nil { return .unknown }
         if series.episodeFileCount == 0 { return .unknown }
         if series.episodeMissingCount == 0 { return .allPresent }
         if series.episodeMissingCount == series.episodeFileCount { return .none }
@@ -91,6 +178,9 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
     }
 
     static func subtitleStatus(for movie: BazarrMovie) -> BazarrSubtitleStatus {
+        // With no language profile assigned, `missingSubtitles` is always empty
+        // because Bazarr isn't tracking any languages — not because subtitles exist.
+        if movie.profileId == nil { return .unknown }
         if movie.missingSubtitles.isEmpty { return .allPresent }
         return movie.subtitles.isEmpty ? .none : .partial
     }

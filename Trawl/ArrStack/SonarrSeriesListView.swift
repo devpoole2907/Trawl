@@ -24,7 +24,7 @@ struct SonarrSeriesListView: View {
                             hasIssue: vm.queue.contains {
                                 $0.seriesId == series.id && $0.isImportIssueQueueItem
                             },
-                            bazarrStatus: serviceManager.bazarrSubtitleStatus(forSonarrSeriesId: series.id)
+                            subtitleCoverage: serviceManager.subtitleCoverage(for: series)
                         )
                     },
                     detailDestination: { seriesId in
@@ -106,7 +106,7 @@ struct SonarrSeriesListView: View {
 struct SonarrSeriesRow: View {
     let series: SonarrSeries
     let hasIssue: Bool
-    var bazarrStatus: BazarrSubtitleStatus? = nil
+    var subtitleCoverage: SubtitleCoverage = .unknown
     var showTypeLabel: Bool = false
 
     var body: some View {
@@ -148,13 +148,13 @@ struct SonarrSeriesRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    if let bazarrStatus {
+                    if subtitleCoverage.hasIndicator {
                         Text("•")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         Image(systemName: "captions.bubble.fill")
                             .font(.caption2)
-                            .foregroundStyle(bazarrStatus == .allPresent ? .teal : .secondary)
+                            .foregroundStyle(subtitleCoverage.iconTint)
                     }
                 }
             }

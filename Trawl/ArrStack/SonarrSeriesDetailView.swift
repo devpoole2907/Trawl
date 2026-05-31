@@ -91,6 +91,29 @@ struct SonarrSeriesDetailView: View {
         guard let id = resolvedSeriesId else { return [] }
         return viewModel.episodeFiles[id] ?? []
     }
+    /// Unified subtitle coverage: Bazarr when it has a profile, otherwise the
+    /// embedded subtitle tracks reported by the loaded Sonarr episode files.
+    private var seriesSubtitleCoverage: SubtitleCoverage {
+        let cachedBazarr = resolvedSeriesId.flatMap { serviceManager.cachedBazarrSeries(forSonarrSeriesId: $0) }
+        let files = episodeFiles
+        let withSubs = files.filter { !SubtitleCoverage.embeddedLanguages(from: $0.mediaInfo?.subtitles).isEmpty }.count
+        return SubtitleCoverage.coverage(
+            bazarrSeries: cachedBazarr,
+            embeddedSubtitleFileCount: files.isEmpty ? nil : withSubs,
+            episodeFileCount: files.count
+        )
+    }
+    /// Union of embedded subtitle languages across the loaded Sonarr episode files.
+    private var embeddedSubtitleLanguages: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for file in episodeFiles {
+            for lang in SubtitleCoverage.embeddedLanguages(from: file.mediaInfo?.subtitles) where seen.insert(lang).inserted {
+                result.append(lang)
+            }
+        }
+        return result
+    }
     private var queueItems: [ArrQueueItem] {
         guard let id = resolvedSeriesId else { return [] }
         return viewModel.queue
@@ -315,7 +338,7 @@ struct SonarrSeriesDetailView: View {
                 queue: viewModel.queue,
                 isInLibrary: isInLibrary,
                 hasBazarr: serviceManager.hasAnyConnectedBazarrInstance,
-                sonarrBazarrEpisodes: bazarrEpisodes
+                subtitleCoverage: seriesSubtitleCoverage
             )),
             genres: series.genres ?? []
         )
@@ -398,7 +421,12 @@ struct SonarrSeriesDetailView: View {
         )
 
         if isInLibrary {
-            BazarrSubtitleStatusCard(media: .series(seriesId: series.id, title: series.title))
+            BazarrSubtitleStatusCard(media: .series(
+                seriesId: series.id,
+                title: series.title,
+                embeddedLanguages: embeddedSubtitleLanguages,
+                episodeFileCount: episodeFiles.count
+            ))
         }
 
         // Library-only: episodes and files
