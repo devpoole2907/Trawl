@@ -557,7 +557,7 @@ struct MoreView: View {
                     qbittorrentRSSDestination
                         .moreDestinationTitleStyle()
                 case .torrentManagement:
-                    TorrentManagementView()
+                    TorrentManagementView(hasQBittorrent: hasQBittorrentServer)
                         .moreDestinationTitleStyle()
                 case .integrations:
                     IntegrationsManagementView()
@@ -1971,9 +1971,47 @@ private enum MoreSearchIndex {
     }
 }
 
+/// Standard "service not set up" placeholder shown inside a hub's List when the
+/// hub's backing service(s) aren't configured. Offers a shortcut to Settings.
+private struct HubEmptyState: View {
+    let title: String
+    let systemImage: String
+    let message: String
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: systemImage)
+        } description: {
+            Text(message)
+        } actions: {
+            NavigationLink(value: MoreDestination.settings) {
+                Text("Open Settings")
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .listRowBackground(Color.clear)
+    }
+}
+
 private struct IntegrationsManagementView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+
+    private var hasArrStack: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasProwlarrInstance ||
+            arrServiceManager.hasBazarrInstance
+    }
+
     var body: some View {
         List {
+            if !hasArrStack {
+                HubEmptyState(
+                    title: "No Services Configured",
+                    systemImage: "app.connected.to.app.below.fill",
+                    message: "Connect Sonarr, Radarr, Prowlarr, or Bazarr in Settings to manage linked apps, download clients, and path mappings."
+                )
+            } else {
             Section("Service Links") {
                 NavigationLink(value: MoreDestination.linkedApplicationsManagement) {
                     NavigationMenuRow(
@@ -2004,6 +2042,7 @@ private struct IntegrationsManagementView: View {
                     )
                 }
             }
+            }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
@@ -2033,8 +2072,23 @@ private struct LinkedApplicationsManagementView: View {
     private var skipsStatusRefresh = false
     #endif
 
+    private var hasLinkableServices: Bool {
+        arrServiceManager.hasSonarrInstance ||
+            arrServiceManager.hasRadarrInstance ||
+            arrServiceManager.hasProwlarrInstance ||
+            arrServiceManager.hasBazarrInstance ||
+            !seerrProfiles.isEmpty
+    }
+
     var body: some View {
         List {
+            if !hasLinkableServices {
+                HubEmptyState(
+                    title: "No Services Configured",
+                    systemImage: "app.connected.to.app.below.fill",
+                    message: "Connect Prowlarr, Bazarr, Seerr, Sonarr, or Radarr in Settings to manage how they link together."
+                )
+            } else {
             Section {
                 NavigationLink(value: MoreDestination.prowlarrLinkedApplications) {
                     IntegrationRelationshipRow(
@@ -2067,6 +2121,7 @@ private struct LinkedApplicationsManagementView: View {
                 }
             } footer: {
                 Text("Configure how services publish indexers, subtitles, and approved requests to Sonarr and Radarr.")
+            }
             }
         }
         #if os(iOS)
@@ -2159,8 +2214,19 @@ private struct DownloadClientsManagementView: View {
     private var skipsStatusRefresh = false
     #endif
 
+    private var hasSonarrOrRadarr: Bool {
+        arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
+    }
+
     var body: some View {
         List {
+            if !hasSonarrOrRadarr {
+                HubEmptyState(
+                    title: "No Services Configured",
+                    systemImage: ServiceIdentity.qbittorrent.systemImage,
+                    message: "Connect Sonarr or Radarr in Settings to manage their download clients."
+                )
+            } else {
             Section {
                 NavigationLink(value: MoreDestination.downloadClients(service: .sonarr)) {
                     IntegrationRelationshipRow(
@@ -2183,6 +2249,7 @@ private struct DownloadClientsManagementView: View {
                 }
             } footer: {
                 Text("Manage where Sonarr and Radarr send downloads.")
+            }
             }
         }
         #if os(iOS)
@@ -2676,26 +2743,58 @@ private struct IntegrationRelationshipRow: View {
     }
 }
 
+/// Tracks whether the "no language profile" tip has been dismissed during the
+/// current app launch. In-memory only, so it resets on every fresh launch —
+/// the tip reappears next launch if profiles are still unconfigured.
+@MainActor
+private enum SubtitleLanguageProfileTipState {
+    static var dismissedThisLaunch = false
+}
+
 private struct SubtitleManagementView: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
+
+    @State private var showLanguageProfileTip = false
+
     var body: some View {
         List {
-            Section {
-                NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
-                    NavigationMenuRow(
-                        icon: "globe",
-                        color: MoreDestinationAccent.languageProfiles.color,
-                        title: "Language Profiles",
-                        subtitle: "Preferred languages and cutoff rules"
-                    )
+            if !serviceManager.hasBazarrInstance {
+                HubEmptyState(
+                    title: "Bazarr Not Set Up",
+                    systemImage: "captions.bubble",
+                    message: "Add a Bazarr server in Settings to manage language profiles and subtitle providers."
+                )
+            } else {
+                if showLanguageProfileTip {
+                    Section {
+                        LanguageProfileTipBanner {
+                            SubtitleLanguageProfileTipState.dismissedThisLaunch = true
+                            withAnimation(.snappy) { showLanguageProfileTip = false }
+                        }
+                        .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 0, trailing: 16))
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
                 }
 
-                NavigationLink(value: MoreDestination.bazarrProviders) {
-                    NavigationMenuRow(
-                        icon: "person.2.fill",
-                        color: MoreDestinationAccent.providers.color,
-                        title: "Providers",
-                        subtitle: "Configure subtitle provider integrations"
-                    )
+                Section {
+                    NavigationLink(value: MoreDestination.bazarrLanguageProfiles) {
+                        NavigationMenuRow(
+                            icon: "globe",
+                            color: MoreDestinationAccent.languageProfiles.color,
+                            title: "Language Profiles",
+                            subtitle: "Preferred languages and cutoff rules"
+                        )
+                    }
+
+                    NavigationLink(value: MoreDestination.bazarrProviders) {
+                        NavigationMenuRow(
+                            icon: "person.2.fill",
+                            color: MoreDestinationAccent.providers.color,
+                            title: "Providers",
+                            subtitle: "Configure subtitle provider integrations"
+                        )
+                    }
                 }
             }
         }
@@ -2704,6 +2803,73 @@ private struct SubtitleManagementView: View {
         #endif
         .navigationTitle("Subtitles")
         .moreDestinationBackground(.subtitleManagement)
+        .task { await evaluateLanguageProfileTip() }
+    }
+
+    /// Shows the tip when Bazarr is connected but has no language profiles, and
+    /// it hasn't already been dismissed this launch.
+    private func evaluateLanguageProfileTip() async {
+        guard !SubtitleLanguageProfileTipState.dismissedThisLaunch else { return }
+        guard serviceManager.hasAnyConnectedBazarrInstance,
+              let client = serviceManager.activeBazarrEntry?.client else { return }
+
+        var profiles = serviceManager.activeBazarrEntry?.languageProfiles ?? []
+        // Cache may not be populated yet on first visit; confirm with a fetch
+        // before deciding there are genuinely no profiles.
+        if profiles.isEmpty, let fetched = try? await client.getLanguageProfiles() {
+            profiles = fetched
+        }
+
+        if profiles.isEmpty {
+            withAnimation(.snappy) { showLanguageProfileTip = true }
+        }
+    }
+}
+
+/// TipKit-style inline callout nudging the user to create a Bazarr language profile.
+private struct LanguageProfileTipBanner: View {
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: "globe.badge.chevron.backward")
+                .font(.title3)
+                .foregroundStyle(MoreDestinationAccent.languageProfiles.color)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text("No Language Profile")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text("Bazarr needs at least one language profile before it can find subtitles. Create one to get started.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: onDismiss) {
+                Image(systemName: "xmark")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .background(Circle().fill(Color.secondary.opacity(0.15)))
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Dismiss")
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.ultraThinMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(MoreDestinationAccent.languageProfiles.color.opacity(0.25), lineWidth: 1)
+        )
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -2718,8 +2884,17 @@ private struct SubtitleManagementView: View {
 #endif
 
 private struct TorrentManagementView: View {
+    let hasQBittorrent: Bool
+
     var body: some View {
         List {
+            if !hasQBittorrent {
+                HubEmptyState(
+                    title: "qBittorrent Not Set Up",
+                    systemImage: ServiceIdentity.qbittorrent.systemImage,
+                    message: "Add a qBittorrent server in Settings to view transfer stats, categories, and RSS feeds."
+                )
+            } else {
             Section {
                 NavigationLink(value: MoreDestination.transferStats) {
                     NavigationMenuRow(
@@ -2748,6 +2923,7 @@ private struct TorrentManagementView: View {
                     )
                 }
             }
+            }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
@@ -2761,7 +2937,15 @@ private struct TorrentManagementView: View {
 #Preview("Torrent Management Hub") {
     MorePreviewHost(profiles: .qBittorrentOnly) { _ in
         NavigationStack {
-            TorrentManagementView()
+            TorrentManagementView(hasQBittorrent: true)
+        }
+    }
+}
+
+#Preview("Torrent Management Hub - Empty") {
+    MorePreviewHost(profiles: .empty, appServices: nil) { _ in
+        NavigationStack {
+            TorrentManagementView(hasQBittorrent: false)
         }
     }
 }
@@ -2772,25 +2956,32 @@ private struct RequestManagementView: View {
 
     var body: some View {
         List {
-            Section {
-                NavigationLink(value: MoreDestination.seerrAdmin) {
-                    NavigationMenuRow(
-                        icon: ServiceIdentity.seerr.systemImage,
-                        color: MoreDestinationAccent.requestManagement.color,
-                        title: "Requests",
-                        subtitle: seerrProfile == nil ? "Not configured" : "Manage Seerr requests"
-                    )
-                }
+            if seerrProfile == nil {
+                HubEmptyState(
+                    title: "Seerr Not Set Up",
+                    systemImage: ServiceIdentity.seerr.systemImage,
+                    message: "Add a Seerr server in Settings to manage requests and issues."
+                )
+            } else {
+                Section {
+                    NavigationLink(value: MoreDestination.seerrAdmin) {
+                        NavigationMenuRow(
+                            icon: ServiceIdentity.seerr.systemImage,
+                            color: MoreDestinationAccent.requestManagement.color,
+                            title: "Requests",
+                            subtitle: "Manage Seerr requests"
+                        )
+                    }
 
-                NavigationLink(value: MoreDestination.seerrIssues) {
-                    NavigationMenuRow(
-                        icon: "exclamationmark.bubble.fill",
-                        color: .orange,
-                        title: "Issues",
-                        subtitle: "Review and respond to user issues"
-                    )
+                    NavigationLink(value: MoreDestination.seerrIssues) {
+                        NavigationMenuRow(
+                            icon: "exclamationmark.bubble.fill",
+                            color: .orange,
+                            title: "Issues",
+                            subtitle: "Review and respond to user issues"
+                        )
+                    }
                 }
-
             }
         }
         #if os(iOS)
@@ -2884,6 +3075,12 @@ private struct LogsAndEventsHubView: View {
                         }
                     }
                 }
+            } else {
+                HubEmptyState(
+                    title: "No Services Configured",
+                    systemImage: "text.document.fill",
+                    message: "Connect a service in Settings to view its logs and events."
+                )
             }
         }
         #if os(iOS)
@@ -2959,10 +3156,10 @@ private struct ArrActivityHubView: View {
                     }
                 }
             } else {
-                ContentUnavailableView(
-                    "No Services Configured",
+                HubEmptyState(
+                    title: "No Services Configured",
                     systemImage: "server.rack",
-                    description: Text("Connect Sonarr, Radarr, Prowlarr, or Bazarr to view activity.")
+                    message: "Connect Sonarr, Radarr, Prowlarr, or Bazarr in Settings to view activity."
                 )
             }
         }
@@ -3046,6 +3243,12 @@ private struct TasksHubView: View {
                         }
                     }
                 }
+            } else {
+                HubEmptyState(
+                    title: "No Services Configured",
+                    systemImage: "clock.arrow.2.circlepath",
+                    message: "Connect Sonarr, Radarr, Prowlarr, Bazarr, Seerr, or Jellyfin in Settings to view scheduled tasks."
+                )
             }
         }
         #if os(iOS)
@@ -3085,32 +3288,40 @@ private struct JellyfinManagementView: View {
 
     var body: some View {
         List {
-            Section {
-                NavigationLink(value: MoreDestination.jellyfinSessions) {
-                    NavigationMenuRow(
-                        icon: "play.rectangle.fill",
-                        color: .green,
-                        title: "Sessions",
-                        subtitle: "Active playback sessions"
-                    )
-                }
+            if jellyfinProfile == nil {
+                HubEmptyState(
+                    title: "Jellyfin Not Set Up",
+                    systemImage: ServiceIdentity.jellyfin.systemImage,
+                    message: "Add a Jellyfin server in Settings to view sessions, libraries, and plugins."
+                )
+            } else {
+                Section {
+                    NavigationLink(value: MoreDestination.jellyfinSessions) {
+                        NavigationMenuRow(
+                            icon: "play.rectangle.fill",
+                            color: .green,
+                            title: "Sessions",
+                            subtitle: "Active playback sessions"
+                        )
+                    }
 
-                NavigationLink(value: MoreDestination.jellyfinLibraries) {
-                    NavigationMenuRow(
-                        icon: "folder.fill",
-                        color: .orange,
-                        title: "Libraries",
-                        subtitle: "Browse and scan media libraries"
-                    )
-                }
+                    NavigationLink(value: MoreDestination.jellyfinLibraries) {
+                        NavigationMenuRow(
+                            icon: "folder.fill",
+                            color: .orange,
+                            title: "Libraries",
+                            subtitle: "Browse and scan media libraries"
+                        )
+                    }
 
-                NavigationLink(value: MoreDestination.jellyfinPlugins) {
-                    NavigationMenuRow(
-                        icon: "shippingbox.fill",
-                        color: .purple,
-                        title: "Plugins",
-                        subtitle: "Installed Jellyfin plugins"
-                    )
+                    NavigationLink(value: MoreDestination.jellyfinPlugins) {
+                        NavigationMenuRow(
+                            icon: "shippingbox.fill",
+                            color: .purple,
+                            title: "Plugins",
+                            subtitle: "Installed Jellyfin plugins"
+                        )
+                    }
                 }
             }
         }

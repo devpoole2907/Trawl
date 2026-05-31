@@ -7,6 +7,9 @@ import AppIntents
 struct CalendarEntry: TimelineEntry {
     let date: Date
     let events: [WidgetCalendarEvent]
+    var errorMessage: String? = nil
+
+    var isUnavailable: Bool { errorMessage != nil }
 
     var relevance: TimelineEntryRelevance? {
         let todayHasEvent = events.contains { Calendar.current.isDateInToday($0.date) }
@@ -56,6 +59,22 @@ struct CalendarEntry: TimelineEntry {
     )
 
     static let empty = CalendarEntry(date: .now, events: [])
+
+    static func unavailable(_ message: String) -> CalendarEntry {
+        CalendarEntry(date: .now, events: [], errorMessage: message)
+    }
+}
+
+/// Maps a fetch error to a short, honest widget message.
+private func calendarUnavailableMessage(for error: Error) -> String {
+    if let widgetError = error as? WidgetDataFetcher.WidgetError {
+        switch widgetError {
+        case .noArrServicesConfigured: return "No Sonarr or Radarr"
+        case .missingCredentials: return "Sign-In Needed"
+        default: return "Unavailable"
+        }
+    }
+    return "Unavailable"
 }
 
 // MARK: - Provider
@@ -89,7 +108,7 @@ struct CalendarProvider: AppIntentTimelineProvider {
             return Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate))
         } catch {
             let nextUpdate = Calendar.current.date(byAdding: .hour, value: 12, to: .now) ?? .now
-            return Timeline(entries: [.empty], policy: .after(nextUpdate))
+            return Timeline(entries: [.unavailable(calendarUnavailableMessage(for: error))], policy: .after(nextUpdate))
         }
     }
 
@@ -101,7 +120,7 @@ struct CalendarProvider: AppIntentTimelineProvider {
             )
             return CalendarEntry(date: .now, events: events)
         } catch {
-            return .empty
+            return .unavailable(calendarUnavailableMessage(for: error))
         }
     }
 
@@ -138,7 +157,9 @@ struct CalendarWidgetEntryView: View {
     private var posterHeight: CGFloat { family == .systemLarge ? 42 : 36 }
 
     var body: some View {
-        if entry.events.isEmpty {
+        if entry.isUnavailable {
+            unavailableView
+        } else if entry.events.isEmpty {
             emptyView
         } else {
             eventList
@@ -157,6 +178,26 @@ struct CalendarWidgetEntryView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .containerBackground(.regularMaterial, for: .widget)
+    }
+
+    private var unavailableView: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "calendar.badge.exclamationmark")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text(entry.errorMessage ?? "Unavailable")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("Open Trawl to set up")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(8)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .containerBackground(.regularMaterial, for: .widget)
+        .widgetURL(URL(string: "trawl://calendar"))
     }
 
     private var eventList: some View {
@@ -299,6 +340,7 @@ struct CalendarWidget: Widget {
 } timeline: {
     CalendarEntry.placeholder
     CalendarEntry.empty
+    CalendarEntry.unavailable("No Sonarr or Radarr")
 }
 
 #Preview(as: .systemLarge) {

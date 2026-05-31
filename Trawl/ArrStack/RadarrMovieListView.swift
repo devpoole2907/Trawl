@@ -15,6 +15,7 @@ struct RadarrMovieListView: View {
 
     @State private var viewModel: RadarrViewModel?
     @State private var viewModelInstanceID: UUID?
+    @State private var showSetupSheet = false
     #if DEBUG
     private var previewPresentation: RadarrMovieListPreviewPresentation?
 
@@ -46,6 +47,12 @@ struct RadarrMovieListView: View {
             #else
             mainContent
             #endif
+        }
+        .sheet(isPresented: $showSetupSheet) {
+            ArrSetupSheet(initialServiceType: .radarr, onComplete: {
+                Task { await serviceManager.refreshConfiguration() }
+            })
+            .environment(serviceManager)
         }
         .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
@@ -152,7 +159,11 @@ struct RadarrMovieListView: View {
             ContentUnavailableView {
                 Label("Radarr Not Set Up", systemImage: ServiceIdentity.radarr.tabSystemImage)
             } description: {
-                Text("Add a Radarr server in Settings to manage your movies.")
+                Text("Add a Radarr server to manage your movies.")
+            } actions: {
+                Button("Add Server", systemImage: "plus") {
+                    showSetupSheet = true
+                }
             }
         } else if serviceManager.radarrIsConnecting || serviceManager.isInitializing {
             ArrServiceConnectionStatusView(

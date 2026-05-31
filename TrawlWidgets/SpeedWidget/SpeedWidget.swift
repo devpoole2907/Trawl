@@ -12,6 +12,9 @@ struct SpeedEntry: TimelineEntry {
     let upLimit: Int64
     let serverName: String
     let isActive: Bool
+    var errorMessage: String? = nil
+
+    var isUnavailable: Bool { errorMessage != nil }
 
     var relevance: TimelineEntryRelevance? {
         TimelineEntryRelevance(score: isActive ? 10 : 1)
@@ -27,15 +30,32 @@ struct SpeedEntry: TimelineEntry {
         isActive: true
     )
 
-    static let empty = SpeedEntry(
-        date: .now,
-        dlSpeed: 0,
-        upSpeed: 0,
-        dlLimit: 0,
-        upLimit: 0,
-        serverName: "No Server",
-        isActive: false
-    )
+    static func unavailable(_ message: String) -> SpeedEntry {
+        SpeedEntry(
+            date: .now,
+            dlSpeed: 0,
+            upSpeed: 0,
+            dlLimit: 0,
+            upLimit: 0,
+            serverName: message,
+            isActive: false,
+            errorMessage: message
+        )
+    }
+
+    static let empty = unavailable("No Server")
+}
+
+/// Maps a fetch error to a short, honest widget message.
+private func speedUnavailableMessage(for error: Error) -> String {
+    if let widgetError = error as? WidgetDataFetcher.WidgetError {
+        switch widgetError {
+        case .noServerConfigured: return "No Server"
+        case .missingCredentials: return "Sign-In Needed"
+        default: return "Unreachable"
+        }
+    }
+    return "Unreachable"
 }
 
 // MARK: - Provider
@@ -76,7 +96,7 @@ struct SpeedProvider: AppIntentTimelineProvider {
                 isActive: info.dlInfoSpeed > 0 || info.upInfoSpeed > 0
             )
         } catch {
-            return .empty
+            return .unavailable(speedUnavailableMessage(for: error))
         }
     }
 }
@@ -88,12 +108,36 @@ struct SpeedWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        switch family {
-        case .systemSmall:
-            smallLayout
-        default:
-            mediumLayout
+        if entry.isUnavailable {
+            unavailableLayout
+        } else {
+            switch family {
+            case .systemSmall:
+                smallLayout
+            default:
+                mediumLayout
+            }
         }
+    }
+
+    private var unavailableLayout: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "externaldrive.badge.exclamationmark")
+                .font(.title)
+                .foregroundStyle(.secondary)
+            Text(entry.errorMessage ?? "Unavailable")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+            Text("Open Trawl to set up")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .containerBackground(.regularMaterial, for: .widget)
+        .widgetURL(URL(string: "trawl://torrents"))
     }
 
     // MARK: Small
@@ -250,7 +294,7 @@ struct SpeedWidget: Widget {
     SpeedWidget()
 } timeline: {
     SpeedEntry.placeholder
-    SpeedEntry.empty
+    SpeedEntry.unavailable("No Server")
 }
 
 #Preview(as: .systemMedium) {

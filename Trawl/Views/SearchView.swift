@@ -9,6 +9,7 @@ struct SearchView: View {
 
     @State private var viewModel = SearchViewModel()
     @State private var showClearConfirmation = false
+    @State private var showArrSetupSheet = false
     @State private var pendingTrendingMovie: RadarrMovie? = nil
     @State private var pendingTrendingSeries: SonarrSeries? = nil
     @State private var trendingLookupTask: Task<Void, Never>? = nil
@@ -161,6 +162,12 @@ struct SearchView: View {
             await reconcileTrendingMatches()
         }
         .errorAlert(item: $viewModel.actionErrorAlert)
+        .sheet(isPresented: $showArrSetupSheet) {
+            ArrSetupSheet(onComplete: {
+                Task { await arrServiceManager.refreshConfiguration() }
+            })
+            .environment(arrServiceManager)
+        }
         .onDisappear {
             trendingLookupTask?.cancel()
             trendingLookupTask = nil
@@ -545,8 +552,35 @@ struct SearchView: View {
         return (series + movies).sorted { $0.sortKey < $1.sortKey }
     }
 
+    private var hasAnyArrConfigured: Bool {
+        arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
+    }
+
+    @ViewBuilder
+    private var discoverUnavailableContent: some View {
+        ContentUnavailableView {
+            Label("Discovery Needs Sonarr or Radarr", systemImage: "sparkle.magnifyingglass")
+        } description: {
+            Text("Add a Sonarr or Radarr server to search for and add new movies and shows.")
+        } actions: {
+            Button("Add Server", systemImage: "plus") {
+                showArrSetupSheet = true
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     @ViewBuilder
     private var arrResultsContent: some View {
+        if !hasAnyArrConfigured {
+            discoverUnavailableContent
+        } else {
+            configuredArrResultsContent
+        }
+    }
+
+    @ViewBuilder
+    private var configuredArrResultsContent: some View {
         let isSearching = (viewModel.sonarrLookupVM?.isSearching ?? false) || (viewModel.radarrLookupVM?.isSearching ?? false)
         let rows = arrRows
         let lookupErrors = arrLookupErrors

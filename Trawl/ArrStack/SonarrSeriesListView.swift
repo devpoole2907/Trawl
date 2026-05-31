@@ -8,6 +8,7 @@ struct SonarrSeriesListView: View {
 
     @State private var viewModel: SonarrViewModel?
     @State private var viewModelInstanceID: UUID?
+    @State private var showSetupSheet = false
 
     var body: some View {
         Group {
@@ -35,6 +36,12 @@ struct SonarrSeriesListView: View {
                 sonarrUnavailableContent
                     .navigationTitle("Series")
             }
+        }
+        .sheet(isPresented: $showSetupSheet) {
+            ArrSetupSheet(initialServiceType: .sonarr, onComplete: {
+                Task { await serviceManager.refreshConfiguration() }
+            })
+            .environment(serviceManager)
         }
         .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
@@ -79,7 +86,11 @@ struct SonarrSeriesListView: View {
             ContentUnavailableView {
                 Label("Sonarr Not Set Up", systemImage: ServiceIdentity.sonarr.tabSystemImage)
             } description: {
-                Text("Add a Sonarr server in Settings to manage your series.")
+                Text("Add a Sonarr server to manage your series.")
+            } actions: {
+                Button("Add Server", systemImage: "plus") {
+                    showSetupSheet = true
+                }
             }
         } else if serviceManager.sonarrIsConnecting || serviceManager.isInitializing {
             ArrServiceConnectionStatusView(
