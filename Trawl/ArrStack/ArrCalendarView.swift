@@ -45,19 +45,24 @@ final class ArrCalendarViewModel {
     func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink {
         try await serviceManager.iCalFeedLink(for: serviceType)
     }
-    
+
+    /// Identifies the connected services *and* their active instances, so switching
+    /// between two connected Sonarr/Radarr instances invalidates the cached calendar.
+    private var connectionKey: String {
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+    }
+
     func initialize() async {
-        let currentKey = "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        let currentKey = connectionKey
         if isLoadingInitial || loadedMonths.isEmpty || currentKey != lastRefreshKey {
             await refresh()
             isLoadingInitial = false
         }
     }
-    
+
     func refresh() async {
         isRefreshing = true
-        let currentKey = "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
-        lastRefreshKey = currentKey
+        lastRefreshKey = connectionKey
 
         await loadLibraries()
 
@@ -392,7 +397,9 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     }
 
     private var calendarReloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        // Active Sonarr/Radarr instance IDs are part of the key so switching between
+        // connected instances re-fires this task and reloads the calendar.
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
     }
     
     var body: some View {

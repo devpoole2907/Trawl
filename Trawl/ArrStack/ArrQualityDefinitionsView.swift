@@ -122,7 +122,7 @@ struct ArrQualityDefinitionsView: View {
             )
             .disabled(isSaving)
         }
-        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
+        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService)):\(serviceManager.activeInstanceID(selectedService)?.uuidString ?? "none")") {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif

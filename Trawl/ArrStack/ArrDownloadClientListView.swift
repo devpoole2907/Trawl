@@ -147,7 +147,7 @@ struct ArrDownloadClientListView: View {
             await loadClients()
             checkReachabilityForAll()
         }
-        .task(id: serviceManager.isConnected(serviceType)) {
+        .task(id: "\(serviceManager.isConnected(serviceType))-\(serviceManager.activeInstanceID(serviceType)?.uuidString ?? "none")") {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif

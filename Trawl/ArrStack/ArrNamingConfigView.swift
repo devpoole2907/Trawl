@@ -99,7 +99,7 @@ struct ArrNamingConfigView: View {
                 onSave: { newFormat in applyFormat(newFormat, for: target) }
             )
         }
-        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService))") {
+        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService)):\(serviceManager.activeInstanceID(selectedService)?.uuidString ?? "none")") {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif

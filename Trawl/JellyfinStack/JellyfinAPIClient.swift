@@ -409,6 +409,26 @@ actor JellyfinAPIClient {
         try await deleteVoid(path)
     }
 
+    // MARK: - Backups (requires Jellyfin 10.11+)
+
+    func getBackups() async throws -> [JellyfinBackupManifest] {
+        try await get("/Backup")
+    }
+
+    /// `POST /Backup/Create`. Returns a manifest on success, which we ignore —
+    /// the caller re-lists backups once the task completes. Creating a backup runs
+    /// synchronously on the server and can take minutes (metadata, trickplay, etc.),
+    /// so callers should pass a `requestTimeout` longer than the default 30s budget.
+    func createBackup(options: JellyfinBackupOptions, requestTimeout: TimeInterval? = nil) async throws {
+        try await postVoid("/Backup/Create", body: options, timeoutInterval: requestTimeout)
+    }
+
+    /// `POST /Backup/Restore`. The server restarts to apply the restore.
+    /// `archiveFileName` must already exist in the server's backup directory.
+    func restoreBackup(archiveFileName: String, requestTimeout: TimeInterval? = nil) async throws {
+        try await postVoid("/Backup/Restore", body: JellyfinBackupRestoreRequest(archiveFileName: archiveFileName), timeoutInterval: requestTimeout)
+    }
+
     // MARK: - HTTP Infrastructure
 
     private func get<T: Decodable>(_ path: String, params: [String: String] = [:]) async throws -> T {
@@ -423,8 +443,8 @@ actor JellyfinAPIClient {
         try await transport.postCodable(path, body: body)
     }
 
-    private func postVoid<B: Encodable>(_ path: String, body: sending B, queryParams: [String: String] = [:]) async throws {
-        try await transport.postVoidCodable(path, body: body, queryItems: Self.queryItems(from: queryParams))
+    private func postVoid<B: Encodable>(_ path: String, body: sending B, queryParams: [String: String] = [:], timeoutInterval: TimeInterval? = nil) async throws {
+        try await transport.postVoidCodable(path, body: body, queryItems: Self.queryItems(from: queryParams), timeoutInterval: timeoutInterval)
     }
 
     /// Body-less POST. Jellyfin uses these for command-style endpoints

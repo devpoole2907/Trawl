@@ -413,7 +413,7 @@ struct ArrBlocklistView: View {
             }
         }
         .refreshable { await loadCurrentMode() }
-        .task(id: mode) { await loadCurrentMode() }
+        .task(id: blocklistReloadKey) { await loadCurrentMode() }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
                 ArrServiceSettingsView(serviceType: blocklistSettingsService)
@@ -570,6 +570,12 @@ struct ArrBlocklistView: View {
     }
 
     // MARK: - Actions
+
+    /// Combines the current mode with the active Sonarr/Radarr instance IDs so switching
+    /// between connected instances reloads the blocklist/exclusions for the active instance.
+    private var blocklistReloadKey: String {
+        "\(mode.rawValue)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+    }
 
     private func loadCurrentMode() async {
         if hasPreviewData { return }

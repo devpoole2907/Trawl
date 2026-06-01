@@ -741,6 +741,7 @@ struct MoreView: View {
                 case .backupsHub:
                     ArrBackupsView()
                         .environment(arrServiceManager)
+                        .environment(jellyfinServiceManager)
                         .moreDestinationTitleStyle()
                 case .unifiedUsers:
                     unifiedUsersDestination

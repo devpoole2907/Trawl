@@ -331,8 +331,8 @@ actor HTTPTransport {
         try await performVoid(request)
     }
 
-    func postVoidCodable<B: Encodable>(_ path: String, body: sending B, queryItems: [URLQueryItem] = []) async throws {
-        var request = try buildRequest(path: path, method: "POST", queryItems: queryItems)
+    func postVoidCodable<B: Encodable>(_ path: String, body: sending B, queryItems: [URLQueryItem] = [], timeoutInterval: TimeInterval? = nil) async throws {
+        var request = try buildRequest(path: path, method: "POST", queryItems: queryItems, timeoutInterval: timeoutInterval)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         try await performVoid(request)

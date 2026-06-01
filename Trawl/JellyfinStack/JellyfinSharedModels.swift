@@ -294,6 +294,67 @@ nonisolated struct JellyfinSystemInfo: Decodable, Sendable {
     }
 }
 
+// MARK: - Backups (Jellyfin 10.11+)
+
+/// One entry from `GET /Backup`. Jellyfin serialises the C# `Version` and
+/// `DateTimeOffset` fields as strings, so they decode as `String?` here.
+nonisolated struct JellyfinBackupManifest: Decodable, Identifiable, Sendable {
+    let serverVersion: String?
+    let backupEngineVersion: String?
+    let dateCreated: String?
+    let path: String?
+    let options: JellyfinBackupOptions?
+
+    enum CodingKeys: String, CodingKey {
+        case serverVersion = "ServerVersion"
+        case backupEngineVersion = "BackupEngineVersion"
+        case dateCreated = "DateCreated"
+        case path = "Path"
+        case options = "Options"
+    }
+
+    var id: String { path ?? dateCreated ?? UUID().uuidString }
+
+    /// The bare archive file name, which `POST /Backup/Restore` expects (it must
+    /// live in the server's backup directory). Derived from the full server path.
+    var archiveFileName: String {
+        guard let path, !path.isEmpty else { return "" }
+        return (path as NSString).lastPathComponent
+    }
+}
+
+/// Which components a backup contains (also the request body for `POST /Backup/Create`).
+/// `database` is always included on the server side and defaults to `true`.
+nonisolated struct JellyfinBackupOptions: Codable, Sendable {
+    var metadata: Bool
+    var trickplay: Bool
+    var subtitles: Bool
+    var database: Bool
+
+    init(metadata: Bool = false, trickplay: Bool = false, subtitles: Bool = false, database: Bool = true) {
+        self.metadata = metadata
+        self.trickplay = trickplay
+        self.subtitles = subtitles
+        self.database = database
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case metadata = "Metadata"
+        case trickplay = "Trickplay"
+        case subtitles = "Subtitles"
+        case database = "Database"
+    }
+}
+
+/// Request body for `POST /Backup/Restore`.
+nonisolated struct JellyfinBackupRestoreRequest: Encodable, Sendable {
+    let archiveFileName: String
+
+    enum CodingKeys: String, CodingKey {
+        case archiveFileName = "ArchiveFileName"
+    }
+}
+
 // MARK: - Libraries
 
 nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {

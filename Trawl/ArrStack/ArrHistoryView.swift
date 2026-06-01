@@ -216,7 +216,9 @@ struct ArrHistoryView: View {
     }
 
     private var reloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)"
+        // Include the active Sonarr/Radarr instance IDs so switching between connected
+        // instances re-fires this task and reloads history for the now-active instance.
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
     }
 
     private var historyItems: [HistoryItem] {

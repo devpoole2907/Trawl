@@ -1,6 +1,25 @@
 #if DEBUG
 import Foundation
 
+extension JellyfinBackupManifest {
+    static let previewList: [JellyfinBackupManifest] = [
+        JellyfinBackupManifest(
+            serverVersion: "10.11.0",
+            backupEngineVersion: "1.0.0",
+            dateCreated: "2026-05-30T02:00:00.000Z",
+            path: "/config/data/backups/jellyfin-backup-2026-05-30-02-00-00.zip",
+            options: JellyfinBackupOptions(metadata: true, trickplay: false, subtitles: true, database: true)
+        ),
+        JellyfinBackupManifest(
+            serverVersion: "10.11.0",
+            backupEngineVersion: "1.0.0",
+            dateCreated: "2026-05-23T02:00:00.000Z",
+            path: "/config/data/backups/jellyfin-backup-2026-05-23-02-00-00.zip",
+            options: JellyfinBackupOptions(metadata: false, trickplay: false, subtitles: false, database: true)
+        )
+    ]
+}
+
 extension JellyfinUser {
     static let preview = JellyfinUser.makePreview()
     static let previewAdmin = JellyfinUser.makePreview(

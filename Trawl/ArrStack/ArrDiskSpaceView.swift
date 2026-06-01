@@ -83,7 +83,9 @@ struct ArrDiskSpaceView: View {
     }
 
     private var reloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)"
+        // Active Sonarr/Radarr instance IDs are part of the key so switching between
+        // connected instances reloads disk space for the now-active instance.
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
     }
 
     private var sonarrSnapshots: [ArrDiskSpaceSnapshot] {

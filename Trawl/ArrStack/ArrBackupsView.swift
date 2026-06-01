@@ -2,30 +2,83 @@ import CoreTransferable
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// A selectable backup provider in the segment bar. The Arr services and Jellyfin
+/// have different capabilities (e.g. Jellyfin can't download, upload or delete), so
+/// the view branches on this and hides unsupported actions — the same way Bazarr
+/// already hides the upload button.
+private enum BackupSource: Hashable, Sendable, Identifiable {
+    case arr(ArrServiceType)
+    case jellyfin
+
+    var id: String {
+        switch self {
+        case .arr(let service): "arr.\(service.rawValue)"
+        case .jellyfin: "jellyfin"
+        }
+    }
+
+    var displayName: String {
+        switch self {
+        case .arr(let service): service.displayName
+        case .jellyfin: "Jellyfin"
+        }
+    }
+
+    var arrService: ArrServiceType? {
+        if case .arr(let service) = self { return service }
+        return nil
+    }
+
+    /// Sonarr/Radarr/Prowlarr accept uploaded archives; Bazarr and Jellyfin do not.
+    var supportsUpload: Bool {
+        switch self {
+        case .arr(let service): service != .bazarr
+        case .jellyfin: false
+        }
+    }
+
+    /// Jellyfin's backup API exposes no delete or download endpoints.
+    var supportsDelete: Bool { arrService != nil }
+    var supportsShare: Bool { arrService != nil }
+
+    var segmentBarItem: TrawlSegmentBarItem<BackupSource> {
+        TrawlSegmentBarItem(displayName, value: self)
+    }
+}
+
 struct ArrBackupsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
 
-    @State private var selectedService: ArrServiceType = .sonarr
+    @State private var selectedSource: BackupSource = .arr(.sonarr)
     @State private var states: [ArrServiceType: BackupViewState] = [:]
     @State private var unavailable: Set<ArrServiceType> = []
+    @State private var jellyfinState = JellyfinBackupState()
     @State private var sortOrder: BackupSortOrder = .newestFirst
     @State private var showSettings = false
-    @State private var servicePendingBackupCreation: ArrServiceType?
+    @State private var sourcePendingBackupCreation: BackupSource?
     @State private var backupPendingDelete: PendingBackupDelete?
     @State private var backupPendingRestore: PendingBackupDelete?
+    @State private var jellyfinPendingRestore: JellyfinBackupManifest?
+    @State private var showingJellyfinCreateSheet = false
     @State private var preparingShareID: String?
     @State private var showingFilePicker = false
 
     #if DEBUG
     init(
         previewStates: [ArrServiceType: [ArrBackup]] = [:],
+        jellyfinPreview: [JellyfinBackupManifest]? = nil,
         selectedService: ArrServiceType = .sonarr,
+        selectJellyfin: Bool = false,
         error: String? = nil
     ) {
-        _selectedService = State(initialValue: selectedService)
+        _selectedSource = State(initialValue: selectJellyfin ? .jellyfin : .arr(selectedService))
         _states = State(initialValue: previewStates.mapValues {
             BackupViewState(backups: $0, isLoading: false, isCreating: false, isUploading: false, error: error)
         })
+        if let jellyfinPreview {
+            _jellyfinState = State(initialValue: JellyfinBackupState(backups: jellyfinPreview, isLoading: false, isCreating: false, error: error))
+        }
     }
     #endif
 
@@ -36,6 +89,18 @@ struct ArrBackupsView: View {
         var isUploading = false
         var error: String?
     }
+
+    private struct JellyfinBackupState {
+        var backups: [JellyfinBackupManifest] = []
+        var isLoading = false
+        var isCreating = false
+        var error: String?
+    }
+
+    /// Backup create/restore run synchronously on the server and can take minutes
+    /// (metadata, trickplay, etc.), so they need a far longer budget than the
+    /// default 30s request timeout.
+    private static let jellyfinBackupRequestTimeout: TimeInterval = 600
 
     private struct PendingBackupDelete: Identifiable, Sendable {
         let backup: ArrBackup
@@ -66,39 +131,53 @@ struct ArrBackupsView: View {
         }
     }
 
-    private var availableServices: [ArrServiceType] {
-        var services: [ArrServiceType] = []
-        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
-        if serviceManager.hasRadarrInstance { services.append(.radarr) }
-        if serviceManager.hasProwlarrInstance { services.append(.prowlarr) }
-        if serviceManager.hasBazarrInstance { services.append(.bazarr) }
-        return services
+    private var availableSources: [BackupSource] {
+        var sources: [BackupSource] = []
+        if serviceManager.hasSonarrInstance { sources.append(.arr(.sonarr)) }
+        if serviceManager.hasRadarrInstance { sources.append(.arr(.radarr)) }
+        if serviceManager.hasProwlarrInstance { sources.append(.arr(.prowlarr)) }
+        if serviceManager.hasBazarrInstance { sources.append(.arr(.bazarr)) }
+        if jellyfinSupportsBackups { sources.append(.jellyfin) }
+        return sources
+    }
+
+    /// A Jellyfin server is configured if the manager has a profile in any state.
+    private var jellyfinConfigured: Bool {
+        jellyfinServiceManager.isConnected
+            || jellyfinServiceManager.isConnecting
+            || jellyfinServiceManager.connectionError != nil
+            || jellyfinServiceManager.activeProfileID != nil
+    }
+
+    /// Built-in backups landed in Jellyfin 10.11. Hide the segment on servers we know
+    /// to be older; stay optimistic when the version isn't known yet.
+    private var jellyfinSupportsBackups: Bool {
+        guard jellyfinConfigured else { return false }
+        guard let version = jellyfinServiceManager.cachedSystemInfo?.version else { return true }
+        return Self.versionSupportsBackups(version)
+    }
+
+    private static func versionSupportsBackups(_ version: String) -> Bool {
+        let parts = version.split(separator: ".").compactMap { Int($0) }
+        guard let major = parts.first else { return true }
+        if major != 10 { return major > 10 }
+        return (parts.count > 1 ? parts[1] : 0) >= 11
     }
 
     var body: some View {
         Group {
-            if availableServices.isEmpty {
+            if availableSources.isEmpty {
                 ContentUnavailableView(
                     "No Services Configured",
                     systemImage: "externaldrive.fill",
-                    description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to manage backups.")
+                    description: Text("Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.")
                 )
-            } else if !serviceManager.isConnected(selectedService) && (serviceManager.isInitializing || serviceManager.isConnecting(selectedService) || unavailable.contains(selectedService)) {
-                ArrServiceConnectionStatusView(
-                    serviceType: selectedService,
-                    title: serviceManager.isConnecting(selectedService) || serviceManager.isInitializing ? "Connecting to \(selectedService.displayName)" : "\(selectedService.displayName) Unreachable",
-                    message: serviceManager.connectionError(selectedService) ?? "\(selectedService.displayName) is configured but currently unreachable."
-                )
-            } else if let state = states[selectedService] {
-                backupList(state: state, service: selectedService)
             } else {
-                ProgressView()
-                    .controlSize(.large)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                selectedContent
             }
         }
         .navigationTitle("Backups")
-        .navigationSubtitle(selectedService.displayName)
+        .navigationSubtitle(selectedSource.displayName)
         .moreDestinationBackground(.backups)
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
@@ -119,46 +198,45 @@ struct ArrBackupsView: View {
                 } label: {
                     Label("Sort", systemImage: sortOrder.systemImage)
                 }
-                .disabled(states[selectedService]?.backups.isEmpty != false)
+                .disabled(selectedBackupsIsEmpty)
 
-                if selectedService.supportsBackupUpload {
-                    let isUploading = states[selectedService]?.isUploading == true
-                    if isUploading {
+                if selectedSource.supportsUpload {
+                    if selectedIsUploading {
                         ProgressView().controlSize(.small)
                     } else {
                         Button("Upload Backup", systemImage: "arrow.up.doc") {
                             showingFilePicker = true
                         }
-                        .disabled(availableServices.isEmpty)
                     }
                 }
 
-                let isCreating = states[selectedService]?.isCreating == true
-                if isCreating {
+                if selectedIsCreating {
                     ProgressView().controlSize(.small)
                 } else {
                     Button("Create Backup", systemImage: "externaldrive.badge.plus") {
-                        servicePendingBackupCreation = selectedService
+                        switch selectedSource {
+                        case .arr: sourcePendingBackupCreation = selectedSource
+                        case .jellyfin: showingJellyfinCreateSheet = true
+                        }
                     }
-                    .disabled(availableServices.isEmpty)
                 }
             }
         }
         .alert("Create Backup?", isPresented: Binding(
-            get: { servicePendingBackupCreation != nil },
-            set: { if !$0 { servicePendingBackupCreation = nil } }
+            get: { sourcePendingBackupCreation != nil },
+            set: { if !$0 { sourcePendingBackupCreation = nil } }
         )) {
             Button("Create Backup") {
-                guard let servicePendingBackupCreation else { return }
-                self.servicePendingBackupCreation = nil
-                Task { await createBackup(for: servicePendingBackupCreation) }
+                guard let source = sourcePendingBackupCreation else { return }
+                sourcePendingBackupCreation = nil
+                Task { await performCreate(for: source) }
             }
             Button("Cancel", role: .cancel) {
-                servicePendingBackupCreation = nil
+                sourcePendingBackupCreation = nil
             }
         } message: {
-            if let servicePendingBackupCreation {
-                Text("Create a manual backup for \(servicePendingBackupCreation.displayName)?")
+            if let service = sourcePendingBackupCreation?.arrService {
+                Text("Create a manual backup for \(service.displayName)?")
             }
         }
         .alert("Delete Backup?", isPresented: Binding(
@@ -195,11 +273,33 @@ struct ArrBackupsView: View {
                 Text("Restore \"\(backupPendingRestore.backup.name)\" to \(backupPendingRestore.service.displayName)? The service may restart while the backup is applied.")
             }
         }
+        .alert("Restore Backup?", isPresented: Binding(
+            get: { jellyfinPendingRestore != nil },
+            set: { if !$0 { jellyfinPendingRestore = nil } }
+        )) {
+            Button("Restore", role: .destructive) {
+                guard let jellyfinPendingRestore else { return }
+                self.jellyfinPendingRestore = nil
+                Task { await restoreJellyfinBackup(jellyfinPendingRestore) }
+            }
+            Button("Cancel", role: .cancel) {
+                jellyfinPendingRestore = nil
+            }
+        } message: {
+            if let jellyfinPendingRestore {
+                Text("Restore \"\(jellyfinPendingRestore.archiveFileName)\"? Jellyfin will restart to apply the backup.")
+            }
+        }
+        .sheet(isPresented: $showingJellyfinCreateSheet) {
+            JellyfinBackupOptionsSheet { options in
+                Task { await createJellyfinBackup(options: options) }
+            }
+        }
         .fileImporter(
             isPresented: $showingFilePicker,
             allowedContentTypes: [.zip]
         ) { result in
-            let service = selectedService
+            guard let service = selectedSource.arrService else { return }
             switch result {
             case .success(let url):
                 Task { await uploadBackup(url: url, for: service) }
@@ -212,40 +312,78 @@ struct ArrBackupsView: View {
         }
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
-                "Service",
+                "Source",
                 selection: Binding(
-                    get: { selectedService },
-                    set: { newService in withAnimation { selectedService = newService } }
+                    get: { selectedSource },
+                    set: { newSource in withAnimation { selectedSource = newSource } }
                 ),
-                items: availableServices.map(\.segmentBarItem),
+                items: availableSources.map(\.segmentBarItem),
                 alignment: .leading
             )
         }
         .loadServicesPeriodically(
-            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
-            keys: availableServices
-        ) { service in
-            await loadService(service)
+            id: availableSources.map { source -> String in
+                switch source {
+                case .arr(let service): "\(service.rawValue):\(serviceManager.isConnected(service))"
+                case .jellyfin: "jellyfin:\(jellyfinServiceManager.isConnected)"
+                }
+            }.joined(),
+            keys: availableSources
+        ) { source in
+            await load(source)
         }
         .sheet(isPresented: $showSettings) {
-            NavigationStack {
-                ArrServiceSettingsView(serviceType: selectedService)
-                    .environment(serviceManager)
-                    .toolbar {
-                        ToolbarItem(placement: .confirmationAction) {
-                            Button("Done") { showSettings = false }
+            if let service = selectedSource.arrService {
+                NavigationStack {
+                    ArrServiceSettingsView(serviceType: service)
+                        .environment(serviceManager)
+                        .toolbar {
+                            ToolbarItem(placement: .confirmationAction) {
+                                Button("Done") { showSettings = false }
+                            }
                         }
-                    }
+                }
             }
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
+            if !availableSources.contains(selectedSource), let first = availableSources.first {
+                selectedSource = first
             }
         }
     }
 
-    // MARK: - List
+    // MARK: - Content
+
+    /// Type-erased so the content area keeps one stable structural identity as the
+    /// source changes. A `switch` here would land on different `_ConditionalContent`
+    /// branches for Arr vs Jellyfin, causing SwiftUI to re-host the toolbar fresh
+    /// (items snap in/out). Erasing to `AnyView` keeps the toolbar host stable so
+    /// the Upload button animates away on Arr→Jellyfin exactly as it does Arr→Bazarr.
+    private var selectedContent: AnyView {
+        switch selectedSource {
+        case .arr(let service): AnyView(arrContent(service: service))
+        case .jellyfin: AnyView(jellyfinContent())
+        }
+    }
+
+    // MARK: - Arr Content
+
+    @ViewBuilder
+    private func arrContent(service: ArrServiceType) -> some View {
+        if !serviceManager.isConnected(service) && (serviceManager.isInitializing || serviceManager.isConnecting(service) || unavailable.contains(service)) {
+            ArrServiceConnectionStatusView(
+                serviceType: service,
+                title: serviceManager.isConnecting(service) || serviceManager.isInitializing ? "Connecting to \(service.displayName)" : "\(service.displayName) Unreachable",
+                message: serviceManager.connectionError(service) ?? "\(service.displayName) is configured but currently unreachable."
+            )
+        } else if let state = states[service] {
+            backupList(state: state, service: service)
+        } else {
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
 
     @ViewBuilder
     private func backupList(state: BackupViewState, service: ArrServiceType) -> some View {
@@ -338,7 +476,84 @@ struct ArrBackupsView: View {
         .animation(.default, value: sortedBackups(state.backups).map(\.id))
     }
 
+    // MARK: - Jellyfin Content
+
+    @ViewBuilder
+    private func jellyfinContent() -> some View {
+        if jellyfinServiceManager.isConnecting && !jellyfinServiceManager.isConnected {
+            ProgressView()
+                .controlSize(.large)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !jellyfinServiceManager.isConnected {
+            ContentUnavailableView(
+                "Jellyfin Unreachable",
+                systemImage: "exclamationmark.triangle",
+                description: Text(jellyfinServiceManager.connectionError ?? "Jellyfin is configured but currently unreachable.")
+            )
+        } else {
+            jellyfinBackupList()
+        }
+    }
+
+    @ViewBuilder
+    private func jellyfinBackupList() -> some View {
+        List {
+            if let error = jellyfinState.error, jellyfinState.backups.isEmpty {
+                Section {
+                    Text(error).font(.footnote).foregroundStyle(.secondary)
+                }
+            }
+
+            if jellyfinState.isLoading && jellyfinState.backups.isEmpty {
+                Section { ProgressView().frame(maxWidth: .infinity) }
+            } else if jellyfinState.backups.isEmpty {
+                ContentUnavailableView(
+                    "No Backups",
+                    systemImage: "externaldrive",
+                    description: Text("No backups found for Jellyfin.")
+                )
+                .listRowBackground(Color.clear)
+            } else {
+                Section {
+                    ForEach(sortedJellyfinBackups(jellyfinState.backups)) { backup in
+                        JellyfinBackupRow(backup: backup)
+                            .contentShape(Rectangle())
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button {
+                                    jellyfinPendingRestore = backup
+                                } label: {
+                                    Label("Restore", systemImage: "arrow.counterclockwise")
+                                }
+                                .tint(.orange)
+                            }
+                            .contextMenu {
+                                Button("Restore", systemImage: "arrow.counterclockwise") {
+                                    jellyfinPendingRestore = backup
+                                }
+                            }
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .refreshable { await loadJellyfin() }
+        .animation(.default, value: sortedJellyfinBackups(jellyfinState.backups).map(\.id))
+    }
+
     // MARK: - Load
+
+    @MainActor
+    private func load(_ source: BackupSource) async {
+        switch source {
+        case .arr(let service): await loadService(service)
+        case .jellyfin: await loadJellyfin()
+        }
+    }
 
     @MainActor
     private func loadService(_ service: ArrServiceType) async {
@@ -362,6 +577,34 @@ struct ArrBackupsView: View {
     }
 
     @MainActor
+    private func loadJellyfin() async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
+        guard let client = jellyfinServiceManager.activeClient else { return }
+        jellyfinState.isLoading = true
+        jellyfinState.error = nil
+        do {
+            let backups = try await client.getBackups()
+            withAnimation {
+                jellyfinState.backups = backups
+                jellyfinState.isLoading = false
+            }
+        } catch {
+            jellyfinState.error = error.localizedDescription
+            jellyfinState.isLoading = false
+        }
+    }
+
+    @MainActor
+    private func performCreate(for source: BackupSource) async {
+        switch source {
+        case .arr(let service): await createBackup(for: service)
+        case .jellyfin: await createJellyfinBackup(options: JellyfinBackupOptions())
+        }
+    }
+
+    @MainActor
     private func createBackup(for service: ArrServiceType) async {
         guard let client = client(for: service) else { return }
         states[service]?.isCreating = true
@@ -376,6 +619,23 @@ struct ArrBackupsView: View {
             )
         }
         states[service]?.isCreating = false
+    }
+
+    @MainActor
+    private func createJellyfinBackup(options: JellyfinBackupOptions) async {
+        guard let client = jellyfinServiceManager.activeClient else { return }
+        jellyfinState.isCreating = true
+        do {
+            try await client.createBackup(options: options, requestTimeout: Self.jellyfinBackupRequestTimeout)
+            try? await Task.sleep(for: .seconds(3))
+            await loadJellyfin()
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Backup Failed",
+                message: error.localizedDescription
+            )
+        }
+        jellyfinState.isCreating = false
     }
 
     @MainActor
@@ -423,6 +683,23 @@ struct ArrBackupsView: View {
     }
 
     @MainActor
+    private func restoreJellyfinBackup(_ backup: JellyfinBackupManifest) async {
+        guard let client = jellyfinServiceManager.activeClient else { return }
+        do {
+            try await client.restoreBackup(archiveFileName: backup.archiveFileName, requestTimeout: Self.jellyfinBackupRequestTimeout)
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Restore Started",
+                message: "Jellyfin is restoring \"\(backup.archiveFileName)\" and will restart."
+            )
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Restore Failed",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    @MainActor
     private func deleteBackup(_ pendingDelete: PendingBackupDelete) async {
         guard let client = client(for: pendingDelete.service) else { return }
         do {
@@ -440,6 +717,27 @@ struct ArrBackupsView: View {
                 message: error.localizedDescription
             )
         }
+    }
+
+    // MARK: - Sorting
+
+    private var selectedBackupsIsEmpty: Bool {
+        switch selectedSource {
+        case .arr(let service): states[service]?.backups.isEmpty != false
+        case .jellyfin: jellyfinState.backups.isEmpty
+        }
+    }
+
+    private var selectedIsCreating: Bool {
+        switch selectedSource {
+        case .arr(let service): states[service]?.isCreating == true
+        case .jellyfin: jellyfinState.isCreating
+        }
+    }
+
+    private var selectedIsUploading: Bool {
+        if case .arr(let service) = selectedSource { return states[service]?.isUploading == true }
+        return false
     }
 
     private func sortedBackups(_ backups: [ArrBackup]) -> [ArrBackup] {
@@ -472,13 +770,7 @@ struct ArrBackupsView: View {
     }
 
     private func backupDate(_ backup: ArrBackup) -> Date? {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: backup.time) {
-            return date
-        }
-        iso.formatOptions = [.withInternetDateTime]
-        return iso.date(from: backup.time)
+        Self.parseDate(backup.time)
     }
 
     private func backupName(_ lhs: ArrBackup, isOrderedBefore rhs: ArrBackup, ascending: Bool) -> Bool {
@@ -496,6 +788,50 @@ struct ArrBackupsView: View {
             return backupTime(lhs, isOrderedBefore: rhs, newestFirst: true)
         }
         return largestFirst ? lhsSize > rhsSize : lhsSize < rhsSize
+    }
+
+    /// Jellyfin manifests carry no size, so size orders fall back to date.
+    private func sortedJellyfinBackups(_ backups: [JellyfinBackupManifest]) -> [JellyfinBackupManifest] {
+        backups.sorted { lhs, rhs in
+            switch sortOrder {
+            case .newestFirst, .largestFirst:
+                jellyfinTime(lhs, isOrderedBefore: rhs, newestFirst: true)
+            case .oldestFirst, .smallestFirst:
+                jellyfinTime(lhs, isOrderedBefore: rhs, newestFirst: false)
+            case .nameAscending:
+                jellyfinName(lhs, isOrderedBefore: rhs, ascending: true)
+            case .nameDescending:
+                jellyfinName(lhs, isOrderedBefore: rhs, ascending: false)
+            }
+        }
+    }
+
+    private func jellyfinTime(_ lhs: JellyfinBackupManifest, isOrderedBefore rhs: JellyfinBackupManifest, newestFirst: Bool) -> Bool {
+        let lhsDate = Self.parseDate(lhs.dateCreated)
+        let rhsDate = Self.parseDate(rhs.dateCreated)
+        if let lhsDate, let rhsDate, lhsDate != rhsDate {
+            return newestFirst ? lhsDate > rhsDate : lhsDate < rhsDate
+        }
+        return lhs.archiveFileName.localizedStandardCompare(rhs.archiveFileName) == .orderedAscending
+    }
+
+    private func jellyfinName(_ lhs: JellyfinBackupManifest, isOrderedBefore rhs: JellyfinBackupManifest, ascending: Bool) -> Bool {
+        let comparison = lhs.archiveFileName.localizedStandardCompare(rhs.archiveFileName)
+        if comparison == .orderedSame {
+            return jellyfinTime(lhs, isOrderedBefore: rhs, newestFirst: true)
+        }
+        return ascending ? comparison == .orderedAscending : comparison == .orderedDescending
+    }
+
+    static func parseDate(_ value: String?) -> Date? {
+        guard let value else { return nil }
+        let iso = ISO8601DateFormatter()
+        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = iso.date(from: value) {
+            return date
+        }
+        iso.formatOptions = [.withInternetDateTime]
+        return iso.date(from: value)
     }
 
     private func client(for service: ArrServiceType) -> (any SharedArrClient)? {
@@ -521,10 +857,6 @@ struct ArrBackupsView: View {
             }
         }
     }
-}
-
-private extension ArrServiceType {
-    var supportsBackupUpload: Bool { self != .bazarr }
 }
 
 private struct ArrBackupShareItem: Transferable, Sendable {
@@ -564,7 +896,7 @@ private struct ArrBackupShareItem: Transferable, Sendable {
     }
 }
 
-// MARK: - Backup Row
+// MARK: - Backup Rows
 
 private struct ArrBackupRow: View {
     let backup: ArrBackup
@@ -640,16 +972,99 @@ private struct ArrBackupRow: View {
     }
 
     private var formattedDate: String? {
-        let iso = ISO8601DateFormatter()
-        iso.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = iso.date(from: backup.time) {
-            return date.formatted(date: .long, time: .shortened)
+        guard let date = ArrBackupsView.parseDate(backup.time) else { return backup.time }
+        return date.formatted(date: .long, time: .shortened)
+    }
+}
+
+private struct JellyfinBackupOptionsSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @State private var options: JellyfinBackupOptions
+    let onCreate: (JellyfinBackupOptions) -> Void
+
+    init(options: JellyfinBackupOptions = JellyfinBackupOptions(), onCreate: @escaping (JellyfinBackupOptions) -> Void) {
+        _options = State(initialValue: options)
+        self.onCreate = onCreate
+    }
+
+    var body: some View {
+        AppSheetShell(
+            title: "Create Backup",
+            subtitle: "Jellyfin",
+            confirmTitle: "Create",
+            onConfirm: {
+                onCreate(options)
+                dismiss()
+            },
+            detents: [.medium, .large]
+        ) {
+            Form {
+                Section {
+                    Toggle("Database", isOn: .constant(true))
+                        .disabled(true)
+                } footer: {
+                    Text("The database is always included in a backup.")
+                }
+
+                Section {
+                    Toggle("Metadata & Images", isOn: $options.metadata)
+                    Toggle("Subtitles", isOn: $options.subtitles)
+                    Toggle("Trickplay Images", isOn: $options.trickplay)
+                } header: {
+                    Text("Also Include")
+                } footer: {
+                    Text("These can significantly increase the backup's size and the time it takes to create. The server may be slow to respond while the backup runs.")
+                }
+            }
         }
-        iso.formatOptions = [.withInternetDateTime]
-        if let date = iso.date(from: backup.time) {
-            return date.formatted(date: .long, time: .shortened)
+    }
+}
+
+private struct JellyfinBackupRow: View {
+    let backup: JellyfinBackupManifest
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 8) {
+                Image(systemName: "externaldrive")
+                    .font(.caption2)
+                    .foregroundStyle(.teal)
+                Text(components)
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 8)
+                if let version = backup.serverVersion {
+                    Text("Jellyfin \(version)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            Text(backup.archiveFileName)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+            if let date = formattedDate {
+                Text(date)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
         }
-        return backup.time
+        .padding(.vertical, 3)
+    }
+
+    private var components: String {
+        guard let options = backup.options else { return "Database" }
+        var parts: [String] = []
+        if options.database { parts.append("Database") }
+        if options.metadata { parts.append("Metadata") }
+        if options.subtitles { parts.append("Subtitles") }
+        if options.trickplay { parts.append("Trickplay") }
+        return parts.isEmpty ? "Database" : parts.joined(separator: " · ")
+    }
+
+    private var formattedDate: String? {
+        guard let date = ArrBackupsView.parseDate(backup.dateCreated) else { return backup.dateCreated }
+        return date.formatted(date: .long, time: .shortened)
     }
 }
 
@@ -658,6 +1073,14 @@ private struct ArrBackupRow: View {
     PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
         NavigationStack {
             ArrBackupsView(previewStates: [.sonarr: ArrBackup.previewList, .radarr: ArrBackup.previewList], selectedService: .sonarr)
+        }
+    }
+}
+
+#Preview("Backups - Jellyfin") {
+    PreviewHost(profiles: .allServices, arr: .preview(.allConfigured), jellyfin: .preview(.connected)) {
+        NavigationStack {
+            ArrBackupsView(jellyfinPreview: JellyfinBackupManifest.previewList, selectJellyfin: true)
         }
     }
 }

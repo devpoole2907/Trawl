@@ -309,7 +309,9 @@ struct ArrActivityQueueView: View {
     }
 
     private var activityReloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
+        // Active Sonarr/Radarr instance IDs are part of the key so switching between
+        // connected instances reloads the queue for the now-active instance.
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
     }
 
     private var manualImportSheetPresented: Binding<Bool> {
@@ -913,7 +915,9 @@ struct ArrHealthView: View {
     }
 
     private var healthReloadKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)"
+        // Active Sonarr/Radarr instance IDs ensure health checks reload for the now-active
+        // instance when switching between connected instances.
+        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
     }
 
 }
