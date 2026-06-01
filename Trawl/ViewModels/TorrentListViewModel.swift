@@ -220,14 +220,11 @@ final class TorrentListViewModel {
                 self.filteredTorrents = result.sorted
                 self.filterCounts = result.counts
 
-                // Remove from processing hashes if the torrent is no longer in the sync data
-                // or if we want to be safe and just clear them after any successful sync.
-                // For simplicity, let's clear processing hashes that are now represented in the new data.
-                for hash in self.processingHashes {
-                    if snapshot[hash] != nil {
-                        self.processingHashes.remove(hash)
-                    }
-                }
+                // Clear processing hashes that are now represented in the new sync data.
+                // Compute the set to remove first — mutating a Set while iterating it
+                // is undefined behaviour in Swift and can trap.
+                let settled = self.processingHashes.filter { snapshot[$0] != nil }
+                self.processingHashes.subtract(settled)
             }
         }
     }

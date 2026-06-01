@@ -656,15 +656,19 @@ private struct JellyfinResetPasswordSheet: View {
         AppSheetShell(
             title: "Reset Password",
             confirmTitle: "Reset",
-            isConfirmDisabled: newPassword.isEmpty || currentPassword.isEmpty,
+            isConfirmDisabled: newPassword.isEmpty,
             isConfirmLoading: isResetting,
             onConfirm: { Task { await resetPassword() } },
             detents: [.medium]
         ) {
             Form {
-                Section("Current Password") {
-                    SecureField("Required", text: $currentPassword)
+                Section {
+                    SecureField("Optional", text: $currentPassword)
                         .textContentType(.password)
+                } header: {
+                    Text("Current Password")
+                } footer: {
+                    Text("Admins can leave this blank to set a new password without the user's current one.")
                 }
 
                 Section("New Password") {
@@ -690,7 +694,7 @@ private struct JellyfinResetPasswordSheet: View {
         do {
             try await apiClient.updateUserPassword(
                 id: userId,
-                currentPassword: currentPassword,
+                currentPassword: currentPassword.isEmpty ? nil : currentPassword,
                 newPassword: newPassword,
                 resetPassword: false
             )

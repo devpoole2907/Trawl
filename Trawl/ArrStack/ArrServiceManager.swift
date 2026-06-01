@@ -1002,29 +1002,53 @@ final class ArrServiceManager {
     }
 
     func removeBlocklistItem(id: Int, source: ArrServiceType) async {
+        // Only remove from the local list once the server delete succeeds, otherwise
+        // the row vanishes from the UI while the item still exists on the server.
         switch source {
         case .sonarr:
-            try? await sonarrClient?.deleteBlocklistItem(id: id)
-            sonarrBlocklist.removeAll { $0.id == id }
+            guard let sonarrClient else { return }
+            do {
+                try await sonarrClient.deleteBlocklistItem(id: id)
+                sonarrBlocklist.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
         case .radarr:
-            try? await radarrClient?.deleteBlocklistItem(id: id)
-            radarrBlocklist.removeAll { $0.id == id }
+            guard let radarrClient else { return }
+            do {
+                try await radarrClient.deleteBlocklistItem(id: id)
+                radarrBlocklist.removeAll { $0.id == id }
+            } catch {
+                // Deletion failed, do not remove from local array
+            }
         case .prowlarr, .bazarr:
             break
         }
     }
 
     func clearBlocklist(sonarrIDs: [Int], radarrIDs: [Int]) async {
-        await withTaskGroup(of: Void.self) { group in
-            if !sonarrIDs.isEmpty, let client = sonarrClient {
-                group.addTask { try? await client.deleteBlocklistItems(ids: sonarrIDs) }
-            }
-            if !radarrIDs.isEmpty, let client = radarrClient {
-                group.addTask { try? await client.deleteBlocklistItems(ids: radarrIDs) }
-            }
+        // Capture the actor-isolated clients into locals before crossing isolation.
+        let sonarr = sonarrClient
+        let radarr = radarrClient
+
+        // Track per-service success so failed deletes keep their rows.
+        async let sonarrOK: Bool = {
+            guard !sonarrIDs.isEmpty, let sonarr else { return false }
+            do { try await sonarr.deleteBlocklistItems(ids: sonarrIDs); return true }
+            catch { return false }
+        }()
+        async let radarrOK: Bool = {
+            guard !radarrIDs.isEmpty, let radarr else { return false }
+            do { try await radarr.deleteBlocklistItems(ids: radarrIDs); return true }
+            catch { return false }
+        }()
+
+        if await sonarrOK {
+            sonarrBlocklist.removeAll { sonarrIDs.contains($0.id) }
         }
-        sonarrBlocklist.removeAll { sonarrIDs.contains($0.id) }
-        radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
+        if await radarrOK {
+            radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
+        }
     }
 
     func removeImportListExclusion(id: Int, source: ArrServiceType) async {

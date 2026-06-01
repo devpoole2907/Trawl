@@ -651,6 +651,14 @@ struct ContentView: View {
                     connectionError = error.localizedDescription
                     isConnecting = false
                 }
+                // A magnet opened at cold launch stays queued in pendingMagnetURL and is
+                // presented once a retry reconnects — let the user know it wasn't lost.
+                if pendingMagnetURL != nil {
+                    InAppNotificationCenter.shared.showSuccess(
+                        title: "Magnet Queued",
+                        message: "It will be added once Trawl reconnects to your server."
+                    )
+                }
             }
         }
     }

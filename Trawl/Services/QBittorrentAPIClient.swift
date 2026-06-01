@@ -112,9 +112,8 @@ actor QBittorrentAPIClient {
         if sequentialDownload { body.appendMultipartField(boundary: boundary, name: "sequentialDownload", value: "true") }
         if firstLastPiecePriority { body.appendMultipartField(boundary: boundary, name: "firstLastPiecePrio", value: "true") }
         body.append(Data("--\(boundary)--\r\n".utf8))
-        request.httpBody = body
 
-        let (_, response) = try await performRequest(request)
+        let (_, response) = try await performUpload(request, body: body)
         guard response.statusCode == 200 else {
             throw QBError.serverError(statusCode: response.statusCode, message: "Failed to add torrent")
         }
@@ -156,9 +155,8 @@ actor QBittorrentAPIClient {
         }
 
         body.append(Data("--\(boundary)--\r\n".utf8))
-        request.httpBody = body
 
-        let (_, response) = try await performRequest(request)
+        let (_, response) = try await performUpload(request, body: body)
         guard response.statusCode == 200 else {
             throw QBError.serverError(statusCode: response.statusCode, message: "Failed to add torrent file")
         }
@@ -175,25 +173,45 @@ actor QBittorrentAPIClient {
 
     func pauseTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.qbittorrentJoined()]
-        // qBittorrent v5+ uses /stop; v4 used /pause
-        let request = try buildFormRequest(path: "/api/v2/torrents/stop", params: params)
-        let (_, response) = try await performRequest(request)
-        if response.statusCode == 404 {
-            // Fall back to v4 endpoint
-            let fallback = try buildFormRequest(path: "/api/v2/torrents/pause", params: params)
-            _ = try await performRequest(fallback)
-        }
+        // qBittorrent v5+ uses /stop; v4 used /pause. Only fall back on 404 (endpoint
+        // missing); any other failure must surface rather than be reported as success.
+        try await performWithLegacyFallback(
+            path: "/api/v2/torrents/stop",
+            legacyPath: "/api/v2/torrents/pause",
+            params: params,
+            failureMessage: "Failed to pause torrents"
+        )
     }
 
     func resumeTorrents(hashes: [String]) async throws {
         let params = ["hashes": hashes.qbittorrentJoined()]
-        // qBittorrent v5+ uses /start; v4 used /resume
-        let request = try buildFormRequest(path: "/api/v2/torrents/start", params: params)
+        // qBittorrent v5+ uses /start; v4 used /resume. See pauseTorrents for fallback rationale.
+        try await performWithLegacyFallback(
+            path: "/api/v2/torrents/start",
+            legacyPath: "/api/v2/torrents/resume",
+            params: params,
+            failureMessage: "Failed to resume torrents"
+        )
+    }
+
+    /// Performs a mutation against `path`, falling back to `legacyPath` only when the
+    /// primary endpoint returns 404 (it doesn't exist on this qBittorrent version).
+    /// Any non-success status on the chosen endpoint throws.
+    private func performWithLegacyFallback(
+        path: String,
+        legacyPath: String,
+        params: [String: String],
+        failureMessage: String
+    ) async throws {
+        let request = try buildFormRequest(path: path, params: params)
         let (_, response) = try await performRequest(request)
         if response.statusCode == 404 {
-            // Fall back to v4 endpoint
-            let fallback = try buildFormRequest(path: "/api/v2/torrents/resume", params: params)
-            _ = try await performRequest(fallback)
+            let fallback = try buildFormRequest(path: legacyPath, params: params)
+            try await performSuccessfulMutation(fallback, failureMessage: failureMessage)
+            return
+        }
+        guard response.statusCode == 200 else {
+            throw QBError.serverError(statusCode: response.statusCode, message: failureMessage)
         }
     }
 
@@ -483,6 +501,41 @@ actor QBittorrentAPIClient {
                 try await reAuthenticate()
                 await authService.authorize(&mutableRequest)
                 let (retryData, retryResponse) = try await session.data(for: mutableRequest)
+                guard let retryHTTP = retryResponse as? HTTPURLResponse else {
+                    throw QBError.invalidResponse
+                }
+                if retryHTTP.statusCode == 403 {
+                    throw QBError.authFailed
+                }
+                return (retryData, retryHTTP)
+            }
+
+            return (data, httpResponse)
+        } catch let error as QBError {
+            throw error
+        } catch {
+            throw QBError.networkError(error.localizedDescription)
+        }
+    }
+
+    /// Like `performRequest` but uses `URLSession.upload(for:from:)`, the correct API
+    /// for file payloads. `data(for:)` with `httpBody` can silently truncate large
+    /// multipart bodies (e.g. big `.torrent` files).
+    private func performUpload(_ request: URLRequest, body: Data) async throws -> (Data, HTTPURLResponse) {
+        var mutableRequest = request
+        await authService.authorize(&mutableRequest)
+
+        do {
+            let (data, response) = try await session.upload(for: mutableRequest, from: body)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw QBError.invalidResponse
+            }
+
+            if httpResponse.statusCode == 403 {
+                // SID expired — attempt re-authentication and retry once.
+                try await reAuthenticate()
+                await authService.authorize(&mutableRequest)
+                let (retryData, retryResponse) = try await session.upload(for: mutableRequest, from: body)
                 guard let retryHTTP = retryResponse as? HTTPURLResponse else {
                     throw QBError.invalidResponse
                 }

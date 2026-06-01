@@ -24,13 +24,18 @@ final class ShareViewController: UIViewController {
             guard let attachments = item.attachments else { continue }
 
             for provider in attachments {
-                // Check for URLs (magnet links)
+                // Check for URLs (magnet links only — a magnet's scheme is "magnet").
+                // Don't treat arbitrary shared web URLs as torrents.
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier) { [weak self] item, _ in
-                        guard let url = item as? URL else { return }
+                        guard let url = item as? URL, url.scheme?.lowercased() == "magnet" else {
+                            Task { @MainActor [weak self] in self?.close() }
+                            return
+                        }
+                        let magnet = url.absoluteString
                         Task { @MainActor [weak self] in
                             guard let self else { return }
-                            self.magnetURL = url.absoluteString
+                            self.magnetURL = magnet
                             self.presentShareUI()
                         }
                     }

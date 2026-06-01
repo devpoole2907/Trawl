@@ -6,6 +6,7 @@ struct SeerrJobsView: View {
     @State private var jobs: [SeerrJob] = []
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @State private var actionError: String?
     @State private var pollingTask: Task<Void, Never>?
     #if DEBUG
     private var isPreview = false
@@ -56,6 +57,14 @@ struct SeerrJobsView: View {
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
         .navigationTitle("Seerr Jobs")
+        .alert("Job Action Failed", isPresented: Binding(
+            get: { actionError != nil },
+            set: { if !$0 { actionError = nil } }
+        )) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
         .refreshable { await load() }
         .task {
             #if DEBUG
@@ -94,13 +103,23 @@ struct SeerrJobsView: View {
     }
 
     private func trigger(_ job: SeerrJob) async {
-        try? await apiClient.runJob(id: job.id)
+        do {
+            try await apiClient.runJob(id: job.id)
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
         try? await Task.sleep(for: .seconds(1))
         await load()
     }
 
     private func cancel(_ job: SeerrJob) async {
-        try? await apiClient.cancelJob(id: job.id)
+        do {
+            try await apiClient.cancelJob(id: job.id)
+        } catch {
+            actionError = error.localizedDescription
+            return
+        }
         try? await Task.sleep(for: .seconds(1))
         await load()
     }

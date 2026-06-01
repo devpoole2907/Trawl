@@ -4,7 +4,7 @@ actor AuthService {
     private let session: URLSession
     private let trustPolicy: ServerTrustPolicy
     private var sid: String?
-    private var isAuthenticating = false
+    private var authTask: Task<Void, Error>?
     let serverProfileID: UUID
 
     init(serverProfileID: UUID, allowsUntrustedTLS: Bool = false) {
@@ -23,11 +23,22 @@ actor AuthService {
     var isAuthenticated: Bool { sid != nil }
 
     /// Authenticate against qBittorrent and store the SID cookie.
+    ///
+    /// Concurrent calls are coalesced: if a login is already in flight (e.g. two
+    /// requests both hit a 403 and trigger re-auth), later callers await the same
+    /// task rather than returning early with no SID and proceeding on a stale cookie.
     func login(hostURL: String, username: String, password: String) async throws {
-        guard !isAuthenticating else { return }
-        isAuthenticating = true
-        defer { isAuthenticating = false }
+        if let authTask {
+            try await authTask.value
+            return
+        }
+        let task = Task { try await self.performLogin(hostURL: hostURL, username: username, password: password) }
+        authTask = task
+        defer { authTask = nil }
+        try await task.value
+    }
 
+    private func performLogin(hostURL: String, username: String, password: String) async throws {
         guard let url = URL(string: "\(hostURL)/api/v2/auth/login") else {
             throw QBError.invalidResponse
         }

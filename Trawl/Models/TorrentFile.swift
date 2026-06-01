@@ -36,7 +36,11 @@ struct TorrentFile: Codable, Identifiable, Sendable {
         self.name = try container.decode(String.self, forKey: .name)
         self.size = try container.decode(Int64.self, forKey: .size)
         self.progress = try container.decode(Double.self, forKey: .progress)
-        self.priority = try container.decode(FilePriority.self, forKey: .priority)
+        // qBittorrent can return priority integers we don't model (e.g. legacy 2–5).
+        // Decode the raw value and fall back so one unexpected value doesn't fail the
+        // whole file-list decode and leave the Files tab empty.
+        let rawPriority = try container.decode(Int.self, forKey: .priority)
+        self.priority = FilePriority(rawValue: rawPriority) ?? .normal
         self.isSeed = try container.decodeIfPresent(Bool.self, forKey: .isSeed)
         self.availability = try container.decodeIfPresent(Double.self, forKey: .availability)
     }
