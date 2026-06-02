@@ -20,7 +20,7 @@ struct ArrMediaManagementView: View {
                         icon: "tray.and.arrow.down.fill",
                         color: MoreDestinationAccent.manualImport.color,
                         title: "Manual Import",
-                        subtitle: "Browse and import files from root folders"
+                        subtitle: "Files to import from root folders"
                     )
                 }
 

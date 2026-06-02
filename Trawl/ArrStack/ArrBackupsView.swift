@@ -167,56 +167,61 @@ struct ArrBackupsView: View {
     var body: some View {
         Group {
             if availableSources.isEmpty {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "externaldrive.fill",
-                    description: Text("Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "externaldrive.fill")
+                } description: {
+                    Text("Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else {
                 selectedContent
             }
         }
         .navigationTitle("Backups")
-        .navigationSubtitle(selectedSource.displayName)
+        .navigationSubtitle(availableSources.isEmpty ? "" : selectedSource.displayName)
         .moreDestinationBackground(.backups)
         .toolbar {
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Menu {
-                    ForEach(BackupSortOrder.allCases) { order in
-                        Button {
-                            withAnimation {
-                                sortOrder = order
+            if !availableSources.isEmpty {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Menu {
+                        ForEach(BackupSortOrder.allCases) { order in
+                            Button {
+                                withAnimation {
+                                    sortOrder = order
+                                }
+                            } label: {
+                                if sortOrder == order {
+                                    Label(order.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Label(order.rawValue, systemImage: order.systemImage)
+                                }
                             }
-                        } label: {
-                            if sortOrder == order {
-                                Label(order.rawValue, systemImage: "checkmark")
-                            } else {
-                                Label(order.rawValue, systemImage: order.systemImage)
+                        }
+                    } label: {
+                        Label("Sort", systemImage: sortOrder.systemImage)
+                    }
+                    .disabled(selectedBackupsIsEmpty)
+
+                    if selectedSource.supportsUpload {
+                        if selectedIsUploading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Upload Backup", systemImage: "arrow.up.doc") {
+                                showingFilePicker = true
                             }
                         }
                     }
-                } label: {
-                    Label("Sort", systemImage: sortOrder.systemImage)
-                }
-                .disabled(selectedBackupsIsEmpty)
 
-                if selectedSource.supportsUpload {
-                    if selectedIsUploading {
+                    if selectedIsCreating {
                         ProgressView().controlSize(.small)
                     } else {
-                        Button("Upload Backup", systemImage: "arrow.up.doc") {
-                            showingFilePicker = true
-                        }
-                    }
-                }
-
-                if selectedIsCreating {
-                    ProgressView().controlSize(.small)
-                } else {
-                    Button("Create Backup", systemImage: "externaldrive.badge.plus") {
-                        switch selectedSource {
-                        case .arr: sourcePendingBackupCreation = selectedSource
-                        case .jellyfin: showingJellyfinCreateSheet = true
+                        Button("Create Backup", systemImage: "externaldrive.badge.plus") {
+                            switch selectedSource {
+                            case .arr: sourcePendingBackupCreation = selectedSource
+                            case .jellyfin: showingJellyfinCreateSheet = true
+                            }
                         }
                     }
                 }
@@ -311,15 +316,17 @@ struct ArrBackupsView: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Source",
-                selection: Binding(
-                    get: { selectedSource },
-                    set: { newSource in withAnimation { selectedSource = newSource } }
-                ),
-                items: availableSources.map(\.segmentBarItem),
-                alignment: .leading
-            )
+            if !availableSources.isEmpty {
+                TrawlSegmentBar(
+                    "Source",
+                    selection: Binding(
+                        get: { selectedSource },
+                        set: { newSource in withAnimation { selectedSource = newSource } }
+                    ),
+                    items: availableSources.map(\.segmentBarItem),
+                    alignment: .leading
+                )
+            }
         }
         .loadServicesPeriodically(
             id: availableSources.map { source -> String in

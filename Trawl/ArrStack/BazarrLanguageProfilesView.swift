@@ -107,6 +107,8 @@ struct BazarrLanguageProfilesView: View {
                 systemImage: "captions.bubble",
                 description: Text("Add a Bazarr server in Settings to manage language profiles.")
             )
+            .scrollableUnavailableState()
+            .background(backgroundGradient)
         } else if client == nil {
             ArrServiceConnectionStatusView(
                 serviceType: .bazarr,

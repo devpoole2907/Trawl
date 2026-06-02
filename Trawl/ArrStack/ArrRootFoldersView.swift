@@ -12,11 +12,14 @@ struct ArrRootFoldersView: View {
     var body: some View {
         Group {
             if !hasAnyService {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "folder.badge.questionmark",
-                    description: Text("Connect Sonarr or Radarr to view root folders.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "folder.badge.questionmark")
+                } description: {
+                    Text("Connect Sonarr or Radarr to view root folders.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasAnyConnectedService {
                 ArrServicesConnectionStatusView(
                     services: rootFolderServices,

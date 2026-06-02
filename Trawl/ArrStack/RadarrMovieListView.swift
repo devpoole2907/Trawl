@@ -159,12 +159,18 @@ struct RadarrMovieListView: View {
             ContentUnavailableView {
                 Label("Radarr Not Set Up", systemImage: ServiceIdentity.radarr.tabSystemImage)
             } description: {
-                Text("Add a Radarr server to manage your movies.")
+                Text("Add a Radarr server in Settings to manage your movies.")
             } actions: {
-                Button("Add Server", systemImage: "plus") {
+                Button {
                     showSetupSheet = true
+                } label: {
+                    Label("Add Server", systemImage: "plus")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                 }
+                .buttonStyle(.glass)
             }
+            .scrollableUnavailableState()
         } else if serviceManager.radarrIsConnecting || serviceManager.isInitializing {
             ArrServiceConnectionStatusView(
                 serviceType: .radarr,

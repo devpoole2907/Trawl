@@ -158,12 +158,17 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     }
 
     private var notSetUpView: some View {
+        notSetUpContent
+            .scrollableUnavailableState()
+    }
+
+    private var notSetUpContent: some View {
         ContentUnavailableView {
             Label("\(serviceType.displayName) Not Set Up", systemImage: emptyIcon)
         } description: {
-            Text("Add a \(serviceType.displayName) server to get started.")
+            Text("Add a \(serviceType.displayName) server in Settings to get started.")
         } actions: {
-            Button("Add Server", systemImage: "plus") {
+            Button {
                 withAnimation(.snappy) {
                     if profiles.filter({ $0.resolvedServiceType == serviceType }).isEmpty {
                         showAddSheet = true
@@ -171,8 +176,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                         showSettings = true
                     }
                 }
+            } label: {
+                Label("Add Server", systemImage: "plus")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(.glass)
         }
     }
 

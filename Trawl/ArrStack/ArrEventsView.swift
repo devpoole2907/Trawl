@@ -151,11 +151,14 @@ struct ArrEventsView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "list.bullet.rectangle")
+                } description: {
+                    Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
                     services: availableServices,
@@ -170,40 +173,44 @@ struct ArrEventsView: View {
         .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.logsAndEvents)
         .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                Menu {
-                    ForEach(ArrLogLevelFilter.allCases, id: \.self) { level in
-                        Button {
-                            withAnimation { selectedLevel = level }
-                        } label: {
-                            if selectedLevel == level {
-                                Label(level.displayName, systemImage: "checkmark")
-                            } else {
-                                Text(level.displayName)
+            if !availableServices.isEmpty {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    Menu {
+                        ForEach(ArrLogLevelFilter.allCases, id: \.self) { level in
+                            Button {
+                                withAnimation { selectedLevel = level }
+                            } label: {
+                                if selectedLevel == level {
+                                    Label(level.displayName, systemImage: "checkmark")
+                                } else {
+                                    Text(level.displayName)
+                                }
                             }
                         }
+                    } label: {
+                        Image(systemName: selectedLevel == .all
+                              ? "line.3.horizontal.decrease.circle"
+                              : "line.3.horizontal.decrease.circle.fill")
                     }
-                } label: {
-                    Image(systemName: selectedLevel == .all
-                          ? "line.3.horizontal.decrease.circle"
-                          : "line.3.horizontal.decrease.circle.fill")
                 }
             }
         }
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Service",
-                selection: Binding(
-                    get: { selectedSelection },
-                    set: { newSelection in withAnimation { selectedSelection = newSelection } }
-                ),
-                items: segmentItems,
-                searchText: $searchText,
-                searchHint: "Search events",
-                isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
-            )
+            if !availableServices.isEmpty {
+                TrawlSegmentBar(
+                    "Service",
+                    selection: Binding(
+                        get: { selectedSelection },
+                        set: { newSelection in withAnimation { selectedSelection = newSelection } }
+                    ),
+                    items: segmentItems,
+                    searchText: $searchText,
+                    searchHint: "Search events",
+                    isSearchExpanded: $isSearchExpanded,
+                    searchPlacement: .leading,
+                    alignment: .leading
+                )
+            }
         }
         .loadServicesPeriodically(
             id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),

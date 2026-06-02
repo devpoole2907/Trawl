@@ -326,7 +326,7 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                 } else {
-                    Text("Not configured")
+                    Text("Not set up")
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -834,6 +834,10 @@ private struct NavigateToJellyfinSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -878,6 +882,11 @@ extension EnvironmentValues {
     var navigateToJellyfinSettings: () -> Void {
         get { self[NavigateToJellyfinSettingsKey.self] }
         set { self[NavigateToJellyfinSettingsKey.self] = newValue }
+    }
+
+    var navigateToSettings: () -> Void {
+        get { self[NavigateToSettingsKey.self] }
+        set { self[NavigateToSettingsKey.self] = newValue }
     }
 }
 

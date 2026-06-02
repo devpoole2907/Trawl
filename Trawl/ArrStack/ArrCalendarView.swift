@@ -405,11 +405,14 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
     var body: some View {
         Group {
             if !hasConfiguredService {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "server.rack",
-                    description: Text("Connect Sonarr or Radarr to see upcoming releases.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "server.rack")
+                } description: {
+                    Text("Connect Sonarr or Radarr to see upcoming releases.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !isConnected {
                 ArrServicesConnectionStatusView(
                     services: calendarServices,
@@ -446,25 +449,27 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                     }
                 }
             }
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button("Today") {
-                    scrollToToday()
-                }
-            }
-            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
-            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Menu {
-                    Picker("Show", selection: Binding(
-                        get: { showMonitoredOnly },
-                        set: { newValue in withAnimation { showMonitoredOnly = newValue } }
-                    )) {
-                        Text("All").tag(false)
-                        Text("Monitored Only").tag(true)
+            if hasConfiguredService {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Button("Today") {
+                        scrollToToday()
                     }
-                } label: {
-                    Image(systemName: showMonitoredOnly
-                        ? "line.3.horizontal.decrease.circle.fill"
-                        : "line.3.horizontal.decrease.circle")
+                }
+                ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Menu {
+                        Picker("Show", selection: Binding(
+                            get: { showMonitoredOnly },
+                            set: { newValue in withAnimation { showMonitoredOnly = newValue } }
+                        )) {
+                            Text("All").tag(false)
+                            Text("Monitored Only").tag(true)
+                        }
+                    } label: {
+                        Image(systemName: showMonitoredOnly
+                            ? "line.3.horizontal.decrease.circle.fill"
+                            : "line.3.horizontal.decrease.circle")
+                    }
                 }
             }
             if isConnected {
@@ -476,11 +481,13 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             }
         }
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar("Scope", selection: Binding(
-                get: { scope },
-                set: { newValue in withAnimation { scope = newValue } }
-            ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            if hasConfiguredService {
+                TrawlSegmentBar("Scope", selection: Binding(
+                    get: { scope },
+                    set: { newValue in withAnimation { scope = newValue } }
+                ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .refreshable {
             await serviceManager.calendarViewModel.refresh()

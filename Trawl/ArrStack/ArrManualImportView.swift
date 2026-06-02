@@ -73,7 +73,10 @@ struct ArrManualImportView: View {
             Label("No Services Configured", systemImage: "tray.and.arrow.down")
         } description: {
             Text("Add a Sonarr or Radarr server in Settings to use Manual Import.")
+        } actions: {
+            MoreSettingsNavigationLink()
         }
+        .scrollableUnavailableState()
     }
 
     private var listContent: some View {

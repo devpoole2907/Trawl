@@ -45,11 +45,14 @@ struct ArrUpdatesView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "arrow.down.app",
-                    description: Text("Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "arrow.down.app")
+                } description: {
+                    Text("Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
                     services: availableServices,
@@ -65,7 +68,7 @@ struct ArrUpdatesView: View {
             }
         }
         .navigationTitle("Updates")
-        .navigationSubtitle(selectedService?.displayName ?? "")
+        .navigationSubtitle(availableServices.isEmpty ? "" : selectedService?.displayName ?? "")
         .moreDestinationBackground(.updates)
         .safeAreaInset(edge: .top) {
             if availableServices.count > 1, let selected = selectedService {

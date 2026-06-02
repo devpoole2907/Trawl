@@ -86,12 +86,18 @@ struct SonarrSeriesListView: View {
             ContentUnavailableView {
                 Label("Sonarr Not Set Up", systemImage: ServiceIdentity.sonarr.tabSystemImage)
             } description: {
-                Text("Add a Sonarr server to manage your series.")
+                Text("Add a Sonarr server in Settings to manage your series.")
             } actions: {
-                Button("Add Server", systemImage: "plus") {
+                Button {
                     showSetupSheet = true
+                } label: {
+                    Label("Add Server", systemImage: "plus")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
                 }
+                .buttonStyle(.glass)
             }
+            .scrollableUnavailableState()
         } else if serviceManager.sonarrIsConnecting || serviceManager.isInitializing {
             ArrServiceConnectionStatusView(
                 serviceType: .sonarr,

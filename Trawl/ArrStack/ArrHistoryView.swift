@@ -50,7 +50,9 @@ struct ArrHistoryView: View {
             .moreDestinationBackground(.activity)
             .navigationTitle("History")
             .safeAreaInset(edge: .top) {
-                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: historyFilters, alignment: .leading)
+                if hasConfiguredService {
+                    ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: historyFilters, alignment: .leading)
+                }
             }
             .task(id: reloadKey) {
                 #if DEBUG
@@ -76,11 +78,14 @@ struct ArrHistoryView: View {
     @ViewBuilder
     private var historyContent: some View {
         if !hasConfiguredService {
-            ContentUnavailableView(
-                "No Services Configured",
-                systemImage: "server.rack",
-                description: Text("Connect Sonarr, Radarr, or Prowlarr to view activity history.")
-            )
+            ContentUnavailableView {
+                Label("No Services Configured", systemImage: "server.rack")
+            } description: {
+                Text("Connect Sonarr, Radarr, or Prowlarr to view activity history.")
+            } actions: {
+                MoreSettingsNavigationLink()
+            }
+            .scrollableUnavailableState()
         } else if !hasConnectedService {
             ArrServicesConnectionStatusView(
                 services: configuredHistoryServices,

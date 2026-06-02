@@ -189,7 +189,7 @@ struct UnifiedUserDetailView: View {
                     }
                 }
             } else {
-                Label("Seerr not configured", systemImage: ServiceIdentity.seerr.tabSystemImage)
+                Label("Seerr Not Set Up", systemImage: ServiceIdentity.seerr.tabSystemImage)
                     .foregroundStyle(.secondary)
             }
         } header: {

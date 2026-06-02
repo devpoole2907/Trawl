@@ -89,11 +89,14 @@ struct ArrScheduledTasksView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "clock.arrow.2.circlepath",
-                    description: Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view tasks.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "clock.arrow.2.circlepath")
+                } description: {
+                    Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view tasks.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
                     services: availableServices,
@@ -105,22 +108,24 @@ struct ArrScheduledTasksView: View {
             }
         }
         .navigationTitle("Tasks")
-        .navigationSubtitle(hasTaskSearch ? "Search" : selectedService.displayName)
+        .navigationSubtitle(availableServices.isEmpty ? "" : hasTaskSearch ? "Search" : selectedService.displayName)
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Service",
-                selection: Binding(
-                    get: { selectedService },
-                    set: { newService in withAnimation { selectedService = newService } }
-                ),
-                items: availableServices.map(\.segmentBarItem),
-                searchText: $taskSearchText,
-                searchHint: "Search tasks",
-                isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
-            )
+            if !availableServices.isEmpty {
+                TrawlSegmentBar(
+                    "Service",
+                    selection: Binding(
+                        get: { selectedService },
+                        set: { newService in withAnimation { selectedService = newService } }
+                    ),
+                    items: availableServices.map(\.segmentBarItem),
+                    searchText: $taskSearchText,
+                    searchHint: "Search tasks",
+                    isSearchExpanded: $isSearchExpanded,
+                    searchPlacement: .leading,
+                    alignment: .leading
+                )
+            }
         }
         .loadServicesPeriodically(
             id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),

@@ -156,6 +156,8 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.18), value: appLockController.isLocked)
         .onAppear {
+            evaluateInitialWelcomeStateIfNeeded()
+
             if !hasSetStartupTab, let tab = RootTab.allCases.first(where: { $0.displayName == startupTab }) {
                 selectedTab = tab
                 hasSetStartupTab = true
@@ -230,31 +232,21 @@ struct ContentView: View {
             #if DEBUG
             guard !isPreview else { return }
             #endif
+            evaluateInitialWelcomeStateIfNeeded()
             await seerrServiceManager.initialize(from: seerrProfiles)
-            if !seerrProfiles.isEmpty {
-                isInWelcomeFlow = false
-            }
         }
         .task(id: jellyfinProfilesSyncKey) {
             #if DEBUG
             guard !isPreview else { return }
             #endif
+            evaluateInitialWelcomeStateIfNeeded()
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
-            if !jellyfinProfiles.isEmpty {
-                isInWelcomeFlow = false
-            }
         }
         .task(id: arrProfilesSyncKey) {
             #if DEBUG
             guard !isPreview else { return }
             #endif
-            if !didEvaluateWelcomeState {
-                isInWelcomeFlow = !hasConfiguredAnyService
-                didEvaluateWelcomeState = true
-            }
-            if !servers.isEmpty || !arrProfiles.isEmpty {
-                isInWelcomeFlow = false
-            }
+            evaluateInitialWelcomeStateIfNeeded()
             if !servers.isEmpty {
                 initializeServices()
             }
@@ -419,6 +411,9 @@ struct ContentView: View {
                     .environment(\.navigateToJellyfinSettings) {
                         morePath.append(.jellyfinSettings)
                     }
+                    .environment(\.navigateToSettings) {
+                        morePath.append(.settings)
+                    }
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -477,9 +472,40 @@ struct ContentView: View {
             } description: {
                 Text("Add a qBittorrent server in Settings to manage your downloads.")
             } actions: {
-                Button("Add Server", systemImage: "plus") { showOnboarding = true }
+                Button {
+                    showOnboarding = true
+                } label: {
+                    Label("Add Server", systemImage: "plus")
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                }
+                .buttonStyle(.glass)
             }
+            .scrollableUnavailableState()
+            .background(torrentsUnavailableBackground)
         }
+    }
+
+    private var torrentsUnavailableBackground: some View {
+        ZStack {
+            #if os(macOS)
+            Color(nsColor: .windowBackgroundColor)
+            #else
+            Color(uiColor: .systemGroupedBackground)
+            #endif
+            LinearGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.18), Color.clear],
+                startPoint: .top,
+                endPoint: .center
+            )
+            RadialGradient(
+                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.14), Color.clear],
+                center: .topTrailing,
+                startRadius: 20,
+                endRadius: 260
+            )
+        }
+        .ignoresSafeArea()
     }
 
     #if os(macOS)
@@ -562,6 +588,13 @@ struct ContentView: View {
 
     private var shouldShowWelcomeScreen: Bool {
         didEvaluateWelcomeState ? isInWelcomeFlow : !hasConfiguredAnyService
+    }
+
+    private func evaluateInitialWelcomeStateIfNeeded() {
+        guard !didEvaluateWelcomeState else { return }
+
+        isInWelcomeFlow = !hasConfiguredAnyService
+        didEvaluateWelcomeState = true
     }
 
     private func initializeServices() {

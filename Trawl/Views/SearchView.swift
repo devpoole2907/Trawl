@@ -561,11 +561,16 @@ struct SearchView: View {
         ContentUnavailableView {
             Label("Discovery Needs Sonarr or Radarr", systemImage: "sparkle.magnifyingglass")
         } description: {
-            Text("Add a Sonarr or Radarr server to search for and add new movies and shows.")
+            Text("Add a Sonarr or Radarr server in Settings to search for and add new movies and shows.")
         } actions: {
-            Button("Add Server", systemImage: "plus") {
+            Button {
                 showArrSetupSheet = true
+            } label: {
+                Label("Add Server", systemImage: "plus")
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
             }
+            .buttonStyle(.glass)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

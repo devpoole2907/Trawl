@@ -118,11 +118,14 @@ struct ArrWantedView: View {
     var body: some View {
         Group {
             if !hasConfiguredService {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "server.rack",
-                    description: Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "server.rack")
+                } description: {
+                    Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasConnectedService {
                 ArrServicesConnectionStatusView(
                     services: wantedServices,
@@ -236,14 +239,16 @@ struct ArrWantedView: View {
                     }
                 }
             }
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                if isSearchingAll {
-                    ProgressView()
-                } else {
-                    Button("Search All Missing") {
-                        showSearchAllConfirm = true
+            if hasConfiguredService {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    if isSearchingAll {
+                        ProgressView()
+                    } else {
+                        Button("Search All Missing") {
+                            showSearchAllConfirm = true
+                        }
+                        .disabled(!canSearchAllMissing)
                     }
-                    .disabled(!canSearchAllMissing)
                 }
             }
         }
@@ -256,11 +261,13 @@ struct ArrWantedView: View {
             Text(searchAllConfirmMessage)
         }
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar("Scope", selection: Binding(
-                get: { scope },
-                set: { newScope in withAnimation { scope = newScope } }
-            ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
-            .transition(.opacity.combined(with: .move(edge: .top)))
+            if hasConfiguredService {
+                TrawlSegmentBar("Scope", selection: Binding(
+                    get: { scope },
+                    set: { newScope in withAnimation { scope = newScope } }
+                ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
         }
         .task(id: reloadKey) {
             #if DEBUG

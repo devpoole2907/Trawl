@@ -137,6 +137,8 @@ struct BazarrProvidersView: View {
                 systemImage: "captions.bubble",
                 description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
             )
+            .scrollableUnavailableState()
+            .background(backgroundGradient)
         } else if client == nil {
             ArrServiceConnectionStatusView(
                 serviceType: .bazarr,

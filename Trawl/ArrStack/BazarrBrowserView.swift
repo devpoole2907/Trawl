@@ -67,6 +67,8 @@ struct BazarrBrowserView: View {
                     } description: {
                         Text("Add a Bazarr server in Settings to browse subtitles.")
                     }
+                    .scrollableUnavailableState()
+                    .moreDestinationBackground(.subtitleManagement)
                 }
             } else {
                 contentView

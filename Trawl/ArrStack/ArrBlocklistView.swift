@@ -302,11 +302,14 @@ struct ArrBlocklistView: View {
     var body: some View {
         Group {
             if !hasConfigured {
-                ContentUnavailableView(
-                    "No Services Configured",
-                    systemImage: "server.rack",
-                    description: Text("Connect Sonarr or Radarr to manage the blocklist.")
-                )
+                ContentUnavailableView {
+                    Label("No Services Configured", systemImage: "server.rack")
+                } description: {
+                    Text("Connect Sonarr or Radarr to manage the blocklist.")
+                } actions: {
+                    MoreSettingsNavigationLink()
+                }
+                .scrollableUnavailableState()
             } else if !hasConnected {
                 ArrServicesConnectionStatusView(
                     services: blocklistServices,
@@ -343,29 +346,33 @@ struct ArrBlocklistView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Type",
-                selection: Binding(
-                    get: { mode },
-                    set: { newMode in withAnimation { mode = newMode } }
-                ),
-                items: SuppressionMode.allCases.map(\.segmentBarItem),
-                searchText: $suppressionSearchText,
-                searchHint: "Search blocked items",
-                isSearchExpanded: $isSearchExpanded,
-                searchPlacement: .leading,
-                alignment: .leading
-            )
+            if hasConfigured {
+                TrawlSegmentBar(
+                    "Type",
+                    selection: Binding(
+                        get: { mode },
+                        set: { newMode in withAnimation { mode = newMode } }
+                    ),
+                    items: SuppressionMode.allCases.map(\.segmentBarItem),
+                    searchText: $suppressionSearchText,
+                    searchHint: "Search blocked items",
+                    isSearchExpanded: $isSearchExpanded,
+                    searchPlacement: .leading,
+                    alignment: .leading
+                )
+            }
         }
         .toolbar {
-            ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                BlocklistToolbarMenu(
-                    scope: $scope,
-                    mode: mode,
-                    canFilter: hasFilterableBlocklistItems,
-                    isEmpty: isEmpty,
-                    onClearAll: { showClearConfirm = true }
-                )
+            if hasConfigured {
+                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                    BlocklistToolbarMenu(
+                        scope: $scope,
+                        mode: mode,
+                        canFilter: hasFilterableBlocklistItems,
+                        isEmpty: isEmpty,
+                        onClearAll: { showClearConfirm = true }
+                    )
+                }
             }
         }
         .alert(clearAlertTitle, isPresented: $showClearConfirm) {

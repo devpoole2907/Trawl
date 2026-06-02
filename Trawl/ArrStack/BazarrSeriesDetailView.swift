@@ -237,7 +237,7 @@ struct BazarrSeriesDetailView: View {
     private func updateProfile() async {
         guard series != nil else { return }
         guard let client = serviceManager.activeBazarrEntry?.client else {
-            inAppNotificationCenter.showError(title: "Failed", message: "Bazarr is not configured.")
+            inAppNotificationCenter.showError(title: "Failed", message: "Bazarr is not set up.")
             return
         }
         var apiError: Error?

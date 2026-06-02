@@ -66,7 +66,9 @@ struct ArrActivityQueueView: View {
             await loadQueues()
         }
         .safeAreaInset(edge: .top) {
-            ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: queueFilters, alignment: .leading)
+            if hasConfiguredService {
+                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: queueFilters, alignment: .leading)
+            }
         }
         .sheet(item: $selectedItem) { activity in
             QueueDetailSheet(item: activity) { path, service in
@@ -166,11 +168,14 @@ struct ArrActivityQueueView: View {
     @ViewBuilder
     private var queueContentView: some View {
         if !hasConfiguredService {
-            ContentUnavailableView(
-                "No Services Configured",
-                systemImage: "server.rack",
-                description: Text("Connect Sonarr, Radarr, or Bazarr to view service activity.")
-            )
+            ContentUnavailableView {
+                Label("No Services Configured", systemImage: "server.rack")
+            } description: {
+                Text("Connect Sonarr, Radarr, or Bazarr to view service activity.")
+            } actions: {
+                MoreSettingsNavigationLink()
+            }
+            .scrollableUnavailableState()
         } else if !serviceManager.sonarrConnected && !serviceManager.radarrConnected && !serviceManager.hasAnyConnectedBazarrInstance {
             ArrServicesConnectionStatusView(
                 services: queueServices,
@@ -771,7 +776,9 @@ struct ArrHealthView: View {
         .navigationTitle("Health")
         .navigationSubtitle(navigationSubtitle)
         .safeAreaInset(edge: .top) {
-            ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
+            if hasConfiguredService {
+                ArrServiceFilterBar(title: "Service", selection: $serviceFilter, filters: healthFilters, alignment: .leading)
+            }
         }
         .task(id: healthReloadKey) {
             if previewHealthItems != nil { return }
@@ -843,11 +850,14 @@ struct ArrHealthView: View {
     @ViewBuilder
     private var contentView: some View {
         if !hasConfiguredService {
-            ContentUnavailableView(
-                "No Services Configured",
-                systemImage: "heart.text.square",
-                description: Text("Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.")
-            )
+            ContentUnavailableView {
+                Label("No Services Configured", systemImage: "heart.text.square")
+            } description: {
+                Text("Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.")
+            } actions: {
+                MoreSettingsNavigationLink()
+            }
+            .scrollableUnavailableState()
         } else if !hasConnectedService {
             ArrServicesConnectionStatusView(
                 services: healthServices,
