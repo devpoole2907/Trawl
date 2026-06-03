@@ -115,7 +115,7 @@ final class JellyfinAvailabilityResolver {
     private func performLookup(key: Key, media: JellyfinMediaAvailabilityCard.Media, client: JellyfinAPIClient) async {
         do {
             let pairs = media.providerIdPairs
-            let items: [JellyfinLibraryItem]
+            var items: [JellyfinLibraryItem] = []
 
             if !pairs.isEmpty {
                 let candidates = try await client.findItems(
@@ -125,12 +125,25 @@ final class JellyfinAvailabilityResolver {
                 // Apply local matching as a safety net — some Jellyfin versions
                 // ignore AnyProviderIdEquals on /Items and return all library items.
                 items = candidates.filter { localMatches($0, media: media) }
-            } else {
-                let candidates = try await client.searchItems(
-                    term: media.title,
-                    includeItemTypes: media.itemTypes
-                )
-                items = candidates.filter { localMatches($0, media: media) }
+            }
+
+            // Fall back to a title search when the provider-ID lookup finds
+            // nothing. Jellyfin's SearchTerm is a case-insensitive *substring*
+            // match on the item name, so several things defeat the primary path:
+            // the server may ignore AnyProviderIdEquals entirely (returning a
+            // capped, arbitrary slice the local filter discards), the item may
+            // lack the provider IDs we queried, or the title may differ by
+            // punctuation (Sonarr's en-dash vs Jellyfin's hyphen) or a "(year)"
+            // suffix. Dash-normalising keeps the title a substring of the name.
+            if items.isEmpty {
+                items = try await searchAndFilter(term: dashNormalized(media.title), media: media, client: client)
+            }
+
+            // Last resort: search by the single most distinctive word, which is
+            // still a substring of the Jellyfin name even when the full title
+            // drifts. localMatches keeps the result strict.
+            if items.isEmpty, let word = mostDistinctiveWord(in: media.title) {
+                items = try await searchAndFilter(term: word, media: media, client: client)
             }
 
             guard !Task.isCancelled else { return }
@@ -139,6 +152,16 @@ final class JellyfinAvailabilityResolver {
             guard !Task.isCancelled else { return }
             setEntry(key: key, state: .failed(error.localizedDescription))
         }
+    }
+
+    private func searchAndFilter(
+        term: String,
+        media: JellyfinMediaAvailabilityCard.Media,
+        client: JellyfinAPIClient
+    ) async throws -> [JellyfinLibraryItem] {
+        guard !term.isEmpty else { return [] }
+        let candidates = try await client.searchItems(term: term, includeItemTypes: media.itemTypes)
+        return candidates.filter { localMatches($0, media: media) }
     }
 
     private func performEpisodeLookup(key: EpisodesKey, client: JellyfinAPIClient) async {
@@ -199,9 +222,46 @@ final class JellyfinAvailabilityResolver {
     }
 
     private func titleYearFallbackMatches(_ item: JellyfinLibraryItem, title: String, year: Int?) -> Bool {
-        guard normalizedTitle(item.name) == normalizedTitle(title) else { return false }
-        guard let year else { return true }
-        return item.productionYear == nil || item.productionYear == year
+        guard normalizedTitle(strippingTrailingYear(item.name)) == normalizedTitle(title) else { return false }
+        guard let year, let productionYear = item.productionYear else { return true }
+        // Allow a one-year tolerance — Sonarr/Radarr and Jellyfin's metadata
+        // sources routinely disagree by a year on first-air/release dates,
+        // especially for unreleased titles.
+        return abs(productionYear - year) <= 1
+    }
+
+    /// Jellyfin appends a disambiguation `(YYYY)` suffix to library item names
+    /// when several entries share a title (e.g. "A Knight of the Seven Kingdoms
+    /// (2025)"). Sonarr/Radarr titles carry no such suffix, so strip it before
+    /// comparing — otherwise the trailing year defeats the normalized match.
+    private func strippingTrailingYear(_ value: String?) -> String {
+        guard let value else { return "" }
+        return value.replacingOccurrences(
+            of: #"\s*\((?:19|20)\d{2}\)\s*$"#,
+            with: "",
+            options: .regularExpression
+        )
+    }
+
+    /// Replaces Unicode dash variants (en-dash, em-dash, etc.) with an ASCII
+    /// hyphen. Jellyfin's SearchTerm is a literal substring match, so a Sonarr
+    /// title carrying an en-dash won't match a hyphenated Jellyfin name unless
+    /// the two are aligned first.
+    private func dashNormalized(_ value: String) -> String {
+        var result = value
+        for dash in ["\u{2010}", "\u{2011}", "\u{2012}", "\u{2013}", "\u{2014}", "\u{2015}", "\u{2212}"] {
+            result = result.replacingOccurrences(of: dash, with: "-")
+        }
+        return result
+    }
+
+    /// The longest alphanumeric word in the title — distinctive enough to narrow
+    /// a substring search while still appearing verbatim in the Jellyfin name.
+    private func mostDistinctiveWord(in title: String) -> String? {
+        title
+            .components(separatedBy: CharacterSet.alphanumerics.inverted)
+            .filter { $0.count >= 3 }
+            .max { $0.count < $1.count }
     }
 
     private func normalizedTitle(_ value: String?) -> String {

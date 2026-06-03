@@ -402,6 +402,21 @@ nonisolated struct RadarrAddMovieBody: Codable, Sendable {
     let tags: [Int]?
 }
 
+/// Body for Library Import (`POST /api/v3/movie/import`). Mirrors `RadarrAddMovieBody`
+/// but carries an explicit `path` to the existing movie folder so Radarr adopts it in
+/// place instead of generating a new `{Movie TitleYear}` folder and moving the file.
+nonisolated struct RadarrMovieImportBody: Codable, Sendable {
+    let title: String
+    let tmdbId: Int
+    let qualityProfileId: Int
+    let path: String
+    let rootFolderPath: String
+    let monitored: Bool
+    let minimumAvailability: String
+    let addOptions: RadarrAddOptions
+    let tags: [Int]?
+}
+
 struct RadarrAddOptions: Codable, Sendable {
     let searchForMovie: Bool
     let monitor: String?            // "movieOnly", "movieAndCollection", "none"

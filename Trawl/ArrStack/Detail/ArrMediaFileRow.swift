@@ -1,63 +1,105 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#elseif canImport(AppKit)
+import AppKit
+#endif
 
-// MARK: - Marquee text (auto-scrolling back and forth)
+// MARK: - Marquee text (auto-scrolling back and forth, with manual takeover)
 
+/// Auto-scrolls a single line of text back and forth. The user can grab it and
+/// scroll manually; auto-scrolling resumes 10 seconds after they let go.
 private struct MarqueeText: View {
     let text: String
     let font: Font
 
     @State private var textWidth: CGFloat = 0
     @State private var containerWidth: CGFloat = 0
-    @State private var offset: CGFloat = 0
+    @State private var scrollPosition = ScrollPosition(edge: .leading)
     @State private var marqueeTask: Task<Void, Never>?
+    @State private var resumeTask: Task<Void, Never>?
+    @State private var isUserScrolling = false
+
+    private var overflow: CGFloat { max(0, textWidth - containerWidth) }
 
     var body: some View {
-        // Hidden anchor text: fixes layout to the correct single-line height and
-        // fills available width without leaking fixedSize ideal-width to the parent.
-        Text(text)
-            .font(font)
-            .lineLimit(1)
-            .hidden()
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .leading) {
-                GeometryReader { geo in
-                    Text(text)
-                        .font(font)
-                        .lineLimit(1)
-                        .fixedSize(horizontal: true, vertical: false)
-                        .background(
-                            GeometryReader { tg in
-                                Color.clear
-                                    .onAppear { textWidth = tg.size.width }
-                                    .onChange(of: tg.size.width) { _, w in textWidth = w }
-                            }
-                        )
-                        .offset(x: offset)
-                        .frame(width: geo.size.width, alignment: .leading)
-                        .clipped()
-                        .onAppear { containerWidth = geo.size.width }
-                        .onChange(of: geo.size.width) { _, w in containerWidth = w }
-                }
+        ScrollView(.horizontal, showsIndicators: false) {
+            Text(text)
+                .font(font)
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .background(
+                    GeometryReader { tg in
+                        Color.clear
+                            .onAppear { textWidth = tg.size.width }
+                            .onChange(of: tg.size.width) { _, w in textWidth = w }
+                    }
+                )
+        }
+        .scrollPosition($scrollPosition)
+        .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+        .scrollDisabled(overflow <= 1)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            GeometryReader { geo in
+                Color.clear
+                    .onAppear { containerWidth = geo.size.width }
+                    .onChange(of: geo.size.width) { _, w in containerWidth = w }
             }
-            .onChange(of: textWidth) { _, _ in restartMarquee() }
-            .onChange(of: containerWidth) { _, _ in restartMarquee() }
-            .onChange(of: text) { _, _ in restartMarquee() }
-            .onDisappear { marqueeTask?.cancel() }
+        )
+        // The user driving the scroll pauses auto-scroll; programmatic
+        // (`.animating`) phases are ignored so the marquee doesn't fight itself.
+        .onScrollPhaseChange { _, newPhase in
+            switch newPhase {
+            case .tracking, .interacting, .decelerating:
+                isUserScrolling = true
+                marqueeTask?.cancel()
+                resumeTask?.cancel()
+            case .idle:
+                if isUserScrolling { scheduleResume() }
+            default:
+                break
+            }
+        }
+        .onChange(of: textWidth) { _, _ in restartMarquee() }
+        .onChange(of: containerWidth) { _, _ in restartMarquee() }
+        .onChange(of: text) { _, _ in
+            isUserScrolling = false
+            restartMarquee()
+        }
+        .onDisappear {
+            marqueeTask?.cancel()
+            resumeTask?.cancel()
+        }
+    }
+
+    /// After the user stops scrolling, wait 10s of inactivity then auto-scroll again.
+    private func scheduleResume() {
+        resumeTask?.cancel()
+        resumeTask = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            isUserScrolling = false
+            restartMarquee()
+        }
     }
 
     private func restartMarquee() {
         marqueeTask?.cancel()
-        offset = 0
-        let overflow = textWidth - containerWidth
+        guard !isUserScrolling else { return }
+        let overflow = self.overflow
+        withAnimation(.easeInOut(duration: 0.3)) {
+            scrollPosition.scrollTo(edge: .leading)
+        }
         guard overflow > 1 else { return }
         marqueeTask = Task { @MainActor in
             try? await Task.sleep(for: .seconds(2))
             while !Task.isCancelled {
                 let duration = Double(overflow) / 35.0
-                withAnimation(.linear(duration: duration)) { offset = -overflow }
+                withAnimation(.linear(duration: duration)) { scrollPosition.scrollTo(x: overflow) }
                 try? await Task.sleep(for: .seconds(duration + 1.5))
                 guard !Task.isCancelled else { return }
-                withAnimation(.linear(duration: duration)) { offset = 0 }
+                withAnimation(.linear(duration: duration)) { scrollPosition.scrollTo(edge: .leading) }
                 try? await Task.sleep(for: .seconds(duration + 2))
                 guard !Task.isCancelled else { return }
             }
@@ -139,10 +181,19 @@ struct ArrMediaFileRow: View {
             HStack(alignment: .center, spacing: 8) {
                 MarqueeText(text: config.path ?? "Unknown File", font: .subheadline.weight(.medium))
 
-                if let onDelete = config.onDelete {
+                if config.path != nil || config.onDelete != nil {
                     Menu {
-                        Button(role: .destructive, action: onDelete) {
-                            Label("Delete File", systemImage: "trash")
+                        if let path = config.path {
+                            Button {
+                                copyToClipboard(path)
+                            } label: {
+                                Label("Copy File Path", systemImage: "doc.on.doc")
+                            }
+                        }
+                        if let onDelete = config.onDelete {
+                            Button(role: .destructive, action: onDelete) {
+                                Label("Delete File", systemImage: "trash")
+                            }
                         }
                     } label: {
                         Image(systemName: "ellipsis")
@@ -211,6 +262,16 @@ struct ArrMediaFileRow: View {
                 }
             }
         }
+    }
+
+    private func copyToClipboard(_ string: String) {
+        #if canImport(UIKit)
+        UIPasteboard.general.string = string
+        #elseif canImport(AppKit)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
+        #endif
+        InAppNotificationCenter.shared.showSuccess(title: "Copied", message: "File path copied.")
     }
 
     private func fileBadge(_ text: String) -> some View {

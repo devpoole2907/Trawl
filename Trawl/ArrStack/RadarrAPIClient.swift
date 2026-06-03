@@ -44,6 +44,13 @@ actor RadarrAPIClient: SharedArrClient {
         try await base.postCodable("/api/v3/movie", body: body)
     }
 
+    /// Library Import: adopt existing movie folders in place. Each body's `path` points
+    /// at an existing folder, so Radarr imports the file where it is rather than
+    /// re-filing it into a `{Movie TitleYear}` folder.
+    func importMovies(_ bodies: [RadarrMovieImportBody]) async throws -> [RadarrMovie] {
+        try await base.postCodable("/api/v3/movie/import", body: bodies)
+    }
+
     /// Edit an existing movie (full replacement)
     func updateMovie(_ movie: RadarrMovie, moveFiles: Bool = false) async throws -> RadarrMovie {
         let params = moveFiles ? [URLQueryItem(name: "moveFiles", value: "true")] : []

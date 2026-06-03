@@ -28,6 +28,7 @@ enum MoreDestination: Hashable {
     case remotePathMappings
     case blocklist
     case manualImport
+    case libraryImport
     case calendar
     case calendarSeries(id: Int)
     case calendarMovie(id: Int)
@@ -598,6 +599,10 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .manualImport:
                     ArrManualImportView()
+                        .environment(arrServiceManager)
+                        .moreDestinationTitleStyle()
+                case .libraryImport:
+                    ArrLibraryImportView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendar:
@@ -1492,6 +1497,16 @@ private enum MoreSearchIndex {
                 subtitle: "Files to import from root folders",
                 category: "Media & Import",
                 keywords: ["files", "scan", "import", "download", "folder"]
+            ),
+            .init(
+                id: "library-import",
+                destination: .libraryImport,
+                icon: "square.and.arrow.down.on.square.fill",
+                color: MoreDestinationAccent.manualImport.color,
+                title: "Library Import",
+                subtitle: "Adopt an existing on-disk library into Sonarr or Radarr",
+                category: "Media & Import",
+                keywords: ["existing", "library", "import", "folder", "sonarr", "radarr", "unmapped"]
             ),
             .init(
                 id: "disk-space",

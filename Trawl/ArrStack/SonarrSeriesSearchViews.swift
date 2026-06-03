@@ -513,6 +513,14 @@ struct SonarrSeasonSearchView: View {
                     }
                 }
 
+                if serviceManager.hasBazarrInstance, let seriesId {
+                    BazarrSubtitleStatusCard(media: .season(
+                        seriesId: seriesId,
+                        title: title,
+                        seasonNumber: seasonNumber
+                    ))
+                }
+
                 seasonSearchInfoCard(title: "Episodes", icon: "list.bullet") {
                     episodesCardContent
                 }
@@ -928,8 +936,9 @@ struct SonarrSeasonSearchView: View {
                     .frame(width: 18, height: 18)
             }
         }
-        .frame(maxWidth: .infinity, minHeight: 56, alignment: .leading)
-        .padding(12)
+        .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
         .contentShape(Rectangle())
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
     }
@@ -1140,7 +1149,9 @@ struct SonarrEpisodeSearchView: View {
     @Environment(SyncService.self) private var syncService
 
     @State private var isDispatchingAutomaticSearch = false
-    @State private var showInteractiveSearchSheet = false
+    /// Snapshot of the episode captured when the sheet opens, keeping the interactive-search
+    /// subtree stable against the 2s poll that recomputes `currentEpisode`.
+    @State private var interactiveSearchEpisode: SonarrEpisode?
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
     @State private var isTogglingMonitored = false
@@ -1268,6 +1279,14 @@ struct SonarrEpisodeSearchView: View {
                             onSetPendingAction: { pendingQueueAction = $0 }
                         )
                     }
+                }
+
+                if serviceManager.hasBazarrInstance, let seriesId {
+                    BazarrSubtitleStatusCard(media: .episode(
+                        seriesId: seriesId,
+                        sonarrEpisodeId: currentEpisode.id,
+                        title: currentEpisode.title ?? currentEpisode.episodeIdentifier
+                    ))
                 }
 
                 episodeSearchInfoCard(title: "Episode", icon: "text.justify.left") {
@@ -1427,9 +1446,9 @@ struct SonarrEpisodeSearchView: View {
                     : "This will remove \"\(pendingQueueAction?.title ?? "this item")\" from the Sonarr queue."
             )
         }
-        .sheet(isPresented: $showInteractiveSearchSheet) {
+        .sheet(item: $interactiveSearchEpisode) { episode in
             if let series {
-                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: currentEpisode)
+                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
             }
         }
         .sheet(isPresented: $showBazarrInteractiveSearchSheet) {
@@ -1621,7 +1640,7 @@ struct SonarrEpisodeSearchView: View {
 
     private var episodeInteractiveSearchButton: some View {
         Button {
-            showInteractiveSearchSheet = true
+            interactiveSearchEpisode = currentEpisode
         } label: {
             episodeSearchActionRow(
                 title: "Interactive Search",

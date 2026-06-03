@@ -49,11 +49,13 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
                     Section(section.title) {
                         ForEach(section.items) { item in
                             row(item, selectedIDs.contains(item.id))
+                                .listRowBackground(Color.clear)
                         }
                     }
                     .sectionIndexLabel(Text(section.indexLabel))
                 }
             }
+            .listStyle(.plain)
             .listSectionIndexVisibility(.visible)
             .scrollContentBackground(.hidden)
         } else {
@@ -70,10 +72,12 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
                 Section(section.title) {
                     ForEach(section.items) { item in
                         row(item, selectedIDs.contains(item.id))
+                            .listRowBackground(Color.clear)
                     }
                 }
             }
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 
@@ -81,8 +85,10 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
         List {
             ForEach(items) { item in
                 row(item, selectedIDs.contains(item.id))
+                    .listRowBackground(Color.clear)
             }
         }
+        .listStyle(.plain)
         .scrollContentBackground(.hidden)
     }
 }

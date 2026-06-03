@@ -172,14 +172,11 @@ struct TorrentListView: View {
             List {
                 ForEach(vm.filteredTorrents) { torrent in
                     row(for: torrent, vm: vm)
+                        .listRowBackground(Color.clear)
                 }
             }
             .scrollPosition(id: $listScrollPosition)
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
+            .listStyle(.plain)
             .scrollContentBackground(.hidden)
             .opacity(vm.filteredTorrents.isEmpty ? 0 : 1)
             .allowsHitTesting(!vm.filteredTorrents.isEmpty)

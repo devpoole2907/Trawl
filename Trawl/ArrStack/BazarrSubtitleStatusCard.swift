@@ -6,6 +6,10 @@ struct BazarrSubtitleStatusCard: View {
         case movie(radarrId: Int, title: String, embeddedSubtitles: String?, hasFile: Bool)
         /// `embeddedLanguages` is the union of embedded subtitle languages across Sonarr episode files.
         case series(seriesId: Int, title: String, embeddedLanguages: [String], episodeFileCount: Int)
+        /// Season-level coverage summary across the season's downloaded episodes ("3/12 episodes").
+        case season(seriesId: Int, title: String, seasonNumber: Int)
+        /// Single-episode subtitle status.
+        case episode(seriesId: Int, sonarrEpisodeId: Int, title: String)
     }
 
     let media: Media
@@ -83,6 +87,8 @@ struct BazarrSubtitleStatusCard: View {
         switch media {
         case .movie(let id, _, _, _): return "movie-\(id)-\(connectionKey)"
         case .series(let id, _, _, _): return "series-\(id)-\(connectionKey)"
+        case .season(let id, _, let n): return "season-\(id)-\(n)-\(connectionKey)"
+        case .episode(_, let eid, _): return "episode-\(eid)-\(connectionKey)"
         }
     }
 
@@ -105,7 +111,73 @@ struct BazarrSubtitleStatusCard: View {
                 embeddedSubtitleFileCount: seriesEpisodeFileCount == 0 ? nil : (seriesEmbeddedLanguages.isEmpty ? 0 : seriesEpisodeFileCount),
                 episodeFileCount: seriesEpisodeFileCount
             )
+        case .season:
+            let total = downloadedScopedEpisodes.count
+            guard total > 0 else { return .unknown }
+            if isTrackedByBazarr {
+                return .tracked(missing: seasonMissingCount)
+            }
+            return scopedEpisodesWithSubs > 0 ? .presentUntracked : .noneFound
+        case .episode:
+            guard let episode = scopedEpisodes.first, episodeHasFile(episode) else { return .unknown }
+            if isTrackedByBazarr {
+                return .tracked(missing: episode.missingSubtitles.count)
+            }
+            return episode.subtitles.isEmpty ? .noneFound : .presentUntracked
         }
+    }
+
+    // MARK: - Season / episode scoping
+
+    /// Whether this card shows its own automatic/interactive search actions. Season
+    /// and episode detail views already provide Bazarr search buttons of their own,
+    /// so the card stays purely informational there.
+    private var showsSearchActions: Bool {
+        switch media {
+        case .movie, .series: return true
+        case .season, .episode: return false
+        }
+    }
+
+    /// Episodes relevant to this card: all for series, the season's for `.season`,
+    /// and the single matching episode for `.episode`.
+    private var scopedEpisodes: [BazarrEpisode] {
+        switch media {
+        case .season(_, _, let seasonNumber):
+            return episodes.filter { $0.season == seasonNumber }
+        case .episode(_, let episodeId, _):
+            return episodes.filter { $0.sonarrEpisodeId == episodeId }
+        default:
+            return episodes
+        }
+    }
+
+    private func episodeHasFile(_ episode: BazarrEpisode) -> Bool {
+        guard let path = episode.path else { return false }
+        return !path.isEmpty
+    }
+
+    private var downloadedScopedEpisodes: [BazarrEpisode] {
+        scopedEpisodes.filter(episodeHasFile)
+    }
+
+    private var scopedEpisodesWithSubs: Int {
+        downloadedScopedEpisodes.filter { !$0.subtitles.isEmpty }.count
+    }
+
+    private var seasonMissingCount: Int {
+        guard isTrackedByBazarr else { return 0 }
+        return downloadedScopedEpisodes.reduce(0) { $0 + $1.missingSubtitles.count }
+    }
+
+    /// "3/12"-style badge for the season card; nil for every other media kind.
+    private var customBadge: (label: String, color: Color)? {
+        guard case .season = media else { return nil }
+        let total = downloadedScopedEpisodes.count
+        guard total > 0 else { return nil }
+        let withSubs = scopedEpisodesWithSubs
+        let color: Color = withSubs == total ? .teal : (withSubs == 0 ? .secondary : .orange)
+        return ("\(withSubs)/\(total)", color)
     }
 
     /// Whether Bazarr is actively managing this item (connected + profile assigned).
@@ -167,6 +239,13 @@ struct BazarrSubtitleStatusCard: View {
             ProgressView()
                 .controlSize(.small)
                 .tint(.white)
+        } else if let customBadge {
+            Text(customBadge.label)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(customBadge.color.opacity(0.16), in: Capsule())
+                .foregroundStyle(customBadge.color)
         } else if coverage.hasIndicator {
             Text(coverage.badgeLabel)
                 .font(.caption.weight(.semibold))
@@ -253,7 +332,7 @@ struct BazarrSubtitleStatusCard: View {
                 )
             }
 
-            if missingCount > 0 {
+            if showsSearchActions && missingCount > 0 {
                 HStack(spacing: 12) {
                     Button {
                         Task { await searchMissing() }
@@ -454,6 +533,46 @@ struct BazarrSubtitleStatusCard: View {
     }
 
     private var summaryText: String {
+        switch media {
+        case .season:
+            let total = downloadedScopedEpisodes.count
+            guard total > 0 else {
+                return serviceManager.hasAnyConnectedBazarrInstance
+                    ? "No downloaded episodes in this season yet."
+                    : "No subtitle information is available for this season."
+            }
+            let withSubs = scopedEpisodesWithSubs
+            let episodeWord = total == 1 ? "episode" : "episodes"
+            if isTrackedByBazarr {
+                let missing = seasonMissingCount
+                if missing == 0 {
+                    return "All \(total) downloaded \(episodeWord) in this season have their tracked subtitles."
+                }
+                return "\(withSubs) of \(total) \(episodeWord) have subtitles. \(missing) subtitle\(missing == 1 ? "" : "s") still missing."
+            }
+            return "\(withSubs) of \(total) downloaded \(episodeWord) have subtitles on disk."
+        case .episode:
+            guard let episode = scopedEpisodes.first, episodeHasFile(episode) else {
+                return serviceManager.hasAnyConnectedBazarrInstance
+                    ? "This episode hasn't been downloaded yet."
+                    : "No subtitle information is available for this episode."
+            }
+            switch coverage {
+            case .tracked(let missing):
+                return missing == 0
+                    ? "All tracked subtitle languages are present for this episode."
+                    : "\(missing) subtitle language\(missing == 1 ? "" : "s") missing for this episode."
+            case .presentUntracked:
+                let count = episode.subtitles.count
+                return "\(count) subtitle\(count == 1 ? "" : "s") present. Assign a Bazarr profile to track missing languages."
+            case .noneFound:
+                return "No subtitles found for this episode."
+            case .unknown:
+                return "No subtitle information is available for this episode."
+            }
+        case .movie, .series:
+            break
+        }
         switch coverage {
         case .tracked(let missing):
             if missing == 0 {
@@ -493,8 +612,9 @@ struct BazarrSubtitleStatusCard: View {
         if let movie, !movie.subtitles.isEmpty {
             return uniqueSubtitleKeys(movie.subtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
-        if !episodes.isEmpty {
-            let keys = episodes.flatMap { episode in
+        let scoped = scopedEpisodes
+        if !scoped.isEmpty {
+            let keys = scoped.flatMap { episode in
                 episode.subtitles.map { ($0.code2, $0.hi, $0.forced) }
             }
             if !keys.isEmpty { return uniqueSubtitleKeys(keys) }
@@ -505,6 +625,8 @@ struct BazarrSubtitleStatusCard: View {
             return uniqueSubtitleKeys(SubtitleCoverage.embeddedLanguages(from: embeddedMovieSubtitles).map { ($0, false, false) })
         case .series:
             return uniqueSubtitleKeys(seriesEmbeddedLanguages.map { ($0, false, false) })
+        case .season, .episode:
+            return []
         }
     }
 
@@ -513,7 +635,7 @@ struct BazarrSubtitleStatusCard: View {
         if let movie {
             return uniqueSubtitleKeys(movie.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) })
         }
-        return uniqueSubtitleKeys(episodes.flatMap { episode in
+        return uniqueSubtitleKeys(scopedEpisodes.flatMap { episode in
             episode.missingSubtitles.map { ($0.code2, $0.hi, $0.forced) }
         })
     }
@@ -574,6 +696,14 @@ struct BazarrSubtitleStatusCard: View {
                 if let s = series {
                     episodes = (try? await client.getEpisodes(seriesIds: [s.sonarrSeriesId])) ?? []
                 }
+            case .season(let seriesId, _, _):
+                let page = try await client.getSeries(ids: [seriesId])
+                series = page.data.first
+                episodes = (try? await client.getEpisodes(seriesIds: [seriesId])) ?? []
+            case .episode(let seriesId, let episodeId, _):
+                let page = try await client.getSeries(ids: [seriesId])
+                series = page.data.first
+                episodes = (try? await client.getEpisodes(episodeIds: [episodeId])) ?? []
             }
         } catch {
             errorMessage = error.localizedDescription
@@ -593,6 +723,9 @@ struct BazarrSubtitleStatusCard: View {
             case .series(let seriesId, let title, _, _):
                 try await client.runSeriesAction(seriesId: seriesId, action: .searchMissing)
                 InAppNotificationCenter.shared.showSuccess(title: "Subtitle Search Started", message: "\(title) was sent to Bazarr.")
+            case .season, .episode:
+                // Season/episode cards are informational; they expose no search action.
+                return
             }
             movie = nil
             series = nil
@@ -618,6 +751,12 @@ struct BazarrSubtitleStatusCard: View {
                     profileIds: [selectedProfileId.map(String.init)]
                 )
             case .series(let seriesId, _, _, _):
+                try await client.updateSeriesProfile(
+                    seriesIds: [seriesId],
+                    profileIds: [selectedProfileId.map(String.init)]
+                )
+            case .season(let seriesId, _, _), .episode(let seriesId, _, _):
+                // Bazarr language profiles are assigned per series; reuse the series endpoint.
                 try await client.updateSeriesProfile(
                     seriesIds: [seriesId],
                     profileIds: [selectedProfileId.map(String.init)]

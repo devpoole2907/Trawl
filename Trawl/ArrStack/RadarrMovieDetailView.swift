@@ -28,7 +28,10 @@ struct RadarrMovieDetailView: View {
     @State private var showAddSheet = false
     @State private var importIssueResolution: ArrQueueImportIssueResolution?
     @State private var didAdd = false
-    @State private var showInteractiveSearchSheet = false
+    /// Snapshot of the movie captured when the sheet opens. Holding a stable value here
+    /// (instead of presenting against the live, poll-recomputed `movie`) keeps the
+    /// interactive-search subtree from re-rendering every poll tick.
+    @State private var interactiveSearchMovie: RadarrMovie?
     @State private var isDispatchingAutomaticSearch = false
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
@@ -228,14 +231,12 @@ struct RadarrMovieDetailView: View {
             }
         }
         .sheet(
-            isPresented: $showInteractiveSearchSheet,
+            item: $interactiveSearchMovie,
             onDismiss: {
                 Task { await refreshMovieDetailState() }
             }
-        ) {
-            if let movie, isInLibrary {
-                RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
-            }
+        ) { movie in
+            RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
         }
         .task(id: resolvedLibraryId) {
             #if DEBUG
@@ -541,7 +542,7 @@ struct RadarrMovieDetailView: View {
             .frame(maxWidth: .infinity)
 
             Button {
-                showInteractiveSearchSheet = true
+                interactiveSearchMovie = movie
             } label: {
                 detailSearchButtonLabel(
                     title: "Interactive",

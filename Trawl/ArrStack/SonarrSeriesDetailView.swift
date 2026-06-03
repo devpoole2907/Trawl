@@ -24,7 +24,10 @@ struct SonarrSeriesDetailView: View {
     @State private var showRenameFilesAlert = false
     @State private var isRenamingFiles = false
     @State private var isDispatchingSeriesSearch = false
-    @State private var showSeriesInteractiveSearchSheet = false
+    /// Snapshot of the series captured when the sheet opens. Holding a stable value here
+    /// (instead of presenting against the live, poll-recomputed `series`) keeps the
+    /// interactive-search subtree from re-rendering every poll tick.
+    @State private var interactiveSearchSeries: SonarrSeries?
     @State private var bazarrEpisodes: [BazarrEpisode] = []
     @State private var bazarrClientForEpisodes: BazarrAPIClient?
 
@@ -241,14 +244,12 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .sheet(
-            isPresented: $showSeriesInteractiveSearchSheet,
+            item: $interactiveSearchSeries,
             onDismiss: {
                 Task { await refreshSeriesDetailState() }
             }
-        ) {
-            if let series {
-                SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
-            }
+        ) { series in
+            SonarrInteractiveSearchSheet(viewModel: viewModel, series: series)
         }
         .sheet(item: $importIssueResolution) { resolution in
             ArrQueueImportIssueResolutionSheet(
@@ -508,7 +509,7 @@ struct SonarrSeriesDetailView: View {
             .disabled(isDispatchingSeriesSearch)
 
             Button {
-                showSeriesInteractiveSearchSheet = true
+                interactiveSearchSeries = series
             } label: {
                 detailSearchButtonLabel(
                     title: "Interactive",

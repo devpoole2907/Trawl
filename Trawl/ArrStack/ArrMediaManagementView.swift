@@ -24,6 +24,15 @@ struct ArrMediaManagementView: View {
                     )
                 }
 
+                NavigationLink(value: MoreDestination.libraryImport) {
+                    NavigationMenuRow(
+                        icon: "square.and.arrow.down.on.square.fill",
+                        color: MoreDestinationAccent.manualImport.color,
+                        title: "Library Import",
+                        subtitle: "Adopt an existing on-disk library"
+                    )
+                }
+
                 NavigationLink(value: MoreDestination.diskSpace) {
                     NavigationMenuRow(
                         icon: "internaldrive.fill",
