@@ -2228,42 +2228,8 @@ private struct ManualImportIdentifySheet: View {
     }
 
     private func mediaRow(title: String, year: Int?, posterURL: URL?, badge: String?, isSelected: Bool) -> some View {
-        HStack(spacing: 12) {
-            ArrArtworkView(url: posterURL) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                    Image(systemName: "photo")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .frame(width: 40, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                if let year {
-                    Text(String(year))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
-            if let badge {
-                Text(badge)
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(isSelected ? Color.green : Color.blue, in: Capsule())
-                    .animation(.snappy, value: isSelected)
-            }
-        }
-        .padding(.vertical, 4)
-        .contentShape(Rectangle())
+        ArrCatalogMediaRow(title: title, year: year, posterURL: posterURL, badge: badge, isSelected: isSelected)
+            .contentShape(Rectangle())
     }
 }
 

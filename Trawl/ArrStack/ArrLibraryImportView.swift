@@ -88,7 +88,12 @@ final class ArrLibraryImportViewModel {
     }
 
     func prepareDefaults() {
-        if selectedRootFolderPath == nil { selectedRootFolderPath = rootFolders.first?.path }
+        // With a single root there's nothing to choose, so adopt it immediately.
+        // With several, leave the selection empty so the user picks which library
+        // root to import from before we scan anything.
+        if selectedRootFolderPath == nil, rootFolders.count == 1 {
+            selectedRootFolderPath = rootFolders.first?.path
+        }
         if selectedQualityProfileId == nil { selectedQualityProfileId = qualityProfiles.first?.id }
     }
 
@@ -313,7 +318,7 @@ final class ArrLibraryImportViewModel {
 
     private func importSummary(count: Int, titles: [String]) -> String {
         let noun = service == .sonarr
-            ? (count == 1 ? "series" : "series")
+            ? "series"
             : (count == 1 ? "movie" : "movies")
         let maxShown = 4
         let shown = titles.prefix(maxShown).map { "• \($0)" }.joined(separator: "\n")
@@ -513,15 +518,15 @@ private struct ArrLibraryImportContent: View {
             includeControl(folder)
 
             ArrArtworkView(url: matchedPosterURL(folder)) {
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(.quaternary)
-                    .overlay(
-                        Image(systemName: model.service == .sonarr ? "tv" : "film")
-                            .foregroundStyle(.secondary)
-                    )
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                    Image(systemName: model.service == .sonarr ? "tv" : "film")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.tertiary)
+                }
             }
-            .frame(width: 40, height: 60)
-            .clipShape(RoundedRectangle(cornerRadius: 4))
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(folder.name)
@@ -554,7 +559,8 @@ private struct ArrLibraryImportContent: View {
             } label: {
                 Image(systemName: folder.include ? "checkmark.circle.fill" : "circle")
                     .font(.title3)
-                    .foregroundStyle(folder.include ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(folder.include ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    .contentTransition(.symbolEffect(.replace))
             }
             .buttonStyle(.plain)
             .frame(width: 24)
@@ -698,13 +704,18 @@ private struct ArrLibraryImportContent: View {
 
 // MARK: - Manual match sheet
 
+/// Folder → catalog match override. Mirrors the Manual Import identify sheet's
+/// search interaction (debounced `.searchable`, a "Results" section of shared
+/// `ArrCatalogMediaRow`s, and the same empty states) so the two feel identical —
+/// but it's a single tap-to-pick, since Library Import only needs one match per folder.
 private struct ArrLibraryImportMatchSheet: View {
     let model: ArrLibraryImportViewModel
     let folderID: String
     let folderName: String
 
     @Environment(\.dismiss) private var dismiss
-    @State private var query: String
+    @State private var searchText: String
+    @State private var searchTask: Task<Void, Never>?
     @State private var results: [ArrImportPick] = []
     @State private var isSearching = false
     @State private var hasSearched = false
@@ -713,8 +724,12 @@ private struct ArrLibraryImportMatchSheet: View {
         self.model = model
         self.folderID = folderID
         self.folderName = folderName
-        // Seed the field with the folder name so the first search is one tap away.
-        _query = State(initialValue: folderName)
+        // Seed with the folder name so the first set of candidates is already on screen.
+        _searchText = State(initialValue: folderName)
+    }
+
+    private var searchPrompt: String {
+        model.service == .sonarr ? "Search for a series" : "Search for a movie"
     }
 
     var body: some View {
@@ -724,29 +739,34 @@ private struct ArrLibraryImportMatchSheet: View {
             showsCancel: true
         ) {
             List {
-                Section {
-                    ArrAddItemSearchBar(
-                        text: $query,
-                        placeholder: model.service == .sonarr ? "Search TV shows…" : "Search movies…"
-                    ) {
-                        Task { await search() }
-                    }
-                }
-
                 if isSearching {
-                    Section {
-                        HStack { Spacer(); ProgressView("Searching…"); Spacer() }
-                    }
-                } else if hasSearched && results.isEmpty {
-                    Section {
-                        ContentUnavailableView.search(text: query)
+                    Section("Results") {
+                        HStack(spacing: 10) {
+                            ProgressView().controlSize(.small)
+                            Text("Searching…").font(.subheadline).foregroundStyle(.secondary)
+                        }
                     }
                 } else if !results.isEmpty {
                     Section("Results") {
                         ForEach(Array(results.enumerated()), id: \.offset) { _, pick in
-                            resultRow(pick)
+                            Button {
+                                model.applyManualMatch(folderID: folderID, pick: pick)
+                                dismiss()
+                            } label: {
+                                ArrCatalogMediaRow(title: pickTitle(pick), year: pickYear(pick), posterURL: pickPosterURL(pick))
+                            }
+                            .buttonStyle(.plain)
+                            .contentShape(Rectangle())
                         }
                     }
+                } else if hasSearched {
+                    ContentUnavailableView.search(text: searchText)
+                } else {
+                    ContentUnavailableView(
+                        "Search to Match",
+                        systemImage: "magnifyingglass",
+                        description: Text("Search for a \(model.service == .sonarr ? "series" : "movie") to match this folder.")
+                    )
                 }
             }
             #if os(iOS)
@@ -754,55 +774,29 @@ private struct ArrLibraryImportMatchSheet: View {
             #else
             .listStyle(.inset)
             #endif
+            #if os(iOS)
+            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: searchPrompt)
+            #else
+            .searchable(text: $searchText, prompt: searchPrompt)
+            #endif
+            .onChange(of: searchText) { _, newValue in
+                searchTask?.cancel()
+                searchTask = Task {
+                    try? await Task.sleep(for: .milliseconds(400))
+                    guard !Task.isCancelled else { return }
+                    await runSearch(newValue)
+                }
+            }
             .task {
-                if !hasSearched { await search() }
+                if !hasSearched { await runSearch(searchText) }
             }
         }
     }
 
-    private func resultRow(_ pick: ArrImportPick) -> some View {
-        Button {
-            model.applyManualMatch(folderID: folderID, pick: pick)
-            dismiss()
-        } label: {
-            HStack(spacing: 12) {
-                ArrArtworkView(url: pickPosterURL(pick)) {
-                    Rectangle().fill(.quaternary)
-                        .overlay(
-                            Image(systemName: model.service == .sonarr ? "tv" : "film")
-                                .foregroundStyle(.secondary)
-                        )
-                }
-                .frame(width: 44, height: 66)
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(pickTitle(pick))
-                        .font(.subheadline.weight(.medium))
-                        .lineLimit(1)
-                    if let subtitle = pickSubtitle(pick) {
-                        Text(subtitle)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    if let overview = pickOverview(pick) {
-                        Text(overview)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                }
-                Spacer()
-            }
-            .padding(.vertical, 2)
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func search() async {
+    private func runSearch(_ term: String) async {
         isSearching = true
         defer { isSearching = false; hasSearched = true }
-        results = await model.searchCatalog(term: query)
+        results = await model.searchCatalog(term: term)
     }
 
     private func pickTitle(_ pick: ArrImportPick) -> String {
@@ -812,33 +806,17 @@ private struct ArrLibraryImportMatchSheet: View {
         }
     }
 
+    private func pickYear(_ pick: ArrImportPick) -> Int? {
+        switch pick {
+        case .series(let s): return s.year
+        case .movie(let m): return m.year
+        }
+    }
+
     private func pickPosterURL(_ pick: ArrImportPick) -> URL? {
         switch pick {
         case .series(let s): return s.posterURL
         case .movie(let m): return m.posterURL
-        }
-    }
-
-    private func pickSubtitle(_ pick: ArrImportPick) -> String? {
-        switch pick {
-        case .series(let s):
-            var parts: [String] = []
-            if let year = s.year { parts.append(String(year)) }
-            if let network = s.network { parts.append(network) }
-            if let status = s.status { parts.append(status.capitalized) }
-            return parts.isEmpty ? nil : parts.joined(separator: " • ")
-        case .movie(let m):
-            var parts: [String] = []
-            if let year = m.year { parts.append(String(year)) }
-            if let status = m.status { parts.append(status.capitalized) }
-            return parts.isEmpty ? nil : parts.joined(separator: " • ")
-        }
-    }
-
-    private func pickOverview(_ pick: ArrImportPick) -> String? {
-        switch pick {
-        case .series(let s): return s.overview
-        case .movie(let m): return m.overview
         }
     }
 }
