@@ -39,13 +39,6 @@ actor SonarrAPIClient: SharedArrClient {
         try await base.postCodable("/api/v3/series", body: body)
     }
 
-    /// Library Import: adopt existing, already-organized series folders in place. Each
-    /// body's `path` points at an existing folder, so Sonarr imports the files where
-    /// they are rather than re-filing them into a `{Series TitleYear}` folder.
-    func importSeries(_ bodies: [SonarrSeriesImportBody]) async throws -> [SonarrSeries] {
-        try await base.postCodable("/api/v3/series/import", body: bodies)
-    }
-
     /// Edit an existing series (full replacement)
     func updateSeries(_ series: SonarrSeries, moveFiles: Bool = false) async throws -> SonarrSeries {
         let params = moveFiles ? [URLQueryItem(name: "moveFiles", value: "true")] : []

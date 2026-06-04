@@ -82,7 +82,7 @@ struct ArrActivityQueueView: View {
         .sheet(isPresented: manualImportSheetPresented) {
             if let path = manualImportPath {
                 NavigationStack {
-                    ManualImportScanView(
+                    LibraryImportScanView(
                         path: path,
                         service: manualImportService,
                         serviceManager: serviceManager,

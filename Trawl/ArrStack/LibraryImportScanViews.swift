@@ -2,7 +2,7 @@ import SwiftUI
 
 // MARK: - Tab
 
-enum ManualImportScanTab: Hashable, CaseIterable {
+enum LibraryImportScanTab: Hashable, CaseIterable {
     case all, new, inLibrary
 
     var displayName: String {
@@ -20,16 +20,16 @@ enum ManualImportScanTab: Hashable, CaseIterable {
 
 // MARK: - Scan View
 
-struct ManualImportScanView: View {
+struct LibraryImportScanView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.navigateToSeriesTab) private var navigateToSeriesTab
     @Environment(\.navigateToMoviesTab) private var navigateToMoviesTab
-    @State private var viewModel: ManualImportScanViewModel
+    @State private var viewModel: LibraryImportScanViewModel
     @State private var showSelectionReview = false
     @State private var isSelectingMode = false
-    @State private var reviewingGroup: ManualImportGroup?
-    @State private var reviewingBlockedGroup: ManualImportGroup?
-    @State private var selectedTab: ManualImportScanTab = .new
+    @State private var reviewingGroup: LibraryImportGroup?
+    @State private var reviewingBlockedGroup: LibraryImportGroup?
+    @State private var selectedTab: LibraryImportScanTab = .new
     @State private var searchText = ""
     @State private var readyExpanded = true
     @State private var pendingAddExpanded = true
@@ -45,19 +45,19 @@ struct ManualImportScanView: View {
         !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private var readyGroups: [ManualImportGroup] {
+    private var readyGroups: [LibraryImportGroup] {
         let base = hasActiveSearch || selectedTab != .new
             ? viewModel.groupedImportableFiles
             : viewModel.groupedNewImportableFiles
         return searchFiltered(base)
     }
 
-    private var pendingAddGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedIdentifiedPendingAddFiles) }
-    private var needsIDGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedUnidentifiedFiles) }
-    private var blockedGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedBlockedFiles) }
-    private var inLibraryGroups: [ManualImportGroup] { searchFiltered(viewModel.groupedInLibraryFiles) }
+    private var pendingAddGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedIdentifiedPendingAddFiles) }
+    private var needsIDGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedUnidentifiedFiles) }
+    private var blockedGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedBlockedFiles) }
+    private var inLibraryGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedInLibraryFiles) }
 
-    private func searchFiltered(_ groups: [ManualImportGroup]) -> [ManualImportGroup] {
+    private func searchFiltered(_ groups: [LibraryImportGroup]) -> [LibraryImportGroup] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else { return groups }
         return groups.filter {
@@ -68,13 +68,13 @@ struct ManualImportScanView: View {
 
     private var hasAnyContent: Bool { !viewModel.importableFiles.isEmpty || !viewModel.blockedFiles.isEmpty }
 
-    private func groupSelectionState(_ group: ManualImportGroup) -> GroupSelectionState {
+    private func groupSelectionState(_ group: LibraryImportGroup) -> GroupSelectionState {
         let n = group.items.filter { viewModel.selectedFiles.contains($0.id) }.count
         if n == 0 { return .none }
         return n == group.items.count ? .all : .partial
     }
 
-    private func blockedGroupSelectionState(_ group: ManualImportGroup) -> GroupSelectionState {
+    private func blockedGroupSelectionState(_ group: LibraryImportGroup) -> GroupSelectionState {
         let n = group.items.filter { viewModel.selectedBlockedFiles.contains($0.id) }.count
         if n == 0 { return .none }
         return n == group.items.count ? .all : .partial
@@ -105,7 +105,7 @@ struct ManualImportScanView: View {
         libraryItemID: Int? = nil,
         showsCloseButton: Bool = false
     ) {
-        _viewModel = State(wrappedValue: ManualImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID))
+        _viewModel = State(wrappedValue: LibraryImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID))
         self.showsCloseButton = showsCloseButton
     }
 
@@ -151,7 +151,7 @@ struct ManualImportScanView: View {
         .animation(.snappy, value: needsIDGroups.count)
         .animation(.snappy, value: blockedGroups.count)
         .animation(.snappy, value: inLibraryGroups.count)
-        .moreDestinationBackground(.manualImport)
+        .moreDestinationBackground(.libraryImport)
         .navigationTitle(viewModel.folderName)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -164,7 +164,7 @@ struct ManualImportScanView: View {
             TrawlSegmentBar(
                 "View",
                 selection: $selectedTab,
-                items: ManualImportScanTab.allCases.map(\.segmentBarItem),
+                items: LibraryImportScanTab.allCases.map(\.segmentBarItem),
                 searchText: $searchText,
                 searchHint: "Search files…",
                 searchPlacement: .leading,
@@ -212,16 +212,16 @@ struct ManualImportScanView: View {
             }
         }
         .sheet(item: $viewModel.identifyingTarget) { target in
-            ManualImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
+            LibraryImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
         }
         .sheet(isPresented: $showSelectionReview) {
-            ManualImportSelectionReviewSheet(viewModel: viewModel)
+            LibraryImportSelectionReviewSheet(viewModel: viewModel)
         }
         .sheet(item: $reviewingGroup) { group in
-            ManualImportGroupSheet(initialGroup: group, viewModel: viewModel)
+            LibraryImportGroupSheet(initialGroup: group, viewModel: viewModel)
         }
         .sheet(item: $reviewingBlockedGroup) { group in
-            ManualImportBlockedGroupSheet(group: group, viewModel: viewModel)
+            LibraryImportBlockedGroupSheet(group: group, viewModel: viewModel)
         }
         .task {
             if !showsCloseButton {
@@ -358,7 +358,7 @@ struct ManualImportScanView: View {
                     }
                 }
                 ForEach(readyGroups) { group in
-                    ManualImportGroupRow(
+                    LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
                         isSelectingMode: isSelectingMode,
@@ -384,7 +384,7 @@ struct ManualImportScanView: View {
         if !pendingAddGroups.isEmpty {
             Section(isExpanded: $pendingAddExpanded) {
                 ForEach(pendingAddGroups) { group in
-                    ManualImportGroupRow(
+                    LibraryImportGroupRow(
                         group: group, style: .pendingAdd,
                         selectionState: blockedGroupSelectionState(group),
                         isSelectingMode: isSelectingMode,
@@ -410,7 +410,7 @@ struct ManualImportScanView: View {
         if !needsIDGroups.isEmpty {
             Section(isExpanded: $needsIDExpanded) {
                 ForEach(needsIDGroups) { group in
-                    ManualImportGroupRow(
+                    LibraryImportGroupRow(
                         group: group, style: .unidentified,
                         selectionState: blockedGroupSelectionState(group),
                         isSelectingMode: isSelectingMode,
@@ -436,7 +436,7 @@ struct ManualImportScanView: View {
         if !blockedGroups.isEmpty {
             Section(isExpanded: $blockedExpanded) {
                 ForEach(blockedGroups) { group in
-                    ManualImportGroupRow(
+                    LibraryImportGroupRow(
                         group: group, style: .blocked,
                         selectionState: blockedGroupSelectionState(group),
                         isSelectingMode: isSelectingMode,
@@ -467,7 +467,7 @@ struct ManualImportScanView: View {
         if !inLibraryGroups.isEmpty {
             Section(isExpanded: $inLibraryExpanded) {
                 ForEach(inLibraryGroups) { group in
-                    ManualImportGroupRow(
+                    LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
                         isSelectingMode: isSelectingMode,
@@ -492,7 +492,7 @@ struct ManualImportScanView: View {
 
 struct ArrQueueImportIssueResolutionSheet: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var viewModel: ManualImportScanViewModel
+    @State private var viewModel: LibraryImportScanViewModel
     @State private var readyExpanded = true
     @State private var needsIDExpanded = true
     @State private var blockedExpanded = false
@@ -500,7 +500,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
     let resolution: ArrQueueImportIssueResolution
     let onImportCompleted: () async -> Void
 
-    private var readyItems: [ManualImportItem] {
+    private var readyItems: [LibraryImportItem] {
         viewModel.importableFiles
     }
 
@@ -515,7 +515,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
     ) {
         self.resolution = resolution
         self.onImportCompleted = onImportCompleted
-        _viewModel = State(wrappedValue: ManualImportScanViewModel(
+        _viewModel = State(wrappedValue: LibraryImportScanViewModel(
             path: resolution.path,
             service: resolution.service,
             serviceManager: serviceManager,
@@ -608,7 +608,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                     Section(isExpanded: $readyExpanded) {
                         ForEach(readyItems) { item in
                             NavigationLink {
-                                ManualImportIdentifySheet(
+                                LibraryImportIdentifySheet(
                                     target: identifyTarget(for: item),
                                     viewModel: viewModel,
                                     importAfterAdding: false,
@@ -616,7 +616,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                                     wrapInNavigationStack: false
                                 )
                             } label: {
-                                ManualImportRow(item: item, isSelected: false, isSelectingMode: false, onToggle: {})
+                                LibraryImportRow(item: item, isSelected: false, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
@@ -628,7 +628,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                     Section(isExpanded: $needsIDExpanded) {
                         ForEach(viewModel.groupedUnidentifiedFiles) { group in
                             NavigationLink {
-                                ManualImportIdentifySheet(
+                                LibraryImportIdentifySheet(
                                     target: identifyTarget(for: group),
                                     viewModel: viewModel,
                                     importAfterAdding: false,
@@ -636,7 +636,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
                                     wrapInNavigationStack: false
                                 )
                             } label: {
-                                ManualImportGroupRow(group: group, style: .unidentified, selectionState: .none, isSelectingMode: false, onToggle: {})
+                                LibraryImportGroupRow(group: group, style: .unidentified, selectionState: .none, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
@@ -648,9 +648,9 @@ struct ArrQueueImportIssueResolutionSheet: View {
                     Section(isExpanded: $blockedExpanded) {
                         ForEach(viewModel.groupedBlockedFiles) { group in
                             NavigationLink {
-                                ManualImportBlockedGroupInlineView(group: group, viewModel: viewModel)
+                                LibraryImportBlockedGroupInlineView(group: group, viewModel: viewModel)
                             } label: {
-                                ManualImportGroupRow(group: group, style: .blocked, selectionState: .none, isSelectingMode: false, onToggle: {})
+                                LibraryImportGroupRow(group: group, style: .blocked, selectionState: .none, isSelectingMode: false, onToggle: {})
                             }
                         }
                     } header: {
@@ -679,23 +679,23 @@ struct ArrQueueImportIssueResolutionSheet: View {
         }
     }
 
-    private func identifyTarget(for item: ManualImportItem) -> ManualImportIdentifyTarget {
-        ManualImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
+    private func identifyTarget(for item: LibraryImportItem) -> LibraryImportIdentifyTarget {
+        LibraryImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
     }
 
-    private func identifyTarget(for group: ManualImportGroup) -> ManualImportIdentifyTarget {
+    private func identifyTarget(for group: LibraryImportGroup) -> LibraryImportIdentifyTarget {
         let label = group.items.count == 1
             ? (group.items.first?.fileName ?? group.displayTitle)
             : "\(group.displayTitle) · \(group.items.count) files"
-        return ManualImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
+        return LibraryImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
     }
 }
 
-private struct ManualImportBlockedGroupInlineView: View {
-    let group: ManualImportGroup
-    let viewModel: ManualImportScanViewModel
+private struct LibraryImportBlockedGroupInlineView: View {
+    let group: LibraryImportGroup
+    let viewModel: LibraryImportScanViewModel
 
-    private var currentItems: [ManualImportItem] {
+    private var currentItems: [LibraryImportItem] {
         let ids = Set(group.items.map(\.id))
         return viewModel.blockedFiles.filter { ids.contains($0.id) }
     }
@@ -716,7 +716,7 @@ private struct ManualImportBlockedGroupInlineView: View {
 
             Section {
                 ForEach(currentItems) { item in
-                    ManualImportBlockedRow(
+                    LibraryImportBlockedRow(
                         item: item,
                         isSelected: false,
                         isSelectingMode: false,
@@ -743,17 +743,17 @@ private struct ManualImportBlockedGroupInlineView: View {
 
 // MARK: - Models
 
-struct ManualImportEpisode: Sendable {
+struct LibraryImportEpisode: Sendable {
     let number: Int
     let title: String
 }
 
-nonisolated struct ManualImportEpisodeKey: Hashable, Sendable {
+nonisolated struct LibraryImportEpisodeKey: Hashable, Sendable {
     let seasonNumber: Int
     let episodeNumber: Int
 }
 
-struct ManualImportItem: Identifiable, Sendable {
+struct LibraryImportItem: Identifiable, Sendable {
     let id: String
     let path: String
     let fileName: String
@@ -768,7 +768,7 @@ struct ManualImportItem: Identifiable, Sendable {
     let catalogID: Int?
     let posterURL: URL?
     let seasonNumber: Int?
-    let episodes: [ManualImportEpisode]
+    let episodes: [LibraryImportEpisode]
     let qualityName: String?
 
     /// A file is only importable if it has no rejections AND is matched to a real library item (non-zero ID).
@@ -830,8 +830,8 @@ struct ManualImportItem: Identifiable, Sendable {
     }
 
     /// Returns a copy of this item identified as the given library entry.
-    func withIdentification(mediaID: Int, title: String, posterURL: URL?) -> ManualImportItem {
-        ManualImportItem(
+    func withIdentification(mediaID: Int, title: String, posterURL: URL?) -> LibraryImportItem {
+        LibraryImportItem(
             id: self.id,
             path: self.path,
             fileName: self.fileName,
@@ -849,8 +849,8 @@ struct ManualImportItem: Identifiable, Sendable {
         )
     }
 
-    func withPendingAddIdentification(title: String, catalogID: Int?, posterURL: URL?) -> ManualImportItem {
-        ManualImportItem(
+    func withPendingAddIdentification(title: String, catalogID: Int?, posterURL: URL?) -> LibraryImportItem {
+        LibraryImportItem(
             id: self.id,
             path: self.path,
             fileName: self.fileName,
@@ -872,7 +872,7 @@ struct ManualImportItem: Identifiable, Sendable {
         id: String, path: String, fileName: String, size: Int64,
         rejectionReasons: [String], warningMessages: [String], originalJSON: JSONValue,
         mediaTitle: String?, mediaID: Int?, catalogID: Int?, posterURL: URL?,
-        seasonNumber: Int?, episodes: [ManualImportEpisode], qualityName: String?
+        seasonNumber: Int?, episodes: [LibraryImportEpisode], qualityName: String?
     ) {
         self.id = id; self.path = path; self.fileName = fileName; self.size = size
         self.rejectionReasons = rejectionReasons; self.warningMessages = warningMessages
@@ -905,8 +905,8 @@ struct ManualImportItem: Identifiable, Sendable {
             self.size = 0
         }
 
-        let parsedRejections = ManualImportItem.extractMessages(from: dict["rejections"])
-        self.warningMessages = ManualImportItem.extractMessages(from: dict["warnings"])
+        let parsedRejections = LibraryImportItem.extractMessages(from: dict["rejections"])
+        self.warningMessages = LibraryImportItem.extractMessages(from: dict["warnings"])
         self.originalJSON = json
 
         // Extract identified media from series or movie object, falling back to flat IDs.
@@ -919,7 +919,7 @@ struct ManualImportItem: Identifiable, Sendable {
             if case .string(let t) = mediaDict["title"] { self.mediaTitle = t } else { self.mediaTitle = nil }
             if let id = Self.intValue(from: mediaDict["id"]) { self.mediaID = id } else { self.mediaID = nil }
             self.catalogID = Self.intValue(from: mediaDict["tvdbId"]) ?? Self.intValue(from: mediaDict["tmdbId"])
-            self.posterURL = ManualImportItem.extractPosterURL(from: mediaDict["images"])
+            self.posterURL = LibraryImportItem.extractPosterURL(from: mediaDict["images"])
         } else {
             self.mediaTitle = nil
             self.mediaID = Self.intValue(from: dict["seriesId"]) ?? Self.intValue(from: dict["movieId"])
@@ -932,12 +932,12 @@ struct ManualImportItem: Identifiable, Sendable {
         if case .number(let sn) = dict["seasonNumber"] { self.seasonNumber = Int(sn) } else { self.seasonNumber = nil }
 
         if case .array(let eps) = dict["episodes"] {
-            self.episodes = eps.compactMap { ep -> ManualImportEpisode? in
+            self.episodes = eps.compactMap { ep -> LibraryImportEpisode? in
                 guard case .object(let epDict) = ep,
                       case .number(let num) = epDict["episodeNumber"] else { return nil }
                 let title: String
                 if case .string(let t) = epDict["title"] { title = t } else { title = "" }
-                return ManualImportEpisode(number: Int(num), title: title)
+                return LibraryImportEpisode(number: Int(num), title: title)
             }
         } else {
             self.episodes = []
@@ -1051,13 +1051,13 @@ struct ArrQueueImportIssueResolution: Identifiable, Equatable {
 
 /// What the identify sheet is operating on. Wraps either a single file (re-identify)
 /// or every file in an inferred-title group (cascade identify).
-struct ManualImportIdentifyTarget: Identifiable, Sendable {
+struct LibraryImportIdentifyTarget: Identifiable, Sendable {
     let id: String
-    let items: [ManualImportItem]
+    let items: [LibraryImportItem]
     let displayLabel: String
 }
 
-struct ManualImportGroup: Identifiable, Sendable {
+struct LibraryImportGroup: Identifiable, Sendable {
     enum Kind: Hashable, Sendable {
         case identified(mediaID: Int)
         case pendingAdd(inferredKey: String)
@@ -1067,7 +1067,7 @@ struct ManualImportGroup: Identifiable, Sendable {
     let kind: Kind
     let displayTitle: String
     let posterURL: URL?
-    let items: [ManualImportItem]
+    let items: [LibraryImportItem]
 
     var id: String {
         switch kind {
@@ -1143,8 +1143,8 @@ struct ManualImportGroup: Identifiable, Sendable {
     }
 }
 
-private struct ManualImportRow: View {
-    let item: ManualImportItem
+private struct LibraryImportRow: View {
+    let item: LibraryImportItem
     let isSelected: Bool
     let isSelectingMode: Bool
     let onToggle: () -> Void
@@ -1227,8 +1227,8 @@ private struct ManualImportRow: View {
     }
 }
 
-private struct ManualImportBlockedRow: View {
-    let item: ManualImportItem
+private struct LibraryImportBlockedRow: View {
+    let item: LibraryImportItem
     let isSelected: Bool
     let isSelectingMode: Bool
     let onToggle: () -> Void
@@ -1291,7 +1291,7 @@ private struct ManualImportBlockedRow: View {
     }
 }
 
-private enum ManualImportGroupRowStyle {
+private enum LibraryImportGroupRowStyle {
     case ready
     case pendingAdd
     case unidentified
@@ -1325,9 +1325,9 @@ private enum ManualImportGroupRowStyle {
     }
 }
 
-private struct ManualImportGroupRow: View {
-    let group: ManualImportGroup
-    let style: ManualImportGroupRowStyle
+private struct LibraryImportGroupRow: View {
+    let group: LibraryImportGroup
+    let style: LibraryImportGroupRowStyle
     let selectionState: GroupSelectionState
     let isSelectingMode: Bool
     let onToggle: () -> Void
@@ -1434,21 +1434,21 @@ private func statusChip(_ text: String, color: Color) -> some View {
 
 // MARK: - Group Review Sheet
 
-struct ManualImportGroupSheet: View {
-    let initialGroup: ManualImportGroup
-    let viewModel: ManualImportScanViewModel
+struct LibraryImportGroupSheet: View {
+    let initialGroup: LibraryImportGroup
+    let viewModel: LibraryImportScanViewModel
 
     @Environment(\.dismiss) private var dismiss
-    @State private var identifyingTarget: ManualImportIdentifyTarget?
+    @State private var identifyingTarget: LibraryImportIdentifyTarget?
 
-    private var currentItems: [ManualImportItem] {
+    private var currentItems: [LibraryImportItem] {
         initialGroup.items.compactMap { item in
             viewModel.importableFiles.first { $0.id == item.id }
         }
     }
 
-    private func identifyTarget(for item: ManualImportItem) -> ManualImportIdentifyTarget {
-        ManualImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
+    private func identifyTarget(for item: LibraryImportItem) -> LibraryImportIdentifyTarget {
+        LibraryImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
     }
 
     var body: some View {
@@ -1492,7 +1492,7 @@ struct ManualImportGroupSheet: View {
 
                     Section {
                         ForEach(currentItems) { item in
-                            ManualImportRow(
+                            LibraryImportRow(
                                 item: item,
                                 isSelected: false,
                                 isSelectingMode: false,
@@ -1518,7 +1518,7 @@ struct ManualImportGroupSheet: View {
             .listStyle(.inset)
             #endif
             .sheet(item: $identifyingTarget) { target in
-                ManualImportIdentifySheet(
+                LibraryImportIdentifySheet(
                     target: target,
                     viewModel: viewModel,
                     importAfterAdding: false,
@@ -1530,41 +1530,41 @@ struct ManualImportGroupSheet: View {
     }
 }
 
-private struct ManualImportSelectionReviewSheet: View {
-    let viewModel: ManualImportScanViewModel
+private struct LibraryImportSelectionReviewSheet: View {
+    let viewModel: LibraryImportScanViewModel
 
     @Environment(\.dismiss) private var dismiss
-    @State private var identifyingTarget: ManualImportIdentifyTarget?
+    @State private var identifyingTarget: LibraryImportIdentifyTarget?
 
-    private var pendingAddGroups: [ManualImportGroup] {
+    private var pendingAddGroups: [LibraryImportGroup] {
         viewModel.selectedBlockedGroups.filter(\.isPendingAdd)
     }
 
-    private var unresolvedGroups: [ManualImportGroup] {
+    private var unresolvedGroups: [LibraryImportGroup] {
         viewModel.selectedBlockedGroups.filter { !$0.isPendingAdd }
     }
 
-    private var upgradingGroups: [ManualImportGroup] {
+    private var upgradingGroups: [LibraryImportGroup] {
         viewModel.selectedReadyGroups.filter { group in
             group.items.allSatisfy { viewModel.inLibraryItemIDs.contains($0.id) }
         }
     }
 
-    private var trueReadyGroups: [ManualImportGroup] {
+    private var trueReadyGroups: [LibraryImportGroup] {
         viewModel.selectedReadyGroups.filter { group in
             !group.items.allSatisfy { viewModel.inLibraryItemIDs.contains($0.id) }
         }
     }
 
-    private var allImportableGroups: [ManualImportGroup] {
+    private var allImportableGroups: [LibraryImportGroup] {
         trueReadyGroups + pendingAddGroups + upgradingGroups
     }
 
     private var hasUnresolved: Bool { !unresolvedGroups.isEmpty }
 
-    private func identifyTarget(for group: ManualImportGroup) -> ManualImportIdentifyTarget {
+    private func identifyTarget(for group: LibraryImportGroup) -> LibraryImportIdentifyTarget {
         let label = group.items.count == 1 ? group.items[0].fileName : "\(group.displayTitle) · \(group.items.count) files"
-        return ManualImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
+        return LibraryImportIdentifyTarget(id: group.id, items: group.items, displayLabel: label)
     }
 
     private var confirmCount: Int {
@@ -1615,17 +1615,17 @@ private struct ManualImportSelectionReviewSheet: View {
                 if !allImportableGroups.isEmpty {
                     Section {
                         ForEach(trueReadyGroups) { group in
-                            ManualImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
+                            LibraryImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
                         }
                         ForEach(pendingAddGroups) { group in
-                            ManualImportGroupRow(group: group, style: .pendingAdd, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
+                            LibraryImportGroupRow(group: group, style: .pendingAdd, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
                                 .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) } }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) }.tint(.blue)
                                 }
                         }
                         ForEach(upgradingGroups) { group in
-                            ManualImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
+                            LibraryImportGroupRow(group: group, style: .ready, selectionState: .none, isSelectingMode: false, onToggle: {})
                                 .opacity(0.65)
                         }
                     } header: {
@@ -1655,7 +1655,7 @@ private struct ManualImportSelectionReviewSheet: View {
                                 .listRowBackground(Color.clear)
                         }
                         ForEach(unresolvedGroups) { group in
-                            ManualImportGroupRow(group: group, style: group.isIdentified ? .blocked : .unidentified, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
+                            LibraryImportGroupRow(group: group, style: group.isIdentified ? .blocked : .unidentified, selectionState: .none, isSelectingMode: false, onToggle: { identifyingTarget = identifyTarget(for: group) })
                                 .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) } }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { identifyingTarget = identifyTarget(for: group) }.tint(.blue)
@@ -1674,7 +1674,7 @@ private struct ManualImportSelectionReviewSheet: View {
             .listStyle(.inset)
             #endif
             .sheet(item: $identifyingTarget) { target in
-                ManualImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
+                LibraryImportIdentifySheet(target: target, viewModel: viewModel, importAfterAdding: false, showsCancelButton: true, wrapInNavigationStack: true)
             }
         }
     }
@@ -1682,22 +1682,22 @@ private struct ManualImportSelectionReviewSheet: View {
 
 // MARK: - Blocked Group Sheet
 
-private struct ManualImportBlockedGroupSheet: View {
-    let group: ManualImportGroup
-    let viewModel: ManualImportScanViewModel
+private struct LibraryImportBlockedGroupSheet: View {
+    let group: LibraryImportGroup
+    let viewModel: LibraryImportScanViewModel
 
     @Environment(\.dismiss) private var dismiss
-    @State private var identifyingTarget: ManualImportIdentifyTarget?
+    @State private var identifyingTarget: LibraryImportIdentifyTarget?
 
-    private var currentItems: [ManualImportItem] {
+    private var currentItems: [LibraryImportItem] {
         // Re-read from viewModel.blockedFiles so live updates (e.g. an item gets identified)
         // refresh the list while the sheet is open.
         let ids = Set(group.items.map(\.id))
         return viewModel.blockedFiles.filter { ids.contains($0.id) }
     }
 
-    private func identifyTarget(for item: ManualImportItem) -> ManualImportIdentifyTarget {
-        ManualImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
+    private func identifyTarget(for item: LibraryImportItem) -> LibraryImportIdentifyTarget {
+        LibraryImportIdentifyTarget(id: "item-\(item.id)", items: [item], displayLabel: item.fileName)
     }
 
     var body: some View {
@@ -1734,7 +1734,7 @@ private struct ManualImportBlockedGroupSheet: View {
 
                     Section {
                         ForEach(currentItems) { item in
-                            ManualImportBlockedRow(
+                            LibraryImportBlockedRow(
                                 item: item,
                                 isSelected: false,
                                 isSelectingMode: false,
@@ -1760,7 +1760,7 @@ private struct ManualImportBlockedGroupSheet: View {
             .listStyle(.inset)
             #endif
             .sheet(item: $identifyingTarget) { target in
-                ManualImportIdentifySheet(
+                LibraryImportIdentifySheet(
                     target: target,
                     viewModel: viewModel,
                     importAfterAdding: false,
@@ -1774,9 +1774,9 @@ private struct ManualImportBlockedGroupSheet: View {
 
 // MARK: - Identify Sheet
 
-private struct ManualImportIdentifySheet: View {
-    let target: ManualImportIdentifyTarget
-    let viewModel: ManualImportScanViewModel
+private struct LibraryImportIdentifySheet: View {
+    let target: LibraryImportIdentifyTarget
+    let viewModel: LibraryImportScanViewModel
     let importAfterAdding: Bool
     let showsCancelButton: Bool
     let wrapInNavigationStack: Bool
@@ -1784,12 +1784,12 @@ private struct ManualImportIdentifySheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
     @State private var searchTask: Task<Void, Never>?
-    @State private var currentItems: [ManualImportItem] = []
+    @State private var currentItems: [LibraryImportItem] = []
     @State private var excludedItemIDs: Set<String> = []
     @State private var isFilesExpanded = false
     @State private var selectedResult: IdentifySelection?
 
-    private var includedItems: [ManualImportItem] {
+    private var includedItems: [LibraryImportItem] {
         currentItems.filter { !excludedItemIDs.contains($0.id) }
     }
 

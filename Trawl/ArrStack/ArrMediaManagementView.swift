@@ -15,21 +15,12 @@ struct ArrMediaManagementView: View {
                     )
                 }
 
-                NavigationLink(value: MoreDestination.manualImport) {
-                    NavigationMenuRow(
-                        icon: "tray.and.arrow.down.fill",
-                        color: MoreDestinationAccent.manualImport.color,
-                        title: "Manual Import",
-                        subtitle: "Files to import from root folders"
-                    )
-                }
-
                 NavigationLink(value: MoreDestination.libraryImport) {
                     NavigationMenuRow(
                         icon: "square.and.arrow.down.on.square.fill",
-                        color: MoreDestinationAccent.manualImport.color,
+                        color: MoreDestinationAccent.libraryImport.color,
                         title: "Library Import",
-                        subtitle: "Adopt an existing on-disk library"
+                        subtitle: "Import an existing organized library"
                     )
                 }
 

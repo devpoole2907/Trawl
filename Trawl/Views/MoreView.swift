@@ -27,12 +27,11 @@ enum MoreDestination: Hashable {
     case downloadClients(service: ArrServiceType)
     case remotePathMappings
     case blocklist
-    case manualImport
     case libraryImport
     case calendar
     case calendarSeries(id: Int)
     case calendarMovie(id: Int)
-    case manualImportScan(path: String, service: ArrServiceType)
+    case libraryImportScan(path: String, service: ArrServiceType)
     case mediaManagement
     case arrNaming
     case rootFolders
@@ -71,7 +70,7 @@ enum MoreDestinationAccent {
     case settings
     case activity
     case calendar
-    case manualImport
+    case libraryImport
     case categoriesAndTags
     case rssFeeds
     case transferStats
@@ -104,7 +103,7 @@ enum MoreDestinationAccent {
         case .settings: return .secondary
         case .activity: return .indigo
         case .calendar: return .purple
-        case .manualImport: return .blue
+        case .libraryImport: return .blue
         case .categoriesAndTags: return .brown
         case .rssFeeds: return .cyan
         case .transferStats: return .mint
@@ -597,10 +596,6 @@ struct MoreView: View {
                     ArrBlocklistView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
-                case .manualImport:
-                    ArrManualImportView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
                 case .libraryImport:
                     ArrLibraryImportView()
                         .environment(arrServiceManager)
@@ -728,8 +723,8 @@ struct MoreView: View {
                 case .calendarMovie(let id):
                     CalendarMovieDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
-                case .manualImportScan(let path, let service):
-                    ManualImportScanView(path: path, service: service, serviceManager: arrServiceManager)
+                case .libraryImportScan(let path, let service):
+                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .mediaManagement:
                     ArrMediaManagementView()
@@ -1489,24 +1484,14 @@ private enum MoreSearchIndex {
                 keywords: ["paths", "storage", "library", "folder", "sonarr", "radarr"]
             ),
             .init(
-                id: "manual-import",
-                destination: .manualImport,
-                icon: "tray.and.arrow.down.fill",
-                color: MoreDestinationAccent.manualImport.color,
-                title: "Manual Import",
-                subtitle: "Files to import from root folders",
-                category: "Media & Import",
-                keywords: ["files", "scan", "import", "download", "folder"]
-            ),
-            .init(
                 id: "library-import",
                 destination: .libraryImport,
                 icon: "square.and.arrow.down.on.square.fill",
-                color: MoreDestinationAccent.manualImport.color,
+                color: MoreDestinationAccent.libraryImport.color,
                 title: "Library Import",
-                subtitle: "Adopt an existing on-disk library into Sonarr or Radarr",
+                subtitle: "Import an existing organized library into Sonarr or Radarr",
                 category: "Media & Import",
-                keywords: ["existing", "library", "import", "folder", "sonarr", "radarr", "unmapped"]
+                keywords: ["existing", "library", "import", "manual", "scan", "folder", "sonarr", "radarr", "unmapped"]
             ),
             .init(
                 id: "disk-space",

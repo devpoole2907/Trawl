@@ -119,8 +119,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
             .task(id: serviceManager.activeInstanceID(serviceType)) { [viewModel] in
                 await performInitialLoadAndStartPolling(viewModel: viewModel)
             }
-            .task(id: serviceManager.lastManualImportTimestamp) { [viewModel] in
-                guard serviceManager.lastManualImportTimestamp != .distantPast else { return }
+            .task(id: serviceManager.lastLibraryImportTimestamp) { [viewModel] in
+                guard serviceManager.lastLibraryImportTimestamp != .distantPast else { return }
                 await viewModel.loadLibraryItems()
             }
             .task(id: serviceManager.activeBazarrProfileID) { [viewModel] in

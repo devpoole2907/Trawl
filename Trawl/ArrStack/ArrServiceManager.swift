@@ -78,7 +78,7 @@ final class ArrServiceManager {
     private(set) var activeBazarrProfileID: UUID?
 
     // MARK: - Global state
-    var lastManualImportTimestamp: Date = .distantPast
+    var lastLibraryImportTimestamp: Date = .distantPast
     private(set) var isInitializing: Bool = false
     private(set) var connectionErrors: [String: String] = [:]
     private var storedProfiles: [ArrServiceProfile] = []

@@ -111,8 +111,8 @@ struct AddImportLocationSheet: View {
 
 @Observable
 @MainActor
-final class ManualImportScanViewModel {
-    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrManualImportView")
+final class LibraryImportScanViewModel {
+    private static let logger = Logger(subsystem: Bundle.main.bundleIdentifier ?? "Trawl", category: "ArrLibraryImportView")
     private static let manualImportScanRequestTimeout: TimeInterval = 180
     private let progressiveRevealBatchSize = 25
     private let progressiveRevealDelay: Duration = .milliseconds(16)
@@ -125,14 +125,14 @@ final class ManualImportScanViewModel {
     var isScanning = false
     var isImporting = false
     private var activeImportJobCount = 0
-    var importableFiles: [ManualImportItem] = []
-    var blockedFiles: [ManualImportItem] = []
-    var groupedImportableFiles: [ManualImportGroup] = []
-    var groupedNewImportableFiles: [ManualImportGroup] = []
-    var groupedInLibraryFiles: [ManualImportGroup] = []
-    var groupedIdentifiedPendingAddFiles: [ManualImportGroup] = []
-    var groupedUnidentifiedFiles: [ManualImportGroup] = []
-    var groupedBlockedFiles: [ManualImportGroup] = []
+    var importableFiles: [LibraryImportItem] = []
+    var blockedFiles: [LibraryImportItem] = []
+    var groupedImportableFiles: [LibraryImportGroup] = []
+    var groupedNewImportableFiles: [LibraryImportGroup] = []
+    var groupedInLibraryFiles: [LibraryImportGroup] = []
+    var groupedIdentifiedPendingAddFiles: [LibraryImportGroup] = []
+    var groupedUnidentifiedFiles: [LibraryImportGroup] = []
+    var groupedBlockedFiles: [LibraryImportGroup] = []
     var inLibraryItemIDs: Set<String> = []
     var isLoadingInLibraryStatus = false
     var selectedFiles: Set<String> = []
@@ -145,7 +145,7 @@ final class ManualImportScanViewModel {
     var isScanTakingLong = false
 
     // Identify sheet
-    var identifyingTarget: ManualImportIdentifyTarget?
+    var identifyingTarget: LibraryImportIdentifyTarget?
     var libraryMovies: [RadarrMovie] = []
     var librarySeries: [SonarrSeries] = []
     var qualityProfiles: [ArrQualityProfile] = []
@@ -202,15 +202,15 @@ final class ManualImportScanViewModel {
         !selectedFiles.isEmpty || !selectedBlockedFiles.isEmpty
     }
 
-    var selectedBlockedItems: [ManualImportItem] {
+    var selectedBlockedItems: [LibraryImportItem] {
         blockedFiles.filter { selectedBlockedFiles.contains($0.id) }
     }
 
-    var selectedReadyGroups: [ManualImportGroup] {
+    var selectedReadyGroups: [LibraryImportGroup] {
         selectedGroups(from: groupedImportableFiles, selectedIDs: selectedFiles)
     }
 
-    var selectedBlockedGroups: [ManualImportGroup] {
+    var selectedBlockedGroups: [LibraryImportGroup] {
         selectedGroups(from: groupedIdentifiedPendingAddFiles + groupedUnidentifiedFiles + groupedBlockedFiles, selectedIDs: selectedBlockedFiles)
     }
 
@@ -248,11 +248,11 @@ final class ManualImportScanViewModel {
         }
     }
 
-    private func selectedGroups(from groups: [ManualImportGroup], selectedIDs: Set<String>) -> [ManualImportGroup] {
+    private func selectedGroups(from groups: [LibraryImportGroup], selectedIDs: Set<String>) -> [LibraryImportGroup] {
         groups.compactMap { group in
             let selectedItems = group.items.filter { selectedIDs.contains($0.id) }
             guard !selectedItems.isEmpty else { return nil }
-            return ManualImportGroup(
+            return LibraryImportGroup(
                 kind: group.kind,
                 displayTitle: group.displayTitle,
                 posterURL: group.posterURL,
@@ -288,9 +288,9 @@ final class ManualImportScanViewModel {
             let jsonValues = try await getManualImport(folder: path)
             Self.logger.info("Manual import scan received \(jsonValues.count) raw items from \(self.service.displayName, privacy: .public)")
             scanStatusMessage = "Parsing \(jsonValues.count) items…"
-            Self.logManualImportShapeForUnidentifiedItems(jsonValues)
+            Self.logLibraryImportShapeForUnidentifiedItems(jsonValues)
             let scannedFiles = await Task.detached(priority: .userInitiated) {
-                Self.parseManualImportItems(from: jsonValues)
+                Self.parseLibraryImportItems(from: jsonValues)
             }.value
             hasPerformedInitialScan = true
             Self.logger.info("Manual import scan parsed \(scannedFiles.count) items for \(self.path, privacy: .public)")
@@ -303,8 +303,8 @@ final class ManualImportScanViewModel {
             autoIdentifyLastMatchedTitle = nil
             autoIdentifyLastOutcomeMessage = nil
 
-            var nextImportableBatch: [ManualImportItem] = []
-            var nextBlockedBatch: [ManualImportItem] = []
+            var nextImportableBatch: [LibraryImportItem] = []
+            var nextBlockedBatch: [LibraryImportItem] = []
             let dynamicBatchSize = max(progressiveRevealBatchSize, scannedFiles.count / 20)
 
             for (index, file) in scannedFiles.enumerated() {
@@ -484,7 +484,7 @@ final class ManualImportScanViewModel {
                 // Items were already optimistically removed. Don't reload — rescanning the folder
                 // will find the file again (hardlinks/copies leave the source in place) and undo
                 // the removal, making it look like the import failed when it didn't.
-                serviceManager.lastManualImportTimestamp = Date()
+                serviceManager.lastLibraryImportTimestamp = Date()
                 notificationCenter.completeImportJob(id: jobID, succeeded: true)
                 notificationCenter.showSuccess(
                     title: "Import Complete",
@@ -529,7 +529,7 @@ final class ManualImportScanViewModel {
         }
     }
 
-    private func registerImportJob(itemCount: Int, primaryItem: ManualImportItem?) -> UUID {
+    private func registerImportJob(itemCount: Int, primaryItem: LibraryImportItem?) -> UUID {
         let tint: ImportJobTint
         switch service {
         case .sonarr: tint = .sonarr
@@ -556,7 +556,7 @@ final class ManualImportScanViewModel {
     }
 
 
-    private func importedFileNamesSummary(items: [ManualImportItem]) -> String {
+    private func importedFileNamesSummary(items: [LibraryImportItem]) -> String {
         let names = items.map { ($0.fileName as NSString).lastPathComponent }
         let maxShown = 4
         if names.count <= maxShown {
@@ -585,7 +585,7 @@ final class ManualImportScanViewModel {
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else {
-                throw ManualImportServiceClientUnavailableError(service: service)
+                throw LibraryImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Sonarr manual import scan for \(folder, privacy: .private)")
             return try await client.getManualImport(
@@ -596,7 +596,7 @@ final class ManualImportScanViewModel {
             )
         case .radarr:
             guard let client = serviceManager.radarrClient else {
-                throw ManualImportServiceClientUnavailableError(service: service)
+                throw LibraryImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Radarr manual import scan for \(folder, privacy: .private)")
             return try await client.getManualImport(
@@ -606,7 +606,7 @@ final class ManualImportScanViewModel {
                 requestTimeout: Self.manualImportScanRequestTimeout
             )
         case .prowlarr, .bazarr:
-            throw ManualImportServiceClientUnavailableError(service: service)
+            throw LibraryImportServiceClientUnavailableError(service: service)
         }
     }
 
@@ -615,24 +615,24 @@ final class ManualImportScanViewModel {
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else {
-                throw ManualImportServiceClientUnavailableError(service: service)
+                throw LibraryImportServiceClientUnavailableError(service: service)
             }
             return try await client.manualImport(files: files)
         case .radarr:
             guard let client = serviceManager.radarrClient else {
-                throw ManualImportServiceClientUnavailableError(service: service)
+                throw LibraryImportServiceClientUnavailableError(service: service)
             }
             return try await client.manualImport(files: files)
         case .prowlarr, .bazarr:
-            throw ManualImportServiceClientUnavailableError(service: service)
+            throw LibraryImportServiceClientUnavailableError(service: service)
         }
     }
 
     // MARK: - Identify
 
-    func beginIdentifying(_ item: ManualImportItem) {
+    func beginIdentifying(_ item: LibraryImportItem) {
         resetCatalogSearchState()
-        let target = ManualImportIdentifyTarget(
+        let target = LibraryImportIdentifyTarget(
             id: "item-\(item.id)",
             items: [item],
             displayLabel: item.fileName
@@ -642,7 +642,7 @@ final class ManualImportScanViewModel {
         Task { [weak self] in await self?.loadAutoSuggestions(for: item.fileName) }
     }
 
-    func beginIdentifying(group: ManualImportGroup) {
+    func beginIdentifying(group: LibraryImportGroup) {
         guard let first = group.items.first else { return }
         resetCatalogSearchState()
         let label: String
@@ -651,7 +651,7 @@ final class ManualImportScanViewModel {
         } else {
             label = "\(group.displayTitle) · \(group.items.count) files"
         }
-        let target = ManualImportIdentifyTarget(
+        let target = LibraryImportIdentifyTarget(
             id: group.id,
             items: group.items,
             displayLabel: label
@@ -936,7 +936,7 @@ final class ManualImportScanViewModel {
     /// Returns the items currently pending identification for the given group, or nil if the
     /// group has been fully resolved (e.g. by a manual identification that ran while we were
     /// awaiting the catalog lookup).
-    private func pendingItems(forGroupID groupID: String) -> [ManualImportItem]? {
+    private func pendingItems(forGroupID groupID: String) -> [LibraryImportItem]? {
         guard let current = groupedUnidentifiedFiles.first(where: { $0.id == groupID }),
               !current.items.isEmpty else { return nil }
         return current.items
@@ -967,11 +967,11 @@ final class ManualImportScanViewModel {
         }
     }
 
-    func applyIdentification(to item: ManualImportItem, mediaID: Int, title: String, posterURL: URL?) {
+    func applyIdentification(to item: LibraryImportItem, mediaID: Int, title: String, posterURL: URL?) {
         applyIdentification(to: [item], mediaID: mediaID, title: title, posterURL: posterURL)
     }
 
-    func applyIdentification(to items: [ManualImportItem], mediaID: Int, title: String, posterURL: URL?) {
+    func applyIdentification(to items: [LibraryImportItem], mediaID: Int, title: String, posterURL: URL?) {
         guard !items.isEmpty else { return }
         let ids = Set(items.map(\.id))
         let identified = items.map { $0.withIdentification(mediaID: mediaID, title: title, posterURL: posterURL) }
@@ -995,7 +995,7 @@ final class ManualImportScanViewModel {
         Task { [weak self] in await self?.loadInLibraryStatus() }
     }
 
-    func applyPendingAddIdentification(to items: [ManualImportItem], title: String, catalogID: Int?, posterURL: URL?) {
+    func applyPendingAddIdentification(to items: [LibraryImportItem], title: String, catalogID: Int?, posterURL: URL?) {
         guard !items.isEmpty else { return }
         let ids = Set(items.map(\.id))
         let identified = items.map { $0.withPendingAddIdentification(title: title, catalogID: catalogID, posterURL: posterURL) }
@@ -1017,7 +1017,7 @@ final class ManualImportScanViewModel {
     }
 
     @discardableResult
-    func addToLibraryAndIdentify(blockedItems: [ManualImportItem], movie: RadarrMovie, importAfterAdding: Bool = true) async -> Bool {
+    func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], movie: RadarrMovie, importAfterAdding: Bool = true) async -> Bool {
         guard !blockedItems.isEmpty,
               let client = serviceManager.radarrClient,
               let tmdbId = movie.tmdbId,
@@ -1063,7 +1063,7 @@ final class ManualImportScanViewModel {
     }
 
     @discardableResult
-    func addToLibraryAndIdentify(blockedItems: [ManualImportItem], series: SonarrSeries, importAfterAdding: Bool = true) async -> Bool {
+    func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], series: SonarrSeries, importAfterAdding: Bool = true) async -> Bool {
         guard !blockedItems.isEmpty,
               let client = serviceManager.sonarrClient,
               let tvdbId = series.tvdbId,
@@ -1122,7 +1122,7 @@ final class ManualImportScanViewModel {
         return true
     }
 
-    private func monitorImportedEpisodes(seriesID: Int, from items: [ManualImportItem]) async {
+    private func monitorImportedEpisodes(seriesID: Int, from items: [LibraryImportItem]) async {
         guard service == .sonarr,
               let client = serviceManager.sonarrClient else { return }
 
@@ -1132,7 +1132,7 @@ final class ManualImportScanViewModel {
         do {
             let episodes = try await client.getEpisodes(seriesId: seriesID)
             let episodeIDs = episodes.compactMap { episode -> Int? in
-                let key = ManualImportEpisodeKey(seasonNumber: episode.seasonNumber, episodeNumber: episode.episodeNumber)
+                let key = LibraryImportEpisodeKey(seasonNumber: episode.seasonNumber, episodeNumber: episode.episodeNumber)
                 return importedKeys.contains(key) ? episode.id : nil
             }
             guard !episodeIDs.isEmpty else { return }
@@ -1142,12 +1142,12 @@ final class ManualImportScanViewModel {
         }
     }
 
-    nonisolated static func importedEpisodeKeys(from items: [ManualImportItem]) -> Set<ManualImportEpisodeKey> {
-        var keys: Set<ManualImportEpisodeKey> = []
+    nonisolated static func importedEpisodeKeys(from items: [LibraryImportItem]) -> Set<LibraryImportEpisodeKey> {
+        var keys: Set<LibraryImportEpisodeKey> = []
         for item in items {
             guard let seasonNumber = item.seasonNumber else { continue }
             for episode in item.episodes {
-                keys.insert(ManualImportEpisodeKey(seasonNumber: seasonNumber, episodeNumber: episode.number))
+                keys.insert(LibraryImportEpisodeKey(seasonNumber: seasonNumber, episodeNumber: episode.number))
             }
         }
         return keys
@@ -1242,7 +1242,7 @@ final class ManualImportScanViewModel {
     }
 
     @discardableResult
-    func importItems(_ items: [ManualImportItem]) async -> Bool {
+    func importItems(_ items: [LibraryImportItem]) async -> Bool {
         let filesToImport = items.filter { $0.isImportable }
         guard !filesToImport.isEmpty else { return false }
         beginImportActivity()
@@ -1306,11 +1306,11 @@ final class ManualImportScanViewModel {
         }
     }
 
-    nonisolated private static func parseManualImportItems(from jsonValues: [JSONValue]) -> [ManualImportItem] {
-        jsonValues.compactMap { ManualImportItem(json: $0) }
+    nonisolated private static func parseLibraryImportItems(from jsonValues: [JSONValue]) -> [LibraryImportItem] {
+        jsonValues.compactMap { LibraryImportItem(json: $0) }
     }
 
-    private static func logManualImportShapeForUnidentifiedItems(_ jsonValues: [JSONValue]) {
+    private static func logLibraryImportShapeForUnidentifiedItems(_ jsonValues: [JSONValue]) {
         let samples = jsonValues.compactMap { value -> String? in
             guard case .object(let dict) = value else { return nil }
             let hasMediaObject: Bool
@@ -1323,8 +1323,8 @@ final class ManualImportScanViewModel {
             }
             guard !hasMediaObject else { return nil }
             let keys = dict.keys.sorted().joined(separator: ",")
-            let flatSeriesID = ManualImportItem.intValue(from: dict["seriesId"]) ?? 0
-            let flatMovieID = ManualImportItem.intValue(from: dict["movieId"]) ?? 0
+            let flatSeriesID = LibraryImportItem.intValue(from: dict["seriesId"]) ?? 0
+            let flatMovieID = LibraryImportItem.intValue(from: dict["movieId"]) ?? 0
             return "keys:[\(keys)] seriesId:\(flatSeriesID) movieId:\(flatMovieID)"
         }
         .prefix(5)
@@ -1347,11 +1347,11 @@ final class ManualImportScanViewModel {
         groupedBlockedFiles = Self.makeBlockedGroups(from: blocked)
     }
 
-    nonisolated private static func makeImportableGroups(from items: [ManualImportItem]) -> [ManualImportGroup] {
+    nonisolated private static func makeImportableGroups(from items: [LibraryImportItem]) -> [LibraryImportGroup] {
         let grouped = Dictionary(grouping: items) { $0.mediaID ?? 0 }
         return grouped.map { (mediaID, items) in
             let sorted = sortItems(items)
-            return ManualImportGroup(
+            return LibraryImportGroup(
                 kind: .identified(mediaID: mediaID),
                 displayTitle: sorted[0].mediaTitle ?? sorted[0].fileName,
                 posterURL: sorted[0].posterURL,
@@ -1361,7 +1361,7 @@ final class ManualImportScanViewModel {
         .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
     }
 
-    nonisolated private static func makeUnidentifiedGroups(from items: [ManualImportItem]) -> [ManualImportGroup] {
+    nonisolated private static func makeUnidentifiedGroups(from items: [LibraryImportItem]) -> [LibraryImportGroup] {
         let grouped = Dictionary(grouping: items) { item -> String in
             let key = inferredGroupKey(for: item.fileName)
             // Fallback to filename so files with no parseable title still appear
@@ -1370,7 +1370,7 @@ final class ManualImportScanViewModel {
         return grouped.map { (key, items) in
             let sorted = sortItems(items)
             let title = displayTitleForUnidentified(items: sorted, key: key)
-            return ManualImportGroup(
+            return LibraryImportGroup(
                 kind: .unidentified(inferredKey: key),
                 displayTitle: title,
                 posterURL: nil,
@@ -1380,13 +1380,13 @@ final class ManualImportScanViewModel {
         .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
     }
 
-    nonisolated private static func makeIdentifiedPendingAddGroups(from items: [ManualImportItem]) -> [ManualImportGroup] {
+    nonisolated private static func makeIdentifiedPendingAddGroups(from items: [LibraryImportItem]) -> [LibraryImportGroup] {
         let grouped = Dictionary(grouping: items) { item -> String in
             item.mediaTitle?.lowercased() ?? inferredGroupKey(for: item.fileName)
         }
         return grouped.map { (key, items) in
             let sorted = sortItems(items)
-            return ManualImportGroup(
+            return LibraryImportGroup(
                 kind: .pendingAdd(inferredKey: key),
                 displayTitle: sorted[0].mediaTitle ?? displayTitleForUnidentified(items: sorted, key: key),
                 posterURL: sorted[0].posterURL,
@@ -1396,9 +1396,9 @@ final class ManualImportScanViewModel {
         .sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
     }
 
-    nonisolated private static func makeBlockedGroups(from items: [ManualImportItem]) -> [ManualImportGroup] {
-        var byMediaID: [Int: [ManualImportItem]] = [:]
-        var byInferred: [String: [ManualImportItem]] = [:]
+    nonisolated private static func makeBlockedGroups(from items: [LibraryImportItem]) -> [LibraryImportGroup] {
+        var byMediaID: [Int: [LibraryImportItem]] = [:]
+        var byInferred: [String: [LibraryImportItem]] = [:]
         for item in items {
             if let id = item.mediaID, id > 0 {
                 byMediaID[id, default: []].append(item)
@@ -1409,11 +1409,11 @@ final class ManualImportScanViewModel {
             }
         }
 
-        var groups: [ManualImportGroup] = []
+        var groups: [LibraryImportGroup] = []
 
         for (mediaID, bucket) in byMediaID {
             let sorted = sortItems(bucket)
-            groups.append(ManualImportGroup(
+            groups.append(LibraryImportGroup(
                 kind: .identified(mediaID: mediaID),
                 displayTitle: sorted[0].mediaTitle ?? sorted[0].fileName,
                 posterURL: sorted[0].posterURL,
@@ -1424,7 +1424,7 @@ final class ManualImportScanViewModel {
         for (key, bucket) in byInferred {
             let sorted = sortItems(bucket)
             let title = displayTitleForUnidentified(items: sorted, key: key)
-            groups.append(ManualImportGroup(
+            groups.append(LibraryImportGroup(
                 kind: .unidentified(inferredKey: key),
                 displayTitle: title,
                 posterURL: nil,
@@ -1435,7 +1435,7 @@ final class ManualImportScanViewModel {
         return groups.sorted { $0.displayTitle.localizedCaseInsensitiveCompare($1.displayTitle) == .orderedAscending }
     }
 
-    nonisolated private static func sortItems(_ items: [ManualImportItem]) -> [ManualImportItem] {
+    nonisolated private static func sortItems(_ items: [LibraryImportItem]) -> [LibraryImportItem] {
         items.sorted { a, b in
             let sA = a.seasonNumber ?? 0
             let sB = b.seasonNumber ?? 0
@@ -1447,7 +1447,7 @@ final class ManualImportScanViewModel {
         }
     }
 
-    nonisolated private static func displayTitleForUnidentified(items: [ManualImportItem], key: String) -> String {
+    nonisolated private static func displayTitleForUnidentified(items: [LibraryImportItem], key: String) -> String {
         let parsed = extractTitleFromFilename(items[0].fileName)
         if !parsed.isEmpty { return parsed }
         if !key.isEmpty { return key.capitalized }
@@ -1455,7 +1455,7 @@ final class ManualImportScanViewModel {
     }
 }
 
-private struct ManualImportServiceClientUnavailableError: LocalizedError {
+private struct LibraryImportServiceClientUnavailableError: LocalizedError {
     let service: ArrServiceType
 
     var errorDescription: String? {

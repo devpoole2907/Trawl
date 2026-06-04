@@ -93,11 +93,11 @@ extension ArrQualityProfile {
 // MARK: - ArrRootFolder
 
 extension ArrRootFolder {
-    static let preview = ArrRootFolder(id: 1, path: "/tv", accessible: true, freeSpace: 500_000_000_000, totalSpace: 2_000_000_000_000, unmappedFolders: nil)
+    static let preview = ArrRootFolder(id: 1, path: "/tv", accessible: true, freeSpace: 500_000_000_000, totalSpace: 2_000_000_000_000)
     static let previewList: [ArrRootFolder] = [
         preview,
-        .init(id: 2, path: "/movies", accessible: true, freeSpace: 800_000_000_000, totalSpace: 4_000_000_000_000, unmappedFolders: nil),
-        .init(id: 3, path: "/archive/offline", accessible: false, freeSpace: nil, totalSpace: nil, unmappedFolders: nil),
+        .init(id: 2, path: "/movies", accessible: true, freeSpace: 800_000_000_000, totalSpace: 4_000_000_000_000),
+        .init(id: 3, path: "/archive/offline", accessible: false, freeSpace: nil, totalSpace: nil),
     ]
 }
 

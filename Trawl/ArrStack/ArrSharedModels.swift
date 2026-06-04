@@ -84,18 +84,6 @@ struct ArrRootFolder: Codable, Identifiable, Sendable {
     let accessible: Bool?
     let freeSpace: Int64?
     let totalSpace: Int64?
-    /// Folders inside this root that aren't yet mapped to a series/movie. Sonarr and
-    /// Radarr populate this on `GET /rootfolder`; it's the basis for Library Import.
-    let unmappedFolders: [ArrUnmappedFolder]?
-}
-
-/// An on-disk folder under a root that Sonarr/Radarr hasn't mapped to a library
-/// item yet. Library Import adopts each of these in place rather than re-filing.
-struct ArrUnmappedFolder: Codable, Identifiable, Sendable, Hashable {
-    let name: String
-    let path: String
-
-    var id: String { path }
 }
 
 nonisolated struct ArrFileSystemEntry: Decodable, Identifiable, Sendable {

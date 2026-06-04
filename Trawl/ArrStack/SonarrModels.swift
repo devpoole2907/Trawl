@@ -443,26 +443,6 @@ nonisolated struct SonarrAddSeriesBody: Codable, Sendable {
     let tags: [Int]?
 }
 
-/// Body for Library Import (`POST /api/v3/series/import`). Mirrors `SonarrAddSeriesBody`
-/// but carries an explicit `path` to the existing, already-organized folder so Sonarr
-/// adopts it in place instead of generating a new `{Series TitleYear}` folder and moving files.
-nonisolated struct SonarrSeriesImportBody: Codable, Sendable {
-    let tvdbId: Int
-    let title: String
-    let qualityProfileId: Int
-    let languageProfileId: Int?
-    let titleSlug: String
-    let images: [ArrImage]
-    let seasons: [SonarrAddSeason]
-    let path: String
-    let rootFolderPath: String
-    let monitored: Bool
-    let seasonFolder: Bool
-    let seriesType: String
-    let addOptions: SonarrAddOptions
-    let tags: [Int]?
-}
-
 struct SonarrAddSeason: Codable, Sendable {
     let seasonNumber: Int
     let monitored: Bool
