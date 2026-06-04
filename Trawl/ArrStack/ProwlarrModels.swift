@@ -779,6 +779,7 @@ nonisolated struct ProwlarrIndexerProxy: Codable, Identifiable, Sendable {
     var message: ProwlarrProviderMessage?
     var tags: [Int]?
     var presets: [ProwlarrIndexerProxy]?
+    private let _schemaListID: String
 
     init(
         id: Int,
@@ -802,6 +803,7 @@ nonisolated struct ProwlarrIndexerProxy: Codable, Identifiable, Sendable {
         self.message = message
         self.tags = tags
         self.presets = presets
+        self._schemaListID = Self.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }
 
     // Schema endpoint omits `id` for template entries.
@@ -817,6 +819,7 @@ nonisolated struct ProwlarrIndexerProxy: Codable, Identifiable, Sendable {
         message = try container.decodeIfPresent(ProwlarrProviderMessage.self, forKey: .message)
         tags = try container.decodeIfPresent([Int].self, forKey: .tags)
         presets = try container.decodeIfPresent([ProwlarrIndexerProxy].self, forKey: .presets)
+        _schemaListID = Self.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -835,6 +838,30 @@ nonisolated struct ProwlarrIndexerProxy: Codable, Identifiable, Sendable {
     /// Display label for the proxy type, e.g. "Http", "Socks5", "FlareSolverr".
     var typeName: String {
         implementationName ?? implementation ?? "Proxy"
+    }
+
+    var schemaListID: String { _schemaListID }
+
+    private static func computeSchemaListID(
+        id: Int,
+        implementation: String?,
+        configContract: String?,
+        implementationName: String?,
+        name: String?
+    ) -> String {
+        if id != 0 {
+            return "proxy-\(id)"
+        }
+
+        let components = [implementation, configContract, implementationName, name]
+            .compactMap { value in
+                let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+
+        return components.isEmpty
+            ? "proxy-template-unknown"
+            : "proxy-template-" + components.joined(separator: "::")
     }
 
     /// SF Symbol that best represents the proxy type.

@@ -133,7 +133,7 @@ struct ProwlarrProxiesListView: View {
                     if viewModel.sortedSchemas.isEmpty {
                         Text("No proxy types available")
                     } else {
-                        ForEach(viewModel.sortedSchemas) { schema in
+                        ForEach(viewModel.sortedSchemas, id: \.schemaListID) { schema in
                             Button {
                                 editorContext = .create(schema)
                             } label: {
