@@ -1285,6 +1285,10 @@ final class LibraryImportScanViewModel {
             let fileJSONs = filesToImport.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
             let command = try await manualImport(files: fileJSONs)
             if command.succeeded {
+                // Nudge the series/movie lists to reload once (they observe this
+                // timestamp), so a freshly added+imported title's counts refresh
+                // without an app restart. Mirrors performImport().
+                serviceManager.lastLibraryImportTimestamp = Date()
                 let fileNamesSummary = importedFileNamesSummary(items: filesToImport)
                 InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
                 InAppNotificationCenter.shared.showSuccess(
