@@ -16,6 +16,7 @@ struct RadarrMovieDetailView: View {
     #endif
 
     @State private var showRenameFilesAlert = false
+    @State private var showManualImport = false
     @State private var isRenamingFiles = false
     @State private var showDeleteAlert = false
     @State private var deleteFiles = false
@@ -217,6 +218,20 @@ struct RadarrMovieDetailView: View {
                     await viewModel.loadMovies()
                 }
             )
+        }
+        .sheet(isPresented: $showManualImport, onDismiss: { Task { await refreshMovieDetailState() } }) {
+            if let movie, let path = movie.path {
+                NavigationStack {
+                    LibraryImportScanView(
+                        path: path,
+                        service: .radarr,
+                        serviceManager: serviceManager,
+                        libraryItemID: movie.id,
+                        showsCloseButton: true,
+                        kind: .manual
+                    )
+                }
+            }
         }
         .sheet(isPresented: $showAddSheet) {
             if let movie {
@@ -935,6 +950,14 @@ struct RadarrMovieDetailView: View {
                             Label("Rename Files", systemImage: "pencil.and.list.clipboard")
                         }
                         .disabled(isRenamingFiles)
+
+                        if movie.path != nil {
+                            Button {
+                                showManualImport = true
+                            } label: {
+                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                            }
+                        }
 
                         Divider()
                         Button(role: .destructive) {

@@ -103,10 +103,30 @@ struct LibraryImportScanView: View {
         service: ArrServiceType,
         serviceManager: ArrServiceManager,
         libraryItemID: Int? = nil,
-        showsCloseButton: Bool = false
+        showsCloseButton: Bool = false,
+        kind: ArrImportKind = .library
     ) {
-        _viewModel = State(wrappedValue: LibraryImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID))
+        _viewModel = State(wrappedValue: LibraryImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID, kind: kind))
         self.showsCloseButton = showsCloseButton
+    }
+
+    // MARK: Import mode (manual import only)
+
+    @ViewBuilder
+    private var importModeSection: some View {
+        Section {
+            Picker("Import Mode", selection: Binding(
+                get: { viewModel.importMode },
+                set: { viewModel.importMode = $0 }
+            )) {
+                ForEach(ArrImportMode.allCases) { mode in
+                    Text(mode.label).tag(mode)
+                }
+            }
+            .pickerStyle(.menu)
+        } footer: {
+            Text("Move relocates each file into your library. Copy leaves the original in place (hardlinked when your server is set up for it).")
+        }
     }
 
     // MARK: Body
@@ -114,6 +134,10 @@ struct LibraryImportScanView: View {
     var body: some View {
         List {
             statusSection
+
+            if viewModel.importKind == .manual {
+                importModeSection
+            }
 
             if hasActiveSearch || selectedTab != .inLibrary {
                 readySection
@@ -273,7 +297,10 @@ struct LibraryImportScanView: View {
                 countChipsRow
             } else if let errorMessage = viewModel.scanError {
                 ContentUnavailableView {
-                    Label("Scan Failed", systemImage: "exclamationmark.triangle")
+                    Label(
+                        viewModel.scanFolderMissing ? "No Files to Import" : "Scan Failed",
+                        systemImage: viewModel.scanFolderMissing ? "folder.badge.questionmark" : "exclamationmark.triangle"
+                    )
                 } description: {
                     Text(errorMessage)
                 } actions: {
@@ -1221,9 +1248,9 @@ private struct LibraryImportRow: View {
                 }
             }
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 }
 
@@ -1285,9 +1312,9 @@ private struct LibraryImportBlockedRow: View {
                 }
             }
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 }
 
@@ -1401,9 +1428,9 @@ private struct LibraryImportGroupRow: View {
                 }
             }
             .padding(.vertical, 4)
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .contentShape(Rectangle())
     }
 
     @ViewBuilder
@@ -1869,9 +1896,9 @@ private struct LibraryImportIdentifySheet: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         #if os(iOS)
-        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search your library or Discover")
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always), prompt: searchPrompt)
         #else
-        .searchable(text: $searchText, prompt: "Search your library or Discover")
+        .searchable(text: $searchText, prompt: searchPrompt)
         #endif
         .onChange(of: searchText) { _, newValue in
             searchTask?.cancel()
@@ -1898,7 +1925,7 @@ private struct LibraryImportIdentifySheet: View {
             Button {
                 Task { await commitSelectedResult(importAfterAdding: false) }
             } label: {
-                Text("Add")
+                Text(addLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
@@ -1908,7 +1935,7 @@ private struct LibraryImportIdentifySheet: View {
             Button {
                 Task { await commitSelectedResult(importAfterAdding: true) }
             } label: {
-                Text("Add and Import")
+                Text(addAndImportLabel)
                     .font(.headline)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 10)
@@ -1995,6 +2022,15 @@ private struct LibraryImportIdentifySheet: View {
 
     @ViewBuilder
     private var radarrSections: some View {
+        if viewModel.importKind == .manual {
+            manualRadarrSections
+        } else {
+            libraryRadarrSections
+        }
+    }
+
+    @ViewBuilder
+    private var libraryRadarrSections: some View {
         // Auto-suggestions based on filename — shown when not actively searching
         if searchText.isEmpty {
             let suggestions = viewModel.autoSuggestionMovies.prefix(5)
@@ -2052,6 +2088,15 @@ private struct LibraryImportIdentifySheet: View {
 
     @ViewBuilder
     private var sonarrSections: some View {
+        if viewModel.importKind == .manual {
+            manualSonarrSections
+        } else {
+            librarySonarrSections
+        }
+    }
+
+    @ViewBuilder
+    private var librarySonarrSections: some View {
         // Auto-suggestions based on filename — shown when not actively searching
         if searchText.isEmpty {
             let suggestions = viewModel.autoSuggestionSeries.prefix(5)
@@ -2104,6 +2149,85 @@ private struct LibraryImportIdentifySheet: View {
             } else {
                 ContentUnavailableView.search(text: searchText)
             }
+        }
+    }
+
+    // MARK: Manual import — existing library titles only
+
+    private var addLabel: String { viewModel.importKind == .manual ? "Match" : "Add" }
+    private var addAndImportLabel: String { viewModel.importKind == .manual ? "Match & Import" : "Add and Import" }
+    private var searchPrompt: String { viewModel.importKind == .manual ? "Search your library" : "Search your library or Discover" }
+
+    /// Library movies whose filename-derived suggestion matched — shown before the user searches.
+    private var manualMovieSuggestions: [RadarrMovie] {
+        let suggested = Set(viewModel.autoSuggestionMovies.compactMap(\.tmdbId))
+        return viewModel.libraryMovies.filter { movie in
+            guard let id = movie.tmdbId else { return false }
+            return suggested.contains(id)
+        }
+    }
+
+    private var manualMovieMatches: [RadarrMovie] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        return viewModel.libraryMovies
+            .filter { $0.title.localizedCaseInsensitiveContains(q) }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    private var manualSeriesSuggestions: [SonarrSeries] {
+        let suggested = Set(viewModel.autoSuggestionSeries.compactMap(\.tvdbId))
+        return viewModel.librarySeries.filter { series in
+            guard let id = series.tvdbId else { return false }
+            return suggested.contains(id)
+        }
+    }
+
+    private var manualSeriesMatches: [SonarrSeries] {
+        let q = searchText.trimmingCharacters(in: .whitespaces)
+        guard !q.isEmpty else { return [] }
+        return viewModel.librarySeries
+            .filter { $0.title.localizedCaseInsensitiveContains(q) }
+            .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    @ViewBuilder
+    private var manualRadarrSections: some View {
+        let matches = searchText.isEmpty ? manualMovieSuggestions : manualMovieMatches
+        if !matches.isEmpty {
+            Section(searchText.isEmpty ? "Maybe:" : "Your Library") {
+                ForEach(matches) { movie in
+                    libraryMovieRow(movie)
+                }
+            }
+        } else {
+            ContentUnavailableView(
+                searchText.isEmpty ? "Find the movie" : "No Library Match",
+                systemImage: "magnifyingglass",
+                description: Text(searchText.isEmpty
+                    ? "Search for a movie that's already in your library to match this file."
+                    : "No movie in your library matches “\(searchText)”. To add a new movie, use Library Import.")
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var manualSonarrSections: some View {
+        let matches = searchText.isEmpty ? manualSeriesSuggestions : manualSeriesMatches
+        if !matches.isEmpty {
+            Section(searchText.isEmpty ? "Maybe:" : "Your Library") {
+                ForEach(matches) { series in
+                    librarySeriesRow(series)
+                }
+            }
+        } else {
+            ContentUnavailableView(
+                searchText.isEmpty ? "Find the series" : "No Library Match",
+                systemImage: "magnifyingglass",
+                description: Text(searchText.isEmpty
+                    ? "Search for a series that's already in your library to match this file."
+                    : "No series in your library matches “\(searchText)”. To add a new series, use Library Import.")
+            )
         }
     }
 

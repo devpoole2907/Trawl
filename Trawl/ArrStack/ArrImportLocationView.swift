@@ -2,14 +2,64 @@ import SwiftUI
 import SwiftData
 import OSLog
 
-// MARK: - Location Browser
+// MARK: - Import Kind / Mode
 
-struct ArrLibraryImportView: View {
+/// Which Arr import flow a screen drives. Library Import bulk-adopts an existing
+/// organized library (adding titles as needed); Manual Import brings files into
+/// titles that are already in the library. Both run on the same scan/identify
+/// engine — this just toggles the title, copy, and existing-only behaviour.
+enum ArrImportKind: Sendable, Equatable {
+    case library
+    case manual
+
+    var navigationTitle: String {
+        switch self {
+        case .library: return "Library Import"
+        case .manual: return "Manual Import"
+        }
+    }
+
+    var accent: MoreDestinationAccent {
+        switch self {
+        case .library: return .libraryImport
+        case .manual: return .manualImport
+        }
+    }
+}
+
+/// How Sonarr/Radarr place an imported file. Mirrors the `importMode` the
+/// interactive import sends; a hardlink happens automatically under `.copy`
+/// when the server's media management is configured for it.
+enum ArrImportMode: String, CaseIterable, Sendable, Identifiable {
+    case move
+    case copy
+
+    var id: String { rawValue }
+    var apiValue: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .move: return "Move"
+        case .copy: return "Copy"
+        }
+    }
+}
+
+// MARK: - Import Location Browser
+
+/// Lets the user pick a root or custom folder to scan, for either import flow.
+struct ArrImportLocationView: View {
+    let kind: ArrImportKind
+
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var allProfiles: [ArrServiceProfile]
 
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showAddLocation = false
+
+    init(kind: ArrImportKind = .library) {
+        self.kind = kind
+    }
 
     private var availableServices: [ArrServiceType] {
         var services: [ArrServiceType] = []
@@ -61,8 +111,8 @@ struct ArrLibraryImportView: View {
                 listContent
             }
         }
-        .navigationTitle("Library Import")
-        .moreDestinationBackground(.libraryImport)
+        .navigationTitle(kind.navigationTitle)
+        .moreDestinationBackground(kind.accent)
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -72,7 +122,9 @@ struct ArrLibraryImportView: View {
         ContentUnavailableView {
             Label("No Services Configured", systemImage: "tray.and.arrow.down")
         } description: {
-            Text("Add a Sonarr or Radarr server in Settings to import an existing library.")
+            Text(kind == .manual
+                 ? "Add a Sonarr or Radarr server in Settings to import files into your library."
+                 : "Add a Sonarr or Radarr server in Settings to import an existing library.")
         } actions: {
             MoreSettingsNavigationLink()
         }
@@ -86,7 +138,7 @@ struct ArrLibraryImportView: View {
             if !rootFolders.isEmpty {
                 Section {
                     ForEach(rootFolders) { folder in
-                        NavigationLink(value: MoreDestination.libraryImportScan(path: folder.path, service: selectedService)) {
+                        NavigationLink(value: scanDestination(path: folder.path)) {
                             locationRow(
                                 icon: "internaldrive",
                                 title: folder.path,
@@ -107,7 +159,7 @@ struct ArrLibraryImportView: View {
                         .foregroundStyle(.secondary)
                 } else {
                     ForEach(customFolders, id: \.self) { path in
-                        NavigationLink(value: MoreDestination.libraryImportScan(path: path, service: selectedService)) {
+                        NavigationLink(value: scanDestination(path: path)) {
                             locationRow(
                                 icon: "folder",
                                 title: path,
@@ -167,24 +219,47 @@ struct ArrLibraryImportView: View {
         }
     }
 
+    @ViewBuilder
     private var importTipsSection: some View {
         let plural = selectedService == .sonarr ? "series" : "movies"
-        let singleFolder = selectedService == .sonarr ? "“/tv shows”" : "“/movies”"
-        let specificFolder = selectedService == .sonarr ? "“/tv shows/The Simpsons”" : "“/movies/Inception”"
-        let perItemFolder = selectedService == .sonarr ? "series" : "movie"
-        let qualityExample = selectedService == .sonarr ? "episode.s02e15.bluray.mkv" : "the.movie.2009.bluray.mkv"
-
-        return Section {
-            VStack(alignment: .leading, spacing: 12) {
-                importTip("Make sure your files include the quality in their filenames, e.g. \(qualityExample).")
-                importTip("Point \(selectedService.displayName) at the folder containing all of your \(plural), not a specific one — e.g. \(singleFolder), not \(specificFolder). Each \(perItemFolder) must be in its own folder within the root.")
-                importTip("Don’t use this for unsorted downloads from your download client. It’s only for libraries that are already organized.")
+        let perItem = selectedService == .sonarr ? "series" : "movie"
+        switch kind {
+        case .library:
+            let singleFolder = selectedService == .sonarr ? "“/tv shows”" : "“/movies”"
+            let specificFolder = selectedService == .sonarr ? "“/tv shows/The Simpsons”" : "“/movies/Inception”"
+            let qualityExample = selectedService == .sonarr ? "episode.s02e15.bluray.mkv" : "the.movie.2009.bluray.mkv"
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    importTip("Make sure your files include the quality in their filenames, e.g. \(qualityExample).")
+                    importTip("Point \(selectedService.displayName) at the folder containing all of your \(plural), not a specific one — e.g. \(singleFolder), not \(specificFolder). Each \(perItem) must be in its own folder within the root.")
+                    importTip("Don’t use this for unsorted downloads from your download client. It’s only for libraries that are already organized.")
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Import \(plural) you already have")
+            } footer: {
+                Text("Pick a library root below to scan it for \(plural) that aren’t in \(selectedService.displayName) yet.")
             }
-            .padding(.vertical, 4)
-        } header: {
-            Text("Import \(plural) you already have")
-        } footer: {
-            Text("Pick a library root below to scan it for \(plural) that aren’t in \(selectedService.displayName) yet.")
+        case .manual:
+            Section {
+                VStack(alignment: .leading, spacing: 12) {
+                    importTip("Use this to import files for \(plural) that are already in \(selectedService.displayName). To add new \(plural), use Library Import instead.")
+                    importTip("Point \(selectedService.displayName) at the folder holding the files you want to import.")
+                    importTip("Each file is matched to an existing \(perItem) — correct any match, and choose Move or Copy, before importing.")
+                }
+                .padding(.vertical, 4)
+            } header: {
+                Text("Import files into your library")
+            } footer: {
+                Text("Pick a folder below to scan it for importable files.")
+            }
+        }
+    }
+
+    private func scanDestination(path: String) -> MoreDestination {
+        switch kind {
+        case .library: return .libraryImportScan(path: path, service: selectedService)
+        case .manual: return .manualImportScan(path: path, service: selectedService)
         }
     }
 
@@ -268,7 +343,7 @@ extension ArrServiceType {
 
     PreviewHost(profiles: profiles, arr: .preview(.allConfigured)) {
         NavigationStack {
-            ArrLibraryImportView()
+            ArrImportLocationView()
         }
     }
 }
@@ -276,7 +351,7 @@ extension ArrServiceType {
 #Preview("Manual Import - Empty") {
     PreviewHost(profiles: .empty, arr: .preview(.noneConfigured)) {
         NavigationStack {
-            ArrLibraryImportView()
+            ArrImportLocationView()
         }
     }
 }
@@ -284,7 +359,7 @@ extension ArrServiceType {
 #Preview("Manual Import - Connection Issue") {
     PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Unable to reach 192.168.1.50:8989"))) {
         NavigationStack {
-            ArrLibraryImportView()
+            ArrImportLocationView()
         }
     }
 }

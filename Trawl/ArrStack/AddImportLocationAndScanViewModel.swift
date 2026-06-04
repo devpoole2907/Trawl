@@ -121,6 +121,10 @@ final class LibraryImportScanViewModel {
     let service: ArrServiceType
     let serviceManager: ArrServiceManager
     let libraryItemID: Int?
+    let importKind: ArrImportKind
+    /// Move (default) or Copy, sent as the manual-import command's importMode.
+    /// Only surfaced in the UI for Manual Import; Library Import keeps the default.
+    var importMode: ArrImportMode = .move
 
     var isScanning = false
     var isImporting = false
@@ -142,6 +146,10 @@ final class LibraryImportScanViewModel {
     var hasPerformedInitialScan = false
     var scanStatusMessage = "Preparing scan…"
     var scanError: String?
+    /// True when the scan failed only because the target folder doesn't exist on disk yet
+    /// (Sonarr/Radarr returns 500 "Could not find a part of the path"). Lets the UI explain
+    /// it instead of surfacing a raw server error.
+    var scanFolderMissing = false
     var isScanTakingLong = false
 
     // Identify sheet
@@ -167,11 +175,12 @@ final class LibraryImportScanViewModel {
     private var lastAutoSuggestionFilename: String?
     @ObservationIgnored private var autoIdentifyTask: Task<Void, Never>?
 
-    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil) {
+    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil, kind: ArrImportKind = .library) {
         self.path = path
         self.service = service
         self.serviceManager = serviceManager
         self.libraryItemID = libraryItemID
+        self.importKind = kind
     }
 
     var folderName: String {
@@ -264,6 +273,7 @@ final class LibraryImportScanViewModel {
     func loadFiles() async {
         isScanning = true
         scanError = nil
+        scanFolderMissing = false
         isScanTakingLong = false
         scanStatusMessage = "Preparing scan…"
         let shouldResumeAutoIdentify = autoIdentifyEnabled
@@ -359,9 +369,20 @@ final class LibraryImportScanViewModel {
             autoIdentifyLastOutcomeMessage = nil
         } catch {
             Self.logger.error("Manual import scan failed for \(self.path, privacy: .public): \(error.localizedDescription, privacy: .public)")
-            scanError = error.localizedDescription
-            scanStatusMessage = "Scan failed"
-            InAppNotificationCenter.shared.showError(title: "Scan Failed", message: error.localizedDescription)
+            let description = error.localizedDescription
+            if description.localizedCaseInsensitiveContains("could not find a part of the path")
+                || description.localizedCaseInsensitiveContains("directory not found") {
+                // Expected when the title has no files yet — its folder doesn't exist on
+                // disk. Explain it rather than alarming with a raw 500 (the Sonarr/Radarr
+                // web UI shows the same error here).
+                scanFolderMissing = true
+                scanError = "\(service.displayName) couldn't find this folder on disk:\n\(path)\n\nManual import scans an existing folder for files. A title with no files yet usually has no folder on disk."
+                scanStatusMessage = "Folder not found"
+            } else {
+                scanError = description
+                scanStatusMessage = "Scan failed"
+                InAppNotificationCenter.shared.showError(title: "Scan Failed", message: description)
+            }
             importableFiles = []
             blockedFiles = []
             inLibraryItemIDs = []
@@ -617,12 +638,12 @@ final class LibraryImportScanViewModel {
             guard let client = serviceManager.sonarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
-            return try await client.manualImport(files: files)
+            return try await client.manualImport(files: files, importMode: importMode.apiValue)
         case .radarr:
             guard let client = serviceManager.radarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
-            return try await client.manualImport(files: files)
+            return try await client.manualImport(files: files, importMode: importMode.apiValue)
         case .prowlarr, .bazarr:
             throw LibraryImportServiceClientUnavailableError(service: service)
         }
@@ -883,7 +904,7 @@ final class LibraryImportScanViewModel {
                             ? "Matched \(pending[0].fileName) to \(match.title)."
                             : "Matched \(pending.count) \(group.displayTitle) files to \(match.title)."
                         applyIdentification(to: pending, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
-                    } else if let candidate = results.first {
+                    } else if importKind == .library, let candidate = results.first {
                         autoIdentifyProcessedCount += pending.count
                         autoIdentifyLastMatchedTitle = candidate.title
                         autoIdentifyLastOutcomeMessage = pending.count == 1
@@ -907,7 +928,7 @@ final class LibraryImportScanViewModel {
                             ? "Matched \(pending[0].fileName) to \(match.title)."
                             : "Matched \(pending.count) \(group.displayTitle) files to \(match.title)."
                         applyIdentification(to: pending, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
-                    } else if let candidate = results.first {
+                    } else if importKind == .library, let candidate = results.first {
                         autoIdentifyProcessedCount += pending.count
                         autoIdentifyLastMatchedTitle = candidate.title
                         autoIdentifyLastOutcomeMessage = pending.count == 1

@@ -24,6 +24,15 @@ struct ArrMediaManagementView: View {
                     )
                 }
 
+                NavigationLink(value: MoreDestination.manualImport) {
+                    NavigationMenuRow(
+                        icon: "tray.and.arrow.down.fill",
+                        color: MoreDestinationAccent.manualImport.color,
+                        title: "Manual Import",
+                        subtitle: "Import files into titles already in your library"
+                    )
+                }
+
                 NavigationLink(value: MoreDestination.diskSpace) {
                     NavigationMenuRow(
                         icon: "internaldrive.fill",

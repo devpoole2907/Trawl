@@ -22,6 +22,7 @@ struct SonarrSeriesDetailView: View {
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
     @State private var showRenameFilesAlert = false
+    @State private var showManualImport = false
     @State private var isRenamingFiles = false
     @State private var isDispatchingSeriesSearch = false
     /// Snapshot of the series captured when the sheet opens. Holding a stable value here
@@ -265,6 +266,20 @@ struct SonarrSeriesDetailView: View {
                     }
                 }
             )
+        }
+        .sheet(isPresented: $showManualImport, onDismiss: { Task { await refreshSeriesDetailState() } }) {
+            if let series, let path = series.path {
+                NavigationStack {
+                    LibraryImportScanView(
+                        path: path,
+                        service: .sonarr,
+                        serviceManager: serviceManager,
+                        libraryItemID: series.id,
+                        showsCloseButton: true,
+                        kind: .manual
+                    )
+                }
+            }
         }
         .sheet(isPresented: $showAddSheet) {
             if let series {
@@ -926,6 +941,14 @@ struct SonarrSeriesDetailView: View {
                             Label("Rename Files", systemImage: "pencil.and.list.clipboard")
                         }
                         .disabled(isRenamingFiles)
+
+                        if series?.path != nil {
+                            Button {
+                                showManualImport = true
+                            } label: {
+                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
+                            }
+                        }
 
                         Divider()
                     }
