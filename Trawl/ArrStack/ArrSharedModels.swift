@@ -1500,15 +1500,20 @@ nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, 
         return existingPath // Return the original path unchanged rather than producing a traversed result
     }
 
+    // We can only rebase safely when the existing path genuinely lives under the
+    // existing root, so the suffix is the part *below* that root. If the root is
+    // unknown (empty) or the path doesn't start with it (case/slash mismatch, or
+    // the path is already under a different root), prepending the new root to the
+    // full absolute path would double it — e.g. "/data/TV Shows" + "/data/TV Shows/Show"
+    // => "/data/TV Shows/data/TV Shows/Show". In those cases leave the path as-is.
     let suffix: String
-    if normalizedExistingRoot.isEmpty {
-        suffix = normalizedExisting
-    } else if normalizedExisting.compare(normalizedExistingRoot, options: [.anchored]) == .orderedSame,
-              (normalizedExisting.count == normalizedExistingRoot.count ||
-               normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
+    if !normalizedExistingRoot.isEmpty,
+       normalizedExisting.compare(normalizedExistingRoot, options: [.anchored]) == .orderedSame,
+       (normalizedExisting.count == normalizedExistingRoot.count ||
+        normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
         suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
     } else {
-        suffix = normalizedExisting
+        return existingPath
     }
 
     // Guard against path traversal in the server-supplied newRoot.
