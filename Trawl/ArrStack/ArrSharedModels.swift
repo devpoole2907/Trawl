@@ -1486,7 +1486,6 @@ enum ArrError: LocalizedError, Sendable {
 /// Preserves leading separators (POSIX / or Windows UNC/Root) to ensure the path remains absolute.
 nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, newRoot: String) -> String {
     let normalizedExisting = existingPath.replacingOccurrences(of: "\\", with: "/")
-    let normalizedExistingRoot = existingRoot.replacingOccurrences(of: "\\", with: "/")
     let normalizedNewRoot = newRoot.replacingOccurrences(of: "\\", with: "/")
 
     if normalizedExisting.isEmpty {
@@ -1500,19 +1499,12 @@ nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, 
         return existingPath // Return the original path unchanged rather than producing a traversed result
     }
 
-    // We can only rebase safely when the existing path genuinely lives under the
-    // existing root, so the suffix is the part *below* that root. If the root is
-    // unknown (empty) or the path doesn't start with it (case/slash mismatch, or
-    // the path is already under a different root), prepending the new root to the
-    // full absolute path would double it — e.g. "/data/TV Shows" + "/data/TV Shows/Show"
-    // => "/data/TV Shows/data/TV Shows/Show". In those cases leave the path as-is.
-    let suffix: String
-    if !normalizedExistingRoot.isEmpty,
-       normalizedExisting.compare(normalizedExistingRoot, options: [.anchored]) == .orderedSame,
-       (normalizedExisting.count == normalizedExistingRoot.count ||
-        normalizedExisting[normalizedExisting.index(normalizedExisting.startIndex, offsetBy: normalizedExistingRoot.count)] == "/") {
-        suffix = String(normalizedExisting.dropFirst(normalizedExistingRoot.count))
-    } else {
+    // A library item lives directly under its root, so its folder is the last
+    // component of the path. Rebasing keeps that folder name and swaps in the new
+    // root — matching how Sonarr/Radarr themselves move an item to a new root, and
+    // self-healing a previously doubled path (e.g. /root/root/Show -> /newRoot/Show)
+    // rather than preserving the corrupted middle segment.
+    guard let folderName = existingPathComponents.last else {
         return existingPath
     }
 
@@ -1527,16 +1519,7 @@ nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, 
     var resultRoot = normalizedNewRoot
     while resultRoot.hasSuffix("/") { resultRoot.removeLast() }
 
-    // Join
-    let trimmedSuffix = suffix.hasPrefix("/") ? String(suffix.dropFirst()) : suffix
-    let finalPath: String
-    if resultRoot.isEmpty {
-        finalPath = suffix
-    } else if trimmedSuffix.isEmpty {
-        finalPath = resultRoot
-    } else {
-        finalPath = resultRoot + "/" + trimmedSuffix
-    }
+    let finalPath = resultRoot.isEmpty ? "/" + folderName : resultRoot + "/" + folderName
     
     // Restore separators based on the new root style.
     if newRoot.contains("\\") {
