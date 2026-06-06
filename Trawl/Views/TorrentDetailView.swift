@@ -163,6 +163,8 @@ struct TorrentDetailView: View {
 
     @ViewBuilder
     private func headerSection(torrent: Torrent, vm: TorrentDetailViewModel) -> some View {
+        let currentTags = vm.currentTags
+
         TorrentSummaryView(
             torrent: torrent,
             titleFont: .headline,
@@ -170,16 +172,20 @@ struct TorrentDetailView: View {
             isTitleSelectable: true,
             displayedSize: torrent.totalSize
         ) {
-            if !vm.currentTags.isEmpty {
+            if !currentTags.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
-                        ForEach(vm.currentTags, id: \.self) { tag in
+                        ForEach(currentTags, id: \.self) { tag in
                             DetailTagChip(title: tag)
+                                .transition(.scale.combined(with: .opacity))
                         }
                     }
+                    .animation(.snappy, value: currentTags)
                 }
+                .transition(.scale.combined(with: .opacity))
             }
         }
+        .animation(.snappy, value: currentTags)
     }
 
     @ViewBuilder
@@ -466,7 +472,10 @@ private struct DetailTagChip: View {
     let title: String
 
     var body: some View {
-        Label(title, systemImage: "number")
+        HStack(spacing: 4) {
+            Image(systemName: "number")
+            Text(title)
+        }
             .font(.caption)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)

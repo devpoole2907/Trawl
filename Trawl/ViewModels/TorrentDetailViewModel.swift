@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SwiftUI
 
 @MainActor
 @Observable
@@ -255,11 +256,15 @@ final class TorrentDetailViewModel {
         do {
             if containsTag {
                 try await torrentService.removeTorrentTags(hashes: [torrentHash], tags: [normalizedTag])
-                syncService.removeTagsFromTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+                withAnimation(.snappy) {
+                    syncService.removeTagsFromTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+                }
             } else {
                 try await torrentService.addTorrentTags(hashes: [torrentHash], tags: [normalizedTag])
-                syncService.addTagLocally(name: normalizedTag)
-                syncService.addTagsToTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+                withAnimation(.snappy) {
+                    syncService.addTagLocally(name: normalizedTag)
+                    syncService.addTagsToTorrentLocally(hash: torrentHash, tags: [normalizedTag])
+                }
             }
             await syncService.refreshNow()
             error = nil
