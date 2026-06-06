@@ -263,7 +263,8 @@ final class InAppNotificationCenter {
         serviceTint: ImportJobTint,
         folderName: String,
         primaryName: String,
-        fileCount: Int
+        fileCount: Int,
+        fileNames: [String] = []
     ) -> UUID {
         let job = ActiveImportJob(
             id: UUID(),
@@ -273,6 +274,7 @@ final class InAppNotificationCenter {
             folderName: folderName,
             primaryName: primaryName,
             fileCount: fileCount,
+            fileNames: fileNames,
             startedAt: Date(),
             status: .running,
             completedAt: nil,
@@ -280,6 +282,17 @@ final class InAppNotificationCenter {
         )
         activeImportJobs.insert(job, at: 0)
         return job.id
+    }
+
+    /// Update a running import job with live per-file progress from the server
+    /// (e.g. ManualImport's "Processing file 3 of 4").
+    func updateImportJobProgress(id: UUID, currentIndex: Int, total: Int) {
+        guard let index = activeImportJobs.firstIndex(where: { $0.id == id }) else { return }
+        guard activeImportJobs[index].status == .running else { return }
+        // Never let the counter go backwards (polls can briefly race).
+        if let existing = activeImportJobs[index].currentIndex, currentIndex < existing { return }
+        activeImportJobs[index].currentIndex = currentIndex
+        activeImportJobs[index].progressTotal = total
     }
 
     func completeImportJob(id: UUID, succeeded: Bool, errorMessage: String? = nil) {
@@ -503,8 +516,20 @@ struct ActiveImportJob: Identifiable, Sendable {
     let folderName: String
     let primaryName: String
     let fileCount: Int
+    let fileNames: [String]
     let startedAt: Date
     var status: Status
     var completedAt: Date?
     var errorMessage: String?
+    /// 1-based index of the file currently being processed by the server, if known.
+    var currentIndex: Int?
+    /// Total file count reported by the server's live progress, if known.
+    var progressTotal: Int?
+
+    /// The file name the server is currently processing, mapped from `currentIndex`.
+    /// Falls back to the primary name when no live index is available.
+    var currentName: String? {
+        guard let currentIndex, currentIndex >= 1, currentIndex <= fileNames.count else { return nil }
+        return fileNames[currentIndex - 1]
+    }
 }

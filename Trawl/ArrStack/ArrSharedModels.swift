@@ -166,7 +166,7 @@ nonisolated struct ArrFileSystemV3Response: Decodable {
 
 // MARK: - Tag
 
-struct ArrTag: Codable, Identifiable, Sendable {
+nonisolated struct ArrTag: Codable, Identifiable, Sendable {
     let id: Int
     let label: String
 }
@@ -1016,11 +1016,31 @@ nonisolated struct ArrCommand: Codable, Identifiable, Sendable {
     let lastExecutionTime: String?
     let trigger: String?
     let exception: String?      // error message when status == "failed"
+    let message: String?        // live progress text, e.g. "Processing file 3 of 4"
 
     var isTerminal: Bool {
         status == "completed" || status == "failed" || status == "aborted" || status == "cancelled" || status == "orphaned"
     }
     var succeeded: Bool { status == "completed" }
+
+    /// Parses the live `message` into a (current, total) pair when the command
+    /// is reporting per-item progress (e.g. ManualImport's "Processing file 3 of 4").
+    /// Returns nil for messages that don't carry an "X of Y" counter.
+    var itemProgress: (current: Int, total: Int)? {
+        guard let message else { return nil }
+        // Match the "<current> of <total>" counter in messages like
+        // "Processing file 3 of 4" without relying on a regex literal.
+        let words = message.split(separator: " ")
+        guard let ofIndex = words.firstIndex(of: "of"),
+              ofIndex > words.startIndex,
+              ofIndex < words.index(before: words.endIndex) else { return nil }
+        let before = words[words.index(before: ofIndex)]
+        let after = words[words.index(after: ofIndex)]
+        guard let current = Int(before),
+              let total = Int(after.prefix(while: { $0.isNumber })),
+              total > 0 else { return nil }
+        return (current, total)
+    }
 }
 
 // MARK: - Quality Definitions

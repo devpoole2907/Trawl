@@ -3556,16 +3556,26 @@ struct RecentNotificationsSheet: View {
                         if hasImportActivity {
                             Section {
                                 ForEach(activeJobs) { job in
-                                    activeImportJobRow(job)
-                                        .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
-                                            if job.status != .running {
-                                                Button(role: .destructive) {
-                                                    inAppNotificationCenter.removeImportJob(id: job.id)
-                                                } label: {
-                                                    Label("Dismiss", systemImage: "xmark")
-                                                }
+                                    Group {
+                                        if job.fileNames.count > 1 {
+                                            NavigationLink {
+                                                ImportJobFilesView(job: job)
+                                            } label: {
+                                                activeImportJobRow(job)
+                                            }
+                                        } else {
+                                            activeImportJobRow(job)
+                                        }
+                                    }
+                                    .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
+                                        if job.status != .running {
+                                            Button(role: .destructive) {
+                                                inAppNotificationCenter.removeImportJob(id: job.id)
+                                            } label: {
+                                                Label("Dismiss", systemImage: "xmark")
                                             }
                                         }
+                                    }
                                 }
 
                                 ForEach(displayedImportCommands) { command in
@@ -3814,7 +3824,7 @@ struct RecentNotificationsSheet: View {
                     Spacer(minLength: 0)
                 }
 
-                Text(job.primaryName)
+                Text(activeImportJobTitle(job))
                     .font(.subheadline.weight(.semibold))
                     .lineLimit(2)
 
@@ -3836,10 +3846,24 @@ struct RecentNotificationsSheet: View {
 
     private func activeImportJobStatusText(_ job: ActiveImportJob) -> String {
         switch job.status {
-        case .running: return "Importing"
+        case .running:
+            if let current = job.currentIndex, let total = job.progressTotal {
+                return "Importing \(current) of \(total)"
+            }
+            return "Importing"
         case .succeeded: return "Imported"
         case .failed: return "Failed"
         }
+    }
+
+    /// The leading title for the job row. While running with known per-file
+    /// progress, this is the file currently being processed by the server;
+    /// otherwise it falls back to the batch's representative title.
+    private func activeImportJobTitle(_ job: ActiveImportJob) -> String {
+        if job.status == .running, let current = job.currentName {
+            return current
+        }
+        return job.primaryName
     }
 
     private func activeImportJobStatusColor(_ job: ActiveImportJob) -> Color {
@@ -4699,4 +4723,108 @@ private struct BazarrMovieDestination: View {
 
 #Preview("Single service") {
     MoreServicesGradientBackground(services: [.sonarr])
+}
+
+/// Detail screen listing every file in an import job, reached by tapping a multi-file
+/// import row in the notifications sheet. Observes the notification center so the
+/// live per-file progress ("Processing file 3 of 4") updates while the user watches.
+struct ImportJobFilesView: View {
+    let jobID: UUID
+    /// Snapshot used as a fallback if the live job is removed (e.g. auto-cleared
+    /// shortly after success) while this screen is still on screen.
+    let snapshot: ActiveImportJob
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+
+    init(job: ActiveImportJob) {
+        self.jobID = job.id
+        self.snapshot = job
+    }
+
+    private var job: ActiveImportJob {
+        inAppNotificationCenter.activeImportJobs.first { $0.id == jobID } ?? snapshot
+    }
+
+    private var tint: Color {
+        switch job.serviceTint {
+        case .sonarr: return ServiceIdentity.sonarr.brandColor
+        case .radarr: return ServiceIdentity.radarr.brandColor
+        case .generic: return .accentColor
+        }
+    }
+
+    /// State of a single file relative to the server's live progress.
+    private enum FileState { case done, current, pending }
+
+    private func state(forIndex index: Int) -> FileState {
+        guard job.status == .running else {
+            // Finished: succeeded → all done, failed → leave neutral (no false checkmarks).
+            return job.status == .succeeded ? .done : .pending
+        }
+        guard let current = job.currentIndex else { return .pending }
+        if index + 1 < current { return .done }
+        if index + 1 == current { return .current }
+        return .pending
+    }
+
+    var body: some View {
+        List {
+            Section {
+                ForEach(Array(job.fileNames.enumerated()), id: \.offset) { index, name in
+                    let fileState = state(forIndex: index)
+                    HStack(spacing: 10) {
+                        fileStateIcon(fileState)
+                            .frame(width: 16)
+                        Text(name)
+                            .font(.subheadline)
+                            .fontWeight(fileState == .current ? .semibold : .regular)
+                            .lineLimit(2)
+                            .truncationMode(.middle)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Label(headerText, systemImage: job.serviceSystemImage)
+                    .foregroundStyle(tint)
+            } footer: {
+                Text("Importing into \(job.serviceTitle) from \(job.folderName).")
+            }
+        }
+        .animation(.snappy, value: job.currentIndex)
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle(job.primaryName)
+        #if os(iOS) || os(visionOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    private var headerText: String {
+        let fileWord = job.fileCount == 1 ? "file" : "files"
+        if job.status == .running, let current = job.currentIndex, let total = job.progressTotal {
+            return "Processing \(current) of \(total)"
+        }
+        return "\(job.fileCount) \(fileWord)"
+    }
+
+    @ViewBuilder
+    private func fileStateIcon(_ state: FileState) -> some View {
+        switch state {
+        case .done:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.green)
+        case .current:
+            ProgressView()
+                .controlSize(.small)
+                .tint(tint)
+        case .pending:
+            Image(systemName: "doc")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
 }

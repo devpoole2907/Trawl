@@ -8,7 +8,7 @@ enum LibraryImportScanTab: Hashable, CaseIterable {
     var displayName: String {
         switch self {
         case .new: return "New"
-        case .inLibrary: return "In Library"
+        case .inLibrary: return "Owned"
         case .all: return "All"
         }
     }
@@ -36,6 +36,7 @@ struct LibraryImportScanView: View {
     @State private var needsIDExpanded = true
     @State private var blockedExpanded = false
     @State private var inLibraryExpanded = true
+    @State private var importedExpanded = false
     @ScaledMetric(relativeTo: .subheadline) private var autoIdentifyStatusRowHeight: CGFloat = 50
     let showsCloseButton: Bool
 
@@ -46,16 +47,22 @@ struct LibraryImportScanView: View {
     }
 
     private var readyGroups: [LibraryImportGroup] {
-        let base = hasActiveSearch || selectedTab != .new
-            ? viewModel.groupedImportableFiles
-            : viewModel.groupedNewImportableFiles
-        return searchFiltered(base)
+        // Always the "new" (not-in-library) importable set. In-library files have
+        // their own section, so sourcing from groupedImportableFiles here listed
+        // them twice under the All tab (and while searching).
+        searchFiltered(viewModel.groupedNewImportableFiles)
     }
 
     private var pendingAddGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedIdentifiedPendingAddFiles) }
     private var needsIDGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedUnidentifiedFiles) }
     private var blockedGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedBlockedFiles) }
     private var inLibraryGroups: [LibraryImportGroup] { searchFiltered(viewModel.groupedInLibraryFiles) }
+
+    private var ownedImportedTitles: [OwnedLibraryTitle] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return viewModel.ownedTitlesInFolder }
+        return viewModel.ownedTitlesInFolder.filter { $0.title.localizedCaseInsensitiveContains(query) }
+    }
 
     private func searchFiltered(_ groups: [LibraryImportGroup]) -> [LibraryImportGroup] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -150,6 +157,10 @@ struct LibraryImportScanView: View {
                 inLibrarySection
             }
 
+            if hasActiveSearch || selectedTab == .inLibrary {
+                ownedImportedSection
+            }
+
             if !viewModel.isScanning && !hasAnyContent && viewModel.hasPerformedInitialScan {
                 Section {
                     ContentUnavailableView(
@@ -175,6 +186,7 @@ struct LibraryImportScanView: View {
         .animation(.snappy, value: needsIDGroups.count)
         .animation(.snappy, value: blockedGroups.count)
         .animation(.snappy, value: inLibraryGroups.count)
+        .animation(.snappy, value: ownedImportedTitles.count)
         .moreDestinationBackground(.libraryImport)
         .navigationTitle(viewModel.folderName)
         #if os(iOS) || os(visionOS)
@@ -182,6 +194,8 @@ struct LibraryImportScanView: View {
         #endif
         .refreshable {
             await viewModel.loadFiles()
+            await viewModel.loadLibraryIfNeeded()
+            viewModel.relinkIdentifiedItemsToLibrary()
             await viewModel.loadInLibraryStatus()
         }
         .safeAreaInset(edge: .top) {
@@ -212,13 +226,13 @@ struct LibraryImportScanView: View {
                     Button {
                         showSelectionReview = true
                     } label: {
-                        if viewModel.isImporting {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Text("Import").fontWeight(.semibold)
-                        }
+                        Text("Import").fontWeight(.semibold)
                     }
-                    .disabled(viewModel.isBusy || !viewModel.hasAnySelection)
+                    // Intentionally not gated on `isImporting`: a manual import is
+                    // POSTed to the *arr server immediately and runs server-side, so
+                    // the user can queue another batch while one is in flight (matches
+                    // the per-title / group "Add & Import" paths). Only block mid-scan.
+                    .disabled(viewModel.isScanning || !viewModel.hasAnySelection)
                 }
 
                 if hasAnyContent {
@@ -259,6 +273,7 @@ struct LibraryImportScanView: View {
                 await viewModel.loadFiles()
             }
             await viewModel.loadLibraryIfNeeded()
+            viewModel.relinkIdentifiedItemsToLibrary()
             await viewModel.loadInLibraryStatus()
             if !viewModel.userPausedAutoIdentify {
                 viewModel.startAutoIdentify()
@@ -353,6 +368,10 @@ struct LibraryImportScanView: View {
                 .frame(height: autoIdentifyStatusRowHeight)
                 .padding(.vertical, 2)
             }
+        } footer: {
+            if viewModel.hasPerformedInitialScan {
+                Text("These are untracked files found in this folder — extra copies, samples, and anything \(viewModel.service.displayName) hasn't imported yet. Files already in your library are listed under the Owned tab.")
+            }
         }
     }
 
@@ -368,7 +387,7 @@ struct LibraryImportScanView: View {
                 if pendingCount > 0 { statusChip("\(pendingCount) identified", color: .blue) }
                 if needsIDCount > 0 { statusChip("\(needsIDCount) to identify", color: .orange) }
                 if blockedCount > 0 { statusChip("\(blockedCount) blocked", color: .red) }
-                if inLibraryCount > 0 { statusChip("\(inLibraryCount) in library", color: .secondary) }
+                if inLibraryCount > 0 { statusChip("\(inLibraryCount) extra", color: .secondary) }
             }
         }
     }
@@ -493,6 +512,9 @@ struct LibraryImportScanView: View {
     private var inLibrarySection: some View {
         if !inLibraryGroups.isEmpty {
             Section(isExpanded: $inLibraryExpanded) {
+                Text("Untracked files for movies you already own — import only to replace or upgrade the existing file.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 ForEach(inLibraryGroups) { group in
                     LibraryImportGroupRow(
                         group: group, style: .ready,
@@ -511,9 +533,64 @@ struct LibraryImportScanView: View {
                     .opacity(0.65)
                 }
             } header: {
-                Text("In Library (\(inLibraryGroups.count))")
+                Text("Extra Copies (\(inLibraryGroups.count))")
             }
         }
+    }
+
+    @ViewBuilder
+    private var ownedImportedSection: some View {
+        if !ownedImportedTitles.isEmpty {
+            Section(isExpanded: $importedExpanded) {
+                Text("Already imported into \(viewModel.service.displayName) from this folder. Nothing to do here — shown so you can see what's already handled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(ownedImportedTitles) { title in
+                    OwnedImportedRow(title: title)
+                }
+            } header: {
+                Text("In Library (\(ownedImportedTitles.count))")
+            }
+        }
+    }
+}
+
+private struct OwnedImportedRow: View {
+    let title: OwnedLibraryTitle
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ArrArtworkView(url: title.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                    Image(systemName: "film")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title.title)
+                    .font(.subheadline.weight(.semibold))
+                    .lineLimit(1)
+                if let year = title.year {
+                    Text(String(year))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            Label("Imported", systemImage: "checkmark.circle.fill")
+                .labelStyle(.iconOnly)
+                .foregroundStyle(.green)
+                .font(.title3)
+        }
+        .padding(.vertical, 4)
+        .opacity(0.75)
     }
 }
 
@@ -555,7 +632,7 @@ struct ArrQueueImportIssueResolutionSheet: View {
             title: "Resolve Import Issue",
             cancelTitle: "Close",
             confirmTitle: readyItems.count == 1 ? "Import" : "Import \(readyItems.count)",
-            isConfirmDisabled: readyItems.isEmpty || viewModel.isBusy,
+            isConfirmDisabled: readyItems.isEmpty || viewModel.isScanning,
             isConfirmLoading: viewModel.isImporting,
             onConfirm: {
                 let items = readyItems
@@ -829,7 +906,14 @@ struct LibraryImportItem: Identifiable, Sendable {
         switch service {
         case .radarr:
             dict["movieId"] = .number(Double(id))
-            if dict["movie"] == nil {
+            // Always force the embedded movie's id to the current match. A re-identified
+            // file otherwise carries the previous match's movie object (or an empty `{}`
+            // left from an "Unknown Movie" scan), and the ManualImport command keys off
+            // that — importing to the wrong movie or failing as "Movie with id 0…".
+            if case .object(var movieDict) = dict["movie"] {
+                movieDict["id"] = .number(Double(id))
+                dict["movie"] = .object(movieDict)
+            } else {
                 dict["movie"] = .object(["id": .number(Double(id))])
             }
         case .sonarr:
@@ -847,7 +931,10 @@ struct LibraryImportItem: Identifiable, Sendable {
             } else {
                 dict["episodeIds"] = .array([])
             }
-            if dict["series"] == nil {
+            if case .object(var seriesDict) = dict["series"] {
+                seriesDict["id"] = .number(Double(id))
+                dict["series"] = .object(seriesDict)
+            } else {
                 dict["series"] = .object(["id": .number(Double(id))])
             }
         case .prowlarr, .bazarr:
@@ -1064,6 +1151,15 @@ struct LibraryImportItem: Identifiable, Sendable {
 }
 
 enum GroupSelectionState { case none, partial, all }
+
+/// A library title (movie/series) already imported from the scanned folder. Informational
+/// only — shown under the Owned tab so the user can see what's already handled.
+struct OwnedLibraryTitle: Identifiable, Sendable {
+    let id: Int
+    let title: String
+    let year: Int?
+    let posterURL: URL?
+}
 
 struct ArrQueueImportIssueResolution: Identifiable, Equatable {
     let id: Int
@@ -1472,6 +1568,9 @@ struct LibraryImportGroupSheet: View {
         initialGroup.items.compactMap { item in
             viewModel.importableFiles.first { $0.id == item.id }
         }
+        // Drop files that were re-identified to a different title — they belong to another
+        // group now and shouldn't linger here under this group's (stale) heading.
+        .filter { initialGroup.mediaID == nil || $0.mediaID == initialGroup.mediaID }
     }
 
     private func identifyTarget(for item: LibraryImportItem) -> LibraryImportIdentifyTarget {
@@ -1608,7 +1707,7 @@ private struct LibraryImportSelectionReviewSheet: View {
     }
 
     private var isConfirmDisabled: Bool {
-        hasUnresolved || (viewModel.selectedFiles.isEmpty && pendingAddGroups.isEmpty) || viewModel.isBusy
+        hasUnresolved || (viewModel.selectedFiles.isEmpty && pendingAddGroups.isEmpty) || viewModel.isScanning
     }
 
     private var titleWord: String {

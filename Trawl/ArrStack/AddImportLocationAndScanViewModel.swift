@@ -138,6 +138,7 @@ final class LibraryImportScanViewModel {
     var groupedUnidentifiedFiles: [LibraryImportGroup] = []
     var groupedBlockedFiles: [LibraryImportGroup] = []
     var inLibraryItemIDs: Set<String> = []
+    var ownedTitlesInFolder: [OwnedLibraryTitle] = []
     var isLoadingInLibraryStatus = false
     var selectedFiles: Set<String> = []
     var selectedBlockedFiles: Set<String> = []
@@ -468,7 +469,7 @@ final class LibraryImportScanViewModel {
         let filesToImport = savedItems.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
 
         let count = filesToImport.count
-        let jobID = registerImportJob(itemCount: count, primaryItem: savedItems.first)
+        let jobID = registerImportJob(items: savedItems)
 
         do {
             let navAction = navigationAction
@@ -488,7 +489,7 @@ final class LibraryImportScanViewModel {
             selectedFiles = []
 
             // Wait for the manual import command to reach a terminal state.
-            let command = try await manualImport(files: filesToImport)
+            let command = try await manualImport(files: filesToImport, onProgress: importProgressHandler(jobID: jobID))
             Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
             if !command.isTerminal {
@@ -550,13 +551,14 @@ final class LibraryImportScanViewModel {
         }
     }
 
-    private func registerImportJob(itemCount: Int, primaryItem: LibraryImportItem?) -> UUID {
+    private func registerImportJob(items: [LibraryImportItem]) -> UUID {
         let tint: ImportJobTint
         switch service {
         case .sonarr: tint = .sonarr
         case .radarr: tint = .radarr
         case .prowlarr, .bazarr: tint = .generic
         }
+        let primaryItem = items.first
         let trimmedTitle = primaryItem?.mediaTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let primaryName: String
         if !trimmedTitle.isEmpty {
@@ -566,13 +568,15 @@ final class LibraryImportScanViewModel {
         } else {
             primaryName = folderName
         }
+        let fileNames = items.map { ($0.fileName as NSString).lastPathComponent }
         return InAppNotificationCenter.shared.startImportJob(
             serviceTitle: service.displayName,
             serviceSystemImage: service.serviceIdentity.systemImage,
             serviceTint: tint,
             folderName: folderName,
             primaryName: primaryName,
-            fileCount: itemCount
+            fileCount: items.count,
+            fileNames: fileNames
         )
     }
 
@@ -632,20 +636,38 @@ final class LibraryImportScanViewModel {
     }
 
     @discardableResult
-    private func manualImport(files: [JSONValue]) async throws -> ArrCommand {
+    private func manualImport(
+        files: [JSONValue],
+        onProgress: (@Sendable (ArrCommand) -> Void)? = nil
+    ) async throws -> ArrCommand {
         switch service {
         case .sonarr:
             guard let client = serviceManager.sonarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
-            return try await client.manualImport(files: files, importMode: importMode.apiValue)
+            return try await client.manualImport(files: files, importMode: importMode.apiValue, onProgress: onProgress)
         case .radarr:
             guard let client = serviceManager.radarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
-            return try await client.manualImport(files: files, importMode: importMode.apiValue)
+            return try await client.manualImport(files: files, importMode: importMode.apiValue, onProgress: onProgress)
         case .prowlarr, .bazarr:
             throw LibraryImportServiceClientUnavailableError(service: service)
+        }
+    }
+
+    /// Builds an `onProgress` closure that forwards the server's live per-file
+    /// progress (e.g. "Processing file 3 of 4") to the in-app import job.
+    private func importProgressHandler(jobID: UUID) -> (@Sendable (ArrCommand) -> Void) {
+        return { command in
+            guard let progress = command.itemProgress else { return }
+            Task { @MainActor in
+                InAppNotificationCenter.shared.updateImportJobProgress(
+                    id: jobID,
+                    currentIndex: progress.current,
+                    total: progress.total
+                )
+            }
         }
     }
 
@@ -699,11 +721,19 @@ final class LibraryImportScanViewModel {
         var found: Set<String> = []
         switch service {
         case .radarr:
+            // Fetch the movie list live so in-library status reflects the current
+            // library — relying on the cached `libraryMovies` left this stale (e.g.
+            // unchanged after pull-to-refresh, which doesn't reload the library).
+            let movies = (try? await serviceManager.radarrClient?.getMovies()) ?? libraryMovies
+            if !movies.isEmpty { libraryMovies = movies }
+            let moviesWithFile = Set(
+                movies
+                    .filter { $0.hasFile == true || $0.movieFile != nil }
+                    .map(\.id)
+            )
             for item in importableFiles {
                 guard let mid = item.mediaID else { continue }
-                if libraryMovies.first(where: { $0.id == mid })?.hasFile == true {
-                    found.insert(item.id)
-                }
+                if moviesWithFile.contains(mid) { found.insert(item.id) }
             }
         case .sonarr:
             guard let client = serviceManager.sonarrClient else { break }
@@ -734,6 +764,45 @@ final class LibraryImportScanViewModel {
         }
     }
 
+    /// Radarr/Sonarr's manual-import response often matches a file to a movie/series by
+    /// parsing but returns it with no library id (id 0) — so the file looks like a title
+    /// that still needs adding, even when it's already in the library. We hold the full
+    /// library list, so re-link those files to their real library entry by TMDb/TVDb id
+    /// and move them from "Identified / needs add" into the importable set.
+    func relinkIdentifiedItemsToLibrary() {
+        guard !blockedFiles.isEmpty else { return }
+        var promoted: [LibraryImportItem] = []
+        var remaining: [LibraryImportItem] = []
+        for item in blockedFiles {
+            guard item.rejectionReasons.isEmpty, item.mediaID == nil, let catalog = item.catalogID else {
+                remaining.append(item)
+                continue
+            }
+            switch service {
+            case .radarr:
+                if let movie = libraryMovies.first(where: { $0.tmdbId == catalog }) {
+                    promoted.append(item.withIdentification(mediaID: movie.id, title: movie.title, posterURL: item.posterURL))
+                    continue
+                }
+            case .sonarr:
+                if let series = librarySeries.first(where: { $0.tvdbId == catalog }) {
+                    promoted.append(item.withIdentification(mediaID: series.id, title: series.title, posterURL: item.posterURL))
+                    continue
+                }
+            case .prowlarr, .bazarr:
+                break
+            }
+            remaining.append(item)
+        }
+        guard !promoted.isEmpty else { return }
+        Self.logger.info("Re-linked \(promoted.count) scanned files to existing library entries by catalog id")
+        withAnimation(.snappy) {
+            blockedFiles = remaining
+            importableFiles.append(contentsOf: promoted)
+            recomputeGroups()
+        }
+    }
+
     func loadLibraryIfNeeded() async {
         guard !isLoadingLibrary else { return }
         isLoadingLibrary = true
@@ -755,9 +824,44 @@ final class LibraryImportScanViewModel {
             case .prowlarr, .bazarr:
                 break
             }
+            computeOwnedTitlesInFolder()
         } catch {
             // Silently fail — user will see an empty list in the sheet
         }
+    }
+
+    /// Library titles whose folder lives under the scanned path — i.e. what's *already
+    /// imported* from this folder (hidden from the scan by `filterExistingFiles`). Shown
+    /// read-only under the Owned tab so the folder's contents aren't a mystery.
+    func computeOwnedTitlesInFolder() {
+        let root = Self.normalizedFolderPath(path)
+        let titles: [OwnedLibraryTitle]
+        switch service {
+        case .radarr:
+            titles = libraryMovies.compactMap { movie in
+                guard movie.hasFile == true, let p = movie.path, Self.path(p, isUnder: root) else { return nil }
+                return OwnedLibraryTitle(id: movie.id, title: movie.title, year: movie.year, posterURL: movie.posterURL)
+            }
+        case .sonarr:
+            titles = librarySeries.compactMap { series in
+                guard let p = series.path, Self.path(p, isUnder: root) else { return nil }
+                return OwnedLibraryTitle(id: series.id, title: series.title, year: series.year, posterURL: series.posterURL)
+            }
+        case .prowlarr, .bazarr:
+            titles = []
+        }
+        ownedTitlesInFolder = titles.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+    }
+
+    nonisolated static func normalizedFolderPath(_ p: String) -> String {
+        p.hasSuffix("/") ? String(p.dropLast()) : p
+    }
+
+    /// True when `candidate` is the root itself or nested inside it (path-segment aware,
+    /// so `/data/Movies` does not match `/data/Movies2`).
+    nonisolated static func path(_ candidate: String, isUnder root: String) -> Bool {
+        let c = normalizedFolderPath(candidate)
+        return c == root || c.hasPrefix(root + "/")
     }
 
     func loadAutoSuggestions(for filename: String) async {
@@ -1273,7 +1377,7 @@ final class LibraryImportScanViewModel {
         let fileWord = count == 1 ? "file" : "files"
         let tabName = service == .sonarr ? "Series" : "Movies"
         let ids = Set(filesToImport.map(\.id))
-        let jobID = registerImportJob(itemCount: count, primaryItem: filesToImport.first)
+        let jobID = registerImportJob(items: filesToImport)
 
         withAnimation(.snappy) {
             importableFiles.removeAll { ids.contains($0.id) }
@@ -1283,7 +1387,7 @@ final class LibraryImportScanViewModel {
 
         do {
             let fileJSONs = filesToImport.map { $0.importJSON(service: service, seasonFolder: seasonFolder) }
-            let command = try await manualImport(files: fileJSONs)
+            let command = try await manualImport(files: fileJSONs, onProgress: importProgressHandler(jobID: jobID))
             if command.succeeded {
                 // Nudge the series/movie lists to reload once (they observe this
                 // timestamp), so a freshly added+imported title's counts refresh

@@ -475,7 +475,8 @@ extension ArrCommand {
         stateChangeTime: "2026-05-24T10:20:05Z",
         lastExecutionTime: nil,
         trigger: "manual",
-        exception: nil
+        exception: nil,
+        message: "Processing file 2 of 5"
     )
     static let previewList: [ArrCommand] = [
         preview,
@@ -490,7 +491,8 @@ extension ArrCommand {
             stateChangeTime: "2026-05-24T10:05:12Z",
             lastExecutionTime: "00:00:10",
             trigger: "scheduled",
-            exception: nil
+            exception: nil,
+            message: nil
         ),
     ]
 }

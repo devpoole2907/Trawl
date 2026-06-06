@@ -169,7 +169,11 @@ extension SharedArrClient {
         return try await base.get("\(apiPath)/manualimport", queryItems: params, timeoutInterval: requestTimeout)
     }
 
-    func manualImport(files: [JSONValue], importMode: String = "move") async throws -> ArrCommand {
+    func manualImport(
+        files: [JSONValue],
+        importMode: String = "move",
+        onProgress: (@Sendable (ArrCommand) -> Void)? = nil
+    ) async throws -> ArrCommand {
         let additionalParams: [String: JSONValue] = [
             "files": .array(files),
             "importMode": .string(importMode)
@@ -177,7 +181,8 @@ extension SharedArrClient {
         return try await postCommandAndWait(
             name: "ManualImport",
             additionalParams: additionalParams,
-            timeout: .seconds(600)
+            timeout: .seconds(600),
+            onProgress: onProgress
         )
     }
 
@@ -245,9 +250,10 @@ extension SharedArrClient {
     func postCommandAndWait(
         name: String,
         additionalParams: [String: JSONValue]? = nil,
-        timeout: Duration = .seconds(30)
+        timeout: Duration = .seconds(30),
+        onProgress: (@Sendable (ArrCommand) -> Void)? = nil
     ) async throws -> ArrCommand {
-        try await base.postCommandAndWait(name: name, additionalParams: additionalParams, timeout: timeout, apiPath: apiPath)
+        try await base.postCommandAndWait(name: name, additionalParams: additionalParams, timeout: timeout, apiPath: apiPath, onProgress: onProgress)
     }
 
     func calendarDateParam(name: String, value: Date?) -> URLQueryItem? {
@@ -388,7 +394,8 @@ actor ArrAPIClient {
         name: String,
         additionalParams: [String: JSONValue]? = nil,
         timeout: Duration = .seconds(30),
-        apiPath: String = "/api/v3"
+        apiPath: String = "/api/v3",
+        onProgress: (@Sendable (ArrCommand) -> Void)? = nil
     ) async throws -> ArrCommand {
         let command = try await postCommand(name: name, additionalParams: additionalParams, apiPath: apiPath)
         guard let commandId = command.id else { return command }
@@ -399,6 +406,7 @@ actor ArrAPIClient {
             try Task.checkCancellation()
             do {
                 let updated = try await getCommand(id: commandId, apiPath: apiPath)
+                onProgress?(updated)
                 if updated.isTerminal { return updated }
             } catch is CancellationError {
                 throw CancellationError()
