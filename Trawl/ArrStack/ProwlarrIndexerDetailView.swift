@@ -6,6 +6,9 @@ struct ProwlarrIndexerDetailView: View {
     @State private var showDeleteConfirm = false
     @State private var showTestResult = false
     @State private var testActionError: String?
+    @State private var selectedTagIDs: Set<Int> = []
+    @State private var didSeedTags = false
+    @State private var isSavingTags = false
     @Environment(\.dismiss) private var dismiss
 
     private var status: ProwlarrIndexerStatus? {
@@ -81,6 +84,37 @@ struct ProwlarrIndexerDetailView: View {
                 }
             }
 
+            // MARK: Tags Section
+            Section("Tags") {
+                if viewModel.availableTags.isEmpty {
+                    Text("No Prowlarr tags available. Create tags in Prowlarr to route indexers through a proxy.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.availableTags) { tag in
+                        Toggle(
+                            tag.label,
+                            isOn: Binding(
+                                get: { selectedTagIDs.contains(tag.id) },
+                                set: { isSelected in
+                                    if isSelected {
+                                        selectedTagIDs.insert(tag.id)
+                                    } else {
+                                        selectedTagIDs.remove(tag.id)
+                                    }
+                                    Task { await saveTags() }
+                                }
+                            )
+                        )
+                        .disabled(isSavingTags)
+                    }
+                }
+
+                Text("An indexer routes through an indexer proxy when they share one of its tags.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             // MARK: Stats Section
             if let stats = viewModel.indexerStats?.indexers?.first(where: { $0.indexerId == indexer.id }) {
                 Section("Statistics") {
@@ -138,6 +172,13 @@ struct ProwlarrIndexerDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            await viewModel.loadTags()
+            if !didSeedTags {
+                selectedTagIDs = Set(currentIndexer.tags ?? [])
+                didSeedTags = true
+            }
+        }
         .refreshable {
             await viewModel.loadIndexers()
             await viewModel.loadStats()
@@ -182,6 +223,22 @@ struct ProwlarrIndexerDetailView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("This removes \"\(indexer.name ?? "this indexer")\" from Prowlarr.")
+        }
+    }
+
+    private func saveTags() async {
+        guard !isSavingTags else { return }
+        isSavingTags = true
+        defer { isSavingTags = false }
+
+        let success = await viewModel.updateIndexerTags(currentIndexer, tagIDs: Array(selectedTagIDs))
+        if !success {
+            // Revert the UI to the last saved state.
+            selectedTagIDs = Set(currentIndexer.tags ?? [])
+            if let error = viewModel.indexerError, !error.isEmpty {
+                InAppNotificationCenter.shared.showError(title: "Tag Update Failed", message: error)
+                viewModel.clearIndexerError()
+            }
         }
     }
 

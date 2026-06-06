@@ -107,6 +107,7 @@ struct UnifiedIndexerRowView: View {
     let priority: Int?
     let isEnabled: Bool
     let warningState: UnifiedIndexerRowWarningState
+    var tagLabels: [String] = []
 
     var body: some View {
         HStack(spacing: 12) {
@@ -134,6 +135,19 @@ struct UnifiedIndexerRowView: View {
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
+
+                if !tagLabels.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(tagLabels, id: \.self) { label in
+                            Text(label)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.secondary.opacity(0.15), in: Capsule())
+                        }
+                    }
+                }
             }
 
             Spacer()

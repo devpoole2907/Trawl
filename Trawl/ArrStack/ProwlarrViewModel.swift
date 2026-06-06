@@ -30,6 +30,8 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
     // MARK: - Indexer State
     private(set) var indexers: [ProwlarrIndexer] = []
     private(set) var indexerStatuses: [ProwlarrIndexerStatus] = []
+    private(set) var availableTags: [ArrTag] = []
+    private(set) var appProfiles: [ProwlarrAppProfile] = []
     private(set) var isLoadingIndexers = false
     private(set) var errors: [ProwlarrOperation: String] = [:]
     private(set) var testResult: String?
@@ -86,6 +88,9 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
 
         isLoadingIndexers = false
 
+        // Load tags separately so failures don't affect indexers/statuses.
+        await loadTags()
+
         // Load stats separately so failures don't affect indexers/statuses
         isLoadingStats = true
         defer { isLoadingStats = false }
@@ -133,6 +138,57 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
             errors[.indexer] = nil
             return true
         } catch {
+            errors[.indexer] = error.localizedDescription
+            return false
+        }
+    }
+
+    /// Loads the Prowlarr tag list and sync (app) profiles. Non-fatal: if it
+    /// fails, tags simply won't be available for selection and indexer creation
+    /// falls back to the default app profile.
+    func loadTags() async {
+        guard let client else { return }
+        do {
+            async let loadedTags = client.getTags()
+            async let loadedProfiles = client.getAppProfiles()
+            let (tags, profiles) = try await (loadedTags, loadedProfiles)
+            availableTags = tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+            appProfiles = profiles.sorted { ($0.name ?? "") < ($1.name ?? "") }
+        } catch {
+            logger.error("Failed to load Prowlarr tags/profiles: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// The id to attach to a newly created indexer. Prefers the first available
+    /// sync profile; falls back to Prowlarr's built-in "Standard" profile (id 1),
+    /// which always exists, when the profile list couldn't be loaded.
+    var defaultAppProfileID: Int {
+        appProfiles.first?.id ?? 1
+    }
+
+    /// Updates the tags assigned to an indexer. Indexer proxies route requests
+    /// only for indexers that share one of the proxy's tags.
+    func updateIndexerTags(_ indexer: ProwlarrIndexer, tagIDs: [Int]) async -> Bool {
+        guard let client else { return false }
+        var updated = indexer
+        updated.tags = tagIDs.sorted()
+
+        // Optimistic update
+        let previous = indexers
+        if let idx = indexers.firstIndex(where: { $0.id == indexer.id }) {
+            indexers[idx] = updated
+        }
+
+        do {
+            let result = try await client.updateIndexer(updated)
+            if let idx = indexers.firstIndex(where: { $0.id == result.id }) {
+                indexers[idx] = result
+            }
+            errors[.indexer] = nil
+            return true
+        } catch {
+            // Revert on failure
+            indexers = previous
             errors[.indexer] = error.localizedDescription
             return false
         }
@@ -690,6 +746,88 @@ final class ProwlarrProxiesViewModel {
 
 @MainActor
 @Observable
+final class ProwlarrTagsViewModel {
+    private let serviceManager: ArrServiceManager
+
+    private(set) var tags: [ArrTag] = []
+    private(set) var isLoading = false
+    private(set) var isSubmitting = false
+    private(set) var errorMessage: String?
+
+    init(serviceManager: ArrServiceManager) {
+        self.serviceManager = serviceManager
+    }
+
+    private var client: ProwlarrAPIClient? { serviceManager.prowlarrClient }
+
+    var sortedTags: [ArrTag] {
+        tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
+    }
+
+    func loadTags() async {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return
+        }
+
+        isLoading = true
+        errorMessage = nil
+        defer { isLoading = false }
+
+        do {
+            tags = try await client.getTags()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    func createTag(label: String) async -> Bool {
+        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        isSubmitting = true
+        errorMessage = nil
+        defer { isSubmitting = false }
+
+        do {
+            let created = try await client.createTag(label: trimmed)
+            tags.append(created)
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func deleteTag(_ tag: ArrTag) async -> Bool {
+        guard let client else {
+            errorMessage = "Prowlarr not connected."
+            return false
+        }
+
+        errorMessage = nil
+
+        do {
+            try await client.deleteTag(id: tag.id)
+            tags.removeAll { $0.id == tag.id }
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    func clearError() {
+        errorMessage = nil
+    }
+}
+
+@MainActor
+@Observable
 final class ArrIndexerManagementViewModel {
     private let serviceManager: ArrServiceManager
 
@@ -1008,6 +1146,20 @@ extension ProwlarrProxiesViewModel {
         self.isLoadingProxies = isLoadingProxies
         self.isLoadingSchema = isLoadingSchema
         self.isTesting = isTesting
+        self.errorMessage = errorMessage
+    }
+}
+
+extension ProwlarrTagsViewModel {
+    convenience init(
+        previewTags: [ArrTag] = ArrTag.previewList,
+        isLoading: Bool = false,
+        errorMessage: String? = nil,
+        serviceManager: ArrServiceManager = .preview(.allConfigured)
+    ) {
+        self.init(serviceManager: serviceManager)
+        self.tags = previewTags
+        self.isLoading = isLoading
         self.errorMessage = errorMessage
     }
 }

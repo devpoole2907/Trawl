@@ -72,6 +72,7 @@ struct ProwlarrAddIndexerSheet: View {
             .task {
                 guard loadsSchemaOnAppear else { return }
                 await viewModel.loadSchema()
+                await viewModel.loadTags()
             }
         }
     }
@@ -183,6 +184,8 @@ private struct IndexerConfigView: View {
     @State private var priority = 25
     @State private var showAdvanced = false
     @State private var fieldValues: [String: AnyCodableValue]
+    @State private var selectedTagIDs: Set<Int> = []
+    @State private var selectedAppProfileID: Int
     @State private var isAdding = false
 
     init(schema: ProwlarrIndexer, viewModel: ProwlarrViewModel, onAdded: @escaping () -> Void) {
@@ -190,6 +193,7 @@ private struct IndexerConfigView: View {
         self.viewModel = viewModel
         self.onAdded = onAdded
         _indexerName = State(initialValue: schema.name ?? "")
+        _selectedAppProfileID = State(initialValue: schema.appProfileId ?? 0)
         var defaults: [String: AnyCodableValue] = [:]
         for field in schema.fields ?? [] {
             if let name = field.name, let value = field.value {
@@ -197,6 +201,12 @@ private struct IndexerConfigView: View {
             }
         }
         _fieldValues = State(initialValue: defaults)
+    }
+
+    /// The app profile the new indexer will be attached to. Falls back to the
+    /// view model's default when the user hasn't (or couldn't) pick one.
+    private var resolvedAppProfileID: Int {
+        selectedAppProfileID > 0 ? selectedAppProfileID : viewModel.defaultAppProfileID
     }
 
     private var visibleFields: [ProwlarrIndexerField] {
@@ -223,6 +233,14 @@ private struct IndexerConfigView: View {
                         .multilineTextAlignment(.trailing)
                 }
                 Stepper("Priority: \(priority)", value: $priority, in: 1...50)
+
+                if viewModel.appProfiles.count > 1 {
+                    Picker("Sync Profile", selection: $selectedAppProfileID) {
+                        ForEach(viewModel.appProfiles) { profile in
+                            Text(profile.name ?? "Profile \(profile.id)").tag(profile.id)
+                        }
+                    }
+                }
             }
 
             if !infoFields.isEmpty {
@@ -251,6 +269,33 @@ private struct IndexerConfigView: View {
                 }
             }
 
+            Section("Tags") {
+                if viewModel.availableTags.isEmpty {
+                    Text("No Prowlarr tags available.")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(viewModel.availableTags) { tag in
+                        Toggle(
+                            tag.label,
+                            isOn: Binding(
+                                get: { selectedTagIDs.contains(tag.id) },
+                                set: { isSelected in
+                                    if isSelected {
+                                        selectedTagIDs.insert(tag.id)
+                                    } else {
+                                        selectedTagIDs.remove(tag.id)
+                                    }
+                                }
+                            )
+                        )
+                    }
+                }
+
+                Text("Indexers route through an indexer proxy when they share one of its tags.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             if let error = viewModel.indexerError {
                 Section {
                     Label(error, systemImage: "exclamationmark.triangle.fill")
@@ -263,6 +308,12 @@ private struct IndexerConfigView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .task {
+            await viewModel.loadTags()
+            if selectedAppProfileID <= 0 {
+                selectedAppProfileID = viewModel.defaultAppProfileID
+            }
+        }
         .toolbar {
             ToolbarItem(placement: .confirmationAction) {
                 if isAdding {
@@ -394,9 +445,9 @@ private struct IndexerConfigView: View {
             implementationName: schema.implementationName,
             configContract: schema.configContract,
             infoLink: schema.infoLink,
-            tags: [],
+            tags: Array(selectedTagIDs).sorted(),
             priority: priority,
-            appProfileId: schema.appProfileId,
+            appProfileId: resolvedAppProfileID,
             shouldSearch: nil,
             supportsRss: nil,
             supportsSearch: nil,

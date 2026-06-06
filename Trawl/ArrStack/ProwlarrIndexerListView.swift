@@ -91,6 +91,17 @@ struct ProwlarrIndexerListView: View {
                             subtitle: "HTTP and SOCKS proxies for indexers"
                         )
                     }
+
+                    NavigationLink {
+                        ProwlarrTagsListView()
+                    } label: {
+                        NavigationMenuRow(
+                            icon: "tag",
+                            color: .teal,
+                            title: "Tags",
+                            subtitle: "Group indexers and route them through proxies"
+                        )
+                    }
                 }
             }
 
@@ -229,7 +240,8 @@ struct ProwlarrIndexerListView: View {
                     barColor: item.barColor,
                     priority: indexer.priority,
                     isEnabled: prowlarrViewModel.isIndexerAvailable(indexer),
-                    warningState: item.warningState
+                    warningState: item.warningState,
+                    tagLabels: tagLabels(for: indexer.tags, viewModel: prowlarrViewModel)
                 )
             }
             .swipeActions(edge: .leading) {
@@ -436,6 +448,14 @@ struct ProwlarrIndexerListView: View {
         }
 
         return parts.joined(separator: " · ")
+    }
+
+    private func tagLabels(for tagIDs: [Int]?, viewModel: ProwlarrViewModel) -> [String] {
+        guard let tagIDs, !tagIDs.isEmpty else { return [] }
+        let ids = Set(tagIDs)
+        return viewModel.availableTags
+            .filter { ids.contains($0.id) }
+            .map(\.label)
     }
 
     private func delete(

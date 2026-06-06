@@ -127,6 +127,13 @@ nonisolated struct ProwlarrIndexerField: Codable, Sendable {
     let selectOptions: [ProwlarrSelectOption]?
 }
 
+/// A Prowlarr "Sync Profile" (app profile). Every indexer must reference one;
+/// Prowlarr ships with a default "Standard" profile (id 1).
+nonisolated struct ProwlarrAppProfile: Codable, Identifiable, Sendable {
+    let id: Int
+    let name: String?
+}
+
 nonisolated struct ProwlarrSelectOption: Codable, Identifiable, Sendable {
     let name: String?
     let value: AnyCodableValue?

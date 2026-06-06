@@ -110,10 +110,24 @@ actor ProwlarrAPIClient: SharedArrClient {
         try await base.postVoidCodable("/api/v1/indexerProxy/test", body: proxy)
     }
 
+    // MARK: - App Profiles
+
+    func getAppProfiles() async throws -> [ProwlarrAppProfile] {
+        try await base.get("/api/v1/appprofile")
+    }
+
     // MARK: - Tags
 
     func getTags() async throws -> [ArrTag] {
         try await base.get("/api/v1/tag")
+    }
+
+    func createTag(label: String) async throws -> ArrTag {
+        try await base.post("/api/v1/tag", jsonBody: ["label": label])
+    }
+
+    func deleteTag(id: Int) async throws {
+        try await base.delete("/api/v1/tag/\(id)")
     }
 }
 

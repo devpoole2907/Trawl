@@ -91,7 +91,7 @@ struct ProwlarrProxiesListView: View {
                         Button {
                             editorContext = .edit(proxy)
                         } label: {
-                            ProwlarrProxyRow(proxy: proxy)
+                            ProwlarrProxyRow(proxy: proxy, tagLabels: tagLabels(for: proxy.tags))
                                 .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
@@ -148,10 +148,19 @@ struct ProwlarrProxiesListView: View {
             }
         }
     }
+
+    private func tagLabels(for tagIDs: [Int]?) -> [String] {
+        guard let tagIDs, !tagIDs.isEmpty else { return [] }
+        let ids = Set(tagIDs)
+        return viewModel.availableTags
+            .filter { ids.contains($0.id) }
+            .map(\.label)
+    }
 }
 
 private struct ProwlarrProxyRow: View {
     let proxy: ProwlarrIndexerProxy
+    var tagLabels: [String] = []
 
     var body: some View {
         HStack(spacing: 12) {
@@ -169,6 +178,19 @@ private struct ProwlarrProxyRow: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                }
+
+                if !tagLabels.isEmpty {
+                    HStack(spacing: 4) {
+                        ForEach(tagLabels, id: \.self) { label in
+                            Text(label)
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(.secondary)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.secondary.opacity(0.15), in: Capsule())
+                        }
+                    }
                 }
             }
 
