@@ -29,6 +29,14 @@ private struct JellyfinConnectionFormView: View {
     private var skipsInitialSeed = false
     #endif
 
+    // Declared in the type body (not an extension) so it suppresses the
+    // synthesized memberwise initializer outright. The two were identical, and
+    // having both produced an "invalid redeclaration" under some compiler states.
+    init(profile: JellyfinServiceProfile? = nil, onComplete: (() -> Void)? = nil) {
+        self.profile = profile
+        self.onComplete = onComplete
+    }
+
     private var submitTitle: String {
         profile == nil ? "Connect" : "Save Connection"
     }
@@ -142,14 +150,6 @@ private struct JellyfinConnectionFormView: View {
 
 #if DEBUG
 extension JellyfinConnectionFormView {
-    init(
-        profile: JellyfinServiceProfile? = nil,
-        onComplete: (() -> Void)? = nil
-    ) {
-        self.profile = profile
-        self.onComplete = onComplete
-    }
-
     init(
         previewViewModel: JellyfinSetupViewModel,
         profile: JellyfinServiceProfile? = nil,
