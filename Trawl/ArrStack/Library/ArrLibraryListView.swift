@@ -15,20 +15,46 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
     let retry: (() async -> Void)?
 
     var body: some View {
-        ArrLoadingErrorEmptyView(
-            isLoading: isLoading,
-            error: error,
-            isEmpty: items.isEmpty,
-            emptyTitle: "No \(nounPlural)",
-            emptyIcon: emptyIcon,
-            emptyDescription: "No \(nounPlural.lowercased()) match the current filter.",
-            onRetry: retry
-        ) {
-            if usesTitleSections {
-                sectionedList
-            } else {
-                flatList
+        if isLoading && items.isEmpty {
+            ProgressView()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let error, items.isEmpty {
+            ContentUnavailableView {
+                Label("Failed to Load", systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(error)
+            } actions: {
+                if let retry {
+                    Button("Retry") { Task { await retry() } }
+                }
             }
+        } else {
+            // Keep the List mounted even when filtering yields zero results so the
+            // segment-bar search field doesn't lose keyboard focus the moment the
+            // results drop to empty. Swapping the List out for a ContentUnavailableView
+            // tears down the scroll container and resigns first responder.
+            ZStack {
+                listContent
+                    .opacity(items.isEmpty ? 0 : 1)
+                    .allowsHitTesting(!items.isEmpty)
+
+                if items.isEmpty {
+                    ContentUnavailableView {
+                        Label("No \(nounPlural)", systemImage: emptyIcon)
+                    } description: {
+                        Text("No \(nounPlural.lowercased()) match the current filter.")
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var listContent: some View {
+        if usesTitleSections {
+            sectionedList
+        } else {
+            flatList
         }
     }
 
