@@ -4,6 +4,10 @@ import Foundation
 actor SonarrAPIClient: SharedArrClient {
     let base: ArrAPIClient
 
+    /// Idle timeout for interactive release searches, which can take far longer
+    /// than a normal request while every indexer is polled. Shared with Radarr.
+    static let interactiveSearchTimeout: TimeInterval = 120
+
     init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
         self.base = ArrAPIClient(baseURL: baseURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
     }
@@ -118,7 +122,15 @@ actor SonarrAPIClient: SharedArrClient {
         if let seasonNumber {
             params.append(URLQueryItem(name: "seasonNumber", value: String(seasonNumber)))
         }
-        return try await base.get("/api/v3/release", queryItems: params)
+        // Interactive search aggregates every enabled indexer and only returns
+        // once the slowest has answered. Public scrapers routinely push this
+        // past the default 30s session timeout, surfacing as a spurious
+        // "error 0" cancellation, so give it generous headroom.
+        return try await base.get(
+            "/api/v3/release",
+            queryItems: params,
+            timeoutInterval: Self.interactiveSearchTimeout
+        )
     }
 
     func grabRelease(_ release: ArrRelease) async throws {

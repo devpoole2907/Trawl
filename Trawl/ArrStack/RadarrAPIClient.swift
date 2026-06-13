@@ -94,7 +94,13 @@ actor RadarrAPIClient: SharedArrClient {
 
     func getReleases(movieId: Int) async throws -> [ArrRelease] {
         let params = [URLQueryItem(name: "movieId", value: String(movieId))]
-        return try await base.get("/api/v3/release", queryItems: params)
+        // See SonarrAPIClient.interactiveSearchTimeout — indexer aggregation can
+        // easily exceed the default 30s session timeout and surface as "error 0".
+        return try await base.get(
+            "/api/v3/release",
+            queryItems: params,
+            timeoutInterval: SonarrAPIClient.interactiveSearchTimeout
+        )
     }
 
     func grabRelease(_ release: ArrRelease) async throws {
