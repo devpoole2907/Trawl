@@ -397,13 +397,15 @@ struct ArrInfoRowView: View {
             chips.append(ArrReleaseInfoChip(release.rejected == true ? "Rejected" : "Not Approved", color: .orange))
         }
         chips.append(ArrReleaseInfoChip(release.qualityName, color: .primary))
+        // Seeders/leechers are the headline signal when picking a release, so
+        // surface the pill right after quality rather than burying it last.
+        if let seederLabel = ArrInfoRowView.seederLabel(for: release) {
+            chips.append(ArrReleaseInfoChip(seederLabel, color: ArrInfoRowView.seederColor(for: release.seeders ?? 0), isProminent: true))
+        }
         if let size = release.size, size > 0 {
             chips.append(ArrReleaseInfoChip(ByteFormatter.format(bytes: size), color: .secondary))
         }
         chips.append(ArrReleaseInfoChip(release.protocolName, color: .secondary))
-        if let seederLabel = ArrInfoRowView.seederLabel(for: release) {
-            chips.append(ArrReleaseInfoChip(seederLabel, color: ArrInfoRowView.seederColor(for: release.seeders ?? 0), isProminent: true))
-        }
         return chips
     }
 
@@ -549,6 +551,110 @@ struct ArrInfoRowView: View {
     }
 }
 
+/// How long an interactive search may run with nothing to show before the
+/// browser flags it as slow and kicks off the indexer probe.
+private let arrSlowSearchGracePeriod: Duration = .seconds(10)
+
+/// An indexer the probe has fingered as slow, carrying enough to both display it
+/// and disable it in Prowlarr.
+struct ArrSlowIndexer: Sendable, Identifiable, Equatable {
+    let id: Int
+    let name: String
+}
+
+/// The diagnostic capabilities the search browser uses when a search runs long:
+/// identify the slow indexer(s), and disable them. Built only when Prowlarr is
+/// configured.
+struct ArrSlowSearchDiagnostics: Sendable {
+    /// Times each enabled indexer and returns the laggard(s), slowest first.
+    let identifySlowIndexers: @Sendable () async -> [ArrSlowIndexer]
+    /// Disables the given indexers in Prowlarr. Returns true on success.
+    let disableIndexers: @Sendable ([Int]) async -> Bool
+}
+
+/// Best-effort diagnostic that works out which Prowlarr indexer is dragging out
+/// an interactive search. Sonarr/Radarr aggregate every indexer server-side and
+/// only answer once the slowest replies, so when a search runs long we re-run it
+/// per-indexer through Prowlarr (in parallel) purely to time them and name the
+/// laggard. Returns `[]` on any failure so the UI falls back to a generic
+/// "taking a while" message.
+enum ArrIndexerLatencyProbe {
+    static func slowIndexers(
+        prowlarr: ProwlarrAPIClient,
+        query: String,
+        slowThreshold: TimeInterval = 6
+    ) async -> [ArrSlowIndexer] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [] }
+
+        let indexers: [ProwlarrIndexer]
+        do { indexers = try await prowlarr.getIndexers() } catch { return [] }
+        let enabled = indexers.filter(\.enable)
+        // With one (or no) enabled indexer there's nothing to attribute.
+        guard enabled.count > 1 else { return [] }
+
+        struct Probe: Sendable { let id: Int; let name: String; let seconds: TimeInterval; let failed: Bool }
+
+        let probes = await withTaskGroup(of: Probe.self) { group -> [Probe] in
+            for indexer in enabled {
+                let id = indexer.id
+                let name = indexer.name ?? "Indexer \(id)"
+                group.addTask {
+                    let start = Date()
+                    do {
+                        _ = try await prowlarr.search(query: trimmed, indexerIds: [id])
+                        return Probe(id: id, name: name, seconds: Date().timeIntervalSince(start), failed: false)
+                    } catch {
+                        return Probe(id: id, name: name, seconds: Date().timeIntervalSince(start), failed: true)
+                    }
+                }
+            }
+            var collected: [Probe] = []
+            for await probe in group { collected.append(probe) }
+            return collected
+        }
+
+        // Slowest first; a failed/timed-out indexer is treated as the worst.
+        let ranked = probes.sorted { lhs, rhs in
+            if lhs.failed != rhs.failed { return lhs.failed }
+            return lhs.seconds > rhs.seconds
+        }
+        let laggards = ranked.filter { $0.failed || $0.seconds >= slowThreshold }
+        // If everything came back reasonably quick, still name the single slowest.
+        let chosen = laggards.isEmpty ? Array(ranked.prefix(1)) : laggards
+        return chosen.map { ArrSlowIndexer(id: $0.id, name: $0.name) }
+    }
+
+    /// Disables the given indexers in Prowlarr (a reversible `enable = false`).
+    static func disableIndexers(prowlarr: ProwlarrAPIClient, ids: [Int]) async -> Bool {
+        guard !ids.isEmpty else { return false }
+        do {
+            let indexers: [ProwlarrIndexer] = try await prowlarr.getIndexers()
+            let targets = indexers.filter { ids.contains($0.id) }
+            guard !targets.isEmpty else { return false }
+            for var indexer in targets {
+                indexer.enable = false
+                _ = try await prowlarr.updateIndexer(indexer)
+            }
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Builds the optional diagnostics bundle for the search browser. Returns
+    /// `nil` when Prowlarr isn't configured, so the browser degrades gracefully
+    /// to a generic "taking longer than usual" message with no action button.
+    @MainActor
+    static func diagnostics(using serviceManager: ArrServiceManager, query: String) -> ArrSlowSearchDiagnostics? {
+        guard let prowlarr = serviceManager.prowlarrClient else { return nil }
+        return ArrSlowSearchDiagnostics(
+            identifySlowIndexers: { await slowIndexers(prowlarr: prowlarr, query: query) },
+            disableIndexers: { ids in await disableIndexers(prowlarr: prowlarr, ids: ids) }
+        )
+    }
+}
+
 struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(SyncService.self) private var syncService
@@ -561,6 +667,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     let loadAction: () async throws -> [ArrRelease]
     let grabAction: (ArrRelease) async -> Bool
     let currentErrorMessage: () -> String?
+    /// Optional diagnostics used when a search runs long: names the slow
+    /// indexer(s) and can disable them. `nil` when Prowlarr isn't configured —
+    /// the browser then shows a generic "taking longer than usual" message with
+    /// no action button.
+    let slowSearchDiagnostics: ArrSlowSearchDiagnostics?
     @ViewBuilder let destination: (ArrRelease, Bool, @escaping () async -> Void) -> Destination
 
     @State private var releases: [ArrRelease] = []
@@ -571,6 +682,9 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @State private var releaseSort: ArrReleaseSort
     @State private var searchError: String?
     @State private var replacementCandidate: ExistingTorrentReplacementCandidate?
+    @State private var slowSearchTriggered = false
+    @State private var slowIndexers: [ArrSlowIndexer] = []
+    @State private var isDisablingIndexers = false
 
     init(
         title: String,
@@ -581,6 +695,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         loadAction: @escaping () async throws -> [ArrRelease],
         grabAction: @escaping (ArrRelease) async -> Bool,
         currentErrorMessage: @escaping () -> String?,
+        slowSearchDiagnostics: ArrSlowSearchDiagnostics? = nil,
         @ViewBuilder destination: @escaping (ArrRelease, Bool, @escaping () async -> Void) -> Destination
     ) {
         self.title = title
@@ -590,6 +705,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         self.loadAction = loadAction
         self.grabAction = grabAction
         self.currentErrorMessage = currentErrorMessage
+        self.slowSearchDiagnostics = slowSearchDiagnostics
         self.destination = destination
         self._releaseSort = State(initialValue: initialSort)
     }
@@ -753,16 +869,55 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     ProgressView()
                         .controlSize(.small)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Searching indexers…")
+                        Text(slowSearchTriggered ? "Still searching…" : "Searching indexers…")
                             .font(.subheadline.weight(.semibold))
-                        Text(loadingDescription)
+                        Text(loadingDetail)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(slowSearchTriggered ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
                     }
                 }
                 .padding(.vertical, 4)
+                .animation(.default, value: slowSearchTriggered)
+                .animation(.default, value: slowIndexers)
+
+                if slowSearchTriggered, !slowIndexers.isEmpty, slowSearchDiagnostics != nil {
+                    Button(role: .destructive) {
+                        Task { await disableSlowIndexersAndRetry() }
+                    } label: {
+                        HStack(spacing: 8) {
+                            if isDisablingIndexers {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Image(systemName: "bolt.slash.fill")
+                            }
+                            Text(disableButtonTitle)
+                        }
+                    }
+                    .disabled(isDisablingIndexers)
+                }
             }
         }
+    }
+
+    /// Subtitle shown beneath the spinner — the normal hint until a search drags
+    /// on, then an explanation that names the slow indexer(s) once the probe has
+    /// identified them.
+    private var loadingDetail: String {
+        guard slowSearchTriggered else { return loadingDescription }
+        guard !slowIndexers.isEmpty else {
+            return "This is taking longer than usual — an indexer is slow to respond."
+        }
+        let names = slowIndexers.map(\.name).formatted(.list(type: .and))
+        let verb = slowIndexers.count == 1 ? "is" : "are"
+        return "Waiting on \(names) — \(verb) slow right now. Results appear once they reply."
+    }
+
+    private var disableButtonTitle: String {
+        let names = slowIndexers.map(\.name)
+        if names.count == 1 {
+            return "Disable \(names[0]) & Search Again"
+        }
+        return "Disable These Indexers & Search Again"
     }
 
     private func releaseNavigationLink(for release: ArrRelease) -> some View {
@@ -897,8 +1052,16 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         isLoading = true
         releases = []
         searchError = nil
+        slowSearchTriggered = false
+        slowIndexers = []
+
+        // Watch for a slow search in parallel; cancelled as soon as results land.
+        let watchdog = Task { await monitorSlowSearch() }
+        defer { watchdog.cancel() }
+
         do {
             let results = try await loadAction()
+            watchdog.cancel()
             isLoading = false
             let batchSize = results.count > 30 ? 6 : 3
             for batch in results.chunked(into: batchSize) {
@@ -917,6 +1080,51 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             hasLoaded = true
             isLoading = false
         }
+    }
+
+    /// After the grace period, flag a still-empty search as slow and — if the
+    /// diagnostics are available — name the indexer(s) holding it up. Read-only
+    /// and best-effort; bails the moment results arrive or the load is cancelled.
+    private func monitorSlowSearch() async {
+        try? await Task.sleep(for: arrSlowSearchGracePeriod)
+        guard !Task.isCancelled, isLoading, releases.isEmpty else { return }
+        slowSearchTriggered = true
+
+        guard let diagnostics = slowSearchDiagnostics else { return }
+        let slow = await diagnostics.identifySlowIndexers()
+        guard !Task.isCancelled, isLoading, releases.isEmpty else { return }
+        slowIndexers = slow
+    }
+
+    /// Disables the probed-slow indexer(s) in Prowlarr, then re-runs the search
+    /// without them. The disable is reversible from the indexer settings.
+    private func disableSlowIndexersAndRetry() async {
+        guard let diagnostics = slowSearchDiagnostics, !slowIndexers.isEmpty else { return }
+        let names = slowIndexers.map(\.name)
+        let ids = slowIndexers.map(\.id)
+
+        isDisablingIndexers = true
+        let succeeded = await diagnostics.disableIndexers(ids)
+        isDisablingIndexers = false
+
+        guard succeeded else {
+            InAppNotificationCenter.shared.showError(
+                title: "Couldn't Disable Indexers",
+                message: "Trawl couldn't update \(names.formatted(.list(type: .and))) in Prowlarr. They're unchanged."
+            )
+            return
+        }
+
+        InAppNotificationCenter.shared.showSuccess(
+            title: names.count == 1 ? "Indexer Disabled" : "Indexers Disabled",
+            message: "\(names.formatted(.list(type: .and))) disabled in Prowlarr. Re-enable any time from indexer settings."
+        )
+
+        // Reset and search again — the disabled indexers won't be queried now.
+        hasLoaded = false
+        slowSearchTriggered = false
+        slowIndexers = []
+        await loadReleases()
     }
 
     private func grab(release: ArrRelease) async {

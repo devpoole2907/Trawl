@@ -545,7 +545,11 @@ struct RadarrInteractiveSearchSheet: View {
             },
             currentErrorMessage: {
                 viewModel.error
-            }
+            },
+            slowSearchDiagnostics: ArrIndexerLatencyProbe.diagnostics(
+                using: viewModel.serviceManager,
+                query: movie.title
+            )
         ) { release, isGrabbing, onGrab in
             ArrReleaseActionContent(
                 release: release,

@@ -363,7 +363,11 @@ struct SonarrInteractiveSearchSheet: View {
             },
             currentErrorMessage: {
                 viewModel.error
-            }
+            },
+            slowSearchDiagnostics: ArrIndexerLatencyProbe.diagnostics(
+                using: viewModel.serviceManager,
+                query: series.title
+            )
         ) { release, isGrabbing, onGrab in
             ArrReleaseActionContent(
                 release: release,
