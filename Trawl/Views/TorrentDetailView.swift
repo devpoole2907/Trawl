@@ -12,8 +12,6 @@ struct TorrentDetailView: View {
     @State private var renameText = ""
     @State private var showLocationAlert = false
     @State private var locationText = ""
-    @State private var selectedDownloadLimit: Int64 = 0
-    @State private var selectedUploadLimit: Int64 = 0
 
     let torrentHash: String
     #if DEBUG
@@ -61,16 +59,6 @@ struct TorrentDetailView: View {
                     } catch {}
                 }()
                 _ = await (properties, files, trackers)
-                if let properties = vm.properties {
-                    selectedDownloadLimit = max(0, properties.dlLimit)
-                    selectedUploadLimit = max(0, properties.upLimit)
-                }
-            }
-        }
-        .onChange(of: viewModel?.properties) { _, newProperties in
-            if let properties = newProperties {
-                selectedDownloadLimit = max(0, properties.dlLimit)
-                selectedUploadLimit = max(0, properties.upLimit)
             }
         }
     }
@@ -276,73 +264,14 @@ struct TorrentDetailView: View {
 
             Divider()
 
-            Menu {
-                Toggle(
-                    "Sequential Download",
-                    isOn: Binding(
-                        get: { vm.isSequentialDownloadEnabled },
-                        set: { enabled in
-                            Task { await vm.setSequentialDownload(enabled) }
-                        }
-                    )
-                )
-                .disabled(vm.isUpdatingSequentialDownload)
-
-                Toggle(
-                    "First and Last Pieces First",
-                    isOn: Binding(
-                        get: { vm.isFirstLastPiecePriorityEnabled },
-                        set: { enabled in
-                            Task { await vm.setFirstLastPiecePriority(enabled) }
-                        }
-                    )
-                )
-                .disabled(vm.isUpdatingFirstLastPiecePriority)
-
-                Menu {
-                    Menu {
-                        Picker(
-                            "Download Limit",
-                            selection: Binding(
-                                get: { selectedDownloadLimit },
-                                set: { newVal in
-                                    selectedDownloadLimit = newVal
-                                    Task { await vm.setTorrentDownloadLimit(newVal) }
-                                }
-                            )
-                        ) {
-                            ForEach(limitOptions(including: max(0, vm.properties?.dlLimit ?? 0)), id: \.self) { limit in
-                                Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.dlRateLimit)).tag(limit)
-                            }
-                        }
-                    } label: {
-                        Label("Download", systemImage: "arrow.down.circle")
-                    }
-
-                    Menu {
-                        Picker(
-                            "Upload Limit",
-                            selection: Binding(
-                                get: { selectedUploadLimit },
-                                set: { newVal in
-                                    selectedUploadLimit = newVal
-                                    Task { await vm.setTorrentUploadLimit(newVal) }
-                                }
-                            )
-                        ) {
-                            ForEach(limitOptions(including: max(0, vm.properties?.upLimit ?? 0)), id: \.self) { limit in
-                                Text(torrentLimitLabel(limit, globalFallback: syncService.serverState?.upRateLimit)).tag(limit)
-                            }
-                        }
-                    } label: {
-                        Label("Upload", systemImage: "arrow.up.circle")
-                    }
-                } label: {
-                    Label("Speed Limits", systemImage: "speedometer")
-                }
-            } label: {
-                Label("Download Options", systemImage: "arrow.down")
-            }
+            TorrentDownloadOptionsMenu(
+                torrent: torrent,
+                torrentService: torrentService,
+                syncService: syncService,
+                notificationCenter: inAppNotificationCenter,
+                downloadLimitFallback: syncService.serverState?.dlRateLimit,
+                uploadLimitFallback: syncService.serverState?.upRateLimit
+            )
 
             Divider()
 
@@ -418,32 +347,6 @@ struct TorrentDetailView: View {
 
     private func normalizedCategory(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-    }
-
-    private func limitOptions(including currentLimit: Int64) -> [Int64] {
-        let megabyte = Int64(1_048_576)
-        var options: [Int64] = [
-            0,
-            megabyte,
-            5 * megabyte,
-            10 * megabyte,
-            25 * megabyte,
-            50 * megabyte,
-            100 * megabyte
-        ]
-        if currentLimit > 0, !options.contains(currentLimit) {
-            options.append(currentLimit)
-            options.sort()
-        }
-        return options
-    }
-
-    private func torrentLimitLabel(_ limit: Int64, globalFallback: Int64?) -> String {
-        if limit == 0 {
-            let fallback = globalFallback ?? 0
-            return fallback == 0 ? "Use Global (Unlimited)" : "Use Global (\(ByteFormatter.formatSpeed(bytesPerSecond: fallback)))"
-        }
-        return ByteFormatter.formatSpeed(bytesPerSecond: limit)
     }
 
 }

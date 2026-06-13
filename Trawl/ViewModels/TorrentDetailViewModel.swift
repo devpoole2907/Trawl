@@ -325,6 +325,10 @@ final class TorrentDetailViewModel {
                 await syncService.refreshNow()
             }
             actionErrorAlert = nil
+            notificationCenter.showSuccess(
+                title: enabled ? "Sequential Download On" : "Sequential Download Off",
+                message: torrent?.name ?? ""
+            )
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Change Sequential Download",
@@ -352,6 +356,10 @@ final class TorrentDetailViewModel {
                 await syncService.refreshNow()
             }
             actionErrorAlert = nil
+            notificationCenter.showSuccess(
+                title: enabled ? "First & Last Pieces First On" : "First & Last Pieces First Off",
+                message: torrent?.name ?? ""
+            )
         } catch {
             actionErrorAlert = ErrorAlertItem(
                 title: "Couldn't Change First and Last Piece Priority",

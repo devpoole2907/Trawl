@@ -255,6 +255,15 @@ struct TorrentListView: View {
                     Label("Recheck", systemImage: "arrow.clockwise")
                 }
                 Divider()
+                TorrentDownloadOptionsMenu(
+                    torrent: torrent,
+                    torrentService: torrentService,
+                    syncService: syncService,
+                    notificationCenter: inAppNotificationCenter,
+                    downloadLimitFallback: syncService.serverState?.dlRateLimit,
+                    uploadLimitFallback: syncService.serverState?.upRateLimit
+                )
+                Divider()
                 Button(role: .destructive) {
                     torrentToDelete = torrent
                 } label: {
