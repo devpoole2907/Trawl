@@ -312,6 +312,20 @@ private struct JellyfinLibraryDetailView: View {
             }
 
             Section {
+                NavigationLink {
+                    JellyfinLibraryOptionsView(
+                        folder: folder,
+                        apiClient: apiClient,
+                        onSaved: onChanged
+                    )
+                } label: {
+                    Label("Scanning & Metadata", systemImage: "slider.horizontal.3")
+                }
+            } footer: {
+                Text("Metadata downloaders, image fetchers, trickplay and more.")
+            }
+
+            Section {
                 if folder.locations.isEmpty {
                     ContentUnavailableView(
                         "No Paths Configured",

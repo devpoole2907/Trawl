@@ -363,6 +363,7 @@ nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {
     let collectionType: String?
     let itemId: String
     let refreshStatus: String?
+    let libraryOptions: JellyfinLibraryOptions?
 
     var id: String { itemId }
 
@@ -385,6 +386,7 @@ nonisolated struct JellyfinVirtualFolder: Decodable, Identifiable, Sendable {
         case collectionType = "CollectionType"
         case itemId = "ItemId"
         case refreshStatus = "RefreshStatus"
+        case libraryOptions = "LibraryOptions"
     }
 }
 

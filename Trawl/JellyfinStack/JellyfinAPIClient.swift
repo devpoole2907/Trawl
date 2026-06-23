@@ -124,6 +124,29 @@ actor JellyfinAPIClient {
         try await get("/Library/VirtualFolders")
     }
 
+    /// The set of metadata/image fetchers and savers Jellyfin offers for a given
+    /// content type — used to populate the per-type fetcher enable/order editors.
+    /// `contentType` is the library's `CollectionType` (e.g. "movies", "tvshows");
+    /// pass `nil` for mixed libraries.
+    func getAvailableLibraryOptions(
+        contentType: String?,
+        isNewLibrary: Bool = false
+    ) async throws -> JellyfinAvailableLibraryOptions {
+        var params = ["isNewLibrary": String(isNewLibrary)]
+        if let contentType, !contentType.isEmpty {
+            params["libraryContentType"] = contentType
+        }
+        return try await get("/Libraries/AvailableOptions", params: params)
+    }
+
+    /// `POST /Library/VirtualFolders/LibraryOptions` — replaces the library's
+    /// scanning/metadata/image configuration. Jellyfin applies the whole object,
+    /// so callers should mutate a freshly-fetched `JellyfinLibraryOptions`.
+    func updateLibraryOptions(id: String, options: JellyfinLibraryOptions) async throws {
+        let body = JellyfinUpdateLibraryOptionsBody(id: id, libraryOptions: options)
+        try await postVoid("/Library/VirtualFolders/LibraryOptions", body: body)
+    }
+
     func getLibraryItems(
         includeItemTypes: [String],
         fields: [String] = ["ProviderIds", "Path", "DateCreated", "MediaSources"],
