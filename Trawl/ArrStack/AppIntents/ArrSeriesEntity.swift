@@ -1,9 +1,11 @@
 import AppIntents
+import CoreSpotlight
 import Foundation
 
 /// A Sonarr series — either a lookup result from a search or an item already in the library.
-/// Shares `ArrMediaPayload` with `ArrMovieEntity`.
-nonisolated struct ArrSeriesEntity: AppEntity {
+/// Shares `ArrMediaPayload` with `ArrMovieEntity`. Conforms to `IndexedEntity` for Spotlight /
+/// Apple Intelligence discovery (see `ArrSpotlightIndexer`).
+nonisolated struct ArrSeriesEntity: IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "TV Series")
     static let defaultQuery = ArrSeriesEntityQuery()
 
@@ -19,6 +21,14 @@ nonisolated struct ArrSeriesEntity: AppEntity {
             title: "\(payload.title)",
             subtitle: subtitle.isEmpty ? nil : "\(subtitle)"
         )
+    }
+
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = defaultAttributeSet
+        attributes.contentDescription = payload.overview
+        attributes.keywords = ["tv", "series", "Sonarr", payload.title].filter { !$0.isEmpty }
+        if let year = payload.year { attributes.comment = "First aired \(year)" }
+        return attributes
     }
 }
 

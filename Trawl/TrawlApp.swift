@@ -75,6 +75,12 @@ struct TrawlApp: App {
                 .task {
                     appLockController.bootstrap()
                 }
+                .task {
+                    // Make configured *arr services discoverable by Spotlight / Apple Intelligence.
+                    // Cheap (SwiftData only); library content is indexed opportunistically by the
+                    // search intents and on demand via ArrSpotlightIndexer.indexLibraries().
+                    await ArrSpotlightIndexer.indexConfiguredServices()
+                }
         }
         .modelContainer(modelContainer)
     }

@@ -1,4 +1,5 @@
 import AppIntents
+import CoreSpotlight
 import Foundation
 
 /// Self-describing payload backing a movie or series entity. Encoded into the entity
@@ -17,7 +18,10 @@ nonisolated struct ArrMediaPayload: Codable, Sendable {
 }
 
 /// A Radarr movie — either a lookup result from a search or an item already in the library.
-nonisolated struct ArrMovieEntity: AppEntity {
+///
+/// Conforms to `IndexedEntity` so it can be added to the app's Spotlight index and become
+/// discoverable by Apple Intelligence / Siri (see `ArrSpotlightIndexer`).
+nonisolated struct ArrMovieEntity: IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "Movie")
     static let defaultQuery = ArrMovieEntityQuery()
 
@@ -35,6 +39,16 @@ nonisolated struct ArrMovieEntity: AppEntity {
             title: "\(payload.title)",
             subtitle: subtitle.isEmpty ? nil : "\(subtitle)"
         )
+    }
+
+    /// Extra Spotlight metadata layered on top of the title/subtitle/image that the default
+    /// implementation already derives from `displayRepresentation`.
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = defaultAttributeSet
+        attributes.contentDescription = payload.overview
+        attributes.keywords = ["movie", "Radarr", payload.title].filter { !$0.isEmpty }
+        if let year = payload.year { attributes.comment = "Released \(year)" }
+        return attributes
     }
 }
 

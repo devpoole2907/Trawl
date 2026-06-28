@@ -39,6 +39,10 @@ struct SearchSonarrSeriesIntent: AppIntent {
 
         let top = Array(results.prefix(10))
         let entities = top.map { ArrSeriesEntity(serviceID: service.id.uuidString, series: $0) }
+
+        // Make these results discoverable later by Spotlight / Apple Intelligence.
+        await ArrSpotlightIndexer.index(series: entities)
+
         let names = top.prefix(3).map { series in
             series.year.map { "\(series.title) (\($0))" } ?? series.title
         }

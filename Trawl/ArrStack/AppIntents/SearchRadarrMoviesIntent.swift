@@ -39,6 +39,10 @@ struct SearchRadarrMoviesIntent: AppIntent {
 
         let top = Array(results.prefix(10))
         let entities = top.map { ArrMovieEntity(serviceID: service.id.uuidString, movie: $0) }
+
+        // Make these results discoverable later by Spotlight / Apple Intelligence.
+        await ArrSpotlightIndexer.index(movies: entities)
+
         let names = top.prefix(3).map { movie in
             movie.year.map { "\(movie.title) (\($0))" } ?? movie.title
         }

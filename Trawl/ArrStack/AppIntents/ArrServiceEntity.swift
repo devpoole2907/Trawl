@@ -1,14 +1,18 @@
 import AppIntents
+import CoreSpotlight
 import Foundation
 
 /// A configured Radarr / Sonarr / Prowlarr service the user can pick in an intent.
 ///
 /// One shared entity type is used for all *arr services; each intent validates the chosen
 /// service against the types it supports via `ArrIntentSupport.resolveService`.
+///
+/// Conforms to `IndexedEntity` so configured services are added to the Spotlight index and
+/// become discoverable by Apple Intelligence / Siri (see `ArrSpotlightIndexer`).
 // TODO (post-v1): split into per-type entities so parameter suggestions only show the
-// relevant service kind, and adopt entity schemas / Spotlight indexing if the SDK targets
-// the newer Siri AI APIs.
-nonisolated struct ArrServiceEntity: AppEntity {
+// relevant service kind, and adopt Apple Intelligence assistant schemas if/when a
+// media-management domain becomes available (none exists today).
+nonisolated struct ArrServiceEntity: IndexedEntity {
     static let typeDisplayRepresentation = TypeDisplayRepresentation(name: "arr Service")
     static let defaultQuery = ArrServiceEntityQuery()
 
@@ -21,6 +25,13 @@ nonisolated struct ArrServiceEntity: AppEntity {
             title: "\(name)",
             subtitle: "\(serviceType.capitalized)"
         )
+    }
+
+    var attributeSet: CSSearchableItemAttributeSet {
+        let attributes = defaultAttributeSet
+        attributes.contentDescription = "\(serviceType.capitalized) service"
+        attributes.keywords = [serviceType, "Trawl", name].filter { !$0.isEmpty }
+        return attributes
     }
 }
 
