@@ -4,6 +4,7 @@ actor AuthService {
     private let session: URLSession
     private let trustPolicy: ServerTrustPolicy
     private var sid: String?
+    private var cookieName: String?
     private var authTask: Task<Void, Error>?
     let serverProfileID: UUID
 
@@ -57,13 +58,19 @@ actor AuthService {
 
         let bodyText = String(data: data, encoding: .utf8) ?? ""
 
-        guard httpResponse.statusCode == 200, bodyText.contains("Ok.") else {
+        // qBittorrent v5.2.2+ returns 204 No Content; older versions return 200 with "Ok." body
+        let isValidResponse = (httpResponse.statusCode == 204) ||
+                              (httpResponse.statusCode == 200 && bodyText.contains("Ok."))
+
+        guard isValidResponse else {
             throw QBError.authFailed
         }
 
         // Extract SID from Set-Cookie header
         if let setCookie = httpResponse.value(forHTTPHeaderField: "Set-Cookie") {
-            sid = extractSID(from: setCookie)
+            let (name, value) = extractSessionCookie(from: setCookie)
+            self.cookieName = name
+            self.sid = value
         }
 
         guard sid != nil else {
@@ -73,28 +80,43 @@ actor AuthService {
 
     /// Attach the SID cookie to a URLRequest.
     func authorize(_ request: inout URLRequest) {
-        if let sid {
-            request.setValue("SID=\(sid)", forHTTPHeaderField: "Cookie")
+        if let sid, let cookieName {
+            request.setValue("\(cookieName)=\(sid)", forHTTPHeaderField: "Cookie")
         }
     }
 
     /// Clear the active session.
     func logout() async {
         sid = nil
+        cookieName = nil
         await session.reset()
     }
 
     // MARK: - Private
 
-    private func extractSID(from setCookieHeader: String) -> String? {
-        // Set-Cookie: SID=<value>; ...
+    /// Extracts the session cookie from Set-Cookie header.
+    /// qBittorrent v5.2.2+ uses "QBT_SID_<port>", older versions use "SID".
+    /// Returns (cookieName, cookieValue).
+    private func extractSessionCookie(from setCookieHeader: String) -> (String?, String?) {
+        // Set-Cookie: SID=<value>; ... (old format)
+        // Set-Cookie: QBT_SID_8070=<value>; HttpOnly; SameSite=Lax; ... (new format)
         let components = setCookieHeader.components(separatedBy: ";")
         for component in components {
             let trimmed = component.trimmingCharacters(in: .whitespaces)
+
+            // Check for new format: QBT_SID_*
+            if trimmed.hasPrefix("QBT_SID_"), let eqIndex = trimmed.firstIndex(of: "=") {
+                let name = String(trimmed[..<eqIndex])
+                let value = String(trimmed[trimmed.index(after: eqIndex)...])
+                return (name, value)
+            }
+
+            // Check for old format: SID
             if trimmed.hasPrefix("SID=") {
-                return String(trimmed.dropFirst(4))
+                let value = String(trimmed.dropFirst(4))
+                return ("SID", value)
             }
         }
-        return nil
+        return (nil, nil)
     }
 }
