@@ -20,6 +20,40 @@ extension JellyfinBackupManifest {
     ]
 }
 
+extension JellyfinEncodingOptions {
+    static let previewNvenc: JellyfinEncodingOptions = {
+        var options = JellyfinEncodingOptions()
+        options.encodingThreadCount = -1
+        options.enableThrottling = true
+        options.throttleDelaySeconds = 180
+        options.enableSegmentDeletion = false
+        options.segmentKeepSeconds = 720
+        options.hardwareAccelerationType = "nvenc"
+        options.encoderAppPathDisplay = "/usr/lib/jellyfin-ffmpeg/ffmpeg"
+        options.vaapiDevice = "/dev/dri/renderD128"
+        options.qsvDevice = ""
+        options.enableTonemapping = true
+        options.enableVppTonemapping = false
+        options.tonemappingAlgorithm = "bt2390"
+        options.tonemappingMode = "auto"
+        options.tonemappingRange = "auto"
+        options.h264Crf = 23
+        options.h265Crf = 28
+        options.encoderPreset = "auto"
+        options.enableDecodingColorDepth10Hevc = true
+        options.enableDecodingColorDepth10Vp9 = true
+        options.enableDecodingColorDepth10HevcRext = false
+        options.enableDecodingColorDepth12HevcRext = false
+        options.enableEnhancedNvdecDecoder = true
+        options.preferSystemNativeHwDecoder = true
+        options.enableHardwareEncoding = true
+        options.allowHevcEncoding = true
+        options.allowAv1Encoding = false
+        options.hardwareDecodingCodecs = ["h264", "hevc", "mpeg2video", "vc1", "vp8", "vp9"]
+        return options
+    }()
+}
+
 extension JellyfinUser {
     static let preview = JellyfinUser.makePreview()
     static let previewAdmin = JellyfinUser.makePreview(

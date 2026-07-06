@@ -56,6 +56,7 @@ enum MoreDestination: Hashable {
     case jellyfinActivityLog
     case jellyfinScheduledTasks
     case jellyfinPlugins
+    case jellyfinTranscoding
     case unifiedUsers
     case logsAndEvents
     case arrEvents
@@ -679,6 +680,14 @@ struct MoreView: View {
                 case .jellyfinPlugins:
                     if let client = jellyfinServiceManager.activeClient {
                         JellyfinPluginsView(apiClient: client)
+                            .moreDestinationTitleStyle()
+                    } else {
+                        jellyfinUnavailableDestination
+                            .moreDestinationTitleStyle()
+                    }
+                case .jellyfinTranscoding:
+                    if let client = jellyfinServiceManager.activeClient {
+                        JellyfinTranscodingSettingsView(apiClient: client)
                             .moreDestinationTitleStyle()
                     } else {
                         jellyfinUnavailableDestination
@@ -1770,9 +1779,9 @@ private enum MoreSearchIndex {
                 icon: "server.rack",
                 color: MoreDestinationAccent.jellyfin.color,
                 title: "Jellyfin",
-                subtitle: "Sessions, libraries, and plugins",
+                subtitle: "Sessions, libraries, transcoding, and plugins",
                 category: "Jellyfin",
-                keywords: ["media server", "users", "activity", "tasks"]
+                keywords: ["media server", "users", "activity", "tasks", "transcoding"]
             ),
             .init(
                 id: "jellyfin-sessions",
@@ -1793,6 +1802,16 @@ private enum MoreSearchIndex {
                 subtitle: "Media libraries and scans",
                 category: "Jellyfin",
                 keywords: ["library", "scan", "media", "folders", "collections"]
+            ),
+            .init(
+                id: "jellyfin-transcoding",
+                destination: .jellyfinTranscoding,
+                icon: "cpu.fill",
+                color: ServiceIdentity.jellyfin.brandColor,
+                title: "Transcoding",
+                subtitle: "Hardware acceleration and playback conversion",
+                category: "Jellyfin",
+                keywords: ["transcoding", "hardware acceleration", "hevc", "h265", "nvenc", "playback", "encoding", "av1", "tone mapping"]
             ),
             .init(
                 id: "jellyfin-activity",
@@ -3321,7 +3340,7 @@ private struct JellyfinManagementView: View {
                 HubEmptyState(
                     title: "Jellyfin Not Set Up",
                     systemImage: ServiceIdentity.jellyfin.systemImage,
-                    message: "Add a Jellyfin server in Settings to view sessions, libraries, and plugins."
+                    message: "Add a Jellyfin server in Settings to view sessions, libraries, transcoding, and plugins."
                 )
             } else {
                 Section {
@@ -3340,6 +3359,15 @@ private struct JellyfinManagementView: View {
                             color: .orange,
                             title: "Libraries",
                             subtitle: "Media libraries and scans"
+                        )
+                    }
+
+                    NavigationLink(value: MoreDestination.jellyfinTranscoding) {
+                        NavigationMenuRow(
+                            icon: "cpu.fill",
+                            color: ServiceIdentity.jellyfin.brandColor,
+                            title: "Transcoding",
+                            subtitle: "Hardware acceleration and playback conversion"
                         )
                     }
 

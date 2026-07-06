@@ -69,6 +69,14 @@ actor JellyfinAPIClient {
         try await get("/System/Info")
     }
 
+    func getEncodingOptions() async throws -> JellyfinEncodingOptions {
+        try await get("/System/Configuration/encoding")
+    }
+
+    func updateEncodingOptions(_ options: JellyfinEncodingOptions) async throws {
+        try await postVoid("/System/Configuration/encoding", body: options)
+    }
+
     func restartServer() async throws {
         try await postEmpty("/System/Restart")
     }

@@ -294,6 +294,114 @@ nonisolated struct JellyfinSystemInfo: Decodable, Sendable {
     }
 }
 
+// MARK: - Encoding
+
+/// Dashboard Playback/Transcoding settings from `GET /System/Configuration/encoding`.
+/// The object is saved back whole, so keep known fields mutable and round-trippable.
+nonisolated struct JellyfinEncodingOptions: Codable, Equatable, Sendable {
+    var encodingThreadCount: Int? = nil
+    var transcodingTempPath: String? = nil
+    var fallbackFontPath: String? = nil
+    var enableFallbackFont: Bool? = nil
+    var enableAudioVbr: Bool? = nil
+    var downMixAudioBoost: Double? = nil
+    var downMixStereoAlgorithm: String? = nil
+    var maxMuxingQueueSize: Int? = nil
+    var enableThrottling: Bool? = nil
+    var throttleDelaySeconds: Int? = nil
+    var enableSegmentDeletion: Bool? = nil
+    var segmentKeepSeconds: Int? = nil
+    var hardwareAccelerationType: String? = nil
+    var encoderAppPath: String? = nil
+    var encoderAppPathDisplay: String? = nil
+    var vaapiDevice: String? = nil
+    var qsvDevice: String? = nil
+    var enableTonemapping: Bool? = nil
+    var enableVppTonemapping: Bool? = nil
+    var enableVideoToolboxTonemapping: Bool? = nil
+    var tonemappingAlgorithm: String? = nil
+    var tonemappingMode: String? = nil
+    var tonemappingRange: String? = nil
+    var tonemappingDesat: Double? = nil
+    var tonemappingPeak: Double? = nil
+    var tonemappingParam: Double? = nil
+    var vppTonemappingBrightness: Double? = nil
+    var vppTonemappingContrast: Double? = nil
+    var h264Crf: Int? = nil
+    var h265Crf: Int? = nil
+    var encoderPreset: String? = nil
+    var deinterlaceDoubleRate: Bool? = nil
+    var deinterlaceMethod: String? = nil
+    var enableDecodingColorDepth10Hevc: Bool? = nil
+    var enableDecodingColorDepth10Vp9: Bool? = nil
+    var enableDecodingColorDepth10HevcRext: Bool? = nil
+    var enableDecodingColorDepth12HevcRext: Bool? = nil
+    var enableEnhancedNvdecDecoder: Bool? = nil
+    var preferSystemNativeHwDecoder: Bool? = nil
+    var enableIntelLowPowerH264HwEncoder: Bool? = nil
+    var enableIntelLowPowerHevcHwEncoder: Bool? = nil
+    var enableHardwareEncoding: Bool? = nil
+    var allowHevcEncoding: Bool? = nil
+    var allowAv1Encoding: Bool? = nil
+    var enableSubtitleExtraction: Bool? = nil
+    var subtitleExtractionTimeoutMinutes: Int? = nil
+    var hardwareDecodingCodecs: [String]? = nil
+    var allowOnDemandMetadataBasedKeyframeExtractionForExtensions: [String]? = nil
+    var hlsAudioSeekStrategy: String? = nil
+
+    enum CodingKeys: String, CodingKey {
+        case encodingThreadCount = "EncodingThreadCount"
+        case transcodingTempPath = "TranscodingTempPath"
+        case fallbackFontPath = "FallbackFontPath"
+        case enableFallbackFont = "EnableFallbackFont"
+        case enableAudioVbr = "EnableAudioVbr"
+        case downMixAudioBoost = "DownMixAudioBoost"
+        case downMixStereoAlgorithm = "DownMixStereoAlgorithm"
+        case maxMuxingQueueSize = "MaxMuxingQueueSize"
+        case enableThrottling = "EnableThrottling"
+        case throttleDelaySeconds = "ThrottleDelaySeconds"
+        case enableSegmentDeletion = "EnableSegmentDeletion"
+        case segmentKeepSeconds = "SegmentKeepSeconds"
+        case hardwareAccelerationType = "HardwareAccelerationType"
+        case encoderAppPath = "EncoderAppPath"
+        case encoderAppPathDisplay = "EncoderAppPathDisplay"
+        case vaapiDevice = "VaapiDevice"
+        case qsvDevice = "QsvDevice"
+        case enableTonemapping = "EnableTonemapping"
+        case enableVppTonemapping = "EnableVppTonemapping"
+        case enableVideoToolboxTonemapping = "EnableVideoToolboxTonemapping"
+        case tonemappingAlgorithm = "TonemappingAlgorithm"
+        case tonemappingMode = "TonemappingMode"
+        case tonemappingRange = "TonemappingRange"
+        case tonemappingDesat = "TonemappingDesat"
+        case tonemappingPeak = "TonemappingPeak"
+        case tonemappingParam = "TonemappingParam"
+        case vppTonemappingBrightness = "VppTonemappingBrightness"
+        case vppTonemappingContrast = "VppTonemappingContrast"
+        case h264Crf = "H264Crf"
+        case h265Crf = "H265Crf"
+        case encoderPreset = "EncoderPreset"
+        case deinterlaceDoubleRate = "DeinterlaceDoubleRate"
+        case deinterlaceMethod = "DeinterlaceMethod"
+        case enableDecodingColorDepth10Hevc = "EnableDecodingColorDepth10Hevc"
+        case enableDecodingColorDepth10Vp9 = "EnableDecodingColorDepth10Vp9"
+        case enableDecodingColorDepth10HevcRext = "EnableDecodingColorDepth10HevcRext"
+        case enableDecodingColorDepth12HevcRext = "EnableDecodingColorDepth12HevcRext"
+        case enableEnhancedNvdecDecoder = "EnableEnhancedNvdecDecoder"
+        case preferSystemNativeHwDecoder = "PreferSystemNativeHwDecoder"
+        case enableIntelLowPowerH264HwEncoder = "EnableIntelLowPowerH264HwEncoder"
+        case enableIntelLowPowerHevcHwEncoder = "EnableIntelLowPowerHevcHwEncoder"
+        case enableHardwareEncoding = "EnableHardwareEncoding"
+        case allowHevcEncoding = "AllowHevcEncoding"
+        case allowAv1Encoding = "AllowAv1Encoding"
+        case enableSubtitleExtraction = "EnableSubtitleExtraction"
+        case subtitleExtractionTimeoutMinutes = "SubtitleExtractionTimeoutMinutes"
+        case hardwareDecodingCodecs = "HardwareDecodingCodecs"
+        case allowOnDemandMetadataBasedKeyframeExtractionForExtensions = "AllowOnDemandMetadataBasedKeyframeExtractionForExtensions"
+        case hlsAudioSeekStrategy = "HlsAudioSeekStrategy"
+    }
+}
+
 // MARK: - Backups (Jellyfin 10.11+)
 
 /// One entry from `GET /Backup`. Jellyfin serialises the C# `Version` and
