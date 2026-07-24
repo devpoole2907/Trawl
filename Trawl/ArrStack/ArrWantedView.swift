@@ -308,10 +308,16 @@ struct ArrWantedView: View {
 
     private func searchEpisode(_ episode: SonarrEpisode, in vm: SonarrViewModel) async {
         await vm.searchEpisode(episode)
+        if vm.error == nil {
+            InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "\(episode.episodeIdentifier) was sent to Sonarr for automatic search.")
+        }
     }
 
     private func searchMovie(_ movie: RadarrMovie, in vm: RadarrViewModel) async {
-        await vm.searchMovie(movieId: movie.id)
+        let didStart = await vm.searchMovie(movieId: movie.id)
+        if didStart {
+            InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "\(movie.title) was sent to Radarr for automatic search.")
+        }
     }
 
     private func searchBazarrSeries(_ series: BazarrSeries, in vm: BazarrViewModel) async {

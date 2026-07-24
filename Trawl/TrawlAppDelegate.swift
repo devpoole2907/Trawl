@@ -52,8 +52,8 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
             // Normalize fallback values: ensure both title and body are non-empty
             let displayTitle = title.isEmpty ? (body.isEmpty ? "Notification" : body) : title
             let displayBody = body.isEmpty ? title : body
+            let isError = Self.isErrorNotification(style: style, title: title, body: body, userInfo: content.userInfo)
             Task { @MainActor in
-                let isError = style == "error"
                 if isError {
                     InAppNotificationCenter.shared.showError(title: displayTitle, message: displayBody, source: .system)
                 } else {
@@ -63,6 +63,27 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         }
         // Still update badge and list, but suppress the system banner/sound
         completionHandler([.list, .badge])
+    }
+
+    /// Broadens "is this an error push?" beyond the explicit `style == "error"` flag so that
+    /// Sonarr/Radarr/Prowlarr HEALTH notifications (indexer failures, etc.) don't render as green
+    /// success banners.
+    private static func isErrorNotification(style: String?, title: String, body: String, userInfo: [AnyHashable: Any]) -> Bool {
+        if style == "error" { return true }
+
+        if let eventType = nestedNotificationValue(for: "eventType", in: userInfo) {
+            switch eventType.lowercased() {
+            case "healthrestored": return false
+            case "health", "healthissue": return true
+            default: break
+            }
+        }
+
+        let haystack = "\(title) \(body)".lowercased()
+        return haystack.contains("unavailable due to failures")
+            || haystack.contains("health check")
+            || haystack.contains("health issue")
+            || haystack.contains("warning:")
     }
 
     private static func enrichedNotificationBody(_ body: String, userInfo: [AnyHashable: Any]) -> String {

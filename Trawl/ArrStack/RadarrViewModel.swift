@@ -368,7 +368,9 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])
-            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for movie.")
+            // Callers already show their own "Search Queued" feedback — log this one silently
+            // to avoid a duplicate banner.
+            InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for movie.")
             error = nil
             return true
         } catch {

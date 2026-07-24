@@ -13,6 +13,9 @@ struct SonarrEditSeriesSheet: View {
     @State private var selectedTags: Set<Int>
     @State private var moveFiles: Bool
     @State private var isSaving = false
+    @State private var showMonitorAllEpisodesAlert = false
+
+    private var wasOriginallyUnmonitored: Bool { series.monitored != true }
 
     init(viewModel: SonarrViewModel, series: SonarrSeries) {
         self.viewModel = viewModel
@@ -43,7 +46,7 @@ struct SonarrEditSeriesSheet: View {
             qualityProfiles: viewModel.qualityProfiles,
             rootFolders: viewModel.rootFolders,
             tags: viewModel.tags,
-            onSave: { Task { await saveChanges() } }
+            onSave: { attemptSave() }
         ) {
             Toggle("Season Folder", isOn: $seasonFolder)
             Picker("Series Type", selection: $seriesType) {
@@ -54,6 +57,13 @@ struct SonarrEditSeriesSheet: View {
         }
         .task {
             await refreshConfiguration()
+        }
+        .alert("Monitor All Episodes?", isPresented: $showMonitorAllEpisodesAlert) {
+            Button("Monitor All") { Task { await saveChanges(monitorAllEpisodes: true) } }
+            Button("Series Only") { Task { await saveChanges(monitorAllEpisodes: false) } }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This series was unmonitored. Are you sure you want to mark all episodes as monitored?")
         }
     }
 
@@ -67,7 +77,15 @@ struct SonarrEditSeriesSheet: View {
         }
     }
 
-    private func saveChanges() async {
+    private func attemptSave() {
+        if wasOriginallyUnmonitored && monitored {
+            showMonitorAllEpisodesAlert = true
+        } else {
+            Task { await saveChanges(monitorAllEpisodes: false) }
+        }
+    }
+
+    private func saveChanges(monitorAllEpisodes: Bool) async {
         isSaving = true
         let hasFiles = (series.statistics?.episodeFileCount ?? 0) > 0
         let folderChanged = rootFolderPath != (series.rootFolderPath ?? "")
@@ -79,10 +97,21 @@ struct SonarrEditSeriesSheet: View {
             seasonFolder: seasonFolder,
             rootFolderPath: rootFolderPath,
             tags: Array(selectedTags).sorted(),
-            moveFiles: folderChanged && hasFiles && moveFiles
+            moveFiles: folderChanged && hasFiles && moveFiles,
+            monitorAllSeasons: monitorAllEpisodes
         )
+        guard success else {
+            isSaving = false
+            return
+        }
+        if monitorAllEpisodes {
+            let episodesSuccess = await viewModel.monitorAllEpisodes(seriesId: series.id)
+            isSaving = false
+            if episodesSuccess { dismiss() }
+            return
+        }
         isSaving = false
-        if success { dismiss() }
+        dismiss()
     }
 }
 

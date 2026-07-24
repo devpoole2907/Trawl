@@ -236,9 +236,12 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
 
     func searchEpisode(_ episode: SonarrEpisode) async {
         guard let client else { return }
+        error = nil
         do {
             _ = try await client.searchEpisodes(episodeIds: [episode.id])
-            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for episode.")
+            // Silent: callers show their own visible confirmation (banner or in-view
+            // feedback card) so this doesn't stack a redundant banner on top of it.
+            InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for episode.")
         } catch {
             self.error = error.localizedDescription
             InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
@@ -254,7 +257,9 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         error = nil
         do {
             _ = try await client.searchSeason(seriesId: seriesId, seasonNumber: seasonNumber)
-            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for season \(seasonNumber).")
+            // Silent: callers show their own visible confirmation (banner or in-view
+            // feedback card) so this doesn't stack a redundant banner on top of it.
+            InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for season \(seasonNumber).")
             return true
         } catch {
             self.error = error.localizedDescription
@@ -272,7 +277,9 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         error = nil
         do {
             _ = try await client.searchSeries(seriesId: seriesId)
-            InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching all monitored episodes.")
+            // Silent: callers show their own visible confirmation (banner or in-view
+            // feedback card) so this doesn't stack a redundant banner on top of it.
+            InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching all monitored episodes.")
             return true
         } catch {
             self.error = error.localizedDescription
@@ -288,7 +295,15 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         print("[InteractiveSearch][Sonarr] start episodeId=\(episodeId.map(String.init) ?? "nil") seriesId=\(seriesId.map(String.init) ?? "nil") seasonNumber=\(seasonNumber.map(String.init) ?? "nil")")
         #endif
         do {
-            let releases = try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+            let releases: [ArrRelease]
+            if episodeId == nil, seasonNumber == nil, let seriesId {
+                // Series-root search: Sonarr's ReleaseController falls back to its recent
+                // RSS feed when only seriesId is given, returning unrelated releases.
+                // Fan out one request per season instead and merge the results.
+                releases = try await interactiveSearchAllSeasons(seriesId: seriesId, client: client)
+            } else {
+                releases = try await client.getReleases(episodeId: episodeId, seriesId: seriesId, seasonNumber: seasonNumber)
+            }
             #if DEBUG
             print("[InteractiveSearch][Sonarr] success releases=\(releases.count)")
             #endif
@@ -306,6 +321,84 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             #endif
             throw error
         }
+    }
+
+    /// Fans out one `getReleases(seriesId:seasonNumber:)` call per season (with episodes)
+    /// concurrently, then merges and de-duplicates by guid. Used for series-root interactive
+    /// search, where a seriesId-only query would otherwise return Sonarr's unrelated RSS feed.
+    private func interactiveSearchAllSeasons(seriesId: Int, client: SonarrAPIClient) async throws -> [ArrRelease] {
+        let seasonNumbers = series
+            .first(where: { $0.id == seriesId })?
+            .seasons?
+            .filter { ($0.statistics?.episodeCount ?? 0) > 0 }
+            .map(\.seasonNumber)
+            .sorted() ?? []
+
+        guard !seasonNumbers.isEmpty else {
+            #if DEBUG
+            print("[InteractiveSearch][Sonarr] no seasons with episodes found for seriesId=\(seriesId); falling back to seriesId-only query")
+            #endif
+            return try await client.getReleases(seriesId: seriesId)
+        }
+
+        #if DEBUG
+        print("[InteractiveSearch][Sonarr] fanning out across \(seasonNumbers.count) season(s) for seriesId=\(seriesId): \(seasonNumbers)")
+        #endif
+
+        let results = await withTaskGroup(of: (Int, Result<[ArrRelease], Error>).self) { group -> [(Int, Result<[ArrRelease], Error>)] in
+            for seasonNum in seasonNumbers {
+                group.addTask {
+                    do {
+                        return (seasonNum, .success(try await client.getReleases(seriesId: seriesId, seasonNumber: seasonNum)))
+                    } catch {
+                        return (seasonNum, .failure(error))
+                    }
+                }
+            }
+            var collected: [(Int, Result<[ArrRelease], Error>)] = []
+            for await entry in group {
+                collected.append(entry)
+            }
+            return collected
+        }
+
+        // Preserve season-ascending order of the fan-out.
+        let ordered = results.sorted { $0.0 < $1.0 }
+
+        var merged: [ArrRelease] = []
+        var seenGuids = Set<String>()
+        var firstError: Error?
+        var successCount = 0
+
+        for (seasonNum, result) in ordered {
+            switch result {
+            case .success(let releases):
+                successCount += 1
+                #if DEBUG
+                print("[InteractiveSearch][Sonarr] season \(seasonNum) returned \(releases.count) release(s)")
+                #endif
+                for release in releases {
+                    guard let guid = release.guid else {
+                        merged.append(release)
+                        continue
+                    }
+                    if seenGuids.insert(guid).inserted {
+                        merged.append(release)
+                    }
+                }
+            case .failure(let seasonError):
+                #if DEBUG
+                print("[InteractiveSearch][Sonarr] season \(seasonNum) failed: \(seasonError.localizedDescription)")
+                #endif
+                if firstError == nil { firstError = seasonError }
+            }
+        }
+
+        if successCount == 0, let firstError {
+            throw firstError
+        }
+
+        return merged
     }
 
     // MARK: - Add Series
@@ -376,7 +469,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         seasonFolder: Bool,
         rootFolderPath: String,
         tags: [Int],
-        moveFiles: Bool = false
+        moveFiles: Bool = false,
+        monitorAllSeasons: Bool = false
     ) async -> Bool {
         guard let client else { return false }
         do {
@@ -387,7 +481,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 seriesType: seriesType,
                 seasonFolder: seasonFolder,
                 rootFolderPath: rootFolderPath,
-                tags: tags
+                tags: tags,
+                monitorAllSeasons: monitorAllSeasons
             )
             _ = try await client.updateSeries(updatedSeries, moveFiles: moveFiles)
             await loadSeries()
@@ -406,6 +501,26 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 message = series.title
             }
             InAppNotificationCenter.shared.showSuccess(title: "Updated", message: message)
+            return true
+        } catch {
+            self.error = error.localizedDescription
+            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            return false
+        }
+    }
+
+    /// Marks every episode of a series as monitored. Used when a user re-enables series
+    /// monitoring and opts to cascade that to episodes, since Sonarr does not do this itself.
+    func monitorAllEpisodes(seriesId: Int) async -> Bool {
+        guard let client else { return false }
+        do {
+            let existing = episodes[seriesId] ?? []
+            let eps = existing.isEmpty ? try await client.getEpisodes(seriesId: seriesId) : existing
+            let episodeIds = eps.map(\.id)
+            if !episodeIds.isEmpty {
+                _ = try await client.setEpisodeMonitored(episodeIds: episodeIds, monitored: true)
+            }
+            await loadEpisodes(for: seriesId)
             return true
         } catch {
             self.error = error.localizedDescription

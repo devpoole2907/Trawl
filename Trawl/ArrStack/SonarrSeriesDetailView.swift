@@ -503,12 +503,29 @@ struct SonarrSeriesDetailView: View {
             Button {
                 guard !isDispatchingSeriesSearch else { return }
                 let seriesId = series.id
+                if let loadedEpisodes = viewModel.episodes[seriesId],
+                   !loadedEpisodes.isEmpty,
+                   !loadedEpisodes.contains(where: { $0.monitored == true }) {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Nothing Monitored",
+                        message: "No episodes in \(series.title) are monitored, so Sonarr has nothing to search. Monitor episodes first or use Interactive Search."
+                    )
+                    return
+                }
                 isDispatchingSeriesSearch = true
                 Task {
                     let didStart = await viewModel.searchSeries(seriesId: seriesId)
                     isDispatchingSeriesSearch = false
                     if !didStart, let error = viewModel.error, !error.isEmpty {
                         InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                    } else if didStart {
+                        // This flow has no in-view feedback card, so show the banner here —
+                        // the view model itself only logs silently now to avoid duplicate
+                        // banners for flows (like the season view) that do have a card.
+                        InAppNotificationCenter.shared.showSuccess(
+                            title: "Search Queued",
+                            message: "\(series.title) was sent to Sonarr for automatic search."
+                        )
                     }
                 }
             } label: {

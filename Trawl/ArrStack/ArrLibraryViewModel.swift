@@ -427,10 +427,13 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         do {
             try await client.grabRelease(release)
             let expectsWebhook = await expectsReleaseGrabWebhook()
-            InAppNotificationCenter.shared.showSuccess(
-                title: expectsWebhook ? "Release Sent" : "Grabbed",
-                message: release.title ?? "Release"
-            )
+            if expectsWebhook {
+                // A webhook-driven "Grabbed" push will arrive seconds later and show its own
+                // banner — log this one silently to avoid a duplicate.
+                InAppNotificationCenter.shared.logSilently(title: "Release Sent", message: release.title ?? "Release")
+            } else {
+                InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
+            }
             await loadQueue()
             return true
         } catch {

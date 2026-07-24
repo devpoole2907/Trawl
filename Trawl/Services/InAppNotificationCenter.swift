@@ -127,6 +127,22 @@ final class InAppNotificationCenter {
         ))
     }
 
+    /// Records a notification in the Recent Notifications log without presenting
+    /// a banner or firing haptics. For confirmations whose feedback is already
+    /// visible elsewhere (in-view status cards, webhook pushes) — the event stays
+    /// auditable in the log without stacking a redundant banner.
+    func logSilently(
+        title: String,
+        message: String,
+        style: InAppBannerStyle = .success,
+        source: NotificationLogEntry.Source = .inApp
+    ) {
+        let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTitle.isEmpty, !trimmedMessage.isEmpty else { return }
+        appendLog(title: trimmedTitle, message: trimmedMessage, style: style, source: source)
+    }
+
     func showError(title: String, message: String, source: NotificationLogEntry.Source = .inApp) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedMessage = message.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -19,7 +19,13 @@ struct ArrQualityProfilePicker: View {
                 Button {
                     onInfo(selectedProfile)
                 } label: {
-                    Label("View Selected Profile Details", systemImage: "info.circle")
+                    Label {
+                        Text("View Selected Profile Details")
+                            .foregroundStyle(.primary)
+                    } icon: {
+                        Image(systemName: "info.circle")
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
         }

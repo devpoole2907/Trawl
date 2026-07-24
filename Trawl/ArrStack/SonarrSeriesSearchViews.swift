@@ -432,7 +432,7 @@ struct SonarrSeasonSearchView: View {
 
         var tint: Color {
             switch kind {
-            case .searching: .blue
+            case .searching: .white.opacity(0.92)
             case .found: .green
             case .noResults: .orange
             }
@@ -795,6 +795,13 @@ struct SonarrSeasonSearchView: View {
     private var automaticSearchButton: some View {
         Button {
             guard !isDispatchingAutomaticSearch, let seriesId = series?.id else { return }
+            guard sortedEpisodes.isEmpty || sortedEpisodes.contains(where: { $0.monitored == true }) else {
+                InAppNotificationCenter.shared.showError(
+                    title: "Nothing Monitored",
+                    message: "No episodes in \(title) are monitored, so Sonarr has nothing to search. Monitor episodes first or use Interactive Search."
+                )
+                return
+            }
             isDispatchingAutomaticSearch = true
             // Set feedback immediately so the info card replaces this button before the Task runs,
             // ensuring the interactive search button is never visually affected by a loading state.
@@ -819,7 +826,9 @@ struct SonarrSeasonSearchView: View {
                     let message = viewModel.error ?? "Could not start search."
                     InAppNotificationCenter.shared.showError(title: "Search Failed", message: message)
                 } else {
-                    InAppNotificationCenter.shared.showSuccess(
+                    // Silent: the feedback card below already communicates this visibly,
+                    // so a banner on top of it would be redundant.
+                    InAppNotificationCenter.shared.logSilently(
                         title: "Search Queued",
                         message: "\(title) was sent to Sonarr for automatic search."
                     )

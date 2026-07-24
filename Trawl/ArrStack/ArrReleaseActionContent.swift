@@ -685,6 +685,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @State private var slowSearchTriggered = false
     @State private var slowIndexers: [ArrSlowIndexer] = []
     @State private var isDisablingIndexers = false
+    @State private var isFilterSearchExpanded = false
 
     init(
         title: String,
@@ -806,7 +807,6 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     releaseList
                 }
             }
-            .searchable(text: $searchText, prompt: "Search releases…")
             .safeAreaInset(edge: .top) {
                 if !releases.isEmpty {
                     qualityFilterBar
@@ -995,7 +995,12 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     }
                 }
             ),
-            items: qualityFilterItems
+            items: qualityFilterItems,
+            searchText: $searchText,
+            searchHint: "Search releases",
+            isSearchExpanded: $isFilterSearchExpanded,
+            searchPlacement: .leading,
+            alignment: .leading
         )
     }
 
