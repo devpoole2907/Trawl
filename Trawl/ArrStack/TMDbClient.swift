@@ -30,6 +30,28 @@ actor TMDbClient {
         try await get("/tv/\(tmdbId)/external_ids")
     }
 
+    // MARK: - Credits
+
+    func movieCredits(tmdbId: Int) async throws -> TMDbCredits {
+        try await get("/movie/\(tmdbId)/credits")
+    }
+
+    func tvCredits(tmdbId: Int) async throws -> TMDbCredits {
+        try await get("/tv/\(tmdbId)/credits")
+    }
+
+    func personDetail(personId: Int) async throws -> TMDbPersonDetail {
+        try await get("/person/\(personId)")
+    }
+
+    func personCombinedCredits(personId: Int) async throws -> TMDbPersonCombinedCredits {
+        try await get("/person/\(personId)/combined_credits")
+    }
+
+    func findByTvdbId(_ tvdbId: Int) async throws -> TMDbFindResults {
+        try await get("/find/\(tvdbId)?external_source=tvdb_id")
+    }
+
     // MARK: - HTTP
 
     private func get<T: Decodable>(_ path: String) async throws -> T {

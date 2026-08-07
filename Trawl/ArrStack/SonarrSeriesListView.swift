@@ -29,7 +29,7 @@ struct SonarrSeriesListView: View {
                         )
                     },
                     detailDestination: { seriesId in
-                        AnyView(SonarrSeriesDetailView(seriesId: seriesId, viewModel: vm))
+                        SonarrSeriesDetailView(seriesId: seriesId, viewModel: vm)
                     }
                 )
             } else {

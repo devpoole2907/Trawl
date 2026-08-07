@@ -91,7 +91,7 @@ struct RadarrMovieListView: View {
                     )
                 },
                 detailDestination: { movieId in
-                    AnyView(RadarrMovieDetailView(movieId: movieId, viewModel: vm))
+                    RadarrMovieDetailView(movieId: movieId, viewModel: vm)
                 }
             )
         } else {

@@ -30,8 +30,6 @@ enum MoreDestination: Hashable {
     case libraryImport
     case manualImport
     case calendar
-    case calendarSeries(id: Int)
-    case calendarMovie(id: Int)
     case libraryImportScan(path: String, service: ArrServiceType)
     case manualImportScan(path: String, service: ArrServiceType)
     case mediaManagement
@@ -610,10 +608,7 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendar:
-                    ArrCalendarView(
-                        seriesNavigationValue: { MoreDestination.calendarSeries(id: $0) },
-                        movieNavigationValue: { MoreDestination.calendarMovie(id: $0) }
-                    )
+                    ArrCalendarView()
                         .environment(arrServiceManager)
                         .injectSyncService(appServices)
                         .moreDestinationTitleStyle()
@@ -733,12 +728,6 @@ struct MoreView: View {
                 case .unifiedUsers:
                     unifiedUsersDestination
                         .moreDestinationBackground(.userManagement)
-                        .moreDestinationTitleStyle()
-                case .calendarSeries(let id):
-                    CalendarSeriesDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .calendarMovie(let id):
-                    CalendarMovieDestination(id: id, appServices: appServices, arrServiceManager: arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .libraryImportScan(let path, let service):
                     LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, kind: .library)
@@ -4662,46 +4651,6 @@ private struct NotificationDetailView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-    }
-}
-
-private struct CalendarSeriesDestination: View {
-    let id: Int
-    let appServices: AppServices?
-    @State private var viewModel: SonarrViewModel
-
-    init(id: Int, appServices: AppServices?, arrServiceManager: ArrServiceManager) {
-        self.id = id
-        self.appServices = appServices
-        self._viewModel = State(wrappedValue: SonarrViewModel(
-            serviceManager: arrServiceManager,
-            preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? []
-        ))
-    }
-
-    var body: some View {
-        SonarrSeriesDetailView(seriesId: id, viewModel: viewModel)
-            .injectSyncService(appServices)
-    }
-}
-
-private struct CalendarMovieDestination: View {
-    let id: Int
-    let appServices: AppServices?
-    @State private var viewModel: RadarrViewModel
-
-    init(id: Int, appServices: AppServices?, arrServiceManager: ArrServiceManager) {
-        self.id = id
-        self.appServices = appServices
-        self._viewModel = State(wrappedValue: RadarrViewModel(
-            serviceManager: arrServiceManager,
-            preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? []
-        ))
-    }
-
-    var body: some View {
-        RadarrMovieDetailView(movieId: id, viewModel: viewModel)
-            .injectSyncService(appServices)
     }
 }
 

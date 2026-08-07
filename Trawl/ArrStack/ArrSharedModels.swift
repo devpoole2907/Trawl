@@ -542,6 +542,33 @@ struct ArrReleaseSort: RawRepresentable, Codable {
             self = ArrReleaseSort()
         }
     }
+
+    // Explicit memberwise Codable: without these, Swift satisfies Codable via the
+    // stdlib's RawRepresentable path, which encodes `rawValue` — and `rawValue`
+    // JSON-encodes self, recursing until the process stack-overflows.
+    private enum CodingKeys: String, CodingKey {
+        case option, isAscending, indexer, quality, approvedOnly, seasonPack
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        option = try container.decodeIfPresent(ArrReleaseSortKey.self, forKey: .option) ?? .default
+        isAscending = try container.decodeIfPresent(Bool.self, forKey: .isAscending) ?? false
+        indexer = try container.decodeIfPresent(String.self, forKey: .indexer) ?? ""
+        quality = try container.decodeIfPresent(String.self, forKey: .quality) ?? ""
+        approvedOnly = try container.decodeIfPresent(Bool.self, forKey: .approvedOnly) ?? false
+        seasonPack = try container.decodeIfPresent(ArrSeasonPackFilter.self, forKey: .seasonPack) ?? .any
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(option, forKey: .option)
+        try container.encode(isAscending, forKey: .isAscending)
+        try container.encode(indexer, forKey: .indexer)
+        try container.encode(quality, forKey: .quality)
+        try container.encode(approvedOnly, forKey: .approvedOnly)
+        try container.encode(seasonPack, forKey: .seasonPack)
+    }
 }
 
 // MARK: - Releases

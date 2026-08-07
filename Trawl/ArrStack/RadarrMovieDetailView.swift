@@ -37,6 +37,13 @@ struct RadarrMovieDetailView: View {
     @State private var queueActionInFlightIDs: Set<Int> = []
     @State private var pendingQueueAction: ArrDetailPendingQueueAction?
     @State private var bazarrMovieSubtitles: [BazarrSubtitle]?
+    @State private var castMembers: [TMDbCastMember]?
+    @State private var selectedCastMember: CastPersonRoute?
+    /// Filmography tap captured while the cast sheet is up; navigation runs after
+    /// the sheet dismisses so the push doesn't race the dismissal animation.
+    @State private var pendingCastCredit: TMDbPersonCredit?
+    @State private var castCreditMovie: RadarrMovie?
+    @State private var castCreditSeries: SonarrSeries?
 
     /// Library init — movie lives in the ViewModel's loaded library.
     init(movieId: Int, viewModel: RadarrViewModel) {
@@ -128,6 +135,14 @@ struct RadarrMovieDetailView: View {
                !fetched.subtitles.isEmpty {
                 bazarrMovieSubtitles = fetched.subtitles
             }
+        }
+        .task(id: movie?.tmdbId) {
+            #if DEBUG
+            guard !disablesPreviewLoadingTasks else { return }
+            #endif
+            castMembers = nil
+            guard let tmdbId = movie?.tmdbId else { return }
+            castMembers = try? await TMDbClient().movieCredits(tmdbId: tmdbId).cast
         }
         .refreshable {
             await refreshMovieDetailState()
@@ -253,6 +268,17 @@ struct RadarrMovieDetailView: View {
         ) { movie in
             RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
         }
+        .sheet(item: $selectedCastMember, onDismiss: completeCastCreditNavigation) { route in
+            CastPersonSheet(route: route, onSelectCredit: { pendingCastCredit = $0 })
+        }
+        .navigationDestination(item: $castCreditMovie) { creditMovie in
+            RadarrMovieDetailView(movie: creditMovie, viewModel: viewModel)
+                .environment(syncService)
+        }
+        .navigationDestination(item: $castCreditSeries) { creditSeries in
+            SonarrSeriesDetailView(series: creditSeries, viewModel: SonarrViewModel(serviceManager: serviceManager))
+                .environment(syncService)
+        }
         .task(id: resolvedLibraryId) {
             #if DEBUG
             guard !disablesPreviewLoadingTasks else { return }
@@ -285,6 +311,33 @@ struct RadarrMovieDetailView: View {
                 // task was cancelled — exit cleanly
             } catch {
                 // ignore transient errors
+            }
+        }
+    }
+
+    private func completeCastCreditNavigation() {
+        guard let credit = pendingCastCredit else { return }
+        pendingCastCredit = nil
+        Task {
+            let resolver = ArrMediaLookupResolver(serviceManager: serviceManager)
+            if credit.isMovie {
+                if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
+                    castCreditMovie = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Radarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
+            } else {
+                if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
+                    castCreditSeries = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Sonarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
             }
         }
     }
@@ -433,6 +486,13 @@ struct RadarrMovieDetailView: View {
 
         if let overview = movie.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
+        }
+
+        if let castMembers, !castMembers.isEmpty {
+            CastShelfView(
+                items: castMembers.prefix(20).map(CastShelfItem.init),
+                onSelect: { selectedCastMember = $0.destination }
+            )
         }
 
         statsCard(movie)

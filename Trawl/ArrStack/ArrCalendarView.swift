@@ -316,38 +316,20 @@ private struct CalendarMonthLoadError: LocalizedError {
     }
 }
 
-extension ArrCalendarView where SeriesDest == Int, MovieDest == Int64 {
-    init(showsCloseButton: Bool = false) {
-        self.init(
-            showsCloseButton: showsCloseButton,
-            seriesNavigationValue: { $0 },
-            movieNavigationValue: { Int64($0) }
-        )
-    }
-}
-
-struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
+struct ArrCalendarView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(\.dismiss) private var dismiss
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     #endif
-    
-    let showsCloseButton: Bool
-    let seriesNavigationValue: (Int) -> SeriesDest
-    let movieNavigationValue: (Int) -> MovieDest
 
-    init(
-        showsCloseButton: Bool = false,
-        seriesNavigationValue: @escaping (Int) -> SeriesDest,
-        movieNavigationValue: @escaping (Int) -> MovieDest
-    ) {
+    let showsCloseButton: Bool
+
+    init(showsCloseButton: Bool = false) {
         self.showsCloseButton = showsCloseButton
-        self.seriesNavigationValue = seriesNavigationValue
-        self.movieNavigationValue = movieNavigationValue
     }
-    
+
     @State private var scope: CalendarScope = .all
     @State private var showMonitoredOnly = false
     @State private var scrollView: ScrollViewProxy?
@@ -514,14 +496,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
             setTabChromeHidden(false)
             #endif
         }
-        .navigationDestination(for: Int.self) { seriesId in
-            SonarrSeriesDetailView(seriesId: seriesId, viewModel: SonarrViewModel(serviceManager: serviceManager, preloadedSeries: serviceManager.calendarViewModel!.sonarrSeries))
-                .environment(syncService)
-        }
-        .navigationDestination(for: Int64.self) { movieId in
-            RadarrMovieDetailView(movieId: Int(movieId), viewModel: RadarrViewModel(serviceManager: serviceManager, preloadedMovies: serviceManager.calendarViewModel!.radarrMovies))
-                .environment(syncService)
-        }
+        .arrMediaNavigationDestinations()
         .sheet(isPresented: $showiCalAlert) {
             ICalSubscribeSheet(availableServices: subscribableServices)
         }
@@ -654,7 +629,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
         switch event {
         case .episode(let episode, _, _):
             if let seriesID = episode.seriesId {
-                NavigationLink(value: seriesNavigationValue(seriesID)) {
+                NavigationLink(value: ArrMediaDestination.series(id: seriesID)) {
                     EventRow(event: event)
                 }
                 .buttonStyle(.plain)
@@ -662,7 +637,7 @@ struct ArrCalendarView<SeriesDest: Hashable, MovieDest: Hashable>: View {
                 EventRow(event: event)
             }
         case .movie(let movie, _, _):
-            NavigationLink(value: movieNavigationValue(movie.id)) {
+            NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
                 EventRow(event: event)
             }
             .buttonStyle(.plain)

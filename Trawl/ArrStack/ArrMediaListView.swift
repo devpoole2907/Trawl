@@ -3,10 +3,10 @@ import SwiftData
 import Foundation
 
 @MainActor
-struct ArrMediaListView<Item, VM, Row>: View
+struct ArrMediaListView<Item, VM, Row, Detail>: View
 where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
       VM: ArrMediaListViewModel & Observable, VM.Item == Item,
-      Row: View {
+      Row: View, Detail: View {
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
@@ -22,7 +22,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     let nounPlural: String
     let emptyIcon: String
     let row: (Item, Bool) -> Row
-    let detailDestination: (Int) -> AnyView
+    let detailDestination: (Int) -> Detail
 
     @State private var listScrollPosition: Int?
     @Namespace private var namespace

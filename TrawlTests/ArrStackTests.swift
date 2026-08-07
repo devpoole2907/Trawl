@@ -81,9 +81,10 @@ struct ArrErrorTests {
 @MainActor
 struct ArrServiceTypeTests {
     @Test("Properties", arguments: [
-        (ArrServiceType.sonarr, "Sonarr", 8989, "tv", "sonarr"),
-        (.radarr, "Radarr", 7878, "film", "radarr"),
-        (.prowlarr, "Prowlarr", 9696, "magnifyingglass.circle", "prowlarr")
+        (ArrServiceType.sonarr, "Sonarr", 8989, "tv.fill", "sonarr"),
+        (.radarr, "Radarr", 7878, "film.fill", "radarr"),
+        (.prowlarr, "Prowlarr", 9696, "magnifyingglass.circle.fill", "prowlarr"),
+        (.bazarr, "Bazarr", 6767, "captions.bubble.fill", "bazarr")
     ])
     func properties(type: ArrServiceType, name: String, port: Int, image: String, raw: String) {
         #expect(type.displayName == name)
@@ -95,7 +96,7 @@ struct ArrServiceTypeTests {
 
     @Test("All Cases Count")
     func allCasesCount() {
-        #expect(ArrServiceType.allCases.count == 3)
+        #expect(ArrServiceType.allCases.count == 4)
     }
 
     @Test("Initialization from Raw Value", arguments: [
@@ -936,13 +937,13 @@ struct MiscellaneousParsingTests {
         """#
         let data = try #require(json.data(using: .utf8))
         let value = try JSONDecoder().decode(JSONValue.self, from: data)
-        let item = try #require(ManualImportItem(json: value))
+        let item = try #require(LibraryImportItem(json: value))
 
-        let keys = ManualImportScanViewModel.importedEpisodeKeys(from: [item])
+        let keys = LibraryImportScanViewModel.importedEpisodeKeys(from: [item])
 
         #expect(keys == [
-            ManualImportEpisodeKey(seasonNumber: 2, episodeNumber: 1),
-            ManualImportEpisodeKey(seasonNumber: 2, episodeNumber: 2)
+            LibraryImportEpisodeKey(seasonNumber: 2, episodeNumber: 1),
+            LibraryImportEpisodeKey(seasonNumber: 2, episodeNumber: 2)
         ])
     }
 

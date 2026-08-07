@@ -3,15 +3,13 @@ import SwiftData
 
 struct SearchView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
-    @Environment(SyncService.self) private var syncService
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(\.horizontalSizeClass) private var hSizeClass
 
     @State private var viewModel = SearchViewModel()
     @State private var showClearConfirmation = false
     @State private var showArrSetupSheet = false
-    @State private var pendingTrendingMovie: RadarrMovie? = nil
-    @State private var pendingTrendingSeries: SonarrSeries? = nil
+    @State private var navigationPath = NavigationPath()
     @State private var trendingLookupTask: Task<Void, Never>? = nil
 
     @Namespace private var trendingTransition
@@ -27,7 +25,7 @@ struct SearchView: View {
     // MARK: - Body
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $navigationPath) {
             ZStack(alignment: .top) {
                 content
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -52,64 +50,10 @@ struct SearchView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.scope)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.searchText.isEmpty)
             .navigationTitle("")
-            .navigationDestination(for: SeriesDestination.self) { dest in
-                if let vm = makeSonarrViewModel() {
-                    SonarrSeriesDetailView(seriesId: dest.id, viewModel: vm)
-                        .environment(syncService)
-                }
-            }
-            .navigationDestination(for: MovieDestination.self) { dest in
-                if let vm = makeRadarrViewModel() {
-                    RadarrMovieDetailView(movieId: dest.id, viewModel: vm)
-                        .environment(syncService)
-                }
-            }
-            .navigationDestination(for: ArrSeriesLookupDestination.self) { dest in
-                if let vm = viewModel.sonarrLookupVM {
-                    SonarrSeriesDetailView(
-                        series: dest.series,
-                        viewModel: vm,
-                        onAdded: {
-                            await refreshLibrary()
-                        }
-                    )
-                    .environment(syncService)
-                    #if os(iOS)
-                    .navigationTransition(.zoom(sourceID: dest, in: trendingTransition))
-                    #endif
-                }
-            }
-            .navigationDestination(for: ArrMovieLookupDestination.self) { dest in
-                if let vm = viewModel.radarrLookupVM {
-                    RadarrMovieDetailView(
-                        movie: dest.movie,
-                        viewModel: vm,
-                        onAdded: {
-                            await refreshLibrary()
-                        }
-                    )
-                    .environment(syncService)
-                    #if os(iOS)
-                    .navigationTransition(.zoom(sourceID: dest, in: trendingTransition))
-                    #endif
-                }
-            }
-            .navigationDestination(item: $pendingTrendingMovie) { movie in
-                if let vm = viewModel.radarrLookupVM {
-                    RadarrMovieDetailView(movie: movie, viewModel: vm, onAdded: {
-                        await refreshLibrary()
-                    })
-                    .environment(syncService)
-                }
-            }
-            .navigationDestination(item: $pendingTrendingSeries) { series in
-                if let vm = viewModel.sonarrLookupVM {
-                    SonarrSeriesDetailView(series: series, viewModel: vm, onAdded: {
-                        await refreshLibrary()
-                    })
-                    .environment(syncService)
-                }
-            }
+            .arrMediaNavigationDestinations(
+                onLibraryChanged: { await refreshLibrary() },
+                zoomNamespace: trendingTransition
+            )
         }
         .searchable(
             text: $viewModel.searchText,
@@ -171,8 +115,6 @@ struct SearchView: View {
         .onDisappear {
             trendingLookupTask?.cancel()
             trendingLookupTask = nil
-            pendingTrendingMovie = nil
-            pendingTrendingSeries = nil
         }
     }
 
@@ -333,7 +275,7 @@ struct SearchView: View {
         let inLibrary = isInLibrary(item)
 
         if item.isMovie, let match = viewModel.movieMatches[item.id] {
-            let dest = ArrMovieLookupDestination(movie: match)
+            let dest = ArrMediaDestination.movieLookup(match)
             NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
                     #if os(iOS)
@@ -342,7 +284,7 @@ struct SearchView: View {
             }
             .buttonStyle(.plain)
         } else if !item.isMovie, let match = viewModel.seriesMatches[item.id] {
-            let dest = ArrSeriesLookupDestination(series: match)
+            let dest = ArrMediaDestination.seriesLookup(match)
             NavigationLink(value: dest) {
                 trendingCardLabel(item: item, inLibrary: inLibrary)
                     #if os(iOS)
@@ -354,16 +296,13 @@ struct SearchView: View {
             Button {
                 trendingLookupTask?.cancel()
                 trendingLookupTask = Task {
-                    if item.isMovie, let radarrClient = arrServiceManager.radarrClient,
-                       let movie = try? await radarrClient.lookupMovieByTmdb(tmdbId: item.id) {
+                    let resolver = ArrMediaLookupResolver(serviceManager: arrServiceManager)
+                    if item.isMovie, let movie = await resolver.resolveMovie(tmdbId: item.id) {
                         guard !Task.isCancelled else { return }
-                        pendingTrendingMovie = movie
-                    } else if !item.isMovie, let sonarrClient = arrServiceManager.sonarrClient,
-                              let tvdbId = try? await TMDbClient().tvExternalIds(tmdbId: item.id).tvdbId,
-                              !Task.isCancelled,
-                              let series = try? await sonarrClient.lookupSeriesByTvdb(tvdbId: tvdbId) {
+                        navigationPath.append(ArrMediaDestination.movieLookup(movie))
+                    } else if !item.isMovie, let series = await resolver.resolveSeries(tmdbId: item.id) {
                         guard !Task.isCancelled else { return }
-                        pendingTrendingSeries = series
+                        navigationPath.append(ArrMediaDestination.seriesLookup(series))
                     } else if !Task.isCancelled {
                         // Arr not configured or lookup failed — fall back to text search
                         viewModel.searchText = item.year.map { "\(item.displayTitle) \($0)" } ?? item.displayTitle
@@ -464,7 +403,7 @@ struct SearchView: View {
     @ViewBuilder
     private func librarySeriesRow(_ series: SonarrSeries) -> some View {
         let isMonitored = series.monitored ?? true
-        NavigationLink(value: SeriesDestination(id: series.id)) {
+        NavigationLink(value: ArrMediaDestination.series(id: series.id)) {
             SonarrSeriesRow(series: series, hasIssue: false, showTypeLabel: viewModel.filter == .all)
         }
         .contextMenu {
@@ -493,7 +432,7 @@ struct SearchView: View {
     @ViewBuilder
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
         let isMonitored = movie.monitored ?? true
-        NavigationLink(value: MovieDestination(id: movie.id)) {
+        NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
             RadarrMovieRow(movie: movie, hasIssue: false, showTypeLabel: viewModel.filter == .all)
         }
         .contextMenu {
@@ -658,7 +597,7 @@ struct SearchView: View {
         let existsInLibrary = viewModel.sonarrSeries.contains(where: { $0.tvdbId == series.tvdbId })
         let libraryMatch = viewModel.sonarrSeries.first(where: { $0.tvdbId == series.tvdbId })
 
-        NavigationLink(value: ArrSeriesLookupDestination(series: series)) {
+        NavigationLink(value: ArrMediaDestination.seriesLookup(series)) {
             ArrSeriesResultRow(
                 series: series,
                 existsInLibrary: existsInLibrary,
@@ -712,7 +651,7 @@ struct SearchView: View {
         let existsInLibrary = viewModel.radarrMovies.contains(where: { $0.tmdbId == movie.tmdbId })
         let libraryMatch = viewModel.radarrMovies.first(where: { $0.tmdbId == movie.tmdbId })
 
-        NavigationLink(value: ArrMovieLookupDestination(movie: movie)) {
+        NavigationLink(value: ArrMediaDestination.movieLookup(movie)) {
             ArrMovieResultRow(
                 movie: movie,
                 existsInLibrary: existsInLibrary,
@@ -828,14 +767,6 @@ struct SearchView: View {
 
     private func loadTrending() async {
         await viewModel.loadTrending(arrServiceManager: arrServiceManager, seerrServiceManager: seerrServiceManager)
-    }
-
-    private func makeSonarrViewModel() -> SonarrViewModel? {
-        viewModel.makeSonarrViewModel(arrServiceManager: arrServiceManager)
-    }
-
-    private func makeRadarrViewModel() -> RadarrViewModel? {
-        viewModel.makeRadarrViewModel(arrServiceManager: arrServiceManager)
     }
 
     private func toggleLibrarySeriesMonitored(_ series: SonarrSeries) async {
@@ -1070,11 +1001,6 @@ fileprivate enum SearchResultEntry: Identifiable {
         }
     }
 }
-
-private struct SeriesDestination: Hashable { let id: Int }
-private struct MovieDestination: Hashable { let id: Int }
-private struct ArrSeriesLookupDestination: Hashable { let series: SonarrSeries }
-private struct ArrMovieLookupDestination: Hashable { let movie: RadarrMovie }
 
 #if DEBUG
 extension SearchView {

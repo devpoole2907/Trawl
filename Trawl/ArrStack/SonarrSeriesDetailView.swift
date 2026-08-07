@@ -31,6 +31,13 @@ struct SonarrSeriesDetailView: View {
     @State private var interactiveSearchSeries: SonarrSeries?
     @State private var bazarrEpisodes: [BazarrEpisode] = []
     @State private var bazarrClientForEpisodes: BazarrAPIClient?
+    @State private var castMembers: [TMDbCastMember]?
+    @State private var selectedCastMember: CastPersonRoute?
+    /// Filmography tap captured while the cast sheet is up; navigation runs after
+    /// the sheet dismisses so the push doesn't race the dismissal animation.
+    @State private var pendingCastCredit: TMDbPersonCredit?
+    @State private var castCreditMovie: RadarrMovie?
+    @State private var castCreditSeries: SonarrSeries?
 
     /// Library init — series lives in the ViewModel's loaded library.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -162,6 +169,24 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
+        .task(id: series?.tvdbId) {
+            castMembers = nil
+            guard let series else { return }
+            let resolver = ArrMediaLookupResolver(serviceManager: serviceManager)
+            guard let tmdbId = await resolver.tmdbId(forSeries: series) else { return }
+            castMembers = try? await TMDbClient().tvCredits(tmdbId: tmdbId).cast
+        }
+        .sheet(item: $selectedCastMember, onDismiss: completeCastCreditNavigation) { route in
+            CastPersonSheet(route: route, onSelectCredit: { pendingCastCredit = $0 })
+        }
+        .navigationDestination(item: $castCreditMovie) { creditMovie in
+            RadarrMovieDetailView(movie: creditMovie, viewModel: RadarrViewModel(serviceManager: serviceManager))
+                .environment(syncService)
+        }
+        .navigationDestination(item: $castCreditSeries) { creditSeries in
+            SonarrSeriesDetailView(series: creditSeries, viewModel: viewModel)
+                .environment(syncService)
+        }
         .refreshable {
             await refreshSeriesDetailState()
             if let bazarrClientForEpisodes, let id = resolvedSeriesId {
@@ -362,6 +387,33 @@ struct SonarrSeriesDetailView: View {
 
     // MARK: - Cards section
 
+    private func completeCastCreditNavigation() {
+        guard let credit = pendingCastCredit else { return }
+        pendingCastCredit = nil
+        Task {
+            let resolver = ArrMediaLookupResolver(serviceManager: serviceManager)
+            if credit.isMovie {
+                if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
+                    castCreditMovie = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Radarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
+            } else {
+                if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
+                    castCreditSeries = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Sonarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private func cardsSection(_ series: SonarrSeries) -> some View {
         if !isInLibrary {
@@ -388,6 +440,13 @@ struct SonarrSeriesDetailView: View {
 
         if let overview = series.overview, !overview.isEmpty {
             ArrDetailOverviewCard(text: overview)
+        }
+
+        if let castMembers, !castMembers.isEmpty {
+            CastShelfView(
+                items: castMembers.prefix(20).map(CastShelfItem.init),
+                onSelect: { selectedCastMember = $0.destination }
+            )
         }
 
         if isInLibrary {

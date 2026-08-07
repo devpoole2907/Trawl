@@ -146,7 +146,7 @@ struct ArrWantedView: View {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
-                                    WantedEpisodeRow(episode: episode, viewModel: sonarrViewModel) {
+                                    WantedEpisodeRow(episode: episode) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -172,7 +172,7 @@ struct ArrWantedView: View {
                         if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
                             Section("Movies") {
                                 ForEach(radarrViewModel.wantedMovies) { movie in
-                                    WantedMovieRow(movie: movie, viewModel: radarrViewModel) {
+                                    WantedMovieRow(movie: movie) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -279,6 +279,7 @@ struct ArrWantedView: View {
         .refreshable {
             await reloadWantedMissing()
         }
+        .arrMediaNavigationDestinations()
     }
 
     // MARK: - Computed
@@ -532,16 +533,13 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
-    let viewModel: SonarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
-            NavigationLink {
-                SonarrSeriesDetailView(seriesId: episode.seriesId ?? 0, viewModel: viewModel)
-            } label: {
+            NavigationLink(value: ArrMediaDestination.series(id: episode.seriesId ?? 0)) {
                 rowContent
             }
             .buttonStyle(.plain)
@@ -614,16 +612,13 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
-    let viewModel: RadarrViewModel
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
 
     var body: some View {
         HStack(spacing: 12) {
-            NavigationLink {
-                RadarrMovieDetailView(movieId: movie.id, viewModel: viewModel)
-            } label: {
+            NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
                 rowContent
             }
             .buttonStyle(.plain)
