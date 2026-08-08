@@ -13,6 +13,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
     @Environment(JellyfinServiceManager.self) private var serviceManager
     @State private var isExpanded = false
     @State private var didRefresh = false
+    @State private var didTriggerRescan = false
 
     private var seriesKey: JellyfinAvailabilityResolver.Key? {
         serviceManager.activeProfileID.map { .init(profileID: $0, mediaTaskKey: media.taskKey) }
@@ -82,6 +83,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
                 .task(id: "\(media.taskKey)-\(serviceManager.activeProfileID?.uuidString ?? "none")") {
                     isExpanded = false
                     didRefresh = false
+                    didTriggerRescan = false
                     guard let seriesKey, let client = serviceManager.activeClient else { return }
                     serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
                 }
@@ -249,7 +251,20 @@ struct JellyfinEpisodeAvailabilityCard: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
+            Spacer(minLength: 8)
+            Button {
+                Task { await rescanLibrary() }
+            } label: {
+                if didTriggerRescan {
+                    Image(systemName: "checkmark.circle.fill")
+                } else {
+                    Image(systemName: "arrow.clockwise")
+                }
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .disabled(didTriggerRescan)
+            .accessibilityLabel("Rescan Jellyfin library")
         }
     }
 
@@ -305,6 +320,35 @@ struct JellyfinEpisodeAvailabilityCard: View {
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Jellyfin Refresh Failed",
+                message: error.localizedDescription,
+                source: .inApp
+            )
+        }
+    }
+
+    /// Triggers a full Jellyfin library scan when the series or episode wasn't
+    /// found — covers the case where a file downloaded after Jellyfin's last scan.
+    private func rescanLibrary() async {
+        guard let client = serviceManager.activeClient else { return }
+        do {
+            try await client.refreshAllLibraries()
+            didTriggerRescan = true
+            if let seriesKey {
+                serviceManager.availability.invalidate(seriesKey)
+                serviceManager.availability.ensureLoaded(seriesKey, media: media, client: client)
+            }
+            if let episodesKey {
+                serviceManager.availability.invalidateEpisodes(episodesKey)
+                serviceManager.availability.ensureEpisodesLoaded(episodesKey, client: client)
+            }
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Jellyfin Library Scan Started",
+                message: "Jellyfin is rescanning your libraries.",
+                source: .inApp
+            )
+        } catch {
+            InAppNotificationCenter.shared.showError(
+                title: "Jellyfin Scan Failed",
                 message: error.localizedDescription,
                 source: .inApp
             )

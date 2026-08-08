@@ -13,7 +13,7 @@ struct FileListView: View {
                 ContentUnavailableView("No Files", systemImage: "doc.questionmark", description: Text("No files found for this torrent."))
             } else {
                 ForEach(viewModel.files) { file in
-                    FileRow(file: file, isEditing: editMode.isEditing) { priority in
+                    FileRow(file: file, savePath: viewModel.torrent?.savePath, isEditing: editMode.isEditing) { priority in
                         Task {
                             await viewModel.setFilePriority(indices: [file.index], priority: priority)
                         }
@@ -38,6 +38,32 @@ struct FileListView: View {
                 }
             }
 
+            if editMode.isEditing {
+                ToolbarItem(placement: fileSelectionTrailingToolbarPlacement) {
+                    Menu {
+                        Menu("Set Priority") {
+                            ForEach(FilePriority.allCases) { priority in
+                                Button {
+                                    let indices = Array(selectedIndices)
+                                    Task {
+                                        await viewModel.setFilePriority(indices: indices, priority: priority)
+                                        selectedIndices = []
+                                        withAnimation {
+                                            editMode = .inactive
+                                        }
+                                    }
+                                } label: {
+                                    Label(priority.displayName, systemImage: priority.systemImage)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .disabled(selectedIndices.isEmpty)
+                }
+            }
+
             ToolbarItem(placement: fileEditToolbarPlacement) {
                 if !viewModel.files.isEmpty {
                     Button(editMode.isEditing ? "Done" : "Edit") {
@@ -50,28 +76,6 @@ struct FileListView: View {
                             }
                         }
                     }
-                }
-            }
-            
-            if editMode.isEditing {
-                ToolbarItem(placement: fileSelectionTrailingToolbarPlacement) {
-                    Menu("Set Priority") {
-                        ForEach(FilePriority.allCases) { priority in
-                            Button {
-                                let indices = Array(selectedIndices)
-                                Task {
-                                    await viewModel.setFilePriority(indices: indices, priority: priority)
-                                    selectedIndices = []
-                                    withAnimation {
-                                        editMode = .inactive
-                                    }
-                                }
-                            } label: {
-                                Label(priority.displayName, systemImage: priority.systemImage)
-                            }
-                        }
-                    }
-                    .disabled(selectedIndices.isEmpty)
                 }
             }
         }
@@ -129,14 +133,41 @@ private var fileSelectionTrailingToolbarPlacement: ToolbarItemPlacement {
 
 private struct FileRow: View {
     let file: TorrentFile
+    let savePath: String?
     let isEditing: Bool
     let onSetPriority: (FilePriority) -> Void
 
+    private var fileName: String {
+        (file.name as NSString).lastPathComponent
+    }
+
+    /// The file's full on-disk directory — the torrent's save path plus any
+    /// subfolder from the file's relative name within the torrent. `file.name`
+    /// alone has no directory component for single-file torrents, so this is
+    /// needed to show a meaningful path rather than nothing.
+    private var directoryPath: String? {
+        guard let savePath, !savePath.isEmpty else {
+            let directory = (file.name as NSString).deletingLastPathComponent
+            return directory.isEmpty ? nil : directory
+        }
+        let fullPath = (savePath as NSString).appendingPathComponent(file.name)
+        let directory = (fullPath as NSString).deletingLastPathComponent
+        return directory.isEmpty ? nil : directory
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(file.name)
+            Text(fileName)
                 .font(.subheadline)
                 .lineLimit(2)
+
+            if let directoryPath {
+                Text(directoryPath)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
 
             ProgressView(value: file.progress)
                 .tint(file.progress >= 1.0 ? .green : .blue)
@@ -166,11 +197,14 @@ private struct FileRow: View {
                             }
                         }
                     } label: {
-                        Label(file.priority.displayName, systemImage: file.priority.systemImage)
-                            .font(.subheadline)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .glassEffect(.regular.interactive(), in: Capsule())
+                        HStack(spacing: 4) {
+                            Image(systemName: file.priority.systemImage)
+                            Text(file.priority.displayName)
+                        }
+                        .font(.subheadline)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .glassEffect(.regular.interactive(), in: Capsule())
                     }
                 }
             }

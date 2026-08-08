@@ -471,6 +471,9 @@ struct ArrCalendarView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .sheet(isPresented: $showiCalAlert) {
+            ICalSubscribeSheet(availableServices: subscribableServices)
+        }
         .refreshable {
             await serviceManager.calendarViewModel.refresh()
             await revealCalendarIfNeeded(forceScrollToToday: true)
@@ -497,9 +500,6 @@ struct ArrCalendarView: View {
             #endif
         }
         .arrMediaNavigationDestinations()
-        .sheet(isPresented: $showiCalAlert) {
-            ICalSubscribeSheet(availableServices: subscribableServices)
-        }
     }
     
     @ViewBuilder

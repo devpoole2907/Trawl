@@ -88,7 +88,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                 showWantedMissing: $showWantedMissing,
                 onBulkDelete: bulkDeleteItems
             ))
-            .refreshable {
+            .refreshableIfEnabled(!editMode.isEditing) {
                 async let loadItems = viewModel.loadLibraryItems()
                 async let loadQueue = viewModel.loadQueue()
                 _ = await (loadItems, loadQueue)
@@ -513,6 +513,17 @@ extension RadarrMovie: ArrTitleable, ArrSortable, ArrMonitorable {}
 
 private extension Identifiable {
     var titlePlaceholder: String { "" }
+}
+
+private extension View {
+    @ViewBuilder
+    func refreshableIfEnabled(_ enabled: Bool, action: @escaping @MainActor @Sendable () async -> Void) -> some View {
+        if enabled {
+            refreshable(action: action)
+        } else {
+            self
+        }
+    }
 }
 
 struct ArrMediaListViewAlertsAndSheets<Item, VM>: ViewModifier

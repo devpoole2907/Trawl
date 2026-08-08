@@ -227,8 +227,7 @@ struct ArrActivityQueueView: View {
                                     }
                                 }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                    if let path = activityItem.item.outputPath,
-                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                    if let path = activityItem.item.outputPath {
                                         Button {
                                             manualImportService = activityItem.source
                                             manualImportPath = path
@@ -262,8 +261,7 @@ struct ArrActivityQueueView: View {
                                     }
                                 }
                                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                                    if let path = activityItem.item.outputPath,
-                                       activityItem.item.trackedDownloadStatus == "warning" || activityItem.item.trackedDownloadStatus == "error" {
+                                    if let path = activityItem.item.outputPath {
                                         Button {
                                             manualImportService = activityItem.source
                                             manualImportPath = path
@@ -694,8 +692,7 @@ private struct QueueDetailSheet: View {
             }
 
             // Manual Import action
-            if let path = item.item.outputPath,
-               item.item.trackedDownloadStatus == "warning" || item.item.trackedDownloadStatus == "error" {
+            if let path = item.item.outputPath {
                 Button {
                     onManualImport(path, item.source)
                 } label: {
