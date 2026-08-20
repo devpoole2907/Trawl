@@ -105,6 +105,10 @@ final class ArrServiceManager {
     private(set) var sonarrHistory: [ArrHistoryRecord] = []
     private(set) var radarrHistory: [ArrHistoryRecord] = []
     private(set) var isLoadingQueue = false
+    /// True once a queue refresh has completed, successfully or not. Views use this to
+    /// show a spinner on first load only — `isLoadingQueue` alone flips on every poll,
+    /// so an empty queue would flicker between spinner and empty state every cycle.
+    private(set) var hasLoadedQueueOnce = false
     private(set) var queueError: String?
 
     /// Cadence while a queue-facing view is on screen. Sonarr and Radarr each return
@@ -985,10 +989,14 @@ final class ArrServiceManager {
             sonarrHistory = []
             radarrHistory = []
             queueError = nil
+            hasLoadedQueueOnce = true
             return
         }
         isLoadingQueue = true
-        defer { isLoadingQueue = false }
+        defer {
+            isLoadingQueue = false
+            hasLoadedQueueOnce = true
+        }
         async let s = fetchQueueSnapshot(sonarrClient, serviceName: "Sonarr")
         async let r = fetchQueueSnapshot(radarrClient, serviceName: "Radarr")
         let (sv, rv) = await (s, r)

@@ -11,18 +11,38 @@ import SwiftUI
 final class DownloadsNavigator {
     /// Set by a caller, cleared by `DownloadsView` once it has been applied.
     var requestedSection: DownloadSection?
+    /// A push to perform on arrival — used by More's search results, which link to
+    /// tools that now live in this tab.
+    var requestedRoute: DownloadsManagementRoute?
 
     init() {}
 
     func show(_ section: DownloadSection) {
         requestedSection = section
     }
+
+    func show(_ route: DownloadsManagementRoute) {
+        requestedRoute = route
+    }
 }
 
-/// Toolbar overflow destinations for the Downloads tab.
+/// Everything in the Downloads tab that sits one push below the list: the toolbar
+/// overflow destinations, plus the qBittorrent tools that More's search links into.
 enum DownloadsManagementRoute: Hashable {
     case clients
     case blocklist
+    case torrents
+    case transferStats
+    case categoriesAndTags
+    case rssFeeds
+
+    /// True for routes that need a configured qBittorrent server to render anything.
+    var requiresQBittorrent: Bool {
+        switch self {
+        case .clients, .blocklist: false
+        case .torrents, .transferStats, .categoriesAndTags, .rssFeeds: true
+        }
+    }
 }
 
 struct DownloadsView: View {
@@ -60,6 +80,13 @@ struct DownloadsView: View {
         downloadsNavigator?.requestedSection = nil
     }
 
+    /// Applies a pending push and clears it, so the same route can be requested again.
+    private func applyRequestedRoute(_ requested: DownloadsManagementRoute?) {
+        guard let requested else { return }
+        managementRoute = requested
+        downloadsNavigator?.requestedRoute = nil
+    }
+
     var body: some View {
         content
             // Applied before .safeAreaInset so the RefreshAction stays scoped to the list.
@@ -74,9 +101,13 @@ struct DownloadsView: View {
             .onChange(of: downloadsNavigator?.requestedSection) { _, requested in
                 applyRequestedSection(requested)
             }
+            .onChange(of: downloadsNavigator?.requestedRoute) { _, requested in
+                applyRequestedRoute(requested)
+            }
             .onAppear {
                 // Catches a request made while this view wasn't mounted yet.
                 applyRequestedSection(downloadsNavigator?.requestedSection)
+                applyRequestedRoute(downloadsNavigator?.requestedRoute)
             }
             .background(backgroundGradient)
             .navigationTitle("Downloads")
@@ -137,18 +168,7 @@ struct DownloadsView: View {
                 }
             }
             .navigationDestination(item: $managementRoute) { route in
-                switch route {
-                case .clients:
-                    DownloadClientManagementView()
-                        .environment(syncService)
-                        .environment(torrentService)
-                        .environment(sabnzbdServiceManager)
-                case .blocklist:
-                    // Blocklisting happens from the queue actions in this very view,
-                    // so the resulting list lives here too rather than in More.
-                    ArrBlocklistView()
-                        .environment(arrServiceManager)
-                }
+                managementDestination(route)
             }
             .sheet(isPresented: $showAddTorrent) {
                 AddTorrentSheet()
@@ -206,6 +226,52 @@ struct DownloadsView: View {
             }
     }
 
+    @ViewBuilder
+    private func managementDestination(_ route: DownloadsManagementRoute) -> some View {
+        if route.requiresQBittorrent && !hasQBittorrentServer {
+            // Reachable from More's search even with no torrent client configured, so
+            // it points at Client Management — the place in *this* tab where you'd add
+            // one — rather than at Settings.
+            ContentUnavailableView {
+                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.systemImage)
+            } description: {
+                Text("Add a qBittorrent server to use its transfer stats, categories, and RSS tools.")
+            } actions: {
+                Button("Client Management") {
+                    managementRoute = .clients
+                }
+            }
+            .scrollableUnavailableState()
+        } else {
+            switch route {
+            case .clients:
+                DownloadClientManagementView()
+                    .environment(syncService)
+                    .environment(torrentService)
+                    .environment(sabnzbdServiceManager)
+            case .blocklist:
+                // Blocklisting happens from the queue actions in this very view,
+                // so the resulting list lives here too rather than in More.
+                ArrBlocklistView()
+                    .environment(arrServiceManager)
+            case .torrents:
+                TorrentListView(title: "qBittorrent")
+                    .environment(syncService)
+                    .environment(torrentService)
+            case .transferStats:
+                TorrentStatsView()
+                    .environment(syncService)
+            case .categoriesAndTags:
+                QBittorrentCategoriesAndTagsView()
+                    .environment(syncService)
+                    .environment(torrentService)
+            case .rssFeeds:
+                QBittorrentRSSView()
+                    .environment(torrentService)
+            }
+        }
+    }
+
     private var items: [DownloadListItem] {
         viewModel.items(
             for: selectedSection,
@@ -218,7 +284,9 @@ struct DownloadsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if arrServiceManager.isLoadingQueue && items.isEmpty {
+        // Gated on the first load rather than on `isLoadingQueue`, which flips true on
+        // every poll — an empty queue would otherwise flicker spinner/empty each cycle.
+        if arrServiceManager.isLoadingQueue && !arrServiceManager.hasLoadedQueueOnce && items.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage = arrServiceManager.queueError,

@@ -2,8 +2,6 @@ import SwiftUI
 import SwiftData
 
 enum MoreDestination: Hashable {
-    case categoriesAndTags
-    case rssFeeds
     case diskSpace
     case health
     case wanted
@@ -14,7 +12,6 @@ enum MoreDestination: Hashable {
     case radarrSettings
     case prowlarrSettings
     case prowlarrIndexers
-    case transferStats
     case automationClients
     case requestsAndAccess
     case systemHub
@@ -25,7 +22,6 @@ enum MoreDestination: Hashable {
     case seerrLinkedApplications
     case downloadClients(service: ArrServiceType)
     case remotePathMappings
-    case blocklist
     case libraryImport
     case manualImport
     case calendar
@@ -156,6 +152,8 @@ struct MoreView: View {
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
+    /// Optional so previews and any host that doesn't inject a navigator still work.
+    @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
     @State private var subtitleBadgeCount = 0
     @State private var moreSearchText = ""
     @State private var connectionEditSheet: ConnectionEditSheet?
@@ -494,12 +492,6 @@ struct MoreView: View {
             }
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
-                case .categoriesAndTags:
-                    qbittorrentCategoriesAndTagsDestination
-                        .moreDestinationTitleStyle()
-                case .rssFeeds:
-                    qbittorrentRSSDestination
-                        .moreDestinationTitleStyle()
                 case .requestsAndAccess:
                     RequestsAndAccessHubView(
                         seerrProfile: seerrProfile,
@@ -573,16 +565,6 @@ struct MoreView: View {
                 case .prowlarrIndexers:
                     prowlarrIndexersDestination
                         .moreDestinationBackground(.indexers)
-                        .moreDestinationTitleStyle()
-                case .transferStats:
-                    transferStatsDestination
-                        .moreDestinationTitleStyle()
-                case .blocklist:
-                    // Search-reachable only. The Blocklist's home is the Downloads
-                    // tab's toolbar overflow, next to the queue actions that fill it;
-                    // this arm exists so More's search can still land on it.
-                    ArrBlocklistView()
-                        .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .libraryImport:
                     ArrImportLocationView(kind: .library)
@@ -799,6 +781,11 @@ struct MoreView: View {
                         }
                     } else {
                         Button {
+                            // Queue the push before switching tabs; DownloadsView
+                            // applies it on arrival.
+                            if let route = entry.downloadsRoute {
+                                downloadsNavigator?.show(route)
+                            }
                             navigateToDownloadsTab()
                         } label: {
                             MoreSearchResultRow(entry: entry)
@@ -872,26 +859,6 @@ struct MoreView: View {
             SeerrLinkedApplicationsView(apiClient: client)
         } else {
             seerrAdminDestination
-        }
-    }
-
-    @ViewBuilder
-    private var transferStatsDestination: some View {
-        if let services = appServices {
-            TorrentStatsView()
-                .environment(services.syncService)
-        } else if hasQBittorrentServer {
-            qbittorrentConnectionStatusView
-        } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "chart.line.uptrend.xyaxis")
-            } description: {
-                Text("Add a qBittorrent server in Settings to view transfer statistics.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
-            .scrollableUnavailableState()
-            .moreDestinationBackground(.transferStats)
         }
     }
 
@@ -1028,27 +995,6 @@ struct MoreView: View {
     }
 
     @ViewBuilder
-    private var qbittorrentCategoriesAndTagsDestination: some View {
-        if let services = appServices {
-            QBittorrentCategoriesAndTagsView()
-                .environment(services.syncService)
-                .environment(services.torrentService)
-        } else if hasQBittorrentServer {
-            qbittorrentConnectionStatusView
-        } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "tag")
-            } description: {
-                Text("Add a qBittorrent server in Settings to manage categories and tags.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
-            .scrollableUnavailableState()
-            .moreDestinationBackground(.downloadClients)
-        }
-    }
-
-    @ViewBuilder
     private var qbittorrentLogDestination: some View {
         if let services = appServices {
             QBittorrentLogView()
@@ -1060,27 +1006,6 @@ struct MoreView: View {
                 Label("qBittorrent Not Set Up", systemImage: "doc.text")
             } description: {
                 Text("Add a qBittorrent server in Settings to view server logs.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
-            .scrollableUnavailableState()
-            .moreDestinationBackground(.downloadClients)
-        }
-    }
-
-    @ViewBuilder
-    private var qbittorrentRSSDestination: some View {
-        if let services = appServices {
-            QBittorrentRSSView()
-                .environment(services.torrentService)
-                .environment(services)
-        } else if hasQBittorrentServer {
-            qbittorrentConnectionStatusView
-        } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "dot.radiowaves.left.and.right")
-            } description: {
-                Text("Add a qBittorrent server in Settings to manage RSS feeds.")
             } actions: {
                 MoreSettingsNavigationLink()
             }
@@ -1375,6 +1300,10 @@ private struct MoreSearchIndexEntry: Identifiable {
     let subtitle: String
     let category: String
     let keywords: [String]
+    /// For entries that live in the Downloads tab rather than in More's own stack.
+    /// Without this every such result landed on the Downloads root, so searching
+    /// "RSS Feeds" and searching "Blocklist" went to the same place.
+    let downloadsRoute: DownloadsManagementRoute?
 
     init(
         id: String,
@@ -1384,7 +1313,8 @@ private struct MoreSearchIndexEntry: Identifiable {
         title: String,
         subtitle: String,
         category: String,
-        keywords: [String] = []
+        keywords: [String] = [],
+        downloadsRoute: DownloadsManagementRoute? = nil
     ) {
         self.id = id
         self.destination = destination
@@ -1394,6 +1324,7 @@ private struct MoreSearchIndexEntry: Identifiable {
         self.subtitle = subtitle
         self.category = category
         self.keywords = keywords
+        self.downloadsRoute = downloadsRoute
     }
 
     func matches(_ query: String) -> Bool {
@@ -1481,7 +1412,8 @@ private enum MoreSearchIndex {
                 title: "Blocked & Excluded",
                 subtitle: "Blocked releases and import-list exclusions",
                 category: "Downloads",
-                keywords: ["blocked", "blacklist", "failed", "grabbed", "release", "exclusion", "import list"]
+                keywords: ["blocked", "blacklist", "failed", "grabbed", "release", "exclusion", "import list"],
+                downloadsRoute: .blocklist
             ),
             .init(
                 id: "library-management",
@@ -1611,7 +1543,8 @@ private enum MoreSearchIndex {
                 title: ServiceIdentity.qbittorrent.displayName,
                 subtitle: "Torrents, transfer stats, categories, and RSS feeds",
                 category: "Downloads › Client Management",
-                keywords: ["qbittorrent", "torrents", "client", "downloads", "rss", "speed"]
+                keywords: ["qbittorrent", "torrents", "client", "downloads", "rss", "speed"],
+                downloadsRoute: .torrents
             ),
             .init(
                 id: "transfer-stats",
@@ -1621,7 +1554,8 @@ private enum MoreSearchIndex {
                 title: "Transfer Stats",
                 subtitle: "Speed, session totals, and network info",
                 category: "Downloads › qBittorrent",
-                keywords: ["qbittorrent", "speed", "upload", "download", "session", "network"]
+                keywords: ["qbittorrent", "speed", "upload", "download", "session", "network"],
+                downloadsRoute: .transferStats
             ),
             .init(
                 id: "categories-tags",
@@ -1631,7 +1565,8 @@ private enum MoreSearchIndex {
                 title: "Categories & Tags",
                 subtitle: "Torrent organization labels",
                 category: "Downloads › qBittorrent",
-                keywords: ["qbittorrent", "category", "tag", "labels", "organization"]
+                keywords: ["qbittorrent", "category", "tag", "labels", "organization"],
+                downloadsRoute: .categoriesAndTags
             ),
             .init(
                 id: "rss-feeds",
@@ -1641,7 +1576,8 @@ private enum MoreSearchIndex {
                 title: "RSS Feeds",
                 subtitle: "Feeds and automatic download rules",
                 category: "Downloads › qBittorrent",
-                keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"]
+                keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"],
+                downloadsRoute: .rssFeeds
             ),
             .init(
                 id: "automation-clients",

@@ -278,8 +278,10 @@ struct AddTorrentSheet: View {
     private func sabnzbdOptionsSection(vm: AddTorrentViewModel) -> some View {
         @Bindable var vm = vm
         Section {
-            // SABnzbd has no category-listing endpoint, so offer the categories
-            // seen on existing jobs and otherwise let the user type one.
+            // Categories come from SABnzbd's own `get_cats`, falling back to the ones
+            // seen on existing jobs if that call fails. The free-text field is the last
+            // resort — typing a category that doesn't exist is silently ignored by the
+            // server, so a picker is worth having wherever we can build one.
             if vm.sabCategories.isEmpty {
                 LabeledContent("Category") {
                     TextField("Server default", text: $vm.sabCategory)
@@ -306,6 +308,17 @@ struct AddTorrentSheet: View {
             Picker("Post-Processing", selection: $vm.sabPostProcessing) {
                 ForEach(AddDownloadPostProcessing.allCases) { option in
                     Text(option.displayName).tag(option)
+                }
+            }
+
+            // Only offered when the server actually reports scripts — most setups
+            // have none, and an empty picker reads as something being broken.
+            if !vm.sabScripts.isEmpty {
+                Picker("Script", selection: $vm.sabScript) {
+                    Text("Server default").tag("")
+                    ForEach(vm.sabScripts, id: \.self) { script in
+                        Text(script).tag(script)
+                    }
                 }
             }
 

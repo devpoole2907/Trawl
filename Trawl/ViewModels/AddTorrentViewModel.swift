@@ -27,6 +27,8 @@ final class AddTorrentViewModel {
 
     // SABnzbd options
     var sabCategory: String = ""
+    /// SABnzbd post-processing script. Empty means "server default".
+    var sabScript: String = ""
     var sabPriority: AddDownloadPriority = .default
     var sabPostProcessing: AddDownloadPostProcessing = .default
     var sabPassword: String = ""
@@ -42,6 +44,7 @@ final class AddTorrentViewModel {
     var submissionErrorAlert: ErrorAlertItem?
     var availableCategories: [String] = []
     var sabCategories: [String] = []
+    var sabScripts: [String] = []
     var recentSavePaths: [RecentSavePath] = []
     var serverDefaultSavePath: String?
 
@@ -151,7 +154,7 @@ final class AddTorrentViewModel {
     func loadDefaults(modelContext: ModelContext) async {
         availableCategories = syncService.sortedCategoryNames
         serverDefaultSavePath = syncService.defaultSavePath
-        sabCategories = Self.knownCategories(from: sabnzbdManager)
+        await loadSABnzbdOptions()
 
         // Load recent save paths, sorted by most recently used
         let descriptor = FetchDescriptor<RecentSavePath>(sortBy: [SortDescriptor(\.lastUsed, order: .reverse)])
@@ -258,6 +261,7 @@ final class AddTorrentViewModel {
         let options = SABnzbdAddOptions(
             password: sabPassword.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
             category: sabCategory.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
+            script: sabScript.trimmingCharacters(in: .whitespacesAndNewlines).nilWhenEmpty,
             priority: sabPriority.apiValue,
             postProcessing: sabPostProcessing.apiValue
         )
@@ -314,6 +318,21 @@ final class AddTorrentViewModel {
 
     /// SABnzbd exposes no category listing endpoint, so offer the categories that
     /// already appear on the server's own jobs.
+    /// Asks the server for its categories and scripts, falling back to whatever the
+    /// queue and history happen to show if the call fails — a fresh install with an
+    /// empty queue has nothing to infer from, which is exactly when this matters.
+    private func loadSABnzbdOptions() async {
+        guard let sabnzbdManager else {
+            sabCategories = []
+            sabScripts = []
+            return
+        }
+
+        let (categories, scripts) = await sabnzbdManager.categoriesAndScripts()
+        sabCategories = categories.isEmpty ? Self.knownCategories(from: sabnzbdManager) : categories
+        sabScripts = scripts
+    }
+
     private static func knownCategories(from manager: SABnzbdServiceManager?) -> [String] {
         guard let manager else { return [] }
         let categories = (manager.activeJobs + manager.historyJobs)

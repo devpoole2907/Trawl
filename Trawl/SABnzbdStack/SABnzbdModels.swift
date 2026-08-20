@@ -408,6 +408,16 @@ nonisolated struct SABnzbdAuthenticationEnvelope: Decodable, Sendable {
     private enum CodingKeys: String, CodingKey { case authentication = "auth" }
 }
 
+/// `mode=get_cats` and `mode=get_scripts` both return a bare list. SABnzbd puts its
+/// "use the server default" sentinel first as "*" / "Default"; callers strip it.
+nonisolated struct SABnzbdCategoriesEnvelope: Decodable, Sendable {
+    let categories: [String]
+}
+
+nonisolated struct SABnzbdScriptsEnvelope: Decodable, Sendable {
+    let scripts: [String]
+}
+
 nonisolated struct SABnzbdCommandResponse: Decodable, Sendable {
     let status: Bool?
     let error: String?

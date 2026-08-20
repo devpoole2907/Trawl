@@ -184,6 +184,17 @@ final class SABnzbdServiceManager {
         await refresh()
     }
 
+    // MARK: - Server configuration
+
+    /// Fetched on demand by the add sheet rather than polled — categories and scripts
+    /// change when the user edits SABnzbd's config, not while downloads run.
+    func categoriesAndScripts() async -> (categories: [String], scripts: [String]) {
+        guard let client = activeClient else { return ([], []) }
+        async let categories = try? client.getCategories()
+        async let scripts = try? client.getScripts()
+        return (await categories ?? [], await scripts ?? [])
+    }
+
     // MARK: - Add NZB
 
     @discardableResult

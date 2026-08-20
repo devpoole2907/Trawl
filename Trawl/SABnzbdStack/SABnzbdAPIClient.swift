@@ -48,6 +48,28 @@ actor SABnzbdAPIClient {
         return envelope.authentication
     }
 
+    // MARK: - Server configuration
+
+    /// SABnzbd absolutely does list its categories — `mode=get_cats` — and its
+    /// post-processing scripts alongside them. Deriving categories from whatever
+    /// happened to be in the queue meant a fresh install offered none at all.
+    func getCategories() async throws -> [String] {
+        let envelope: SABnzbdCategoriesEnvelope = try await request(mode: "get_cats")
+        return Self.withoutServerDefault(envelope.categories)
+    }
+
+    func getScripts() async throws -> [String] {
+        let envelope: SABnzbdScriptsEnvelope = try await request(mode: "get_scripts")
+        return Self.withoutServerDefault(envelope.scripts)
+    }
+
+    /// Drops SABnzbd's own "server default" sentinels; Trawl renders that choice itself.
+    private nonisolated static func withoutServerDefault(_ values: [String]) -> [String] {
+        values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty && $0 != "*" && $0.caseInsensitiveCompare("Default") != .orderedSame && $0.caseInsensitiveCompare("None") != .orderedSame }
+    }
+
     // MARK: - Queue and history
 
     func getQueue(
