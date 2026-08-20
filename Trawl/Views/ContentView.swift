@@ -392,6 +392,7 @@ struct ContentView: View {
             Tab("Downloads", systemImage: "tray.and.arrow.down", value: RootTab.downloads) {
                 NavigationStack {
                     DownloadsView()
+                        .environment(services)
                         .environment(services.syncService)
                         .environment(services.torrentService)
                         .environment(arrServiceManager)

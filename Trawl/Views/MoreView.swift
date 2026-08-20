@@ -15,8 +15,9 @@ enum MoreDestination: Hashable {
     case prowlarrSettings
     case prowlarrIndexers
     case transferStats
-    case torrentManagement
-    case integrations
+    case automationClients
+    case requestsAndAccess
+    case systemHub
     case linkedApplicationsManagement
     case downloadClientsManagement
     case prowlarrLinkedApplications
@@ -40,7 +41,6 @@ enum MoreDestination: Hashable {
     case bazarrProviders
     case bazarrSeriesDetail(seriesId: Int)
     case bazarrMovieDetail(radarrId: Int)
-    case requestManagement
     case seerrSettings
     case seerrAdmin
     case seerrIssues
@@ -97,6 +97,8 @@ enum MoreDestinationAccent {
     case tasks
     case updates
     case backups
+    case systemHub
+    case automationClients
 
     var color: Color {
         switch self {
@@ -131,6 +133,8 @@ enum MoreDestinationAccent {
         case .tasks: return .teal
         case .updates: return .green
         case .backups: return .indigo
+        case .systemHub: return .gray
+        case .automationClients: return .blue
         }
     }
 }
@@ -438,75 +442,31 @@ struct MoreView: View {
                         NavigationLink(value: MoreDestination.wanted) {
                             moreRow(.wanted)
                         }
-
-                        NavigationLink(value: MoreDestination.calendar) {
-                            moreRow(.calendar)
-                        }
-
-                        NavigationLink(value: MoreDestination.health) {
-                            moreRow(.health)
-                        }
-
-                        NavigationLink(value: MoreDestination.blocklist) {
-                            moreRow(.blocklist)
-                        }
                     }
 
                     Section {
                         NavigationLink(value: MoreDestination.mediaManagement) {
-                            moreRow(.mediaManagement)
-                        }
-
-                        NavigationLink(value: MoreDestination.subtitleManagement) {
-                            moreRow(.subtitleManagement,
+                            moreRow(.mediaManagement,
                                     subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : nil)
                         }
                     }
 
                     Section {
-                        NavigationLink(value: MoreDestination.prowlarrIndexers) {
-                            moreRow(.prowlarrIndexers)
-                        }
-
-                        NavigationLink(value: MoreDestination.torrentManagement) {
-                            moreRow(.torrentManagement,
-                                    subtitle: hasQBittorrentServer ? nil : "Not set up")
-                        }
-
-                        NavigationLink(value: MoreDestination.integrations) {
-                            moreRow(.integrations)
-                        }
-                    }
-
-                    Section {
-                        NavigationLink(value: MoreDestination.requestManagement) {
-                            moreRow(.requestManagement, subtitle: seerrProfile == nil ? "Not set up" : nil)
-                        }
-
-                        NavigationLink(value: MoreDestination.unifiedUsers) {
-                            moreRow(.unifiedUsers, subtitle: jellyfinProfile == nil ? "Requires Jellyfin" : nil)
+                        NavigationLink(value: MoreDestination.requestsAndAccess) {
+                            moreRow(.requestsAndAccess,
+                                    subtitle: seerrProfile == nil && jellyfinProfile == nil ? "Not set up" : nil)
                         }
 
                         NavigationLink(value: MoreDestination.jellyfinManagement) {
                             moreRow(.jellyfinManagement, subtitle: jellyfinProfile == nil ? "Not set up" : nil)
                         }
-                    }
 
-                    Section {
-                        NavigationLink(value: MoreDestination.logsAndEvents) {
-                            moreRow(.logsAndEvents)
+                        NavigationLink(value: MoreDestination.automationClients) {
+                            moreRow(.automationClients)
                         }
 
-                        NavigationLink(value: MoreDestination.tasksHub) {
-                            moreRow(.tasksHub)
-                        }
-
-                        NavigationLink(value: MoreDestination.updatesHub) {
-                            moreRow(.updatesHub)
-                        }
-
-                        NavigationLink(value: MoreDestination.backupsHub) {
-                            moreRow(.backupsHub)
+                        NavigationLink(value: MoreDestination.systemHub) {
+                            moreRow(.systemHub)
                         }
                     }
 
@@ -540,11 +500,17 @@ struct MoreView: View {
                 case .rssFeeds:
                     qbittorrentRSSDestination
                         .moreDestinationTitleStyle()
-                case .torrentManagement:
-                    TorrentManagementView(hasQBittorrent: hasQBittorrentServer)
+                case .requestsAndAccess:
+                    RequestsAndAccessHubView(
+                        seerrProfile: seerrProfile,
+                        jellyfinProfile: jellyfinProfile
+                    )
                         .moreDestinationTitleStyle()
-                case .integrations:
-                    IntegrationsManagementView()
+                case .systemHub:
+                    SystemHubView()
+                        .moreDestinationTitleStyle()
+                case .automationClients:
+                    AutomationAndClientsHubView()
                         .moreDestinationTitleStyle()
                 case .linkedApplicationsManagement:
                     LinkedApplicationsManagementView()
@@ -612,6 +578,9 @@ struct MoreView: View {
                     transferStatsDestination
                         .moreDestinationTitleStyle()
                 case .blocklist:
+                    // Search-reachable only. The Blocklist's home is the Downloads
+                    // tab's toolbar overflow, next to the queue actions that fill it;
+                    // this arm exists so More's search can still land on it.
                     ArrBlocklistView()
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
@@ -624,6 +593,9 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendar:
+                    // Search-reachable only — no permanent More row. The primary,
+                    // correctly media-scoped entry points are the Series and Movies
+                    // toolbars (ArrMediaListView); this unscoped copy stays for search.
                     ArrCalendarView()
                         .environment(arrServiceManager)
                         .injectSyncService(appServices)
@@ -649,9 +621,6 @@ struct MoreView: View {
                     }
                 case .seerrSettings:
                     SeerrSettingsView()
-                        .moreDestinationTitleStyle()
-                case .requestManagement:
-                    RequestManagementView(seerrProfile: seerrProfile)
                         .moreDestinationTitleStyle()
                 case .jellyfinManagement:
                     JellyfinManagementView(jellyfinProfile: jellyfinProfile)
@@ -752,7 +721,10 @@ struct MoreView: View {
                     LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, kind: .manual)
                         .moreDestinationTitleStyle()
                 case .mediaManagement:
-                    ArrMediaManagementView()
+                    ArrMediaManagementView(
+                        subtitleBadgeCount: subtitleBadgeCount,
+                        hasJellyfin: jellyfinProfile != nil
+                    )
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .arrNaming:
@@ -1488,7 +1460,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.calendar.color,
                 title: "Calendar",
                 subtitle: "Upcoming releases and air dates",
-                category: "Monitoring",
+                category: "Series & Movies",
                 keywords: ["schedule", "air date", "release date", "episodes", "movies"]
             ),
             .init(
@@ -1498,28 +1470,28 @@ private enum MoreSearchIndex {
                 color: .pink,
                 title: "Health",
                 subtitle: "Service health checks",
-                category: "Monitoring",
+                category: "System",
                 keywords: ["status", "warnings", "errors", "checks"]
             ),
             .init(
                 id: "blocklist",
-                destination: .blocklist,
+                destination: nil,
                 icon: "nosign",
                 color: .red,
                 title: "Blocked & Excluded",
                 subtitle: "Blocked releases and import-list exclusions",
-                category: "Monitoring",
+                category: "Downloads",
                 keywords: ["blocked", "blacklist", "failed", "grabbed", "release", "exclusion", "import list"]
             ),
             .init(
-                id: "media-management",
+                id: "library-management",
                 destination: .mediaManagement,
                 icon: "folder.badge.gearshape",
                 color: MoreDestinationAccent.mediaManagement.color,
-                title: "Media & Import",
-                subtitle: "Root folders, naming, quality, disk space, and import",
-                category: "Media Management",
-                keywords: ["storage", "files", "paths", "profiles", "definitions"]
+                title: "Library Management",
+                subtitle: "Imports, root folders, naming, quality, and subtitles",
+                category: "Library Management",
+                keywords: ["media", "import", "storage", "files", "paths", "profiles", "definitions", "subtitles", "libraries"]
             ),
             .init(
                 id: "root-folders",
@@ -1528,7 +1500,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.rootFolders.color,
                 title: "Root Folders",
                 subtitle: "Library paths across Sonarr and Radarr",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["paths", "storage", "library", "folder", "sonarr", "radarr"]
             ),
             .init(
@@ -1538,7 +1510,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.libraryImport.color,
                 title: "Library Import",
                 subtitle: "Import an existing organized library into Sonarr or Radarr",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["existing", "library", "import", "scan", "folder", "sonarr", "radarr", "unmapped"]
             ),
             .init(
@@ -1548,7 +1520,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.manualImport.color,
                 title: "Manual Import",
                 subtitle: "Import files into series or movies already in your library",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["manual", "import", "interactive", "file", "move", "copy", "existing", "scan"]
             ),
             .init(
@@ -1558,7 +1530,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.diskSpace.color,
                 title: "Disk Space",
                 subtitle: "Storage usage across Sonarr and Radarr",
-                category: "Media & Import",
+                category: "System",
                 keywords: ["drive", "storage", "free space", "usage", "sonarr", "radarr"]
             ),
             .init(
@@ -1568,7 +1540,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.sonarrNaming.color,
                 title: "Naming",
                 subtitle: "Episode, series, and movie file name formats",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["filename", "format", "movies", "episodes", "sonarr", "radarr"]
             ),
             .init(
@@ -1578,7 +1550,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.qualityProfiles.color,
                 title: "Quality Profiles",
                 subtitle: "Allowed qualities and upgrade rules",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["profiles", "quality", "upgrade", "cutoff", "sonarr", "radarr"]
             ),
             .init(
@@ -1588,7 +1560,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.qualityDefinitions.color,
                 title: "Quality Definitions",
                 subtitle: "File size limits per quality level",
-                category: "Media & Import",
+                category: "Library Management",
                 keywords: ["definitions", "quality", "size", "limits", "megabytes"]
             ),
             .init(
@@ -1598,7 +1570,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.subtitleManagement.color,
                 title: "Subtitles",
                 subtitle: "Language profiles and subtitle providers",
-                category: "Subtitles",
+                category: "Library Management",
                 keywords: ["bazarr", "captions", "languages", "providers", "missing"]
             ),
             .init(
@@ -1608,7 +1580,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.languageProfiles.color,
                 title: "Language Profiles",
                 subtitle: "Preferred languages and cutoff rules",
-                category: "Subtitles",
+                category: "Library Management",
                 keywords: ["bazarr", "languages", "cutoff", "profiles", "subtitles"]
             ),
             .init(
@@ -1618,7 +1590,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.providers.color,
                 title: "Providers",
                 subtitle: "Subtitle provider integrations",
-                category: "Subtitles",
+                category: "Library Management",
                 keywords: ["bazarr", "provider", "subtitles", "integration", "settings"]
             ),
             .init(
@@ -1628,58 +1600,58 @@ private enum MoreSearchIndex {
                 color: .yellow,
                 title: "Indexers",
                 subtitle: "Indexers across your services",
-                category: "Indexers",
+                category: "Automation & Clients",
                 keywords: ["prowlarr", "trackers", "search", "sources", "sonarr", "radarr"]
             ),
             .init(
                 id: "torrents",
-                destination: .torrentManagement,
+                destination: nil,
                 icon: ServiceIdentity.qbittorrent.systemImage,
                 color: MoreDestinationAccent.torrentManagement.color,
                 title: ServiceIdentity.qbittorrent.displayName,
-                subtitle: "Transfer stats, categories, and RSS feeds",
-                category: ServiceIdentity.qbittorrent.displayName,
+                subtitle: "Torrents, transfer stats, categories, and RSS feeds",
+                category: "Downloads › Client Management",
                 keywords: ["qbittorrent", "torrents", "client", "downloads", "rss", "speed"]
             ),
             .init(
                 id: "transfer-stats",
-                destination: .transferStats,
+                destination: nil,
                 icon: "chart.line.uptrend.xyaxis",
                 color: MoreDestinationAccent.transferStats.color,
                 title: "Transfer Stats",
                 subtitle: "Speed, session totals, and network info",
-                category: ServiceIdentity.qbittorrent.displayName,
+                category: "Downloads › qBittorrent",
                 keywords: ["qbittorrent", "speed", "upload", "download", "session", "network"]
             ),
             .init(
                 id: "categories-tags",
-                destination: .categoriesAndTags,
+                destination: nil,
                 icon: "tag.fill",
                 color: MoreDestinationAccent.categoriesAndTags.color,
                 title: "Categories & Tags",
                 subtitle: "Torrent organization labels",
-                category: ServiceIdentity.qbittorrent.displayName,
+                category: "Downloads › qBittorrent",
                 keywords: ["qbittorrent", "category", "tag", "labels", "organization"]
             ),
             .init(
                 id: "rss-feeds",
-                destination: .rssFeeds,
+                destination: nil,
                 icon: "dot.radiowaves.left.and.right",
                 color: .cyan,
                 title: "RSS Feeds",
                 subtitle: "Feeds and automatic download rules",
-                category: ServiceIdentity.qbittorrent.displayName,
+                category: "Downloads › qBittorrent",
                 keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"]
             ),
             .init(
-                id: "integrations",
-                destination: .integrations,
-                icon: "app.connected.to.app.below.fill",
-                color: MoreDestinationAccent.integrations.color,
-                title: "Integrations",
-                subtitle: "Linked apps, download clients, and remote path mappings",
-                category: "Integrations",
-                keywords: ["links", "applications", "clients", "paths", "routing"]
+                id: "automation-clients",
+                destination: .automationClients,
+                icon: "gearshape.2.fill",
+                color: MoreDestinationAccent.automationClients.color,
+                title: "Automation & Clients",
+                subtitle: "Indexers, linked apps, download clients, path mappings, and tasks",
+                category: "Automation & Clients",
+                keywords: ["integrations", "links", "applications", "clients", "paths", "routing", "indexers", "tasks", "prowlarr"]
             ),
             .init(
                 id: "linked-applications",
@@ -1688,7 +1660,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.integrations.color,
                 title: "Linked Applications",
                 subtitle: "Indexer sync, subtitle sync, and request routing",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["prowlarr", "bazarr", "seerr", "sync", "routing"]
             ),
             .init(
@@ -1698,7 +1670,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.prowlarr.brandColor,
                 title: "Indexer Sync",
                 subtitle: "Prowlarr linked applications",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["prowlarr", "sonarr", "radarr", "linked apps", "sync"]
             ),
             .init(
@@ -1708,7 +1680,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.bazarr.brandColor,
                 title: "Subtitle Sync",
                 subtitle: "Bazarr linked applications",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["bazarr", "sonarr", "radarr", "linked apps", "sync"]
             ),
             .init(
@@ -1718,7 +1690,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.seerr.brandColor,
                 title: "Request Routing",
                 subtitle: "Seerr linked applications",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["seerr", "sonarr", "radarr", "linked apps", "routing"]
             ),
             .init(
@@ -1728,7 +1700,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.qbittorrent.brandColor,
                 title: "Download Clients",
                 subtitle: "Sonarr and Radarr download clients",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["qbittorrent", "sabnzbd", "sab", "usenet", "nzb", "newsgroup", "torrent", "client", "download", "sonarr", "radarr"]
             ),
             .init(
@@ -1738,7 +1710,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.sonarr.brandColor,
                 title: "Sonarr Download Clients",
                 subtitle: "Torrent and Usenet clients for series grabs",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["sonarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "series"]
             ),
             .init(
@@ -1748,7 +1720,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.radarr.brandColor,
                 title: "Radarr Download Clients",
                 subtitle: "Torrent and Usenet clients for movie grabs",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["radarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "movies"]
             ),
             .init(
@@ -1758,18 +1730,18 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.remotePathMappings.color,
                 title: "Remote Path Mappings",
                 subtitle: "Remote path mappings for imports",
-                category: "Integrations",
+                category: "Automation & Clients",
                 keywords: ["paths", "mapping", "remote", "local", "downloads", "import"]
             ),
             .init(
-                id: "requests-hub",
-                destination: .requestManagement,
+                id: "requests-access-hub",
+                destination: .requestsAndAccess,
                 icon: ServiceIdentity.seerr.systemImage,
                 color: MoreDestinationAccent.requestManagement.color,
-                title: "Requests",
-                subtitle: "Requests and issues",
-                category: "Requests",
-                keywords: ["seerr", "overseerr", "jellyseerr", "issues", "approval"]
+                title: "Requests & Access",
+                subtitle: "Requests, issues, and users",
+                category: "Requests & Access",
+                keywords: ["seerr", "overseerr", "jellyseerr", "issues", "approval", "users", "accounts"]
             ),
             .init(
                 id: "requests",
@@ -1778,7 +1750,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.requestManagement.color,
                 title: "Requests",
                 subtitle: "Seerr media requests",
-                category: "Requests",
+                category: "Requests & Access",
                 keywords: ["seerr", "overseerr", "jellyseerr", "approval", "discover"]
             ),
             .init(
@@ -1788,7 +1760,7 @@ private enum MoreSearchIndex {
                 color: .orange,
                 title: "Issues",
                 subtitle: "User-reported issues",
-                category: "Requests",
+                category: "Requests & Access",
                 keywords: ["seerr", "problems", "reports", "support"]
             ),
             .init(
@@ -1798,7 +1770,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.userManagement.color,
                 title: "Users",
                 subtitle: "Jellyfin and Seerr accounts",
-                category: "Users",
+                category: "Requests & Access",
                 keywords: ["accounts", "permissions", "jellyfin", "seerr", "members"]
             ),
             .init(
@@ -1806,9 +1778,9 @@ private enum MoreSearchIndex {
                 destination: .jellyfinManagement,
                 icon: "server.rack",
                 color: MoreDestinationAccent.jellyfin.color,
-                title: "Jellyfin",
+                title: "Media Server",
                 subtitle: "Sessions, libraries, transcoding, and plugins",
-                category: "Jellyfin",
+                category: "Media Server",
                 keywords: ["media server", "users", "activity", "tasks", "transcoding"]
             ),
             .init(
@@ -1818,7 +1790,7 @@ private enum MoreSearchIndex {
                 color: .green,
                 title: "Sessions",
                 subtitle: "Active playback sessions",
-                category: "Jellyfin",
+                category: "Media Server",
                 keywords: ["playback", "streaming", "active", "users"]
             ),
             .init(
@@ -1826,9 +1798,9 @@ private enum MoreSearchIndex {
                 destination: .jellyfinLibraries,
                 icon: "folder.fill",
                 color: .orange,
-                title: "Libraries",
+                title: "Jellyfin Libraries",
                 subtitle: "Media libraries and scans",
-                category: "Jellyfin",
+                category: "Library Management",
                 keywords: ["library", "scan", "media", "folders", "collections"]
             ),
             .init(
@@ -1838,7 +1810,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.jellyfin.brandColor,
                 title: "Transcoding",
                 subtitle: "Hardware acceleration and playback conversion",
-                category: "Jellyfin",
+                category: "Media Server",
                 keywords: ["transcoding", "hardware acceleration", "hevc", "h265", "nvenc", "playback", "encoding", "av1", "tone mapping"]
             ),
             .init(
@@ -1868,7 +1840,7 @@ private enum MoreSearchIndex {
                 color: .purple,
                 title: "Plugins",
                 subtitle: "Installed Jellyfin plugins",
-                category: "Jellyfin",
+                category: "Media Server",
                 keywords: ["addons", "extensions", "jellyfin", "installed"]
             ),
             .init(
@@ -1878,7 +1850,7 @@ private enum MoreSearchIndex {
                 color: .brown,
                 title: "Logs",
                 subtitle: "Server logs and activity across all services",
-                category: "Operations",
+                category: "System",
                 keywords: ["events", "activity", "history", "server"]
             ),
             .init(
@@ -1918,7 +1890,7 @@ private enum MoreSearchIndex {
                 color: .teal,
                 title: "Tasks",
                 subtitle: "Scheduled tasks across connected services",
-                category: "Operations",
+                category: "Automation & Clients",
                 keywords: ["jobs", "scheduled", "background", "maintenance"]
             ),
             .init(
@@ -1948,7 +1920,7 @@ private enum MoreSearchIndex {
                 color: .green,
                 title: "Updates",
                 subtitle: "Software updates for connected services",
-                category: "Operations",
+                category: "System",
                 keywords: ["update", "version", "software", "sonarr", "radarr", "prowlarr", "bazarr"]
             ),
             .init(
@@ -1958,8 +1930,18 @@ private enum MoreSearchIndex {
                 color: .indigo,
                 title: "Backups",
                 subtitle: "System backups for Sonarr, Radarr, Prowlarr and Bazarr",
-                category: "Operations",
+                category: "System",
                 keywords: ["backup", "restore", "system", "sonarr", "radarr", "prowlarr", "bazarr"]
+            ),
+            .init(
+                id: "system-hub",
+                destination: .systemHub,
+                icon: "gearshape.arrow.trianglehead.2.clockwise.rotate.90",
+                color: MoreDestinationAccent.systemHub.color,
+                title: "System",
+                subtitle: "Health, disk space, logs, updates, and backups",
+                category: "System",
+                keywords: ["operations", "health", "disk", "storage", "logs", "events", "updates", "backups"]
             ),
             .init(
                 id: "settings",
@@ -2089,74 +2071,6 @@ struct MoreSettingsNavigationLink: View {
     }
 }
 
-private struct IntegrationsManagementView: View {
-    @Environment(ArrServiceManager.self) private var arrServiceManager
-
-    private var hasArrStack: Bool {
-        arrServiceManager.hasSonarrInstance ||
-            arrServiceManager.hasRadarrInstance ||
-            arrServiceManager.hasProwlarrInstance ||
-            arrServiceManager.hasBazarrInstance
-    }
-
-    var body: some View {
-        List {
-            if !hasArrStack {
-                HubEmptyState(
-                    title: "No Services Configured",
-                    systemImage: "app.connected.to.app.below.fill",
-                    message: "Connect Sonarr, Radarr, Prowlarr, or Bazarr in Settings to manage linked apps, download clients, and path mappings."
-                )
-            } else {
-            Section("Service Links") {
-                NavigationLink(value: MoreDestination.linkedApplicationsManagement) {
-                    NavigationMenuRow(
-                        icon: "app.connected.to.app.below.fill",
-                        color: MoreDestinationAccent.integrations.color,
-                        title: "Linked Applications",
-                        subtitle: "Indexer sync, subtitle sync, and request routing"
-                    )
-                }
-            }
-
-            Section("Download Plumbing") {
-                NavigationLink(value: MoreDestination.downloadClientsManagement) {
-                    NavigationMenuRow(
-                        icon: "shippingbox.fill",
-                        color: MoreDestinationAccent.downloadClients.color,
-                        title: "Download Clients",
-                        subtitle: "Torrent and Usenet clients used by Sonarr and Radarr"
-                    )
-                }
-
-                NavigationLink(value: MoreDestination.remotePathMappings) {
-                    NavigationMenuRow(
-                        icon: "arrow.triangle.swap",
-                        color: MoreDestinationAccent.remotePathMappings.color,
-                        title: "Remote Path Mappings",
-                        subtitle: "Remote path mappings for imports"
-                    )
-                }
-            }
-            }
-        }
-        #if os(iOS)
-        .scrollContentBackground(.hidden)
-        #endif
-        .navigationTitle("Integrations")
-        .moreDestinationBackground(.integrations)
-    }
-}
-
-#if DEBUG
-#Preview("Integrations Hub") {
-    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
-        NavigationStack {
-            IntegrationsManagementView()
-        }
-    }
-}
-#endif
 
 private struct LinkedApplicationsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -2979,111 +2893,53 @@ private struct LanguageProfileTipBanner: View {
 }
 #endif
 
-/// qBittorrent's own management tools — transfer stats, categories/tags, and RSS.
-/// Deliberately **client-shaped, not protocol-shaped**: none of the three children
-/// have a SABnzbd analogue (SAB exposes no stats, category, or RSS endpoints), so an
-/// umbrella "Downloads"/"Torrents" hub would read as empty-by-accident to a SAB-only
-/// user. Naming the hub after the client makes the empty state predictable from the
-/// row title, and matches how Jellyfin and Seerr each own a top-level hub.
-private struct TorrentManagementView: View {
-    let hasQBittorrent: Bool
 
-    var body: some View {
-        List {
-            if !hasQBittorrent {
-                HubEmptyState(
-                    title: "qBittorrent Not Set Up",
-                    systemImage: ServiceIdentity.qbittorrent.systemImage,
-                    message: "Add a qBittorrent server in Settings to view transfer stats, categories, and RSS feeds."
-                )
-            } else {
-            Section {
-                NavigationLink(value: MoreDestination.transferStats) {
-                    NavigationMenuRow(
-                        icon: "chart.line.uptrend.xyaxis",
-                        color: MoreDestinationAccent.transferStats.color,
-                        title: "Transfer Stats",
-                        subtitle: "Speed, session totals, and network info"
-                    )
-                }
-
-                NavigationLink(value: MoreDestination.categoriesAndTags) {
-                    NavigationMenuRow(
-                        icon: "tag.fill",
-                        color: MoreDestinationAccent.categoriesAndTags.color,
-                        title: "Categories & Tags",
-                        subtitle: "Torrent organization labels"
-                    )
-                }
-
-                NavigationLink(value: MoreDestination.rssFeeds) {
-                    NavigationMenuRow(
-                        icon: "dot.radiowaves.left.and.right",
-                        color: .cyan,
-                        title: "RSS Feeds",
-                        subtitle: "Feeds and automatic download rules"
-                    )
-                }
-            } footer: {
-                Text("These tools are provided by qBittorrent. SABnzbd exposes no equivalent endpoints, so it gets its own hub if and when it does.")
-            }
-            }
-        }
-        #if os(iOS)
-        .scrollContentBackground(.hidden)
-        #endif
-        .navigationTitle(ServiceIdentity.qbittorrent.displayName)
-        .moreDestinationBackground(.torrentManagement)
-    }
-}
-
-#if DEBUG
-#Preview("Torrent Management Hub") {
-    MorePreviewHost(profiles: .qBittorrentOnly) { _ in
-        NavigationStack {
-            TorrentManagementView(hasQBittorrent: true)
-        }
-    }
-}
-
-#Preview("Torrent Management Hub - Empty") {
-    MorePreviewHost(profiles: .empty, appServices: nil) { _ in
-        NavigationStack {
-            TorrentManagementView(hasQBittorrent: false)
-        }
-    }
-}
-#endif
-
-private struct RequestManagementView: View {
+/// Requests & Access — Seerr requests and issues plus unified user management.
+/// The children moved here from the former `RequestManagementView` (Requests, Issues)
+/// and the old top-level Users row, so they are not duplicated elsewhere.
+private struct RequestsAndAccessHubView: View {
     let seerrProfile: SeerrServiceProfile?
+    let jellyfinProfile: JellyfinServiceProfile?
 
     var body: some View {
         List {
-            if seerrProfile == nil {
+            if seerrProfile == nil && jellyfinProfile == nil {
                 HubEmptyState(
-                    title: "Seerr Not Set Up",
+                    title: "No Services Configured",
                     systemImage: ServiceIdentity.seerr.systemImage,
-                    message: "Add a Seerr server in Settings to manage requests and issues."
+                    message: "Add a Seerr or Jellyfin server in Settings to manage requests, issues, and users."
                 )
             } else {
                 Section {
-                    NavigationLink(value: MoreDestination.seerrAdmin) {
-                        NavigationMenuRow(
-                            icon: ServiceIdentity.seerr.systemImage,
-                            color: MoreDestinationAccent.requestManagement.color,
-                            title: "Requests",
-                            subtitle: "Seerr media requests"
-                        )
+                    if seerrProfile != nil {
+                        NavigationLink(value: MoreDestination.seerrAdmin) {
+                            NavigationMenuRow(
+                                icon: ServiceIdentity.seerr.systemImage,
+                                color: MoreDestinationAccent.requestManagement.color,
+                                title: "Requests",
+                                subtitle: "Seerr media requests"
+                            )
+                        }
+
+                        NavigationLink(value: MoreDestination.seerrIssues) {
+                            NavigationMenuRow(
+                                icon: "exclamationmark.bubble.fill",
+                                color: .orange,
+                                title: "Issues",
+                                subtitle: "User-reported issues"
+                            )
+                        }
                     }
 
-                    NavigationLink(value: MoreDestination.seerrIssues) {
-                        NavigationMenuRow(
-                            icon: "exclamationmark.bubble.fill",
-                            color: .orange,
-                            title: "Issues",
-                            subtitle: "User-reported issues"
-                        )
+                    if jellyfinProfile != nil {
+                        NavigationLink(value: MoreDestination.unifiedUsers) {
+                            NavigationMenuRow(
+                                icon: "person.2.fill",
+                                color: MoreDestinationAccent.userManagement.color,
+                                title: "Users",
+                                subtitle: "Jellyfin and Seerr accounts"
+                            )
+                        }
                     }
                 }
             }
@@ -3091,28 +2947,181 @@ private struct RequestManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Requests")
+        .navigationTitle("Requests & Access")
         .moreDestinationBackground(.requestManagement)
     }
 }
 
 #if DEBUG
-#Preview("Requests Hub - Configured") {
-    MorePreviewHost(profiles: .seerrOnly) { _ in
+#Preview("Requests & Access Hub - Configured") {
+    MorePreviewHost(profiles: .allServices) { _ in
         NavigationStack {
-            RequestManagementView(seerrProfile: .preview())
+            RequestsAndAccessHubView(seerrProfile: .preview(), jellyfinProfile: .preview())
         }
     }
 }
 
-#Preview("Requests Hub - Empty") {
-    MorePreviewHost(profiles: .empty, seerr: .preview(.notConfigured), appServices: nil) { _ in
+#Preview("Requests & Access Hub - Empty") {
+    MorePreviewHost(
+        profiles: .empty,
+        jellyfin: .preview(.notConfigured),
+        seerr: .preview(.notConfigured),
+        appServices: nil
+    ) { _ in
         NavigationStack {
-            RequestManagementView(seerrProfile: nil)
+            RequestsAndAccessHubView(seerrProfile: nil, jellyfinProfile: nil)
         }
     }
 }
 #endif
+
+/// System — the cross-service operational read-outs. Every child owns its own
+/// unavailable state, so the rows stay visible even with nothing configured
+/// (matching how these rows behaved on the More dashboard before regrouping).
+private struct SystemHubView: View {
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.health) {
+                    NavigationMenuRow(
+                        icon: "heart.text.square.fill",
+                        color: .pink,
+                        title: "Health",
+                        subtitle: "Service health checks"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.diskSpace) {
+                    NavigationMenuRow(
+                        icon: "internaldrive.fill",
+                        color: MoreDestinationAccent.diskSpace.color,
+                        title: "Disk Space",
+                        subtitle: "Free space on your media drives"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.logsAndEvents) {
+                    NavigationMenuRow(
+                        icon: "text.document.fill",
+                        color: MoreDestinationAccent.logsAndEvents.color,
+                        title: "Logs",
+                        subtitle: "Server logs and activity across all services"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.updatesHub) {
+                    NavigationMenuRow(
+                        icon: "arrow.down.app.fill",
+                        color: MoreDestinationAccent.updates.color,
+                        title: "Updates",
+                        subtitle: "Software updates for connected services"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.backupsHub) {
+                    NavigationMenuRow(
+                        icon: "externaldrive.fill",
+                        color: MoreDestinationAccent.backups.color,
+                        title: "Backups",
+                        subtitle: "System backups for Sonarr, Radarr, Prowlarr and Bazarr"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("System")
+        .moreDestinationBackground(.systemHub)
+    }
+}
+
+#if DEBUG
+#Preview("System Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            SystemHubView()
+        }
+    }
+}
+#endif
+
+/// Automation & Clients — indexers, service wiring, and scheduled work. The three
+/// service-link children (linked applications, download clients, remote path
+/// mappings) moved here from the former `IntegrationsManagementView`, which this
+/// hub replaces rather than duplicates.
+private struct AutomationAndClientsHubView: View {
+    var body: some View {
+        List {
+            Section {
+                NavigationLink(value: MoreDestination.prowlarrIndexers) {
+                    NavigationMenuRow(
+                        icon: "magnifyingglass.circle.fill",
+                        color: MoreDestinationAccent.indexers.color,
+                        title: "Indexers",
+                        subtitle: "Indexers across your services"
+                    )
+                }
+            }
+
+            Section("Service Links") {
+                NavigationLink(value: MoreDestination.linkedApplicationsManagement) {
+                    NavigationMenuRow(
+                        icon: "app.connected.to.app.below.fill",
+                        color: MoreDestinationAccent.integrations.color,
+                        title: "Linked Applications",
+                        subtitle: "Indexer sync, subtitle sync, and request routing"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.downloadClientsManagement) {
+                    NavigationMenuRow(
+                        icon: "shippingbox.fill",
+                        color: MoreDestinationAccent.downloadClients.color,
+                        title: "Download Clients",
+                        subtitle: "Torrent and Usenet clients used by Sonarr and Radarr"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.remotePathMappings) {
+                    NavigationMenuRow(
+                        icon: "arrow.triangle.swap",
+                        color: MoreDestinationAccent.remotePathMappings.color,
+                        title: "Remote Path Mappings",
+                        subtitle: "Remote path mappings for imports"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink(value: MoreDestination.tasksHub) {
+                    NavigationMenuRow(
+                        icon: "clock.arrow.2.circlepath",
+                        color: MoreDestinationAccent.tasks.color,
+                        title: "Tasks",
+                        subtitle: "Scheduled tasks across connected services"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        .navigationTitle("Automation & Clients")
+        .moreDestinationBackground(.automationClients)
+    }
+}
+
+#if DEBUG
+#Preview("Automation & Clients Hub") {
+    MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
+        NavigationStack {
+            AutomationAndClientsHubView()
+        }
+    }
+}
+#endif
+
 
 private struct LogsAndEventsHubView: View {
     let hasQBittorrentLog: Bool
@@ -3335,15 +3344,6 @@ private struct JellyfinManagementView: View {
                         )
                     }
 
-                    NavigationLink(value: MoreDestination.jellyfinLibraries) {
-                        NavigationMenuRow(
-                            icon: "folder.fill",
-                            color: .orange,
-                            title: "Libraries",
-                            subtitle: "Media libraries and scans"
-                        )
-                    }
-
                     NavigationLink(value: MoreDestination.jellyfinTranscoding) {
                         NavigationMenuRow(
                             icon: "cpu.fill",
@@ -3367,13 +3367,13 @@ private struct JellyfinManagementView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Jellyfin")
+        .navigationTitle("Media Server")
         .moreDestinationBackground(.jellyfin)
     }
 }
 
 #if DEBUG
-#Preview("Jellyfin Management Hub") {
+#Preview("Media Server Hub") {
     MorePreviewHost(profiles: .jellyfinOnly) { _ in
         NavigationStack {
             JellyfinManagementView(jellyfinProfile: .preview())

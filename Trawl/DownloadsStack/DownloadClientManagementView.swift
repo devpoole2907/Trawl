@@ -22,7 +22,7 @@ struct DownloadClientManagementView: View {
                 Section {
                     if !qbittorrentServers.isEmpty {
                         NavigationLink {
-                            TorrentListView(title: "qBittorrent")
+                            QBittorrentClientHubView()
                                 .environment(syncService)
                                 .environment(torrentService)
                         } label: {
@@ -30,7 +30,7 @@ struct DownloadClientManagementView: View {
                                 icon: "arrow.down.circle.fill",
                                 color: ServiceIdentity.qbittorrent.brandColor,
                                 title: "qBittorrent",
-                                subtitle: "Torrents, seeding, peers, files, and limits"
+                                subtitle: "Torrents, stats, categories, RSS, and settings"
                             )
                         }
                     }
@@ -196,5 +196,111 @@ struct DownloadClientManagementView: View {
                 Text("This is often fine — a container hostname and a LAN address can be the same server.")
             }
         }
+    }
+}
+
+
+/// qBittorrent's own management tools, hung off Downloads → Client Management so the
+/// torrent client is symmetrical with SABnzbd's hub.
+///
+/// Deliberately **client-shaped, not protocol-shaped**: transfer stats, categories/tags
+/// and RSS have no SABnzbd analogue (SAB exposes no stats, category, or RSS endpoints),
+/// so an umbrella protocol-neutral hub would read as empty-by-accident to a SAB-only
+/// user. Naming the hub after the client keeps the empty state predictable.
+struct QBittorrentClientHubView: View {
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink {
+                    TorrentListView(title: "qBittorrent")
+                        .environment(syncService)
+                        .environment(torrentService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "arrow.down.circle.fill",
+                        color: ServiceIdentity.qbittorrent.brandColor,
+                        title: "Torrents",
+                        subtitle: "Seeding, peers, files, and limits"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    TorrentStatsView()
+                        .environment(syncService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "chart.line.uptrend.xyaxis",
+                        color: MoreDestinationAccent.transferStats.color,
+                        title: "Transfer Stats",
+                        subtitle: "Speed, session totals, and network info"
+                    )
+                }
+
+                NavigationLink {
+                    QBittorrentCategoriesAndTagsView()
+                        .environment(syncService)
+                        .environment(torrentService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "tag.fill",
+                        color: MoreDestinationAccent.categoriesAndTags.color,
+                        title: "Categories & Tags",
+                        subtitle: "Torrent organization labels"
+                    )
+                }
+
+                NavigationLink {
+                    QBittorrentRSSView()
+                        .environment(torrentService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "dot.radiowaves.left.and.right",
+                        color: MoreDestinationAccent.rssFeeds.color,
+                        title: "RSS Feeds",
+                        subtitle: "Feeds and automatic download rules"
+                    )
+                }
+            } footer: {
+                Text("These tools are provided by qBittorrent. SABnzbd exposes no equivalent endpoints, so it gets its own hub if and when it does.")
+            }
+
+            Section {
+                NavigationLink {
+                    QBittorrentSettingsView()
+                        .environment(syncService)
+                        .environment(torrentService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "gearshape.fill",
+                        color: .secondary,
+                        title: "qBittorrent Settings",
+                        subtitle: "Connection and client preferences"
+                    )
+                }
+
+                NavigationLink {
+                    QBittorrentLogView()
+                        .environment(torrentService)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "doc.text.fill",
+                        color: ServiceIdentity.qbittorrent.brandColor,
+                        title: "qBittorrent Log",
+                        subtitle: "Application events and warnings"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle("qBittorrent")
     }
 }

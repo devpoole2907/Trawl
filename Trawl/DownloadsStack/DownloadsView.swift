@@ -19,6 +19,12 @@ final class DownloadsNavigator {
     }
 }
 
+/// Toolbar overflow destinations for the Downloads tab.
+enum DownloadsManagementRoute: Hashable {
+    case clients
+    case blocklist
+}
+
 struct DownloadsView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SyncService.self) private var syncService
@@ -38,6 +44,9 @@ struct DownloadsView: View {
     @State private var queueActionTarget: ArrQueueActionTarget?
     /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
     @State private var queueActionInFlightIDs: Set<String> = []
+    /// Drives the toolbar overflow menu's pushes. A menu can't hold a
+    /// `NavigationLink`, so the selection travels through state instead.
+    @State private var managementRoute: DownloadsManagementRoute?
 
     init(initialSection: DownloadSection = .active) {
         _selectedSection = State(initialValue: initialSection)
@@ -101,13 +110,20 @@ struct DownloadsView: View {
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
-                    NavigationLink {
-                        DownloadClientManagementView()
-                            .environment(syncService)
-                            .environment(torrentService)
-                            .environment(sabnzbdServiceManager)
+                    // Client Management and the Blocklist are both "look at the
+                    // plumbing" destinations rather than per-download actions, so
+                    // they share one overflow menu and leave Add Download as the
+                    // only bare button.
+                    Menu {
+                        Button("Client Management", systemImage: "server.rack") {
+                            managementRoute = .clients
+                        }
+
+                        Button("Blocklist", systemImage: "hand.raised.slash.fill") {
+                            managementRoute = .blocklist
+                        }
                     } label: {
-                        Label("Client Management", systemImage: "server.rack")
+                        Label("Downloads Options", systemImage: "ellipsis")
                     }
 
                     // SABnzbd-only setups get an Add button too; the sheet routes
@@ -118,6 +134,20 @@ struct DownloadsView: View {
                         }
                         .labelStyle(.iconOnly)
                     }
+                }
+            }
+            .navigationDestination(item: $managementRoute) { route in
+                switch route {
+                case .clients:
+                    DownloadClientManagementView()
+                        .environment(syncService)
+                        .environment(torrentService)
+                        .environment(sabnzbdServiceManager)
+                case .blocklist:
+                    // Blocklisting happens from the queue actions in this very view,
+                    // so the resulting list lives here too rather than in More.
+                    ArrBlocklistView()
+                        .environment(arrServiceManager)
                 }
             }
             .sheet(isPresented: $showAddTorrent) {
