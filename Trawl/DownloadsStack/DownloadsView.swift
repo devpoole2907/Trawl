@@ -1,11 +1,31 @@
 import SwiftData
 import SwiftUI
 
+/// Lets callers outside the Downloads tab steer its segment bar on an
+/// already-mounted `DownloadsView`. `initialSection` can only ever be read once,
+/// at init, and re-initialising the view with `.id()` would wipe the tab's
+/// navigation stack — so the request travels as shared observable state that
+/// `DownloadsView` consumes via `.onChange` and then clears.
+@Observable
+@MainActor
+final class DownloadsNavigator {
+    /// Set by a caller, cleared by `DownloadsView` once it has been applied.
+    var requestedSection: DownloadSection?
+
+    init() {}
+
+    func show(_ section: DownloadSection) {
+        requestedSection = section
+    }
+}
+
 struct DownloadsView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+    /// Optional so previews and any host that doesn't inject a navigator still work.
+    @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
@@ -13,13 +33,33 @@ struct DownloadsView: View {
     @State private var selectedSection: DownloadSection
     @State private var isSearchExpanded = false
     @State private var showAddTorrent = false
+    @State private var torrentPendingDeletion: Torrent?
+    @State private var sabJobPendingDeletion: SABnzbdJob?
+    @State private var queueActionTarget: ArrQueueActionTarget?
+    /// Arr queue rows whose action is still running, keyed by `ArrQueueActionTarget.id`.
+    @State private var queueActionInFlightIDs: Set<String> = []
 
     init(initialSection: DownloadSection = .active) {
         _selectedSection = State(initialValue: initialSection)
     }
 
+    /// Applies a pending segment request and clears it, so the same request can
+    /// be made again later.
+    private func applyRequestedSection(_ requested: DownloadSection?) {
+        guard let requested else { return }
+        withAnimation { selectedSection = requested }
+        downloadsNavigator?.requestedSection = nil
+    }
+
     var body: some View {
         content
+            .onChange(of: downloadsNavigator?.requestedSection) { _, requested in
+                applyRequestedSection(requested)
+            }
+            .onAppear {
+                // Catches a request made while this view wasn't mounted yet.
+                applyRequestedSection(downloadsNavigator?.requestedSection)
+            }
             .background(backgroundGradient)
             .navigationTitle("Downloads")
             .navigationSubtitle(navigationSubtitle)
@@ -54,8 +94,10 @@ struct DownloadsView: View {
                         Label("Client Management", systemImage: "server.rack")
                     }
 
-                    if hasQBittorrentServer {
-                        Button("Add Torrent", systemImage: "plus") {
+                    // SABnzbd-only setups get an Add button too; the sheet routes
+                    // the torrent/NZB/URL source itself.
+                    if hasQBittorrentServer || hasSABnzbdServer {
+                        Button("Add Download", systemImage: "plus") {
                             showAddTorrent = true
                         }
                         .labelStyle(.iconOnly)
@@ -66,6 +108,7 @@ struct DownloadsView: View {
                 AddTorrentSheet()
                     .environment(syncService)
                     .environment(torrentService)
+                    .environment(sabnzbdServiceManager)
             }
             .task(id: reloadKey) {
                 await viewModel.refresh(serviceManager: arrServiceManager)
@@ -73,9 +116,47 @@ struct DownloadsView: View {
             .task {
                 await sabnzbdServiceManager.refresh()
                 sabnzbdServiceManager.startPolling()
+                viewModel.startPolling(serviceManager: arrServiceManager)
             }
             .onDisappear {
                 sabnzbdServiceManager.stopPolling()
+                viewModel.stopPolling(serviceManager: arrServiceManager)
+            }
+            .alert("Delete Torrent?", isPresented: torrentDeletionPresented) {
+                Button("Delete and Remove Files", role: .destructive) {
+                    deletePendingTorrent(deleteFiles: true)
+                }
+                Button("Delete Torrent Only", role: .destructive) {
+                    deletePendingTorrent(deleteFiles: false)
+                }
+                Button("Cancel", role: .cancel) { torrentPendingDeletion = nil }
+            } message: {
+                Text("This action can’t be undone.")
+            }
+            .alert("Remove Download?", isPresented: sabDeletionPresented) {
+                Button("Remove and Delete Files", role: .destructive) {
+                    deletePendingSABJob(deleteFiles: true)
+                }
+                Button("Remove Job Only", role: .destructive) {
+                    deletePendingSABJob(deleteFiles: false)
+                }
+                Button("Cancel", role: .cancel) { sabJobPendingDeletion = nil }
+            } message: {
+                Text("This action can’t be undone.")
+            }
+            .confirmationDialog(
+                queueActionTarget?.item.title ?? "Queue Item",
+                isPresented: queueActionDialogPresented,
+                titleVisibility: .visible,
+                presenting: queueActionTarget
+            ) { target in
+                arrQueueClientActions(
+                    linkedTorrent: target.linkedTorrent,
+                    linkedSABJob: target.linkedSABJob,
+                    includesSeparators: false
+                )
+                arrQueueRemovalActions(item: target.item, source: target.source)
+                Button("Cancel", role: .cancel) { queueActionTarget = nil }
             }
             .refreshable {
                 async let arrRefresh: Void = viewModel.refresh(serviceManager: arrServiceManager)
@@ -88,6 +169,7 @@ struct DownloadsView: View {
     private var items: [DownloadListItem] {
         viewModel.items(
             for: selectedSection,
+            serviceManager: arrServiceManager,
             torrents: syncService.torrents,
             sabActiveJobs: sabnzbdServiceManager.activeJobs,
             sabHistoryJobs: sabnzbdServiceManager.historyJobs
@@ -96,10 +178,10 @@ struct DownloadsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.isRefreshing && items.isEmpty {
+        if arrServiceManager.isLoadingQueue && items.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let errorMessage = viewModel.errorMessage,
+        } else if let errorMessage = arrServiceManager.queueError,
                   items.isEmpty,
                   syncService.torrents.isEmpty,
                   !hasQBittorrentServer,
@@ -154,25 +236,138 @@ struct DownloadsView: View {
             } label: {
                 TorrentRowView(torrent: torrent)
             }
-
-        case .arrQueue(let queueItem, let source, let linkedTorrent, _):
-            if let linkedTorrent {
-                NavigationLink {
-                    TorrentDetailView(torrentHash: linkedTorrent.hash)
-                        .environment(syncService)
-                        .environment(torrentService)
-                } label: {
-                    ArrInfoRowView(queueItem: queueItem, source: source, linkedTorrent: linkedTorrent)
+            .contextMenu { torrentActions(for: torrent) }
+            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                if isPaused(torrent) {
+                    Button("Resume", systemImage: "play.fill") {
+                        performTorrentAction { try await torrentService.resumeTorrents(hashes: [torrent.hash]) }
+                    }
+                    .tint(.green)
+                } else {
+                    Button("Pause", systemImage: "pause.fill") {
+                        performTorrentAction { try await torrentService.pauseTorrents(hashes: [torrent.hash]) }
+                    }
+                    .tint(.orange)
                 }
-            } else {
-                ArrInfoRowView(queueItem: queueItem, source: source)
             }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button("Delete", systemImage: "trash", role: .destructive) {
+                    torrentPendingDeletion = torrent
+                }
+                Button("Recheck", systemImage: "arrow.clockwise") {
+                    performTorrentAction { try await torrentService.recheckTorrents(hashes: [torrent.hash]) }
+                }
+                .tint(.blue)
+            }
+
+        case .arrQueue(let queueItem, let source, let linkedTorrent, let linkedSABJob):
+            arrQueueRow(
+                item: queueItem,
+                source: source,
+                linkedTorrent: linkedTorrent,
+                linkedSABJob: linkedSABJob
+            )
 
         case .arrHistory(let historyItem):
             HistoryRow(item: historyItem)
 
         case .sab(let job):
             sabRow(for: job)
+                .contextMenu { sabActions(for: job) }
+                .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                    if job.source == .queue {
+                        if job.normalizedStatus == .paused {
+                            Button("Resume", systemImage: "play.fill") {
+                                performSABAction { try await sabnzbdServiceManager.resume(job: job) }
+                            }
+                            .tint(.green)
+                        } else {
+                            Button("Pause", systemImage: "pause.fill") {
+                                performSABAction { try await sabnzbdServiceManager.pause(job: job) }
+                            }
+                            .tint(.orange)
+                        }
+                    } else if job.normalizedStatus == .failed {
+                        Button("Retry", systemImage: "arrow.clockwise") {
+                            performSABAction { try await sabnzbdServiceManager.retry(job: job) }
+                        }
+                        .tint(.blue)
+                    }
+                }
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                    Button("Remove", systemImage: "trash", role: .destructive) {
+                        sabJobPendingDeletion = job
+                    }
+                }
+        }
+    }
+
+    // MARK: - Arr queue row
+
+    /// Arr queue rows used to render as bare, untappable text whenever no torrent
+    /// was linked — which is exactly the stuck-import case the Issues segment
+    /// exists for. Every variant now leads somewhere: the torrent detail when a
+    /// torrent is behind it, otherwise a tap opens the same actions the context
+    /// menu offers.
+    @ViewBuilder
+    private func arrQueueRow(
+        item: ArrQueueItem,
+        source: ArrServiceType,
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?
+    ) -> some View {
+        let target = ArrQueueActionTarget(
+            item: item,
+            source: source,
+            linkedTorrent: linkedTorrent,
+            linkedSABJob: linkedSABJob
+        )
+        let isInFlight = queueActionInFlightIDs.contains(target.id)
+
+        Group {
+            if let linkedTorrent {
+                NavigationLink {
+                    TorrentDetailView(torrentHash: linkedTorrent.hash)
+                        .environment(syncService)
+                        .environment(torrentService)
+                } label: {
+                    ArrInfoRowView(queueItem: item, source: source, linkedTorrent: linkedTorrent)
+                }
+            } else {
+                Button {
+                    queueActionTarget = target
+                } label: {
+                    ArrInfoRowView(queueItem: item, source: source)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .disabled(isInFlight)
+        .contextMenu {
+            if linkedTorrent != nil || linkedSABJob != nil {
+                arrQueueClientActions(linkedTorrent: linkedTorrent, linkedSABJob: linkedSABJob)
+                Divider()
+            }
+            arrQueueRemovalActions(item: item, source: source)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button("Remove", systemImage: "xmark.circle", role: .destructive) {
+                performQueueAction(item: item, source: source, blocklist: false, searchAgain: false)
+            }
+            Button("Blocklist", systemImage: "hand.raised") {
+                performQueueAction(item: item, source: source, blocklist: true, searchAgain: false)
+            }
+            .tint(.orange)
+        }
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            if DownloadsViewModel.canSearchAgain(item, source: source) {
+                Button("Search Again", systemImage: "magnifyingglass") {
+                    performQueueAction(item: item, source: source, blocklist: true, searchAgain: true)
+                }
+                .tint(.blue)
+            }
         }
     }
 
@@ -198,6 +393,204 @@ struct DownloadsView: View {
             chips.insert(ArrReleaseInfoChip(category, color: .primary), at: 1)
         }
         return chips
+    }
+
+    // MARK: - Row actions
+
+    // `includesSeparators` is off inside confirmation dialogs, which drop any
+    // non-button content anyway.
+    @ViewBuilder
+    private func torrentActions(for torrent: Torrent, includesSeparators: Bool = true) -> some View {
+        if isPaused(torrent) {
+            Button("Resume", systemImage: "play.fill") {
+                performTorrentAction { try await torrentService.resumeTorrents(hashes: [torrent.hash]) }
+            }
+        } else {
+            Button("Pause", systemImage: "pause.fill") {
+                performTorrentAction { try await torrentService.pauseTorrents(hashes: [torrent.hash]) }
+            }
+        }
+        Button("Recheck", systemImage: "arrow.clockwise") {
+            performTorrentAction { try await torrentService.recheckTorrents(hashes: [torrent.hash]) }
+        }
+        if includesSeparators { Divider() }
+        Button("Delete", systemImage: "trash", role: .destructive) {
+            torrentPendingDeletion = torrent
+        }
+    }
+
+    @ViewBuilder
+    private func sabActions(for job: SABnzbdJob, includesSeparators: Bool = true) -> some View {
+        if job.source == .queue {
+            if job.normalizedStatus == .paused {
+                Button("Resume", systemImage: "play.fill") {
+                    performSABAction { try await sabnzbdServiceManager.resume(job: job) }
+                }
+            } else {
+                Button("Pause", systemImage: "pause.fill") {
+                    performSABAction { try await sabnzbdServiceManager.pause(job: job) }
+                }
+            }
+        }
+        if job.normalizedStatus == .failed {
+            Button("Retry", systemImage: "arrow.clockwise") {
+                performSABAction { try await sabnzbdServiceManager.retry(job: job) }
+            }
+        }
+        if includesSeparators { Divider() }
+        Button("Remove", systemImage: "trash", role: .destructive) {
+            sabJobPendingDeletion = job
+        }
+    }
+
+    /// Client-side verbs for whatever is actually carrying an Arr queue item.
+    @ViewBuilder
+    private func arrQueueClientActions(
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?,
+        includesSeparators: Bool = true
+    ) -> some View {
+        if let linkedTorrent {
+            torrentActions(for: linkedTorrent, includesSeparators: includesSeparators)
+        } else if let linkedSABJob {
+            sabActions(for: linkedSABJob, includesSeparators: includesSeparators)
+        }
+    }
+
+    @ViewBuilder
+    private func arrQueueRemovalActions(item: ArrQueueItem, source: ArrServiceType) -> some View {
+        Button("Remove from Queue", systemImage: "xmark.circle", role: .destructive) {
+            performQueueAction(item: item, source: source, blocklist: false, searchAgain: false)
+        }
+        Button("Blocklist & Remove", systemImage: "hand.raised", role: .destructive) {
+            performQueueAction(item: item, source: source, blocklist: true, searchAgain: false)
+        }
+        if DownloadsViewModel.canSearchAgain(item, source: source) {
+            Button("Blocklist & Search Again", systemImage: "magnifyingglass") {
+                performQueueAction(item: item, source: source, blocklist: true, searchAgain: true)
+            }
+        }
+    }
+
+    private func isPaused(_ torrent: Torrent) -> Bool {
+        switch torrent.state {
+        case .pausedDL, .pausedUP, .stoppedDL, .stoppedUP: true
+        default: false
+        }
+    }
+
+    // MARK: - Performing actions
+
+    private func performQueueAction(
+        item: ArrQueueItem,
+        source: ArrServiceType,
+        blocklist: Bool,
+        searchAgain: Bool
+    ) {
+        queueActionTarget = nil
+        let key = ArrQueueActionTarget.id(for: item, source: source)
+        guard !queueActionInFlightIDs.contains(key) else { return }
+        queueActionInFlightIDs.insert(key)
+
+        Task { @MainActor in
+            defer { queueActionInFlightIDs.remove(key) }
+            let failure = await viewModel.removeQueueItem(
+                item,
+                source: source,
+                blocklist: blocklist,
+                searchAgain: searchAgain,
+                serviceManager: arrServiceManager
+            )
+            if let failure {
+                InAppNotificationCenter.shared.showError(title: "Queue Action Failed", message: failure)
+            } else if searchAgain {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Searching Again",
+                    message: "The release was blocklisted and a new search was started."
+                )
+            } else if blocklist {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Blocked",
+                    message: "The queue item was removed and blocklisted."
+                )
+            } else {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Removed",
+                    message: "The queue item was removed from \(source.displayName)."
+                )
+            }
+        }
+    }
+
+    private func deletePendingTorrent(deleteFiles: Bool) {
+        guard let torrent = torrentPendingDeletion else { return }
+        torrentPendingDeletion = nil
+        performTorrentAction {
+            try await torrentService.deleteTorrents(hashes: [torrent.hash], deleteFiles: deleteFiles)
+        }
+    }
+
+    private func deletePendingSABJob(deleteFiles: Bool) {
+        guard let job = sabJobPendingDeletion else { return }
+        sabJobPendingDeletion = nil
+        performSABAction {
+            if job.source == .queue {
+                try await sabnzbdServiceManager.delete(job: job, deleteFiles: deleteFiles)
+            } else {
+                try await sabnzbdServiceManager.deleteHistory(job: job, permanently: true, deleteFiles: deleteFiles)
+            }
+        }
+    }
+
+    /// qBittorrent commands don't push, so pull a fresh sync rather than waiting
+    /// out the poll interval.
+    private func performTorrentAction(_ operation: @escaping @MainActor () async throws -> Void) {
+        Task { @MainActor in
+            do {
+                try await operation()
+                await syncService.refreshNow()
+            } catch {
+                InAppNotificationCenter.shared.showError(
+                    title: "Torrent Action Failed",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    /// `SABnzbdServiceManager` refreshes itself after each job action.
+    private func performSABAction(_ operation: @escaping @MainActor () async throws -> Void) {
+        Task { @MainActor in
+            do {
+                try await operation()
+            } catch {
+                InAppNotificationCenter.shared.showError(
+                    title: "SABnzbd Action Failed",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    private var torrentDeletionPresented: Binding<Bool> {
+        Binding(
+            get: { torrentPendingDeletion != nil },
+            set: { if !$0 { torrentPendingDeletion = nil } }
+        )
+    }
+
+    private var sabDeletionPresented: Binding<Bool> {
+        Binding(
+            get: { sabJobPendingDeletion != nil },
+            set: { if !$0 { sabJobPendingDeletion = nil } }
+        )
+    }
+
+    private var queueActionDialogPresented: Binding<Bool> {
+        Binding(
+            get: { queueActionTarget != nil },
+            set: { if !$0 { queueActionTarget = nil } }
+        )
     }
 
     private var emptyState: some View {
@@ -239,7 +632,7 @@ struct DownloadsView: View {
         case .queue: "tray"
         case .seeding: "arrow.up.circle"
         case .history: "clock.arrow.circlepath"
-        case .issues: "checkmark.circle"
+        case .issues: "exclamationmark.triangle"
         }
     }
 
@@ -285,6 +678,21 @@ struct DownloadsView: View {
             )
         }
         .ignoresSafeArea()
+    }
+}
+
+/// The Arr queue row a confirmation dialog is acting on, plus whatever download
+/// client is carrying it so the dialog can offer that client's verbs inline.
+private struct ArrQueueActionTarget: Identifiable {
+    let item: ArrQueueItem
+    let source: ArrServiceType
+    let linkedTorrent: Torrent?
+    let linkedSABJob: SABnzbdJob?
+
+    var id: String { Self.id(for: item, source: source) }
+
+    static func id(for item: ArrQueueItem, source: ArrServiceType) -> String {
+        "\(source.rawValue)-\(item.id)"
     }
 }
 

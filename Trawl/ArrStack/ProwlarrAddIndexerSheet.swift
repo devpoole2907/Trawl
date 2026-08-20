@@ -6,18 +6,37 @@ struct ProwlarrAddIndexerSheet: View {
     private let loadsSchemaOnAppear: Bool
 
     @State private var searchText = ""
+    /// nil = every protocol.
+    @State private var protocolFilter: IndexerListSection?
 
     init(viewModel: ProwlarrViewModel, loadsSchemaOnAppear: Bool = true) {
         self.viewModel = viewModel
         self.loadsSchemaOnAppear = loadsSchemaOnAppear
     }
 
-    private var filteredSchema: [ProwlarrIndexer] {
+    private var searchedSchema: [ProwlarrIndexer] {
         guard !searchText.isEmpty else { return viewModel.schemaIndexers }
         return viewModel.schemaIndexers.filter {
             ($0.name ?? "").localizedCaseInsensitiveContains(searchText) ||
             ($0.implementationName ?? "").localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    private var filteredSchema: [ProwlarrIndexer] {
+        guard let protocolFilter else { return searchedSchema }
+        return searchedSchema.filter { listSection(for: $0) == protocolFilter }
+    }
+
+    /// Built from the whole schema rather than the search results, so the bar doesn't
+    /// reshuffle while typing. Empty when Prowlarr only returned one protocol — a filter
+    /// with a single option isn't worth the row.
+    private var protocolSegments: [TrawlSegmentBarItem<IndexerListSection?>] {
+        let present = Set(viewModel.schemaIndexers.map(listSection(for:)))
+        guard present.count > 1 else { return [] }
+        return [TrawlSegmentBarItem("All", value: nil)]
+            + IndexerListSection.allCases
+                .filter { present.contains($0) }
+                .map { TrawlSegmentBarItem($0.title, value: $0) }
     }
 
     var body: some View {
@@ -43,6 +62,12 @@ struct ProwlarrAddIndexerSheet: View {
                         systemImage: "magnifyingglass",
                         description: Text("No indexers match \"\(searchText)\".")
                     )
+                } else if filteredSchema.isEmpty, let protocolFilter {
+                    ContentUnavailableView(
+                        "No \(protocolFilter.title) Indexers",
+                        systemImage: "magnifyingglass",
+                        description: Text("Prowlarr returned no \(protocolFilter.title.lowercased()) indexer types.")
+                    )
                 } else if filteredSchema.isEmpty {
                     ContentUnavailableView(
                         "No Indexers",
@@ -50,15 +75,27 @@ struct ProwlarrAddIndexerSheet: View {
                         description: Text("No indexer schemas were returned by Prowlarr.")
                     )
                 } else {
-                    List(filteredSchema, id: \.schemaListID) { schema in
-                        NavigationLink {
-                            IndexerConfigView(
-                                schema: schema,
-                                viewModel: viewModel,
-                                onAdded: { dismiss() }
-                            )
-                        } label: {
-                            schemaRow(schema)
+                    List {
+                        // Sectioned by protocol, matching the indexer list, so finding a
+                        // Usenet schema doesn't mean scrolling a flat alphabetical list.
+                        ForEach(IndexerListSection.allCases) { section in
+                            let schemas = filteredSchema.filter { listSection(for: $0) == section }
+
+                            if !schemas.isEmpty {
+                                Section(section.title) {
+                                    ForEach(schemas, id: \.schemaListID) { schema in
+                                        NavigationLink {
+                                            IndexerConfigView(
+                                                schema: schema,
+                                                viewModel: viewModel,
+                                                onAdded: { dismiss() }
+                                            )
+                                        } label: {
+                                            schemaRow(schema)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     #if os(iOS)
@@ -68,12 +105,36 @@ struct ProwlarrAddIndexerSheet: View {
                     #endif
                 }
             }
+            .safeAreaInset(edge: .top) {
+                if !viewModel.isLoadingSchema, viewModel.schemaError == nil, !protocolSegments.isEmpty {
+                    TrawlSegmentBar(
+                        "Protocol",
+                        selection: Binding(
+                            get: { protocolFilter },
+                            set: { newValue in
+                                withAnimation(.smooth(duration: 0.25)) {
+                                    protocolFilter = newValue
+                                }
+                            }
+                        ),
+                        items: protocolSegments
+                    )
+                }
+            }
             .searchable(text: $searchText, prompt: "Search indexers")
             .task {
                 guard loadsSchemaOnAppear else { return }
                 await viewModel.loadSchema()
                 await viewModel.loadTags()
             }
+        }
+    }
+
+    private func listSection(for schema: ProwlarrIndexer) -> IndexerListSection {
+        switch schema.protocol {
+        case .torrent: .torrent
+        case .usenet: .usenet
+        case nil: .other
         }
     }
 

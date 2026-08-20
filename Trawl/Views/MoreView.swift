@@ -111,7 +111,7 @@ enum MoreDestinationAccent {
         case .torrentManagement: return .mint
         case .indexers: return .yellow
         case .integrations: return .blue
-        case .downloadClients: return ServiceIdentity.qbittorrent.brandColor
+        case .downloadClients: return .mint
         case .remotePathMappings: return .indigo
         case .mediaManagement: return .green
         case .diskSpace: return .teal
@@ -1736,7 +1736,7 @@ private enum MoreSearchIndex {
                 icon: ServiceIdentity.sonarr.systemImage,
                 color: ServiceIdentity.sonarr.brandColor,
                 title: "Sonarr Download Clients",
-                subtitle: "Clients used for series grabs",
+                subtitle: "Torrent and Usenet clients for series grabs",
                 category: "Integrations",
                 keywords: ["sonarr", "download", "clients", "qbittorrent", "series"]
             ),
@@ -1746,7 +1746,7 @@ private enum MoreSearchIndex {
                 icon: ServiceIdentity.radarr.systemImage,
                 color: ServiceIdentity.radarr.brandColor,
                 title: "Radarr Download Clients",
-                subtitle: "Clients used for movie grabs",
+                subtitle: "Torrent and Usenet clients for movie grabs",
                 category: "Integrations",
                 keywords: ["radarr", "download", "clients", "qbittorrent", "movies"]
             ),
@@ -2039,6 +2039,16 @@ private enum MoreSearchIndex {
                 subtitle: "Usenet download client connection and API key",
                 category: "Settings",
                 keywords: ["sabnzbd", "usenet", "nzb", "server", "api", "connection", "downloads"]
+            ),
+            .init(
+                id: "qbittorrent-settings",
+                destination: .qbittorrentSettings,
+                icon: ServiceIdentity.qbittorrent.systemImage,
+                color: ServiceIdentity.qbittorrent.brandColor,
+                title: "qBittorrent Settings",
+                subtitle: "Torrent download client connection and credentials",
+                category: "Settings",
+                keywords: ["qbittorrent", "qbit", "torrent", "server", "connection", "downloads"]
             )
         ]
     }()
@@ -2111,10 +2121,10 @@ private struct IntegrationsManagementView: View {
             Section("Download Plumbing") {
                 NavigationLink(value: MoreDestination.downloadClientsManagement) {
                     NavigationMenuRow(
-                        icon: ServiceIdentity.qbittorrent.systemImage,
-                        color: ServiceIdentity.qbittorrent.brandColor,
+                        icon: "shippingbox.fill",
+                        color: MoreDestinationAccent.downloadClients.color,
                         title: "Download Clients",
-                        subtitle: "Sonarr and Radarr download clients"
+                        subtitle: "Torrent and Usenet clients used by Sonarr and Radarr"
                     )
                 }
 
@@ -2308,7 +2318,7 @@ private struct DownloadClientsManagementView: View {
             if !hasSonarrOrRadarr {
                 HubEmptyState(
                     title: "No Services Configured",
-                    systemImage: ServiceIdentity.qbittorrent.systemImage,
+                    systemImage: "shippingbox.fill",
                     message: "Connect Sonarr or Radarr in Settings to manage their download clients."
                 )
             } else {
@@ -2318,7 +2328,7 @@ private struct DownloadClientsManagementView: View {
                         source: .sonarr,
                         targets: [.qbittorrent],
                         title: "Sonarr Download Clients",
-                        subtitle: "Clients used for series grabs",
+                        subtitle: "Torrent and Usenet clients for series grabs",
                         status: statusModel.sonarrStatus
                     )
                 }
@@ -2328,7 +2338,7 @@ private struct DownloadClientsManagementView: View {
                         source: .radarr,
                         targets: [.qbittorrent],
                         title: "Radarr Download Clients",
-                        subtitle: "Clients used for movie grabs",
+                        subtitle: "Torrent and Usenet clients for movie grabs",
                         status: statusModel.radarrStatus
                     )
                 }
@@ -3470,610 +3480,7 @@ extension View {
 }
 
 
-struct RecentNotificationsSheet: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
-    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-    @Environment(ArrServiceManager.self) private var arrServiceManager
-    @State private var showClearConfirmation = false
-    @State private var unreadSinceDate: Date = .distantPast
-    @State private var queuedImportCommands: [QueuedImportCommand] = []
-
-    private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
-    private var unreadNotificationCount: Int {
-        inAppNotificationCenter.recentNotifications.filter { $0.timestamp > effectiveUnreadSinceDate }.count
-    }
-    private var effectiveUnreadSinceDate: Date {
-        unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
-    }
-
-    private var activeJobs: [ActiveImportJob] {
-        inAppNotificationCenter.activeImportJobs
-    }
-
-    private var hasImportActivity: Bool {
-        !activeJobs.isEmpty || !displayedImportCommands.isEmpty
-    }
-
-    private var displayedImportCommands: [QueuedImportCommand] {
-        guard !activeJobs.isEmpty else { return queuedImportCommands }
-        return queuedImportCommands.filter(\.isQueued)
-    }
-
-    private var subtitleText: String {
-        let running = inAppNotificationCenter.runningImportJobsCount
-        let displayedCommands = displayedImportCommands
-        let queued = displayedCommands.filter(\.isQueued).count
-        let remoteActive = displayedCommands.count
-        let active = running + remoteActive
-        if active > 0 {
-            let word = active == 1 ? "import" : "imports"
-            if queued > 0 {
-                return "\(active) \(word) active, \(queued) queued · \(unreadNotificationCount) unread"
-            }
-            return "\(active) \(word) in progress · \(unreadNotificationCount) unread"
-        }
-        return "\(unreadNotificationCount) unread"
-    }
-
-    var body: some View {
-        AppSheetShell(
-            title: "Notifications",
-            subtitle: subtitleText,
-            cancelTitle: "Close",
-            cancelSystemImage: "xmark",
-            showsCancel: false,
-            usesInlineLargeTitle: true,
-            detents: [.medium, .large],
-            dragIndicator: .visible
-        ) {
-            Group {
-                if !hasImportActivity && inAppNotificationCenter.recentNotifications.isEmpty {
-                    ContentUnavailableView {
-                        Label("No Notifications Yet", systemImage: "bell.slash")
-                    } description: {
-                        Text("Recent in-app and system notifications will appear here.")
-                    } actions: {
-                        Button("Open Notification Settings") {
-                            #if os(iOS)
-                            if let url = URL(string: UIApplication.openSettingsURLString) {
-                                openURL(url)
-                            }
-                            #endif
-                        }
-                    }
-                } else {
-                    List {
-                        if hasImportActivity {
-                            Section {
-                                ForEach(activeJobs) { job in
-                                    Group {
-                                        if job.fileNames.count > 1 {
-                                            NavigationLink {
-                                                ImportJobFilesView(job: job)
-                                            } label: {
-                                                activeImportJobRow(job)
-                                            }
-                                        } else {
-                                            activeImportJobRow(job)
-                                        }
-                                    }
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: job.status != .running) {
-                                        if job.status != .running {
-                                            Button(role: .destructive) {
-                                                inAppNotificationCenter.removeImportJob(id: job.id)
-                                            } label: {
-                                                Label("Dismiss", systemImage: "xmark")
-                                            }
-                                        }
-                                    }
-                                }
-
-                                ForEach(displayedImportCommands) { command in
-                                    queuedImportCommandRow(command)
-                                }
-                            } header: {
-                                HStack {
-                                    Text("Imports")
-                                    Spacer(minLength: 8)
-                                    if activeJobs.contains(where: { $0.status != .running }) {
-                                        Button("Clear Finished") {
-                                            inAppNotificationCenter.clearFinishedImportJobs()
-                                        }
-                                        .font(.caption.weight(.semibold))
-                                        .textCase(nil)
-                                    }
-                                }
-                            }
-                        }
-
-                        if !inAppNotificationCenter.recentNotifications.isEmpty {
-                            Section {
-                                ForEach(inAppNotificationCenter.recentNotifications) { entry in
-                                    notificationRow(for: entry)
-                                }
-                            } header: {
-                                Text("Recent")
-                            }
-                        }
-                    }
-                    #if os(iOS)
-                    .listStyle(.insetGrouped)
-                    #else
-                    .listStyle(.inset)
-                    #endif
-                }
-            }
-            .alert("Clear Notifications?", isPresented: $showClearConfirmation) {
-                Button("Clear", role: .destructive) {
-                    inAppNotificationCenter.clearRecentNotifications()
-                }
-                Button("Cancel", role: .cancel) { }
-            } message: {
-                Text("All recent notifications will be removed.")
-            }
-            #if os(iOS)
-            .toolbar {
-                ToolbarItemGroup(placement: .topBarTrailing) {
-                    NavigationLink {
-                        NotificationSettingsHubView()
-                    } label: {
-                        Label("Notification Settings", systemImage: "gearshape")
-                    }
-                }
-
-                if notificationCount > 0 {
-                    ToolbarSpacer(.flexible, placement: .topBarTrailing)
-                    ToolbarItemGroup(placement: .topBarTrailing) {
-                        Button("Clear") {
-                            showClearConfirmation = true
-                        }
-                    }
-                }
-            }
-            #endif
-        }
-        .onAppear {
-            unreadSinceDate = inAppNotificationCenter.lastReadDate
-            inAppNotificationCenter.markAllRead()
-        }
-        .task {
-            await refreshQueuedImportCommands()
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(5))
-                await refreshQueuedImportCommands()
-            }
-        }
-    }
-
-    private func icon(for entry: NotificationLogEntry) -> String {
-        let blob = "\(entry.title) \(entry.message)".lowercased()
-        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
-
-        if tokens.contains("health") || tokens.contains("warning") || tokens.contains("alert") {
-            return "heart.text.square.fill"
-        }
-        if tokens.contains("issue") {
-            return "exclamationmark.bubble.fill"
-        }
-        if tokens.contains("user") {
-            return "person.crop.circle.badge.exclamationmark"
-        }
-        if tokens.contains("download") || tokens.contains("import") {
-            return "arrow.down.circle.fill"
-        }
-
-        switch entry.style {
-        case .success: return "checkmark.circle.fill"
-        case .error: return "exclamationmark.triangle.fill"
-        case .progress: return "arrow.triangle.2.circlepath"
-        }
-    }
-
-    private func color(for style: InAppBannerStyle) -> Color {
-        switch style {
-        case .success: .green
-        case .error: .red
-        case .progress: .blue
-        }
-    }
-
-    private func serviceContext(for entry: NotificationLogEntry) -> NotificationServiceContext {
-        let blob = "\(entry.title) \(entry.message)".lowercased()
-        let tokens = Set(blob.split(whereSeparator: { !$0.isLetter && !$0.isNumber }).map { String($0) })
-
-        if tokens.contains("sonarr") { return .sonarr }
-        if tokens.contains("radarr") { return .radarr }
-        if tokens.contains("prowlarr") { return .prowlarr }
-        if tokens.contains("bazarr") { return .bazarr }
-        if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return .seerr }
-        if tokens.contains("sabnzbd") || tokens.contains("usenet") || tokens.contains("nzb") { return .sabnzbd }
-        if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return .qbittorrent }
-        return .trawl
-    }
-
-    private enum NotificationServiceContext {
-        case qbittorrent
-        case sabnzbd
-        case sonarr
-        case radarr
-        case prowlarr
-        case bazarr
-        case seerr
-        case trawl
-
-        var title: String {
-            switch self {
-            case .qbittorrent: "qBittorrent"
-            case .sabnzbd: "SABnzbd"
-            case .sonarr: "Sonarr"
-            case .radarr: "Radarr"
-            case .prowlarr: "Prowlarr"
-            case .bazarr: "Bazarr"
-            case .seerr: "Seerr"
-            case .trawl: "Trawl"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
-            case .sabnzbd: ServiceIdentity.sabnzbd.systemImage
-            case .sonarr: ServiceIdentity.sonarr.systemImage
-            case .radarr: ServiceIdentity.radarr.systemImage
-            case .prowlarr: ServiceIdentity.prowlarr.systemImage
-            case .bazarr: ServiceIdentity.bazarr.systemImage
-            case .seerr: ServiceIdentity.seerr.systemImage
-            case .trawl: "app.badge"
-            }
-        }
-    }
-
-    private static let longMessageThreshold = 140
-
-    private func isLongMessage(_ message: String) -> Bool {
-        message.count > Self.longMessageThreshold || message.contains("\n")
-    }
-
-    private func tintColor(for tint: ImportJobTint) -> Color {
-        switch tint {
-        case .sonarr: return ServiceIdentity.sonarr.brandColor
-        case .radarr: return ServiceIdentity.radarr.brandColor
-        case .generic: return .accentColor
-        }
-    }
-
-    private func tintColor(for service: QueuedImportCommand.Service) -> Color {
-        switch service {
-        case .sonarr: return ServiceIdentity.sonarr.brandColor
-        case .radarr: return ServiceIdentity.radarr.brandColor
-        }
-    }
-
-    private func refreshQueuedImportCommands() async {
-        var commands: [QueuedImportCommand] = []
-
-        if let client = arrServiceManager.sonarrClient {
-            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .sonarr))
-        }
-        if let client = arrServiceManager.radarrClient {
-            commands.append(contentsOf: await loadQueuedImportCommands(client: client, service: .radarr))
-        }
-
-        queuedImportCommands = commands.sorted {
-            ($0.queued ?? "") > ($1.queued ?? "")
-        }
-    }
-
-    private func loadQueuedImportCommands<Client: SharedArrClient>(
-        client: Client,
-        service: QueuedImportCommand.Service
-    ) async -> [QueuedImportCommand] {
-        do {
-            return try await client.getCommandQueue()
-                .filter { $0.isActiveManualImport }
-                .map { QueuedImportCommand(command: $0, service: service) }
-        } catch {
-            return []
-        }
-    }
-
-    @ViewBuilder
-    private func activeImportJobRow(_ job: ActiveImportJob) -> some View {
-        let tint = tintColor(for: job.serviceTint)
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(tint.opacity(0.15))
-                    .frame(width: 38, height: 38)
-                switch job.status {
-                case .running:
-                    ProgressView()
-                        .controlSize(.small)
-                        .tint(tint)
-                case .succeeded:
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.green)
-                case .failed:
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .font(.title3)
-                        .foregroundStyle(.red)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: job.serviceSystemImage)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
-                    Text(job.serviceTitle)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
-                    Text("·")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(activeImportJobStatusText(job))
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(activeImportJobStatusColor(job))
-                    Spacer(minLength: 0)
-                }
-
-                Text(activeImportJobTitle(job))
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-
-                Text(activeImportJobSubtitle(job))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-
-                if let error = job.errorMessage, job.status == .failed {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                        .lineLimit(2)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    private func activeImportJobStatusText(_ job: ActiveImportJob) -> String {
-        switch job.status {
-        case .running:
-            if let current = job.currentIndex, let total = job.progressTotal {
-                return "Importing \(current) of \(total)"
-            }
-            return "Importing"
-        case .succeeded: return "Imported"
-        case .failed: return "Failed"
-        }
-    }
-
-    /// The leading title for the job row. While running with known per-file
-    /// progress, this is the file currently being processed by the server;
-    /// otherwise it falls back to the batch's representative title.
-    private func activeImportJobTitle(_ job: ActiveImportJob) -> String {
-        if job.status == .running, let current = job.currentName {
-            return current
-        }
-        return job.primaryName
-    }
-
-    private func activeImportJobStatusColor(_ job: ActiveImportJob) -> Color {
-        switch job.status {
-        case .running: return .secondary
-        case .succeeded: return .green
-        case .failed: return .red
-        }
-    }
-
-    private func activeImportJobSubtitle(_ job: ActiveImportJob) -> String {
-        let fileWord = job.fileCount == 1 ? "file" : "files"
-        let countText = "\(job.fileCount) \(fileWord)"
-        let timeText: String
-        if let completedAt = job.completedAt {
-            timeText = completedAt.formatted(date: .omitted, time: .shortened)
-        } else {
-            timeText = job.startedAt.formatted(date: .omitted, time: .shortened)
-        }
-        return "\(countText) · \(job.folderName) · \(timeText)"
-    }
-
-    @ViewBuilder
-    private func queuedImportCommandRow(_ command: QueuedImportCommand) -> some View {
-        let tint = tintColor(for: command.service)
-        HStack(alignment: .top, spacing: 12) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(tint.opacity(0.15))
-                    .frame(width: 38, height: 38)
-                Image(systemName: "clock.badge.exclamationmark")
-                    .font(.title3)
-                    .foregroundStyle(tint)
-            }
-
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Image(systemName: command.service.systemImage)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
-                    Text(command.service.title)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(tint)
-                    Text("·")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Text(command.statusText)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: 0)
-                }
-
-                Text(command.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(2)
-
-                Text(command.subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-        }
-        .padding(.vertical, 4)
-    }
-
-    @ViewBuilder
-    private func notificationRow(for entry: NotificationLogEntry) -> some View {
-        let long = isLongMessage(entry.message)
-        Group {
-            if long {
-                NavigationLink {
-                    NotificationDetailView(
-                        entry: entry,
-                        icon: icon(for: entry),
-                        tint: color(for: entry.style)
-                    )
-                } label: {
-                    notificationRowBody(entry: entry, truncate: true)
-                }
-            } else {
-                notificationRowBody(entry: entry, truncate: false)
-            }
-        }
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-            Button(role: .destructive) {
-                inAppNotificationCenter.removeNotification(id: entry.id)
-            } label: {
-                Label("Remove", systemImage: "trash")
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func notificationRowBody(entry: NotificationLogEntry, truncate: Bool) -> some View {
-        let service = serviceContext(for: entry)
-
-        VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(entry.timestamp > unreadSinceDate ? Color.accentColor : Color.clear)
-                    .frame(width: 7, height: 7)
-                HStack(spacing: 4) {
-                    Image(systemName: icon(for: entry))
-                        .foregroundStyle(color(for: entry.style))
-                    Text(entry.title)
-                        .font(.headline)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Text(service.title)
-                .font(.caption)
-                .foregroundStyle(.secondary)
-            }
-            if !entry.message.isEmpty {
-                Text(entry.message)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .padding(.leading, 15)
-                    .lineLimit(truncate ? 2 : nil)
-            }
-            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .padding(.leading, 15)
-        }
-        .padding(.vertical, 2)
-    }
-}
-
-private struct QueuedImportCommand: Identifiable, Sendable {
-    enum Service: Sendable {
-        case sonarr
-        case radarr
-
-        var title: String {
-            switch self {
-            case .sonarr: "Sonarr"
-            case .radarr: "Radarr"
-            }
-        }
-
-        var systemImage: String {
-            switch self {
-            case .sonarr: ServiceIdentity.sonarr.systemImage
-            case .radarr: ServiceIdentity.radarr.systemImage
-            }
-        }
-
-        var idPrefix: String {
-            switch self {
-            case .sonarr: "sonarr"
-            case .radarr: "radarr"
-            }
-        }
-    }
-
-    let id: String
-    let service: Service
-    let commandID: Int?
-    let queued: String?
-    let status: String?
-
-    init(command: ArrCommand, service: Service) {
-        self.service = service
-        self.commandID = command.id
-        self.queued = command.queued
-        self.status = command.status
-        self.id = "\(service.idPrefix)-\(command.id?.description ?? command.queued ?? UUID().uuidString)"
-    }
-
-    var title: String {
-        if let commandID {
-            return "Manual Import #\(commandID)"
-        }
-        return "Manual Import"
-    }
-
-    var subtitle: String {
-        let prefix = isQueued ? "Waiting in command queue" : "Running in \(service.title)"
-        guard let queued, !queued.isEmpty else { return prefix }
-        return "\(prefix) · \(queued)"
-    }
-
-    var isQueued: Bool {
-        normalizedStatus == "queued"
-    }
-
-    var statusText: String {
-        switch normalizedStatus {
-        case "queued": return "Queued"
-        case "started": return "Importing"
-        default: return status?.capitalized ?? "Active"
-        }
-    }
-
-    private var normalizedStatus: String {
-        (status ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-    }
-}
-
-private extension ArrCommand {
-    var isActiveManualImport: Bool {
-        let command = (commandName ?? name ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        let normalizedStatus = (status ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-            .lowercased()
-        return command == "manualimport" && !isTerminal && normalizedStatus != "completed"
-    }
-}
-
-private struct NotificationSettingsHubView: View {
+struct NotificationSettingsHubView: View {
     @Environment(\.openURL) private var openURL
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
@@ -4561,74 +3968,6 @@ private func webhookStatusRow(_ status: ArrNotificationSetupStatus) -> some View
             systemImage: "minus.circle.fill",
             color: .secondary
         )
-    }
-}
-
-#if DEBUG
-#Preview("Recent Notifications - Loaded") {
-    NavigationStack {
-        RecentNotificationsSheet()
-            .environment(MorePreviewFixtures.notificationCenter())
-    }
-}
-
-#Preview("Recent Notifications - Empty") {
-    NavigationStack {
-        RecentNotificationsSheet()
-            .environment(InAppNotificationCenter(previewNotifications: []))
-    }
-}
-#endif
-
-private struct NotificationDetailView: View {
-    let entry: NotificationLogEntry
-    let icon: String
-    let tint: Color
-
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                HStack(alignment: .top, spacing: 12) {
-                    Image(systemName: icon)
-                        .font(.title2)
-                        .foregroundStyle(tint)
-                        .frame(width: 28)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(entry.title)
-                            .font(.title3.weight(.semibold))
-                            .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
-                            Label(entry.source.rawValue, systemImage: "tray.fill")
-                                .font(.caption.weight(.medium))
-                                .foregroundStyle(.secondary)
-                            Text(entry.timestamp.formatted(date: .abbreviated, time: .shortened))
-                                .font(.caption)
-                                .foregroundStyle(.tertiary)
-                        }
-                    }
-                    Spacer(minLength: 0)
-                }
-
-                Divider()
-
-                if entry.message.isEmpty {
-                    Text("No additional details.")
-                        .font(.body)
-                        .foregroundStyle(.secondary)
-                } else {
-                    Text(entry.message)
-                        .font(.body)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(20)
-        }
-        .navigationTitle("Notification")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
     }
 }
 

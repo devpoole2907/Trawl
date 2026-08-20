@@ -45,39 +45,38 @@ struct DownloadClientManagementView: View {
                 }
             }
 
-            if qbittorrentServers.isEmpty || sabnzbdProfiles.isEmpty {
-                Section {
-                    if qbittorrentServers.isEmpty {
-                        Button {
-                            showQBittorrentSetup = true
-                        } label: {
-                            NavigationMenuRow(
-                                icon: "plus.circle.fill",
-                                color: ServiceIdentity.qbittorrent.brandColor,
-                                title: "Add qBittorrent",
-                                subtitle: "Connect a torrent client"
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
+            // qBittorrent is multi-instance, so its add row is always available.
+            // SABnzbd is deliberately single-instance — its row only appears
+            // while no profile exists.
+            Section {
+                Button {
+                    showQBittorrentSetup = true
+                } label: {
+                    NavigationMenuRow(
+                        icon: "plus.circle.fill",
+                        color: ServiceIdentity.qbittorrent.brandColor,
+                        title: qbittorrentServers.isEmpty ? "Add qBittorrent" : "Add Another qBittorrent",
+                        subtitle: "Connect a torrent client"
+                    )
+                }
+                .buttonStyle(.plain)
 
-                    if sabnzbdProfiles.isEmpty {
-                        Button {
-                            showSABnzbdSetup = true
-                        } label: {
-                            NavigationMenuRow(
-                                icon: "plus.circle.fill",
-                                color: ServiceIdentity.sabnzbd.brandColor,
-                                title: "Add SABnzbd",
-                                subtitle: "Connect a Usenet client"
-                            )
-                        }
-                        .buttonStyle(.plain)
+                if sabnzbdProfiles.isEmpty {
+                    Button {
+                        showSABnzbdSetup = true
+                    } label: {
+                        NavigationMenuRow(
+                            icon: "plus.circle.fill",
+                            color: ServiceIdentity.sabnzbd.brandColor,
+                            title: "Add SABnzbd",
+                            subtitle: "Connect a Usenet client"
+                        )
                     }
-                } header: {
-                    if qbittorrentServers.isEmpty && sabnzbdProfiles.isEmpty {
-                        Text("No Download Clients")
-                    }
+                    .buttonStyle(.plain)
+                }
+            } header: {
+                if qbittorrentServers.isEmpty && sabnzbdProfiles.isEmpty {
+                    Text("No Download Clients")
                 }
             }
         }

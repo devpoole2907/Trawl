@@ -96,6 +96,13 @@ struct ArrDownloadClientListView: View {
                 clientSections
             }
         }
+        // Attached directly to the List, above the .sheet modifiers below: a sheet inherits
+        // its presenter's environment, so a RefreshAction placed outside them would give the
+        // editor sheet a pull-to-refresh it never asked for.
+        .refreshable {
+            await loadClients()
+            checkReachabilityForAll()
+        }
         .navigationTitle("Download Clients")
         .navigationSubtitle(serviceType.displayName)
         #if os(iOS)
@@ -142,10 +149,6 @@ struct ArrDownloadClientListView: View {
                 )
             }
             .environment(serviceManager)
-        }
-        .refreshable {
-            await loadClients()
-            checkReachabilityForAll()
         }
         .task(id: "\(serviceManager.isConnected(serviceType))-\(serviceManager.activeInstanceID(serviceType)?.uuidString ?? "none")") {
             #if DEBUG

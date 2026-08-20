@@ -44,6 +44,7 @@ struct ContentView: View {
     @State private var didEvaluateWelcomeState = false
     @State private var servicesTask: Task<Void, Never>?
     @State private var connectionRetryScheduler = ConnectionRetryScheduler()
+    @State private var downloadsNavigator = DownloadsNavigator()
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -110,13 +111,21 @@ struct ContentView: View {
             get: { inAppNotificationCenter.isPresentingRecentNotifications },
             set: { inAppNotificationCenter.isPresentingRecentNotifications = $0 }
         )) {
+            // The sheet is presented at root, so the services its Needs Attention
+            // section reads have to be handed to it explicitly.
             #if os(iOS)
             RecentNotificationsSheet()
                 .environment(inAppNotificationCenter)
+                .environment((appServices ?? disconnectedServices).syncService)
+                .environment(downloadsNavigator)
+                .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
                 .navigationTransition(.zoom(sourceID: notificationSheetTransitionID, in: notificationTransitionNamespace))
             #else
             RecentNotificationsSheet()
                 .environment(inAppNotificationCenter)
+                .environment((appServices ?? disconnectedServices).syncService)
+                .environment(downloadsNavigator)
+                .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
             #endif
         }
         .sheet(item: $setupTarget) { target in
@@ -197,7 +206,11 @@ struct ContentView: View {
                     // Store deep link to be applied after welcome screen completes
                     switch url.host?.lowercased() {
                     case "torrents", "downloads":
-                        pendingDeepLink = PendingDeepLink(tab: .downloads, morePath: [])
+                        pendingDeepLink = PendingDeepLink(
+                            tab: .downloads,
+                            morePath: [],
+                            downloadsSection: Self.downloadsSection(from: url)
+                        )
                     case "calendar":
                         pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
                     case "health":
@@ -213,6 +226,9 @@ struct ContentView: View {
                     switch url.host?.lowercased() {
                     case "torrents", "downloads":
                         selectedTab = .downloads
+                        if let section = Self.downloadsSection(from: url) {
+                            downloadsNavigator.show(section)
+                        }
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
@@ -263,6 +279,10 @@ struct ContentView: View {
                 initializeServices()
             }
             await arrServiceManager.initialize(from: arrProfiles)
+            // Slow app-wide poll purely so the tab-bar accessory's failure count
+            // stays honest; Downloads speeds it up while that tab is on screen.
+            arrServiceManager.startQueuePolling()
+            await arrServiceManager.refreshQueues()
         }
         .task(id: connectionRetryLoopKey) {
             #if DEBUG
@@ -291,6 +311,7 @@ struct ContentView: View {
                 servicesTask?.cancel()
                 appServices?.syncService.stopPolling()
                 sabnzbdServiceManager.stopPolling()
+                arrServiceManager.stopQueuePolling()
             } else if newPhase == .active && !shouldShowWelcomeScreen {
                 // iOS transitions scenePhase through .inactive in both directions
                 // (.background → .inactive → .active), so checking `oldPhase == .background`
@@ -313,18 +334,23 @@ struct ContentView: View {
                     sabnzbdServiceManager.startPolling()
                 }
                 Task { await arrServiceManager.retryDisconnected() }
+                arrServiceManager.startQueuePolling()
             }
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in
             if !isShowing, let pending = pendingDeepLink {
                 selectedTab = pending.tab
                 morePath = pending.morePath
+                if let section = pending.downloadsSection {
+                    downloadsNavigator.show(section)
+                }
                 pendingDeepLink = nil
             }
         }
         .onDisappear {
             appServices?.syncService.stopPolling()
             sabnzbdServiceManager.stopPolling()
+            arrServiceManager.stopQueuePolling()
         }
     }
 
@@ -359,6 +385,7 @@ struct ContentView: View {
                         .environment(services.torrentService)
                         .environment(arrServiceManager)
                         .environment(sabnzbdServiceManager)
+                        .environment(downloadsNavigator)
                 }
             }
             .badge(unifiedActiveDownloadCount)
@@ -370,6 +397,7 @@ struct ContentView: View {
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
+                .environment(sabnzbdServiceManager)
             }
 
             Tab("Movies", systemImage: ServiceIdentity.radarr.tabSystemImage, value: RootTab.movies) {
@@ -379,6 +407,7 @@ struct ContentView: View {
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
+                .environment(sabnzbdServiceManager)
             }
 
             Tab(value: RootTab.search, role: .search) {
@@ -408,6 +437,7 @@ struct ContentView: View {
                     .environment(\.navigateToQbittorrentSettings) {
                         morePath.append(.qbittorrentSettings)
                     }
+                    .environment(downloadsNavigator)
                     .environment(\.navigateToDownloadsTab) {
                         selectedTab = .downloads
                     }
@@ -444,6 +474,8 @@ struct ContentView: View {
         #if os(iOS)
         .tabViewBottomAccessory(isEnabled: !isTabChromeHidden) {
             NotificationTabBarAccessory()
+                .environment(services.syncService)
+                .environment(downloadsNavigator)
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .overlay(alignment: .bottom) {
@@ -775,7 +807,27 @@ private struct MagnetDeepLink: Identifiable {
     let url: String
 }
 
+extension ContentView {
+    /// `trawl://downloads/issues` or `trawl://downloads?section=issues` — both
+    /// forms resolve to a `DownloadSection`. Absent or unknown means "leave the
+    /// segment alone".
+    fileprivate static func downloadsSection(from url: URL) -> DownloadSection? {
+        let pathSegment = url.path
+            .split(separator: "/")
+            .first
+            .map(String.init)
+        let querySegment = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first { $0.name.lowercased() == "section" }?
+            .value
+        guard let raw = pathSegment ?? querySegment else { return nil }
+        return DownloadSection.allCases.first { $0.rawValue.lowercased() == raw.lowercased() }
+    }
+}
+
 private struct PendingDeepLink {
     let tab: RootTab
     let morePath: [MoreDestination]
+    /// Only meaningful for `.downloads`; steers the segment bar once the tab is up.
+    var downloadsSection: DownloadSection?
 }

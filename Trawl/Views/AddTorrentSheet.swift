@@ -7,10 +7,13 @@ struct AddTorrentSheet: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
-    @Query(filter: #Predicate<ServerProfile> { $0.isActive }) private var activeServers: [ServerProfile]
+    /// Optional so the sheet still works when it's presented from a host that
+    /// doesn't inject the SABnzbd manager — it then degrades to torrent-only.
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
+    @Query private var servers: [ServerProfile]
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var viewModel: AddTorrentViewModel?
     @State private var showFilePicker = false
-    @State private var inputTab: AddTorrentInputMode = .magnet
 
     let initialMagnetURL: String?
     #if DEBUG
@@ -23,8 +26,8 @@ struct AddTorrentSheet: View {
 
     var body: some View {
         AppSheetShell(
-            title: "Add Torrent",
-            confirmTitle: "Add",
+            title: "Add Download",
+            confirmTitle: confirmTitle,
             isConfirmDisabled: !(viewModel?.canSubmit ?? false),
             onConfirm: {
                 guard let vm = viewModel else { return }
@@ -38,8 +41,10 @@ struct AddTorrentSheet: View {
             dragIndicator: .visible
         ) {
             Group {
-                if let vm = viewModel {
-                    addTorrentForm(vm: vm)
+                if !hasAnyClient {
+                    noClientsState
+                } else if let vm = viewModel {
+                    addDownloadForm(vm: vm)
                 } else {
                     ProgressView()
                 }
@@ -52,88 +57,64 @@ struct AddTorrentSheet: View {
                 guard !skipsAutomaticLoading else { return }
                 #endif
                 if viewModel == nil {
-                    let vm = AddTorrentViewModel(torrentService: torrentService, syncService: syncService)
+                    let vm = AddTorrentViewModel(
+                        torrentService: torrentService,
+                        syncService: syncService,
+                        sabnzbdManager: sabnzbdServiceManager
+                    )
+                    vm.hasQBittorrent = hasQBittorrentServer
+                    vm.hasSABnzbd = hasSABnzbdServer
                     viewModel = vm
                     await vm.loadDefaults(modelContext: modelContext)
                     if let url = initialMagnetURL {
-                        vm.magnetLink = url
+                        if vm.hasQBittorrent {
+                            vm.source = .magnet
+                            vm.magnetLink = url
+                        } else {
+                            // Without qBittorrent there's nowhere to send a magnet,
+                            // so show it on the URL source, which explains why.
+                            vm.source = .url
+                            vm.linkURL = url
+                        }
                     }
+                    // A SABnzbd-only setup has no magnet source to land on.
+                    vm.normalizeSourceForAvailableClients()
                 }
             }
         }
     }
 
     @ViewBuilder
-    private func addTorrentForm(vm: AddTorrentViewModel) -> some View {
+    private func addDownloadForm(vm: AddTorrentViewModel) -> some View {
         @Bindable var vm = vm
         Form {
-            if let server = activeServer {
-                Section {
-                    LabeledContent("Server") {
-                        VStack(alignment: .trailing, spacing: 2) {
-                            Text(server.displayName)
-                            Text(server.hostURL)
-                                .foregroundStyle(.secondary)
-                        }
-                        .font(.subheadline)
-                        .multilineTextAlignment(.trailing)
-                    }
-                } header: {
-                    Text("Destination")
-                }
-            }
+            destinationSection(vm: vm)
 
-            sourcePickerSection(vm: vm)
-
-            Section {
+            Section(footer: Text(vm.source.footerText)) {
                 inputSection(vm: vm)
             }
 
-            Section {
-                LabeledContent("Save Path") {
-                    TextField(vm.serverDefaultSavePath ?? "Server default", text: $vm.savePath)
-                        .multilineTextAlignment(.trailing)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        #endif
+            if let destination = vm.destination {
+                switch destination {
+                case .qBittorrent:
+                    qBittorrentOptionsSection(vm: vm)
+                case .sabnzbd:
+                    sabnzbdOptionsSection(vm: vm)
                 }
+            }
 
-                if !vm.recentSavePaths.isEmpty {
-                    Menu {
-                        ForEach(vm.recentSavePaths, id: \.path) { recent in
-                            Button(recent.path) {
-                                vm.savePath = recent.path
-                            }
-                        }
-                    } label: {
-                        Label("Recent Paths", systemImage: "clock.arrow.circlepath")
-                            .font(.subheadline)
-                    }
+            if let warning = vm.routingWarning {
+                Section {
+                    Label(warning, systemImage: "questionmark.circle")
+                        .foregroundStyle(.secondary)
                 }
-
-                if !vm.availableCategories.isEmpty {
-                    Picker("Category", selection: $vm.selectedCategory) {
-                        Text("None").tag("")
-                        ForEach(vm.availableCategories, id: \.self) { cat in
-                            Text(cat).tag(cat)
-                        }
-                    }
-                }
-
-                Toggle("Start Paused", isOn: $vm.startPaused)
-                Toggle("Sequential Download", isOn: $vm.sequentialDownload)
-                Toggle("First and Last Pieces First", isOn: $vm.firstLastPiecePriority)
-            } header: {
-                Text("Options")
-            } footer: {
-                Text("Leave Save Path blank to use the server default. Recent Paths lets you quickly reuse a location. Enabling first and last pieces first helps with early video previewing.")
             }
 
             if vm.isSubmitting {
                 Section {
                     HStack {
                         ProgressView()
-                        Text(submissionText)
+                        Text(submissionText(vm: vm))
                             .foregroundStyle(.secondary)
                     }
                 }
@@ -145,6 +126,9 @@ struct AddTorrentSheet: View {
                         .foregroundStyle(.red)
                 }
             }
+        }
+        .safeAreaInset(edge: .top) {
+            sourceSegmentBar(vm: vm)
         }
         .alert(item: Binding(
             get: { vm.submissionErrorAlert },
@@ -158,17 +142,9 @@ struct AddTorrentSheet: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [UTType(filenameExtension: "torrent") ?? .data]
+            allowedContentTypes: Self.importContentTypes(for: vm.source)
         ) { result in
-            if case .success(let url) = result {
-                Task {
-                    if let torrentFile = await Self.readTorrentFile(from: url) {
-                        vm.torrentFileData = torrentFile.data
-                        vm.torrentFileName = torrentFile.fileName
-                        inputTab = .file
-                    }
-                }
-            }
+            handleFileImport(result, vm: vm)
         }
         #if os(macOS)
         .formStyle(.grouped)
@@ -178,106 +154,333 @@ struct AddTorrentSheet: View {
         #endif
     }
 
-    private func magnetTextField(magnetLink: Binding<String>) -> some View {
-        #if os(iOS)
-        return TextField("magnet:?xt=urn:btih:...", text: magnetLink, axis: .vertical)
-            .keyboardType(.URL)
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .lineLimit(3...6)
-        #else
-        return TextField("magnet:?xt=urn:btih:...", text: magnetLink, axis: .vertical)
-            .autocorrectionDisabled()
-            .lineLimit(3...6)
-        #endif
-    }
+    // MARK: - Sections
 
     @ViewBuilder
-    private func sourcePickerSection(vm: AddTorrentViewModel) -> some View {
+    private func destinationSection(vm: AddTorrentViewModel) -> some View {
         @Bindable var vm = vm
-        let footer = inputTab == .magnet
-            ? "Paste a magnet link from Safari or another app."
-            : "Choose a .torrent file to upload to your server."
-        Section(footer: Text(footer)) {
-            Picker("Source", selection: $inputTab) {
-                Text("Magnet Link").tag(AddTorrentInputMode.magnet)
-                Text("Torrent File").tag(AddTorrentInputMode.file)
-            }
-            .pickerStyle(.segmented)
-            .onChange(of: inputTab) { _, newValue in
-                if newValue == .magnet {
-                    vm.torrentFileData = nil
-                    vm.torrentFileName = nil
-                } else {
-                    vm.magnetLink = ""
+        Section {
+            // Only ask where a link should go when the app genuinely can't tell
+            // and both clients could take it.
+            if vm.needsURLDestinationChoice {
+                Picker("Client", selection: $vm.preferredURLDestination) {
+                    Text(AddDownloadDestination.qBittorrent.displayName)
+                        .tag(AddDownloadDestination.qBittorrent)
+                    Text(AddDownloadDestination.sabnzbd.displayName)
+                        .tag(AddDownloadDestination.sabnzbd)
                 }
             }
+
+            if let destination = vm.destination, let server = serverSummary(for: destination) {
+                LabeledContent(destination.displayName) {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(server.name)
+                        Text(server.host)
+                            .foregroundStyle(.secondary)
+                    }
+                    .font(.subheadline)
+                    .multilineTextAlignment(.trailing)
+                }
+            }
+        } header: {
+            Text("Destination")
+        } footer: {
+            if vm.needsURLDestinationChoice {
+                Text("Trawl can't tell what this link is, so choose the client that should fetch it.")
+            }
+        }
+    }
+
+    /// Source selector. Hidden when the configured clients only allow one source,
+    /// so a SAB-only or qBittorrent-only setup doesn't get a one-item bar.
+    @ViewBuilder
+    private func sourceSegmentBar(vm: AddTorrentViewModel) -> some View {
+        if vm.availableSources.count > 1 {
+            TrawlSegmentBar(
+                "Source",
+                selection: Binding(
+                    get: { vm.source },
+                    set: { newSource in
+                        guard newSource != vm.source else { return }
+                        withAnimation {
+                            vm.source = newSource
+                            vm.error = nil
+                            vm.clearInputOtherThanCurrentSource()
+                        }
+                    }
+                ),
+                items: vm.availableSources.map(\.segmentBarItem),
+                alignment: .leading
+            )
         }
     }
 
     @ViewBuilder
     private func inputSection(vm: AddTorrentViewModel) -> some View {
         @Bindable var vm = vm
-        switch inputTab {
+        switch vm.source {
         case .magnet:
-            magnetTextField(magnetLink: $vm.magnetLink)
-        case .file:
-            if let fileName = vm.torrentFileName {
-                HStack {
-                    Image(systemName: "doc.fill")
-                        .foregroundStyle(.blue)
-                    Text(fileName)
-                        .lineLimit(1)
-                    Spacer()
-                    Button("Change") { showFilePicker = true }
-                        .font(.caption)
+            linkTextField(placeholder: "magnet:?xt=urn:btih:...", text: $vm.magnetLink)
+        case .url:
+            linkTextField(placeholder: "https://example.com/file.nzb", text: $vm.linkURL)
+        case .torrentFile:
+            filePickerRow(fileName: vm.torrentFileName, selectTitle: "Select .torrent File")
+        case .nzbFile:
+            filePickerRow(fileName: vm.nzbFileName, selectTitle: "Select .nzb File")
+        }
+    }
+
+    @ViewBuilder
+    private func qBittorrentOptionsSection(vm: AddTorrentViewModel) -> some View {
+        @Bindable var vm = vm
+        Section {
+            LabeledContent("Save Path") {
+                TextField(vm.serverDefaultSavePath ?? "Server default", text: $vm.savePath)
+                    .multilineTextAlignment(.trailing)
+                    #if os(iOS)
+                    .textInputAutocapitalization(.never)
+                    #endif
+            }
+
+            if !vm.recentSavePaths.isEmpty {
+                Menu {
+                    ForEach(vm.recentSavePaths, id: \.path) { recent in
+                        Button(recent.path) {
+                            vm.savePath = recent.path
+                        }
+                    }
+                } label: {
+                    Label("Recent Paths", systemImage: "clock.arrow.circlepath")
+                        .font(.subheadline)
+                }
+            }
+
+            if !vm.availableCategories.isEmpty {
+                Picker("Category", selection: $vm.selectedCategory) {
+                    Text("None").tag("")
+                    ForEach(vm.availableCategories, id: \.self) { cat in
+                        Text(cat).tag(cat)
+                    }
+                }
+            }
+
+            Toggle("Start Paused", isOn: $vm.startPaused)
+            Toggle("Sequential Download", isOn: $vm.sequentialDownload)
+            Toggle("First and Last Pieces First", isOn: $vm.firstLastPiecePriority)
+        } header: {
+            Text("Options")
+        } footer: {
+            Text("Leave Save Path blank to use the server default. Recent Paths lets you quickly reuse a location. Enabling first and last pieces first helps with early video previewing.")
+        }
+    }
+
+    @ViewBuilder
+    private func sabnzbdOptionsSection(vm: AddTorrentViewModel) -> some View {
+        @Bindable var vm = vm
+        Section {
+            // SABnzbd has no category-listing endpoint, so offer the categories
+            // seen on existing jobs and otherwise let the user type one.
+            if vm.sabCategories.isEmpty {
+                LabeledContent("Category") {
+                    TextField("Server default", text: $vm.sabCategory)
+                        .multilineTextAlignment(.trailing)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        #endif
                 }
             } else {
-                Button {
-                    showFilePicker = true
-                } label: {
-                    Label("Select .torrent File", systemImage: "doc.badge.plus")
+                Picker("Category", selection: $vm.sabCategory) {
+                    Text("Server default").tag("")
+                    ForEach(vm.sabCategories, id: \.self) { cat in
+                        Text(cat).tag(cat)
+                    }
                 }
+            }
+
+            Picker("Priority", selection: $vm.sabPriority) {
+                ForEach(AddDownloadPriority.allCases) { priority in
+                    Text(priority.displayName).tag(priority)
+                }
+            }
+
+            Picker("Post-Processing", selection: $vm.sabPostProcessing) {
+                ForEach(AddDownloadPostProcessing.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+
+            LabeledContent("Password") {
+                SecureField("Optional", text: $vm.sabPassword)
+                    .multilineTextAlignment(.trailing)
+            }
+        } header: {
+            Text("Options")
+        } footer: {
+            Text("Leave Category, Priority and Post-Processing on the server default to use SABnzbd's own settings. A password is only needed for encrypted archives.")
+        }
+    }
+
+    // MARK: - Rows
+
+    private func linkTextField(placeholder: String, text: Binding<String>) -> some View {
+        #if os(iOS)
+        return TextField(placeholder, text: text, axis: .vertical)
+            .keyboardType(.URL)
+            .textInputAutocapitalization(.never)
+            .autocorrectionDisabled()
+            .lineLimit(3...6)
+        #else
+        return TextField(placeholder, text: text, axis: .vertical)
+            .autocorrectionDisabled()
+            .lineLimit(3...6)
+        #endif
+    }
+
+    @ViewBuilder
+    private func filePickerRow(fileName: String?, selectTitle: String) -> some View {
+        if let fileName {
+            HStack {
+                Image(systemName: "doc.fill")
+                    .foregroundStyle(.blue)
+                Text(fileName)
+                    .lineLimit(1)
+                Spacer()
+                Button("Change") { showFilePicker = true }
+                    .font(.caption)
+            }
+        } else {
+            Button {
+                showFilePicker = true
+            } label: {
+                Label(selectTitle, systemImage: "doc.badge.plus")
             }
         }
     }
 
-    private var activeServer: ServerProfile? {
-        activeServers.first
-    }
-
-    private var submissionText: String {
-        if let server = activeServer {
-            return "Sending to \(server.displayName)…"
+    private var noClientsState: some View {
+        ContentUnavailableView {
+            Label("No Download Clients", systemImage: "arrow.down.circle")
+        } description: {
+            Text("Add a qBittorrent or SABnzbd server before adding downloads.")
         }
-        return "Adding torrent…"
+        .scrollableUnavailableState()
     }
 
-    private struct SelectedTorrentFile: Sendable {
+    // MARK: - File import
+
+    private static func importContentTypes(for source: AddDownloadSource) -> [UTType] {
+        switch source {
+        case .nzbFile:
+            // There's no system UTType for NZB, so declare one from the extension
+            // and keep XML/data as a fallback — the pick is validated by extension.
+            [UTType(filenameExtension: "nzb") ?? .xml, .xml, .data]
+        default:
+            [UTType(filenameExtension: "torrent") ?? .data]
+        }
+    }
+
+    private func handleFileImport(_ result: Result<URL, any Error>, vm: AddTorrentViewModel) {
+        switch result {
+        case .failure(let error):
+            vm.error = error.localizedDescription
+        case .success(let url):
+            let source = vm.source
+            Task {
+                guard let picked = await Self.readPickedFile(from: url) else {
+                    vm.error = "Couldn't read the selected file."
+                    return
+                }
+                if source == .nzbFile {
+                    guard Self.isNZBFileName(picked.fileName) else {
+                        vm.error = "Choose a .nzb file."
+                        return
+                    }
+                    vm.nzbFileData = picked.data
+                    vm.nzbFileName = picked.fileName
+                } else {
+                    vm.torrentFileData = picked.data
+                    vm.torrentFileName = picked.fileName
+                }
+                vm.error = nil
+            }
+        }
+    }
+
+    private static func isNZBFileName(_ fileName: String) -> Bool {
+        let lowercased = fileName.lowercased()
+        return lowercased.hasSuffix(".nzb") || lowercased.hasSuffix(".nzb.gz")
+    }
+
+    // MARK: - Client availability
+
+    private var activeServer: ServerProfile? {
+        servers.first(where: { $0.isActive }) ?? servers.first
+    }
+
+    private var activeSABnzbdProfile: SABnzbdServiceProfile? {
+        sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
+    }
+
+    private var hasQBittorrentServer: Bool {
+        !servers.isEmpty
+    }
+
+    private var hasSABnzbdServer: Bool {
+        sabnzbdServiceManager != nil && !sabnzbdProfiles.isEmpty
+    }
+
+    private var hasAnyClient: Bool {
+        hasQBittorrentServer || hasSABnzbdServer
+    }
+
+    private func serverSummary(for destination: AddDownloadDestination) -> (name: String, host: String)? {
+        switch destination {
+        case .qBittorrent:
+            guard let server = activeServer else { return nil }
+            return (server.displayName, server.hostURL)
+        case .sabnzbd:
+            guard let profile = activeSABnzbdProfile else { return nil }
+            return (profile.displayName, profile.hostURL)
+        }
+    }
+
+    // MARK: - Sheet chrome
+
+    /// Specific about what's being added, but never client-specific. `nil` hides the
+    /// confirm button entirely on the no-clients state.
+    private var confirmTitle: String? {
+        guard hasAnyClient else { return nil }
+        return viewModel?.source.confirmTitle ?? "Add"
+    }
+
+    private func submissionText(vm: AddTorrentViewModel) -> String {
+        if let destination = vm.destination, let server = serverSummary(for: destination) {
+            return "Sending to \(server.name)…"
+        }
+        return "Adding download…"
+    }
+
+    private struct SelectedFile: Sendable {
         let data: Data
         let fileName: String
     }
 
-    private nonisolated static func readTorrentFile(from url: URL) async -> SelectedTorrentFile? {
+    private nonisolated static func readPickedFile(from url: URL) async -> SelectedFile? {
         await Task.detached(priority: .userInitiated) {
             guard url.startAccessingSecurityScopedResource() else { return nil }
             defer { url.stopAccessingSecurityScopedResource() }
 
             guard let data = try? Data(contentsOf: url) else { return nil }
-            return SelectedTorrentFile(data: data, fileName: url.lastPathComponent)
+            return SelectedFile(data: data, fileName: url.lastPathComponent)
         }.value
     }
 }
 
 #if DEBUG
 extension AddTorrentSheet {
-    init(
-        previewViewModel: AddTorrentViewModel,
-        inputTab: AddTorrentInputMode = .magnet
-    ) {
+    init(previewViewModel: AddTorrentViewModel) {
         self.init(initialMagnetURL: nil)
         self._viewModel = State(initialValue: previewViewModel)
-        self._inputTab = State(initialValue: inputTab)
         self.skipsAutomaticLoading = true
     }
 }
@@ -304,16 +507,39 @@ extension AddTorrentSheet {
 
 #Preview("Torrent File") {
     PreviewHost(profiles: .qBittorrentOnly) {
-        AddTorrentSheet(
-            previewViewModel: AddTorrentViewModel(
-                previewMagnetLink: "",
-                previewTorrentFileName: "ubuntu-24.04-desktop-amd64.iso.torrent",
-                previewTorrentFileData: Data([0x64, 0x38, 0x3a]),
-                savePath: "/downloads/linux",
-                selectedCategory: "linux-isos"
-            ),
-            inputTab: .file
-        )
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            previewSource: .torrentFile,
+            previewMagnetLink: "",
+            previewTorrentFileName: "ubuntu-24.04-desktop-amd64.iso.torrent",
+            previewTorrentFileData: Data([0x64, 0x38, 0x3a]),
+            savePath: "/downloads/linux",
+            selectedCategory: "linux-isos"
+        ))
+    }
+}
+
+#Preview("NZB File") {
+    PreviewHost(profiles: .sabnzbdOnly) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            previewSource: .nzbFile,
+            previewMagnetLink: "",
+            previewNZBFileName: "ubuntu.24.04.nzb",
+            previewNZBFileData: Data([0x3c, 0x3f, 0x78]),
+            hasQBittorrent: false,
+            hasSABnzbd: true
+        ))
+    }
+}
+
+#Preview("Ambiguous URL") {
+    PreviewHost {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            previewSource: .url,
+            previewMagnetLink: "",
+            previewLinkURL: "https://indexer.example/api?t=get&id=abc123",
+            hasQBittorrent: true,
+            hasSABnzbd: true
+        ))
     }
 }
 
@@ -328,9 +554,18 @@ extension AddTorrentSheet {
         AddTorrentSheet(previewViewModel: AddTorrentViewModel(
             error: "qBittorrent rejected the magnet link because it is malformed.",
             submissionErrorAlert: ErrorAlertItem(
-                title: "Couldn't Add Torrent",
+                title: "Couldn't Add Download",
                 message: "qBittorrent rejected the magnet link because it is malformed."
             )
+        ))
+    }
+}
+
+#Preview("No Clients") {
+    PreviewHost(profiles: .empty) {
+        AddTorrentSheet(previewViewModel: AddTorrentViewModel(
+            hasQBittorrent: false,
+            hasSABnzbd: false
         ))
     }
 }

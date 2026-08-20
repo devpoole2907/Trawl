@@ -4,6 +4,9 @@ struct RadarrMovieDetailView: View {
     @Bindable var viewModel: RadarrViewModel
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
+    /// Optional: this screen is also reachable from places that do not inject the
+    /// SABnzbd manager, in which case Usenet grabs fall back to Arr's own numbers.
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Environment(\.dismiss) private var dismiss
 
     // Library mode: look up movie by ID from viewModel
@@ -742,7 +745,8 @@ struct RadarrMovieDetailView: View {
 
     private func isActiveQueueItem(_ item: ArrQueueItem) -> Bool {
         let torrent = arrDetailLinkedTorrent(for: item.downloadId, in: syncService.torrents)
-        return arrDetailIsActiveQueueItem(item, linkedTorrent: torrent)
+        let sabJob = arrDetailLinkedSABJob(for: item.downloadId, in: arrDetailSABJobs(from: sabnzbdServiceManager))
+        return arrDetailIsActiveQueueItem(item, linkedTorrent: torrent, linkedSABJob: sabJob)
     }
 
     private func handleQueueIssueAction(for item: ArrQueueItem, blocklist: Bool) async {

@@ -107,6 +107,8 @@ nonisolated enum ProwlarrIndexerProtocol: String, Codable, Sendable {
         }
     }
 
+    /// Unused today: residue of the manual release search that is deliberately not
+    /// surfaced (see `ProwlarrViewModel.searchResults`). Kept alongside it.
     var isTorrent: Bool { self == .torrent }
 
     var systemImage: String {
@@ -332,6 +334,9 @@ nonisolated struct ProwlarrSearchResult: Codable, Identifiable, Sendable {
 
     var isFreeleech: Bool { downloadVolumeFactor == 0.0 }
 
+    /// `isTorrent` / `isMagnet` are unused today: residue of the manual release search
+    /// that is deliberately not surfaced (see `ProwlarrViewModel.searchResults`). Kept
+    /// alongside it for the future manual-search screen.
     var isTorrent: Bool { `protocol` == .torrent }
 
     var isMagnet: Bool {

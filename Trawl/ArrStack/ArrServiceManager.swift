@@ -97,6 +97,27 @@ final class ArrServiceManager {
     private(set) var blocklistError: String?
     private(set) var importListExclusionsError: String?
 
+    // MARK: - Cached download queue & history
+    // Owned here rather than by DownloadsViewModel so the tab-bar accessory can see
+    // Arr download failures without standing up a second poller against Sonarr/Radarr.
+    private(set) var sonarrQueue: [ArrQueueItem] = []
+    private(set) var radarrQueue: [ArrQueueItem] = []
+    private(set) var sonarrHistory: [ArrHistoryRecord] = []
+    private(set) var radarrHistory: [ArrHistoryRecord] = []
+    private(set) var isLoadingQueue = false
+    private(set) var queueError: String?
+
+    /// Cadence while a queue-facing view is on screen. Sonarr and Radarr each return
+    /// 100 queue plus 100 history records per poll, so this sits a little slower than
+    /// SyncService (2s) and SABnzbd (4s).
+    var fastQueuePollingInterval: TimeInterval = 5.0
+    /// App-wide cadence. Only exists to keep the tab-bar accessory's failure count
+    /// honest, so it stays cheap.
+    var slowQueuePollingInterval: TimeInterval = 60.0
+    private var queuePollingTask: Task<Void, Never>?
+    /// How many views currently want the fast cadence.
+    private var fastQueuePollingRequests = 0
+
     // MARK: - Persistent ViewModels
     public private(set) var calendarViewModel: ArrCalendarViewModel!
     
@@ -945,6 +966,112 @@ final class ArrServiceManager {
         }
     }
 
+    // MARK: - Download queue cache
+
+    /// Every cached queue row tagged with the service it came from, Sonarr first.
+    var queueItemsBySource: [(item: ArrQueueItem, source: ArrServiceType)] {
+        sonarrQueue.map { (item: $0, source: ArrServiceType.sonarr) }
+            + radarrQueue.map { (item: $0, source: ArrServiceType.radarr) }
+    }
+
+    /// Refreshes the cached queue and history. Mirrors `loadBlocklist()`: the active
+    /// instance of each service, both in parallel, errors folded into one string.
+    /// No-ops while a refresh is already in flight so overlapping polls can't stack.
+    func refreshQueues() async {
+        guard !isLoadingQueue else { return }
+        guard sonarrClient != nil || radarrClient != nil else {
+            sonarrQueue = []
+            radarrQueue = []
+            sonarrHistory = []
+            radarrHistory = []
+            queueError = nil
+            return
+        }
+        isLoadingQueue = true
+        defer { isLoadingQueue = false }
+        async let s = fetchQueueSnapshot(sonarrClient, serviceName: "Sonarr")
+        async let r = fetchQueueSnapshot(radarrClient, serviceName: "Radarr")
+        let (sv, rv) = await (s, r)
+        sonarrQueue = sv.queue
+        sonarrHistory = sv.history
+        radarrQueue = rv.queue
+        radarrHistory = rv.history
+        let errors = [sv.error, rv.error].compactMap { $0 }
+        queueError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    /// Starts the one shared queue poller. Idempotent — the `nil` check is what
+    /// guarantees a single timer however many callers ask for one.
+    func startQueuePolling() {
+        guard queuePollingTask == nil else { return }
+        queuePollingTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let interval = self?.queuePollingInterval else { return }
+                try? await Task.sleep(for: .seconds(interval))
+                guard !Task.isCancelled, let self else { return }
+                await self.refreshQueues()
+            }
+        }
+    }
+
+    /// Stops the poller. The fast-cadence refcount deliberately survives: it tracks
+    /// which views are on screen, not whether the timer happens to be running, so a
+    /// backgrounded app resumes at the cadence it left with.
+    func stopQueuePolling() {
+        queuePollingTask?.cancel()
+        queuePollingTask = nil
+    }
+
+    /// Asks for the fast cadence while a queue-facing view is on screen. Refcounted
+    /// so two overlapping requesters can't leave the poller stuck fast.
+    func beginFastQueuePolling() {
+        fastQueuePollingRequests += 1
+        if fastQueuePollingRequests == 1 { restartQueuePollingIfRunning() }
+    }
+
+    func endFastQueuePolling() {
+        guard fastQueuePollingRequests > 0 else { return }
+        fastQueuePollingRequests -= 1
+        if fastQueuePollingRequests == 0 { restartQueuePollingIfRunning() }
+    }
+
+    private var queuePollingInterval: TimeInterval {
+        fastQueuePollingRequests > 0 ? fastQueuePollingInterval : slowQueuePollingInterval
+    }
+
+    /// A cadence change only lands on the next tick, and the slow tick is a minute
+    /// long — reissue the timer so opening Downloads doesn't have to wait it out.
+    /// Still exactly one timer: the old task is cancelled before the new one starts.
+    private func restartQueuePollingIfRunning() {
+        guard queuePollingTask != nil else { return }
+        queuePollingTask?.cancel()
+        queuePollingTask = nil
+        startQueuePolling()
+    }
+
+    private func fetchQueueSnapshot<C: SharedArrClient>(
+        _ client: C?,
+        serviceName: String
+    ) async -> ArrQueueSnapshot {
+        guard let client else { return .empty }
+        do {
+            async let queue = client.getQueue(page: 1, pageSize: 100)
+            async let history = client.getHistory(page: 1, pageSize: 100)
+            let (queuePage, historyPage) = try await (queue, history)
+            return ArrQueueSnapshot(
+                queue: queuePage.records ?? [],
+                history: historyPage.records ?? [],
+                error: nil
+            )
+        } catch {
+            return ArrQueueSnapshot(
+                queue: [],
+                history: [],
+                error: "\(serviceName): \(error.localizedDescription)"
+            )
+        }
+    }
+
     // MARK: - Health & Blocklist
 
     func loadHealth() async {
@@ -1571,3 +1698,12 @@ extension ArrServiceManager {
     }
 }
 #endif
+
+/// One service's slice of a queue refresh.
+private nonisolated struct ArrQueueSnapshot: Sendable {
+    let queue: [ArrQueueItem]
+    let history: [ArrHistoryRecord]
+    let error: String?
+
+    static let empty = ArrQueueSnapshot(queue: [], history: [], error: nil)
+}

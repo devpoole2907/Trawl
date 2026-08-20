@@ -781,6 +781,7 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
     let sizeleft: Double?
     let timeleft: String?           // TimeSpan format "HH:MM:SS"
     let estimatedCompletionTime: String?
+    let quality: ArrReleaseQuality?
 
     // Sonarr-specific
     let seriesId: Int?
@@ -795,7 +796,7 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
         case statusMessages, downloadId
         case protocol_ = "protocol"
         case downloadClient, outputPath, size, sizeleft, timeleft
-        case estimatedCompletionTime
+        case estimatedCompletionTime, quality
         case seriesId, episodeId, seasonNumber
         case movieId
     }
@@ -804,6 +805,12 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
     var progress: Double {
         guard let size, size > 0, let sizeleft else { return 0 }
         return max(0, min(1, (size - sizeleft) / size))
+    }
+
+    /// Arr does not always populate `quality` on queue records.
+    var qualityName: String? {
+        let name = quality?.quality?.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name?.isEmpty == false ? name : nil
     }
 
     var normalizedState: String {

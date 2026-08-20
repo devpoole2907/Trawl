@@ -61,49 +61,67 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
     var body: some View {
         let offsetsExpandedSearch = searchPlacement == .trailing
 
-        ScrollView(.horizontal) {
-            HStack(spacing: 12) {
-                if searchPlacement == .leading, searchText != nil {
-                    expandableSearchBar
-                }
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 12) {
+                    if searchPlacement == .leading, searchText != nil {
+                        expandableSearchBar
+                    }
 
-                ForEach(items) { item in
-                    itemView(item)
-                }
+                    ForEach(items) { item in
+                        itemView(item)
+                    }
 
-                if searchPlacement == .trailing, searchText != nil {
-                    expandableSearchBar
+                    if searchPlacement == .trailing, searchText != nil {
+                        expandableSearchBar
+                    }
+                }
+                .padding(.horizontal, horizontalPadding)
+                .frame(minWidth: viewSize.width, alignment: frameAlignment)
+                .visualEffect { [isSearchExpanded, viewSize, offsetsExpandedSearch] content, proxy in
+                    let rect = proxy.frame(in: .scrollView)
+                    let maxX = rect.maxX - viewSize.width
+                    let offset = offsetsExpandedSearch ? -maxX : 0
+
+                    return content
+                        .offset(x: isSearchExpanded ? offset : 0)
                 }
             }
-            .padding(.horizontal, horizontalPadding)
-            .frame(minWidth: viewSize.width, alignment: frameAlignment)
-            .visualEffect { [isSearchExpanded, viewSize, offsetsExpandedSearch] content, proxy in
-                let rect = proxy.frame(in: .scrollView)
-                let maxX = rect.maxX - viewSize.width
-                let offset = offsetsExpandedSearch ? -maxX : 0
-
-                return content
-                    .offset(x: isSearchExpanded ? offset : 0)
+            .frame(height: 50)
+            .scrollDisabled(isSearchExpanded)
+            .scrollIndicators(.hidden)
+            .scrollClipDisabled()
+            .animation(animation, value: selection)
+            .animation(animation, value: isKeyboardActive)
+            .accessibilityLabel(title)
+            .onChange(of: isKeyboardActive) { _, newValue in
+                onSearchActivated(newValue)
+                guard !newValue, isSearchExpanded, allowsSearchRefocus else { return }
+                Task { @MainActor in
+                    isKeyboardActive = true
+                }
             }
-        }
-        .frame(height: 50)
-        .scrollDisabled(isSearchExpanded)
-        .scrollIndicators(.hidden)
-        .scrollClipDisabled()
-        .animation(animation, value: selection)
-        .animation(animation, value: isKeyboardActive)
-        .accessibilityLabel(title)
-        .onChange(of: isKeyboardActive) { _, newValue in
-            onSearchActivated(newValue)
-            guard !newValue, isSearchExpanded, allowsSearchRefocus else { return }
-            Task { @MainActor in
-                isKeyboardActive = true
+            .onGeometryChange(for: CGSize.self) {
+                $0.size
+            } action: { newValue in
+                viewSize = newValue
             }
-        }
-        .onGeometryChange(for: CGSize.self) {
-            $0.size
-        } action: { newValue in
-            viewSize = newValue
+            // The bar scrolls horizontally, so a selection that sits past the trailing edge
+            // would otherwise be invisible — most likely with many items, a long title, or a
+            // large Dynamic Type size. Keep the selected item on screen.
+            .onChange(of: selection) { _, newValue in
+                guard !isSearchExpanded else { return }
+                withAnimation(animation) {
+                    proxy.scrollTo(newValue, anchor: .center)
+                }
+            }
+            .onAppear {
+                // Deferred a tick so the initial scroll happens after the bar has been laid out;
+                // unanimated, because this is the starting position rather than a change.
+                Task { @MainActor in
+                    proxy.scrollTo(selection, anchor: .center)
+                }
+            }
         }
     }
 
