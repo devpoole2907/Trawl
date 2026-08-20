@@ -801,16 +801,16 @@ private struct JellyfinAccessScheduleEditorSheet: View {
                                 Text(Self.twoDigit(hour)).tag(hour)
                             }
                         }
-                        .pickerStyle(.wheel)
+                        .timeComponentPickerStyle()
 
                         Picker("Minute", selection: $startMinute) {
                             ForEach(Self.minuteOptions, id: \.self) { minute in
                                 Text(Self.twoDigit(minute)).tag(minute)
                             }
                         }
-                        .pickerStyle(.wheel)
+                        .timeComponentPickerStyle()
                     }
-                    .frame(height: 120)
+                    .frame(height: Self.timeComponentRowHeight)
                 }
 
                 Section {
@@ -820,7 +820,7 @@ private struct JellyfinAccessScheduleEditorSheet: View {
                                 Text(Self.twoDigit(hour)).tag(hour)
                             }
                         }
-                        .pickerStyle(.wheel)
+                        .timeComponentPickerStyle()
                         .onChange(of: endHour) { _, newValue in
                             if newValue == 24 {
                                 endMinute = 0
@@ -832,10 +832,10 @@ private struct JellyfinAccessScheduleEditorSheet: View {
                                 Text(Self.twoDigit(minute)).tag(minute)
                             }
                         }
-                        .pickerStyle(.wheel)
+                        .timeComponentPickerStyle()
                         .disabled(endHour == 24)
                     }
-                    .frame(height: 120)
+                    .frame(height: Self.timeComponentRowHeight)
                 } header: {
                     Text("End")
                 } footer: {
@@ -861,6 +861,16 @@ private struct JellyfinAccessScheduleEditorSheet: View {
         )
         onSave(schedule, session.index)
         dismiss()
+    }
+
+    /// The wheel needs vertical room to show its neighbouring values; a macOS menu is a
+    /// single row and would otherwise sit in the middle of 120pt of whitespace.
+    private static var timeComponentRowHeight: CGFloat? {
+        #if os(macOS)
+        nil
+        #else
+        120
+        #endif
     }
 
     private static let minuteOptions = [0, 15, 30, 45]
@@ -1301,5 +1311,19 @@ private extension Array where Element == String {
 
     var nilIfEmpty: [String]? {
         isEmpty ? nil : self
+    }
+}
+
+/// `.wheel` is unavailable on macOS, where a menu is the native way to pick a number
+/// anyway. Keeps the hour/minute columns identical on both platforms.
+private extension View {
+    @ViewBuilder
+    func timeComponentPickerStyle() -> some View {
+        #if os(macOS)
+        pickerStyle(.menu)
+            .labelsHidden()
+        #else
+        pickerStyle(.wheel)
+        #endif
     }
 }

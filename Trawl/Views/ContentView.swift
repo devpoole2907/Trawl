@@ -604,7 +604,9 @@ struct ContentView: View {
     }
 
     private func setAsDefaultMagnetHandler() {
-        MagnetLinkHandler.setAsDefault()
+        Task { @MainActor in
+            try? await MagnetLinkHandler.setAsDefault()
+        }
     }
     #endif
 

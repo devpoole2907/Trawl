@@ -12,17 +12,20 @@ enum MagnetLinkHandler {
         return normalizedURL(defaultAppURL) == normalizedURL(Bundle.main.bundleURL)
     }
 
+    /// Async rather than completion-handler based: AppKit calls back on an arbitrary
+    /// thread, and hopping to the main actor from there meant sending a caller's
+    /// closure across isolation domains — which callers do capture view state in.
     @MainActor
-    static func setAsDefault(completion: ((Result<Bool, any Error>) -> Void)? = nil) {
-        NSWorkspace.shared.setDefaultApplication(
-            at: Bundle.main.bundleURL,
-            toOpenURLsWithScheme: scheme
-        ) { error in
-            Task { @MainActor in
+    static func setAsDefault() async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            NSWorkspace.shared.setDefaultApplication(
+                at: Bundle.main.bundleURL,
+                toOpenURLsWithScheme: scheme
+            ) { error in
                 if let error {
-                    completion?(.failure(error))
+                    continuation.resume(throwing: error)
                 } else {
-                    completion?(.success(isDefault))
+                    continuation.resume()
                 }
             }
         }

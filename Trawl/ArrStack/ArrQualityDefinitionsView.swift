@@ -480,7 +480,9 @@ private struct ArrQualityDefinitionSheet: View {
                 Spacer(minLength: 0)
             }
             .navigationTitle(draft.title ?? draft.quality?.name ?? "Quality")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -624,8 +626,14 @@ private struct WheelValuePicker: View {
                     .tag(v)
             }
         }
+        // No wheel on macOS; a menu is the native equivalent and needs no fixed height.
+        #if os(iOS)
         .pickerStyle(.wheel)
         .frame(height: 200)
+        #else
+        .pickerStyle(.menu)
+        .labelsHidden()
+        #endif
         .animation(.none, value: selectedField)
     }
 }

@@ -400,8 +400,10 @@ private struct JellyfinFetcherOrderEditor: View {
                 Text(footer)
             }
         }
-        .environment(\.editMode, .constant(.active))
         #if os(iOS)
+        // Forces the reorder handles to show without an Edit button. macOS lists are
+        // drag-reorderable natively, and editMode doesn't exist there.
+        .environment(\.editMode, .constant(.active))
         .listStyle(.insetGrouped)
         #endif
         .scrollContentBackground(.hidden)

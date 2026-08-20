@@ -23,3 +23,12 @@ var platformTopBarTrailingPlacement: ToolbarItemPlacement {
     .primaryAction
     #endif
 }
+
+/// macOS has no bottom bar; the item folds into the normal toolbar instead.
+var platformBottomBarPlacement: ToolbarItemPlacement {
+    #if os(iOS)
+    .bottomBar
+    #else
+    .automatic
+    #endif
+}

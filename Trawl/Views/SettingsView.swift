@@ -803,13 +803,11 @@ private struct MagnetLinkSettingsRow: View {
     }
 
     private func setAsDefault() {
-        MagnetLinkHandler.setAsDefault { result in
-            switch result {
-            case .failure:
-                isDefault = checkIsDefault()
-            case .success(let updated):
-                isDefault = updated
-            }
+        Task { @MainActor in
+            // Re-read either way: on failure to reflect that nothing changed, on
+            // success because the system is the source of truth for the handler.
+            try? await MagnetLinkHandler.setAsDefault()
+            isDefault = checkIsDefault()
         }
     }
 }

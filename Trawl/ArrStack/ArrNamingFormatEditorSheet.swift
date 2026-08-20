@@ -49,7 +49,9 @@ struct ArrNamingFormatEditorSheet: View {
                         .lineLimit(2...6)
                         .font(.body.monospaced())
                         .autocorrectionDisabled()
+                        #if os(iOS)
                         .textInputAutocapitalization(.never)
+                        #endif
 
                     Button {
                         localFormat = ""

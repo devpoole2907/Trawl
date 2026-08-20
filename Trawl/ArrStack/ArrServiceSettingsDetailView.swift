@@ -759,7 +759,7 @@ struct ArrWebhookNotificationConfigView: View {
         #endif
         .navigationTitle("\(serviceType.displayName) Notifications")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 if isSaving {
                     ProgressView()
                 } else {

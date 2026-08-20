@@ -455,7 +455,7 @@ struct ArrCalendarView: View {
                 }
             }
             if isConnected {
-                ToolbarItem(placement: .bottomBar) {
+                ToolbarItem(placement: platformBottomBarPlacement) {
                     Button("Subscribe") {
                         showiCalAlert = true
                     }

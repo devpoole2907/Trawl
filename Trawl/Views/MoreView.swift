@@ -3763,7 +3763,7 @@ private struct SeerrWebhookNotificationConfigView: View {
         #endif
         .navigationTitle("Seerr Notifications")
         .toolbar {
-            ToolbarItemGroup(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 if isSaving {
                     ProgressView()
                 } else {
