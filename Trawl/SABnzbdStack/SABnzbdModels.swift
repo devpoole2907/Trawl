@@ -127,6 +127,12 @@ nonisolated struct SABnzbdQueue: Decodable, Sendable {
     let start: Int
     let limit: Int
     let version: String?
+    /// Speed cap as a percentage of line speed; `0` means unlimited.
+    let speedLimit: Int
+    /// Speed cap as an absolute rate in KB/s; `0` means none is set. SABnzbd
+    /// reports this separately from `speedLimit` when the limit was set with
+    /// a K/M suffix rather than a bare percentage.
+    let speedLimitAbsolute: Double
     let slots: [SABnzbdQueueSlot]
 
     var jobs: [SABnzbdJob] { slots.map(SABnzbdJob.init(queueSlot:)) }
@@ -148,6 +154,8 @@ nonisolated struct SABnzbdQueue: Decodable, Sendable {
         start = container.lossyInt(forKey: .start) ?? 0
         limit = container.lossyInt(forKey: .limit) ?? 0
         version = container.lossyString(forKey: .version)
+        speedLimit = container.lossyInt(forKey: .speedLimit) ?? 0
+        speedLimitAbsolute = container.lossyDouble(forKey: .speedLimitAbsolute) ?? 0
         slots = try container.decodeIfPresent([SABnzbdQueueSlot].self, forKey: .slots) ?? []
     }
 
@@ -161,6 +169,8 @@ nonisolated struct SABnzbdQueue: Decodable, Sendable {
         case timeLeft = "timeleft"
         case noOfSlots = "noofslots"
         case noOfSlotsTotal = "noofslots_total"
+        case speedLimit = "speedlimit"
+        case speedLimitAbsolute = "speedlimit_abs"
     }
 }
 

@@ -63,6 +63,22 @@ actor SABnzbdAPIClient {
         return Self.withoutServerDefault(envelope.scripts)
     }
 
+    /// `value` is either a bare percentage of line speed (`"50"`, `"0"` for
+    /// unlimited) or an absolute rate with a K/M suffix (`"1500K"`).
+    func setSpeedLimit(_ value: String) async throws {
+        try await performCommand(mode: "config", name: "speedlimit", extra: [URLQueryItem(name: "value", value: value)])
+    }
+
+    /// Pauses the whole queue for `minutes`; SABnzbd resumes it automatically.
+    func setPauseDuration(minutes: Int) async throws {
+        try await performCommand(mode: "config", name: "set_pause", extra: [URLQueryItem(name: "value", value: String(minutes))])
+    }
+
+    /// Clears every terminal (completed/failed) history entry.
+    func clearHistory() async throws {
+        try await performCommand(mode: "history", name: "delete", extra: [URLQueryItem(name: "value", value: "all")])
+    }
+
     /// Drops SABnzbd's own "server default" sentinels; Trawl renders that choice itself.
     private nonisolated static func withoutServerDefault(_ values: [String]) -> [String] {
         values
@@ -136,6 +152,27 @@ actor SABnzbdAPIClient {
         var extra = try jobIDsQuery(ids)
         if deleteFiles { extra.append(URLQueryItem(name: "del_files", value: "1")) }
         try await performCommand(mode: "queue", name: "delete", extra: extra)
+    }
+
+    /// A queued job's priority and category are otherwise fixed at add time;
+    /// these let the user change them after the fact.
+    func setPriority(id: String, priority: Int) async throws {
+        try await performQueueCommand(name: "priority", id: id, value2: String(priority))
+    }
+
+    func setCategory(id: String, category: String) async throws {
+        try await performQueueCommand(name: "change_cat", id: id, value2: category)
+    }
+
+    /// Moves a queued job to `position` (0-based) within the queue.
+    func reorderJob(id: String, toPosition position: Int) async throws {
+        try await performCommand(
+            mode: "switch",
+            extra: [
+                URLQueryItem(name: "value", value: try validatedID(id)),
+                URLQueryItem(name: "value2", value: String(position))
+            ]
+        )
     }
 
     // MARK: - History actions
@@ -237,6 +274,19 @@ actor SABnzbdAPIClient {
 
     private func performQueueCommand(name: String, ids: [String]) async throws {
         try await performCommand(mode: "queue", name: name, extra: jobIDsQuery(ids))
+    }
+
+    /// Same as `performQueueCommand(name:ids:)`, but for the `value`/`value2`
+    /// shaped queue commands (priority, category, reorder) that act on one job.
+    private func performQueueCommand(name: String, id: String, value2: String) async throws {
+        try await performCommand(
+            mode: "queue",
+            name: name,
+            extra: [
+                URLQueryItem(name: "value", value: try validatedID(id)),
+                URLQueryItem(name: "value2", value: value2)
+            ]
+        )
     }
 
     private func queryItems(

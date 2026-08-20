@@ -8,6 +8,14 @@ struct SABnzbdSettingsView: View {
     @State private var showingConnectionSheet = false
     @State private var showRemoveConfirmation = false
 
+    @State private var speedLimitPercent = 0
+    @State private var didLoadSpeedLimit = false
+    @State private var isUpdatingSpeedLimit = false
+    @State private var pauseDurationMinutes = 15
+    @State private var isPausingForDuration = false
+    @State private var showClearHistoryConfirmation = false
+    @State private var settingsErrorAlert: ErrorAlertItem?
+
     private var profile: SABnzbdServiceProfile? {
         profiles.first(where: { $0.isEnabled }) ?? profiles.first
     }
@@ -77,6 +85,71 @@ struct SABnzbdSettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("Current Limit") {
+                        Text(speedLimitDisplayValue)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Picker("Speed Limit", selection: $speedLimitPercent) {
+                        ForEach(speedLimitOptions(including: speedLimitPercent), id: \.self) { percent in
+                            Text(speedLimitOptionLabel(percent)).tag(percent)
+                        }
+                    }
+                    .disabled(isUpdatingSpeedLimit)
+                    .onChange(of: speedLimitPercent) {
+                        guard didLoadSpeedLimit, !isUpdatingSpeedLimit else { return }
+                        Task { await updateSpeedLimit(speedLimitPercent) }
+                    }
+                } header: {
+                    Text("Speed Limit")
+                } footer: {
+                    Text("Caps SABnzbd's download speed as a percentage of line speed. Unlimited removes the cap.")
+                }
+
+                Section {
+                    Picker("Duration", selection: $pauseDurationMinutes) {
+                        ForEach([5, 15, 30, 60, 120, 180], id: \.self) { minutes in
+                            Text(pauseDurationLabel(minutes)).tag(minutes)
+                        }
+                    }
+                    .disabled(isPausingForDuration)
+
+                    Button {
+                        Task { await pauseForDuration() }
+                    } label: {
+                        if isPausingForDuration {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Text("Pause Queue for \(pauseDurationLabel(pauseDurationMinutes))")
+                        }
+                    }
+                    .disabled(isPausingForDuration)
+                } header: {
+                    Text("Pause Queue")
+                } footer: {
+                    Text("Pauses all downloading for the chosen duration, then resumes automatically.")
+                }
+
+                Section {
+                    Button("Clear History", systemImage: "trash", role: .destructive) {
+                        showClearHistoryConfirmation = true
+                    }
+                    .confirmationDialog(
+                        "Clear SABnzbd History?",
+                        isPresented: $showClearHistoryConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Clear History", role: .destructive) {
+                            Task { await clearHistory() }
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("This removes every completed and failed job from SABnzbd's history. Downloaded files aren't affected.")
+                    }
+                }
+
+                Section {
                     Button("Reconnect", systemImage: "arrow.clockwise") {
                         Task { await serviceManager.connectService(profile) }
                     }
@@ -109,6 +182,13 @@ struct SABnzbdSettingsView: View {
         .task(id: syncKey) {
             await serviceManager.initialize(from: profiles)
         }
+        .task(id: serviceManager.isConnected) {
+            guard serviceManager.isConnected else { return }
+            speedLimitPercent = serviceManager.queue?.speedLimit ?? 0
+            // Defer setting didLoadSpeedLimit to avoid triggering onChange handlers.
+            await Task.yield()
+            didLoadSpeedLimit = true
+        }
         .refreshable {
             if let profile {
                 await serviceManager.connectService(profile)
@@ -119,6 +199,7 @@ struct SABnzbdSettingsView: View {
                 Task { await serviceManager.initialize(from: profiles) }
             }
         }
+        .errorAlert(item: $settingsErrorAlert)
     }
 
     private var syncKey: String {
@@ -126,6 +207,73 @@ struct SABnzbdSettingsView: View {
             .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
             .sorted()
             .joined(separator: "|")
+    }
+
+    private var speedLimitDisplayValue: String {
+        let current = serviceManager.queue?.speedLimit ?? speedLimitPercent
+        return speedLimitOptionLabel(current)
+    }
+
+    private func speedLimitOptions(including current: Int) -> [Int] {
+        var options = [0, 25, 50, 75, 100]
+        if !options.contains(current) {
+            options.append(current)
+            options.sort()
+        }
+        return options
+    }
+
+    private func speedLimitOptionLabel(_ percent: Int) -> String {
+        percent <= 0 ? "Unlimited" : "\(percent)%"
+    }
+
+    private func updateSpeedLimit(_ percent: Int) async {
+        guard !isUpdatingSpeedLimit else { return }
+        isUpdatingSpeedLimit = true
+        defer { isUpdatingSpeedLimit = false }
+
+        do {
+            try await serviceManager.setSpeedLimit(String(percent))
+            settingsErrorAlert = nil
+        } catch {
+            speedLimitPercent = serviceManager.queue?.speedLimit ?? speedLimitPercent
+            settingsErrorAlert = ErrorAlertItem(
+                title: "Couldn't Set Speed Limit",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func pauseDurationLabel(_ minutes: Int) -> String {
+        minutes >= 60 ? "\(minutes / 60)h\(minutes % 60 == 0 ? "" : " \(minutes % 60)m")" : "\(minutes)m"
+    }
+
+    private func pauseForDuration() async {
+        guard !isPausingForDuration else { return }
+        isPausingForDuration = true
+        defer { isPausingForDuration = false }
+
+        do {
+            try await serviceManager.pauseForDuration(minutes: pauseDurationMinutes)
+            settingsErrorAlert = nil
+        } catch {
+            settingsErrorAlert = ErrorAlertItem(
+                title: "Couldn't Pause Queue",
+                message: error.localizedDescription
+            )
+        }
+    }
+
+    private func clearHistory() async {
+        do {
+            try await serviceManager.clearHistory()
+            settingsErrorAlert = nil
+        } catch {
+            settingsErrorAlert = ErrorAlertItem(
+                title: "Couldn't Clear History",
+                message: error.localizedDescription
+            )
+        }
     }
 
     private func removeProfile(_ profile: SABnzbdServiceProfile) async {

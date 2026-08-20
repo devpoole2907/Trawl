@@ -184,6 +184,21 @@ final class SABnzbdServiceManager {
         await refresh()
     }
 
+    /// `priority.apiValue` is `nil` for `.default`, which only makes sense at
+    /// add time (it means "use the category default"). Callers should exclude
+    /// it from post-add priority pickers.
+    func setPriority(job: SABnzbdJob, priority: AddDownloadPriority) async throws {
+        guard let client = activeClient, let value = priority.apiValue else { return }
+        try await client.setPriority(id: job.id, priority: value)
+        await refresh()
+    }
+
+    func setCategory(job: SABnzbdJob, category: String) async throws {
+        guard let client = activeClient else { return }
+        try await client.setCategory(id: job.id, category: category)
+        await refresh()
+    }
+
     // MARK: - Server configuration
 
     /// Fetched on demand by the add sheet rather than polled — categories and scripts
@@ -193,6 +208,28 @@ final class SABnzbdServiceManager {
         async let categories = try? client.getCategories()
         async let scripts = try? client.getScripts()
         return (await categories ?? [], await scripts ?? [])
+    }
+
+    /// `value` is either a bare percentage of line speed (`"50"`, `"0"` for
+    /// unlimited) or an absolute rate with a K/M suffix (`"1500K"`).
+    func setSpeedLimit(_ value: String) async throws {
+        guard let client = activeClient else { return }
+        try await client.setSpeedLimit(value)
+        await refresh()
+    }
+
+    /// Pauses the whole queue for `minutes`; SABnzbd resumes it automatically.
+    func pauseForDuration(minutes: Int) async throws {
+        guard let client = activeClient else { return }
+        try await client.setPauseDuration(minutes: minutes)
+        await refresh()
+    }
+
+    /// Clears every terminal (completed/failed) history entry.
+    func clearHistory() async throws {
+        guard let client = activeClient else { return }
+        try await client.clearHistory()
+        await refresh()
     }
 
     // MARK: - Add NZB

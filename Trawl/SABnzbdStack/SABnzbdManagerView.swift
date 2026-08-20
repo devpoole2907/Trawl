@@ -8,6 +8,9 @@ struct SABnzbdManagerView: View {
     @State private var searchText = ""
     @State private var isSearchExpanded = false
     @State private var jobPendingDeletion: SABnzbdJob?
+    /// Fetched once for the priority/category context menu rather than polled —
+    /// same reasoning as `categoriesAndScripts()` itself.
+    @State private var availableCategories: [String] = []
 
     var body: some View {
         content
@@ -55,6 +58,10 @@ struct SABnzbdManagerView: View {
             .task {
                 await serviceManager.refresh()
                 serviceManager.startPolling()
+            }
+            .task {
+                let (categories, _) = await serviceManager.categoriesAndScripts()
+                availableCategories = categories
             }
             .onDisappear {
                 serviceManager.stopPolling()
@@ -220,6 +227,24 @@ struct SABnzbdManagerView: View {
             } else {
                 Button("Pause", systemImage: "pause.fill") {
                     perform { try await serviceManager.pause(job: job) }
+                }
+            }
+
+            Menu("Priority", systemImage: "arrow.up.arrow.down") {
+                ForEach(AddDownloadPriority.allCases.filter { $0 != .default }) { priority in
+                    Button(priority.displayName) {
+                        perform { try await serviceManager.setPriority(job: job, priority: priority) }
+                    }
+                }
+            }
+
+            if !availableCategories.isEmpty {
+                Menu("Category", systemImage: "folder") {
+                    ForEach(availableCategories, id: \.self) { category in
+                        Button(category) {
+                            perform { try await serviceManager.setCategory(job: job, category: category) }
+                        }
+                    }
                 }
             }
         }
