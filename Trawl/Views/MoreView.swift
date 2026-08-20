@@ -469,7 +469,8 @@ struct MoreView: View {
                         }
 
                         NavigationLink(value: MoreDestination.torrentManagement) {
-                            moreRow(.torrentManagement)
+                            moreRow(.torrentManagement,
+                                    subtitle: hasQBittorrentServer ? nil : "Not set up")
                         }
 
                         NavigationLink(value: MoreDestination.integrations) {
@@ -1633,12 +1634,12 @@ private enum MoreSearchIndex {
             .init(
                 id: "torrents",
                 destination: .torrentManagement,
-                icon: "arrow.down.circle.fill",
+                icon: ServiceIdentity.qbittorrent.systemImage,
                 color: MoreDestinationAccent.torrentManagement.color,
-                title: "Torrents",
+                title: ServiceIdentity.qbittorrent.displayName,
                 subtitle: "Transfer stats, categories, and RSS feeds",
-                category: "Torrents",
-                keywords: ["qbittorrent", "downloads", "rss", "speed"]
+                category: ServiceIdentity.qbittorrent.displayName,
+                keywords: ["qbittorrent", "torrents", "client", "downloads", "rss", "speed"]
             ),
             .init(
                 id: "transfer-stats",
@@ -1647,7 +1648,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.transferStats.color,
                 title: "Transfer Stats",
                 subtitle: "Speed, session totals, and network info",
-                category: "Torrents",
+                category: ServiceIdentity.qbittorrent.displayName,
                 keywords: ["qbittorrent", "speed", "upload", "download", "session", "network"]
             ),
             .init(
@@ -1657,7 +1658,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.categoriesAndTags.color,
                 title: "Categories & Tags",
                 subtitle: "Torrent organization labels",
-                category: "Torrents",
+                category: ServiceIdentity.qbittorrent.displayName,
                 keywords: ["qbittorrent", "category", "tag", "labels", "organization"]
             ),
             .init(
@@ -1667,7 +1668,7 @@ private enum MoreSearchIndex {
                 color: .cyan,
                 title: "RSS Feeds",
                 subtitle: "Feeds and automatic download rules",
-                category: "Torrents",
+                category: ServiceIdentity.qbittorrent.displayName,
                 keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"]
             ),
             .init(
@@ -2326,7 +2327,7 @@ private struct DownloadClientsManagementView: View {
                 NavigationLink(value: MoreDestination.downloadClients(service: .sonarr)) {
                     IntegrationRelationshipRow(
                         source: .sonarr,
-                        targets: [.qbittorrent],
+                        targets: [.qbittorrent, .sabnzbd],
                         title: "Sonarr Download Clients",
                         subtitle: "Torrent and Usenet clients for series grabs",
                         status: statusModel.sonarrStatus
@@ -2336,7 +2337,7 @@ private struct DownloadClientsManagementView: View {
                 NavigationLink(value: MoreDestination.downloadClients(service: .radarr)) {
                     IntegrationRelationshipRow(
                         source: .radarr,
-                        targets: [.qbittorrent],
+                        targets: [.qbittorrent, .sabnzbd],
                         title: "Radarr Download Clients",
                         subtitle: "Torrent and Usenet clients for movie grabs",
                         status: statusModel.radarrStatus
@@ -2978,6 +2979,12 @@ private struct LanguageProfileTipBanner: View {
 }
 #endif
 
+/// qBittorrent's own management tools — transfer stats, categories/tags, and RSS.
+/// Deliberately **client-shaped, not protocol-shaped**: none of the three children
+/// have a SABnzbd analogue (SAB exposes no stats, category, or RSS endpoints), so an
+/// umbrella "Downloads"/"Torrents" hub would read as empty-by-accident to a SAB-only
+/// user. Naming the hub after the client makes the empty state predictable from the
+/// row title, and matches how Jellyfin and Seerr each own a top-level hub.
 private struct TorrentManagementView: View {
     let hasQBittorrent: Bool
 
@@ -3017,13 +3024,15 @@ private struct TorrentManagementView: View {
                         subtitle: "Feeds and automatic download rules"
                     )
                 }
+            } footer: {
+                Text("These tools are provided by qBittorrent. SABnzbd exposes no equivalent endpoints, so it gets its own hub if and when it does.")
             }
             }
         }
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Torrents")
+        .navigationTitle(ServiceIdentity.qbittorrent.displayName)
         .moreDestinationBackground(.torrentManagement)
     }
 }

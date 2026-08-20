@@ -43,19 +43,7 @@ struct SpeedEntry: TimelineEntry {
         )
     }
 
-    static let empty = unavailable("No Server")
-}
-
-/// Maps a fetch error to a short, honest widget message.
-private func speedUnavailableMessage(for error: Error) -> String {
-    if let widgetError = error as? WidgetDataFetcher.WidgetError {
-        switch widgetError {
-        case .noServerConfigured: return "No Server"
-        case .missingCredentials: return "Sign-In Needed"
-        default: return "Unreachable"
-        }
-    }
-    return "Unreachable"
+    static let empty = unavailable("No Client")
 }
 
 // MARK: - Provider
@@ -84,20 +72,19 @@ struct SpeedProvider: AppIntentTimelineProvider {
     }
 
     private func fetchEntry(serverID: String?) async -> SpeedEntry {
-        do {
-            let (info, name) = try await WidgetDataFetcher.fetchTransferInfo(serverID: serverID)
-            return SpeedEntry(
-                date: .now,
-                dlSpeed: info.dlInfoSpeed,
-                upSpeed: info.upInfoSpeed,
-                dlLimit: info.dlRateLimit,
-                upLimit: info.upRateLimit,
-                serverName: name,
-                isActive: info.dlInfoSpeed > 0 || info.upInfoSpeed > 0
-            )
-        } catch {
-            return .unavailable(speedUnavailableMessage(for: error))
+        let snapshot = await WidgetDataFetcher.fetchDownloadSpeed(serverID: serverID)
+        guard snapshot.errorMessage == nil else {
+            return .unavailable(snapshot.errorMessage ?? "Unavailable")
         }
+        return SpeedEntry(
+            date: .now,
+            dlSpeed: snapshot.dlSpeed,
+            upSpeed: snapshot.upSpeed,
+            dlLimit: snapshot.dlLimit,
+            upLimit: snapshot.upLimit,
+            serverName: snapshot.serverName,
+            isActive: snapshot.isActive
+        )
     }
 }
 
@@ -137,7 +124,7 @@ struct SpeedWidgetEntryView: View {
         .padding(16)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(URL(string: "trawl://torrents"))
+        .widgetURL(URL(string: "trawl://downloads"))
     }
 
     // MARK: Small
@@ -179,7 +166,7 @@ struct SpeedWidgetEntryView: View {
         }
         .padding(16)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(URL(string: "trawl://torrents"))
+        .widgetURL(URL(string: "trawl://downloads"))
     }
 
     // MARK: Medium
@@ -235,7 +222,7 @@ struct SpeedWidgetEntryView: View {
         }
         .padding(16)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(URL(string: "trawl://torrents"))
+        .widgetURL(URL(string: "trawl://downloads"))
     }
 
     // MARK: Helpers
@@ -282,7 +269,7 @@ struct SpeedWidget: Widget {
             SpeedWidgetEntryView(entry: entry)
         }
         .configurationDisplayName("Download Speed")
-        .description("Current global download and upload speeds from qBittorrent.")
+        .description("Current global download and upload speeds across qBittorrent and SABnzbd.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
     }
@@ -294,7 +281,7 @@ struct SpeedWidget: Widget {
     SpeedWidget()
 } timeline: {
     SpeedEntry.placeholder
-    SpeedEntry.unavailable("No Server")
+    SpeedEntry.unavailable("No Client")
 }
 
 #Preview(as: .systemMedium) {

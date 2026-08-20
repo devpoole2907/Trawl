@@ -247,7 +247,12 @@ private struct IndexerConfigView: View {
     @State private var fieldValues: [String: AnyCodableValue]
     @State private var selectedTagIDs: Set<Int> = []
     @State private var selectedAppProfileID: Int
+    @State private var redirect: Bool
     @State private var isAdding = false
+
+    /// Prowlarr rejects a usenet indexer created with redirect off, so the toggle is
+    /// forced on and locked rather than letting the user build a config that 400s.
+    private var redirectIsRequired: Bool { schema.protocol == .usenet }
 
     init(schema: ProwlarrIndexer, viewModel: ProwlarrViewModel, onAdded: @escaping () -> Void) {
         self.schema = schema
@@ -255,6 +260,7 @@ private struct IndexerConfigView: View {
         self.onAdded = onAdded
         _indexerName = State(initialValue: schema.name ?? "")
         _selectedAppProfileID = State(initialValue: schema.appProfileId ?? 0)
+        _redirect = State(initialValue: schema.redirect ?? (schema.protocol == .usenet))
         var defaults: [String: AnyCodableValue] = [:]
         for field in schema.fields ?? [] {
             if let name = field.name, let value = field.value {
@@ -288,12 +294,15 @@ private struct IndexerConfigView: View {
 
     var body: some View {
         Form {
-            Section("General") {
+            Section {
                 LabeledContent("Name") {
                     TextField("Name", text: $indexerName)
                         .multilineTextAlignment(.trailing)
                 }
                 Stepper("Priority: \(priority)", value: $priority, in: 1...50)
+
+                Toggle("Redirect", isOn: redirectIsRequired ? .constant(true) : $redirect)
+                    .disabled(redirectIsRequired)
 
                 if viewModel.appProfiles.count > 1 {
                     Picker("Sync Profile", selection: $selectedAppProfileID) {
@@ -302,6 +311,14 @@ private struct IndexerConfigView: View {
                         }
                     }
                 }
+            } header: {
+                Text("General")
+            } footer: {
+                Text(
+                    redirectIsRequired
+                        ? "Grabs are passed straight to the indexer rather than proxied through Prowlarr. Usenet indexers require this, so it can't be turned off."
+                        : "Redirect passes grabs straight to the indexer instead of proxying them through Prowlarr."
+                )
             }
 
             if !infoFields.isEmpty {
@@ -513,6 +530,7 @@ private struct IndexerConfigView: View {
             supportsRss: nil,
             supportsSearch: nil,
             protocol: schema.protocol,
+            redirect: redirectIsRequired ? true : redirect,
             fields: updatedFields
         )
 

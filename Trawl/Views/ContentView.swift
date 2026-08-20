@@ -39,6 +39,9 @@ struct ContentView: View {
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
+    @State private var nzbDeepLink: NZBDeepLink?
+    @State private var nzbStatusMessage: String?
+    @State private var isSendingNZB = false
     @State private var showArrSetup = false
     @State private var setupTarget: SetupTarget?
     @State private var didEvaluateWelcomeState = false
@@ -194,6 +197,14 @@ struct ContentView: View {
         }
         #endif
         .onOpenURL { url in
+            // NZBs arrive as a file the system hands us ("Open in Trawl" from Files
+            // or Safari's download tray), or as an http(s) link to a .nzb. Neither
+            // has a scheme of its own, so they're matched before the switch.
+            if let nzb = NZBDeepLink(openedURL: url) ?? NZBDeepLink(trawlURL: url) {
+                nzbDeepLink = nzb
+                return
+            }
+
             switch url.scheme?.lowercased() {
             case "magnet":
                 if appServices != nil {
@@ -505,6 +516,72 @@ struct ContentView: View {
                 .environment(services.syncService)
                 .environment(services.torrentService)
         }
+        .alert(
+            hasSABnzbdServer ? "Send to SABnzbd?" : "SABnzbd Not Set Up",
+            isPresented: Binding(get: { nzbDeepLink != nil }, set: { if !$0 { nzbDeepLink = nil } }),
+            presenting: nzbDeepLink
+        ) { link in
+            if hasSABnzbdServer {
+                Button("Add") { send(link) }
+                Button("Cancel", role: .cancel) { }
+            } else {
+                Button("OK", role: .cancel) { }
+            }
+        } message: { link in
+            if hasSABnzbdServer {
+                Text(link.displayName)
+            } else {
+                Text("Add a SABnzbd server in More → Integrations before adding an NZB.")
+            }
+        }
+        .alert(
+            "NZB",
+            isPresented: Binding(get: { nzbStatusMessage != nil }, set: { if !$0 { nzbStatusMessage = nil } }),
+            presenting: nzbStatusMessage
+        ) { _ in
+            Button("OK", role: .cancel) { }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    // MARK: - NZB deep links
+
+    private var hasSABnzbdServer: Bool { !sabnzbdProfiles.isEmpty }
+
+    /// Hands an incoming NZB straight to SABnzbd. There's no torrent-style staging
+    /// sheet for Usenet deep links — SABnzbd's own defaults cover category and
+    /// priority, so a confirm-and-send is the whole flow.
+    private func send(_ link: NZBDeepLink) {
+        guard !isSendingNZB else { return }
+        isSendingNZB = true
+
+        Task {
+            defer { isSendingNZB = false }
+
+            if !sabnzbdServiceManager.isConnected {
+                await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
+            }
+
+            guard sabnzbdServiceManager.isConnected else {
+                nzbStatusMessage = sabnzbdServiceManager.connectionError
+                    ?? "Couldn't reach SABnzbd. Check the server in More → Integrations."
+                return
+            }
+
+            do {
+                switch link.payload {
+                case .url(let url):
+                    try await sabnzbdServiceManager.addURL(url)
+                case .file(let data, let name):
+                    try await sabnzbdServiceManager.addNZB(data: data, filename: name)
+                }
+                nzbStatusMessage = "Sent \(link.displayName) to SABnzbd."
+                selectedTab = .downloads
+            } catch {
+                nzbStatusMessage = error.localizedDescription
+            }
+        }
     }
 
 
@@ -805,6 +882,63 @@ extension ContentView {
 private struct MagnetDeepLink: Identifiable {
     let id = UUID()
     let url: String
+}
+
+/// An NZB arriving from outside the app. There is no `nzb:` URL scheme worth
+/// registering — nothing on iOS emits one — so the two shapes that actually
+/// reach us are a `file:` URL (Files / Safari downloads / "Open in Trawl", via
+/// the NZB document type declared in `TrawlApp-Info.plist`) and an http(s) link
+/// whose path ends in `.nzb`. `trawl://add-nzb?url=…` is accepted too, for
+/// Shortcuts.
+private struct NZBDeepLink {
+    enum Payload {
+        case url(URL)
+        case file(data: Data, name: String)
+    }
+
+    let payload: Payload
+    let displayName: String
+
+    init?(openedURL url: URL) {
+        if url.isFileURL {
+            guard Self.isNZBFileName(url.lastPathComponent) else { return nil }
+            let accessed = url.startAccessingSecurityScopedResource()
+            defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+            guard let data = try? Data(contentsOf: url), !data.isEmpty else { return nil }
+            self.payload = .file(data: data, name: url.lastPathComponent)
+            self.displayName = url.lastPathComponent
+            return
+        }
+
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+            return nil
+        }
+        guard Self.isNZBFileName(url.lastPathComponent) else { return nil }
+        self.payload = .url(url)
+        self.displayName = url.lastPathComponent
+    }
+
+    init?(trawlURL url: URL) {
+        guard url.scheme?.lowercased() == "trawl", url.host?.lowercased() == "add-nzb" else {
+            return nil
+        }
+        guard
+            let raw = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+                .queryItems?
+                .first(where: { $0.name.lowercased() == "url" })?
+                .value,
+            let target = URL(string: raw)
+        else { return nil }
+
+        self.payload = .url(target)
+        self.displayName = target.lastPathComponent.isEmpty ? raw : target.lastPathComponent
+    }
+
+    /// Mirrors `AddTorrentSheet.isNZBFileName` — SABnzbd also serves gzipped NZBs.
+    private static func isNZBFileName(_ fileName: String) -> Bool {
+        let lowercased = fileName.lowercased()
+        return lowercased.hasSuffix(".nzb") || lowercased.hasSuffix(".nzb.gz")
+    }
 }
 
 extension ContentView {

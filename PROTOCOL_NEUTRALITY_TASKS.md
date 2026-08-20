@@ -36,20 +36,25 @@ Sizes are S / M / L. Paths are relative to `Trawl/`.
 
 These are the ones where a Usenet-only user hits a wall.
 
-- [ ] **P0.1 — Cannot add SABnzbd as a Sonarr/Radarr download client** · M
+- [x] **P0.1 — Cannot add SABnzbd as a Sonarr/Radarr download client** · M
   `ArrStack/ArrAddDownloadClientSheet.swift:67,94,104,254`
   Hardcoded to qBittorrent: `implementation ?? "QBittorrent"`, title "Add qBittorrent",
   schema lookup `first { $0.implementation == "QBittorrent" }`, error "qBittorrent is not available".
   `ArrDownloadClientListView.swift:182-184` already sections Torrent/Usenet/Other and can
   enable/disable/edit an existing SAB client — so the fix is contained to the sheet:
   generalise schema selection and the profile picker.
-  *Blocks the core Usenet setup path. Everything else in P0 is downstream of this.*
+  **Done 2026-08-20.** The sheet was never schema-driven — it hardcoded host/port/urlBase/
+  username/password/useSsl, which is why SABnzbd (apiKey, no password) could never have worked.
+  Now renders fields from the selected schema, with an implementation picker grouped by protocol.
 
-- [ ] **P0.2 — No NZB ingestion from outside the app** · M
+- [x] **P0.2 — No NZB ingestion from outside the app** · M
   `Share/ShareViewController.swift:27-68` handles magnet / `.torrent` / magnet-as-text only.
   `Views/ContentView.swift:193-232` handles `magnet:` and `trawl://` only.
   Getting an NZB in from Safari or Files is impossible; magnets work fine.
-  *Asymmetric on the most common entry gesture.*
+  **Done 2026-08-20.** Share extension accepts .nzb files and http(s) links ending in .nzb;
+  UTType `org.newzbin.nzb` declared as an *imported* type conforming to `public.xml`. The NZB
+  branch is tested before .torrent, because that one falls back to `.data` and would otherwise
+  swallow an NZB. No `nzb:` scheme registered — nothing on iOS emits one.
 
 - [x] **P0.3 — More → Integrations → Download Clients is qBittorrent-only** · S
   `Views/MoreView.swift:2112, 2295-2343` (`targets: [.qbittorrent]` on both rows),
@@ -60,24 +65,21 @@ These are the ones where a Usenet-only user hits a wall.
   **`targets: [.qbittorrent]` was deliberately left alone:** `IntegrationRelationshipRow.serviceFlow`
   (`MoreView.swift:2806-2828`) renders it as a literal source→target icon flow, so adding `.sabnzbd`
   would draw an icon promising a path `ArrAddDownloadClientSheet` still hardcodes to qBittorrent.
-  **Once P0.1 lands, add `.sabnzbd` to both rows — it's a one-line follow-up.**
+  **Follow-up landed 2026-08-20:** both rows now declare `targets: [.qbittorrent, .sabnzbd]`.
 
 ---
 
 ## P1 — Structural
 
-- [ ] **P1.1 — Two different screens both called "Download Clients"** · M
-  `Views/MoreView.swift:2343` (Arr's clients — cannot add SAB) vs
-  `DownloadsStack/DownloadClientManagementView.swift:87` (Trawl's own clients — *can* add SAB, `:64-76`).
-  No cross-link. The one that works is buried in the Downloads tab.
-  *Users will find the wrong one. Needs a naming and routing decision, not just a rename.*
-
-- [ ] **P1.2 — "Torrents" hub is protocol-shaped and permanently empty for SAB-only users** · M
+- [x] **P1.2 — "Torrents" hub is protocol-shaped and permanently empty for SAB-only users** · M
   `Views/MoreView.swift:2971-3016` — `navigationTitle("Torrents")` at `:3016`,
   gated on `hasQBittorrent` at `:2972`; children are Transfer Stats / Categories & Tags / RSS.
   Search index mirrors it at `:1634-1673` (category "Torrents", keywords `["qbittorrent", …]`).
   None of the three children have a SAB analogue, so this needs re-shaping, not renaming.
-  *A SABnzbd-only user sees a top-level row that leads to "qBittorrent Not Set Up".*
+  **Done 2026-08-20.** Hub is now client-shaped, not protocol-shaped: titled with qBittorrent's
+  display name, with a "Not set up" subtitle on the More row when it isn't configured. Search
+  index no longer carries `category: "Torrents"`. A SAB section can be added when SAB grows
+  equivalents — it has none of transfer-stats / categories / RSS today.
 
 - [x] **P1.3 — Prowlarr manual release search — DEFERRED BY DESIGN, do not delete** · decided 2026-08-20
   `ArrStack/ProwlarrViewModel.swift:359` (`performSearch()`), `:401` (`clearSearch()`), `:55` (`searchResults`) — zero call sites.
@@ -98,24 +100,43 @@ These are the ones where a Usenet-only user hits a wall.
   deliberate, not an oversight. Do not add multi-instance scaffolding for SABnzbd anywhere,
   and do not "fix" the `profiles.first` call as if it were a bug.
 
-- [ ] **P1.6 — No protocol filter anywhere** · M
-  `Views/SearchView.swift:960-980` (`SearchScope` = library/arr; `SearchResultFilter` = all/series/movies),
-  `SonarrSeriesSearchViews.swift`, `RadarrMovieSearchViews.swift`,
-  `DownloadsStack/DownloadSection.swift:3-9`.
-  `ArrRelease.protocolName` is shown as a chip (`ArrReleaseActionContent.swift:107,408`) but is never
-  filterable or sortable. `ArrQueueItem.protocol_` likewise (`:504`).
-  Also: **"Seeding" is a torrent-only concept shown unconditionally**, including to SAB-only users.
+- [x] **P1.6c — protocol facet in Downloads — WON'T DO** · decided 2026-08-20
+  Protocol is metadata, not navigation. The row chip is the right place to show it.
 
-- [ ] **P1.7 — No SABnzbd job detail view** · M
+- [ ] **P1.6a — "Seeding" segment shows for Usenet-only users** · S
+  `DownloadsStack/DownloadSection.swift:3-9`. Usenet has no seeding, so a SABnzbd-only user
+  has a segment that can never contain anything. Hide it when no torrent client is configured.
+
+- [ ] **P1.6b — Split the indexer selection menu by protocol** · M
+  The menu listing all indexers becomes a two-level menu:
+  **Torrents** → All indexers · None · each torrent indexer;
+  **Usenet** → All indexers · None · each usenet indexer.
+  *Supersedes the vague "add a protocol filter to release search" framing.*
+
+- [x] **P1.6-redirect — Prowlarr rejected every Usenet indexer** · fixed 2026-08-20
+  Adding a Usenet indexer failed with `server error (400): Redirect must be enabled for usenet
+  indexers`. Prowlarr's own UI has a Redirect checkbox; Trawl never modelled the field at all —
+  `redirect` appeared nowhere in the codebase, so it was never sent and defaulted to false.
+  Added `ProwlarrIndexer.redirect` (`ArrStack/ProwlarrModels.swift`) plus a Redirect toggle in
+  `ProwlarrAddIndexerSheet`, forced on and locked for Usenet with an explanatory footer, so the
+  400 can't be constructed rather than merely being reported.
+
+- [x] **P1.7 — No SABnzbd job detail view** · M
   `SABnzbdStack/SABnzbdManagerView.swift` has no `NavigationLink`; compare `Views/TorrentDetailView.swift`.
   Tapping a torrent opens a rich detail screen; tapping an NZB job does nothing.
-  *Currently worked around with an inline panel in the Arr detail views.*
+  **Done 2026-08-20.** `SABnzbdJobDetailView` takes a `jobID` so it stays live off the poller
+  rather than freezing on the value passed in. Linked from the SAB manager, the Downloads
+  `.sab` rows, and the Arr detail panel.
 
-- [ ] **P1.8 — No SABnzbd widget coverage** · L
+- [x] **P1.8 — No SABnzbd widget coverage** · L
   `TrawlWidgets/ActiveTorrentsWidget/ActiveTorrentsWidget.swift:210-211` ("Active Torrents" / "Active qBittorrent downloads"),
   `SpeedWidget/SpeedWidget.swift:284-285` ("from qBittorrent"),
   `Shared/WidgetDataFetcher.swift:446-472` (builds only a `QBittorrentAPIClient`).
-  *User-facing strings, and making them neutral needs a SAB fetch path in the widget target.*
+  **Done 2026-08-20.** Three entries removed from the TrawlWidgets `membershipExceptions` block
+  (SAB API client, its error type, its models). SAB profiles and keys already reach the widget
+  via the shared SwiftData schema + keychain, so no app-side change was needed. New 12s
+  `withWidgetTimeout` so one unreachable client can't stall a timeline entry — there was no
+  timeout before, just URLSession's 60s default.
 
 - [x] **P1.9 — `DownloadsView.initialSection` is init-only, blocking two features** · S
   `DownloadsStack/DownloadsView.swift:17-19` — never called with an argument.
@@ -123,7 +144,6 @@ These are the ones where a Usenet-only user hits a wall.
   `trawl://downloads` deep-linking to a segment (the handoff spec asked for the latter).
   Needs observable state rather than an `.id()` re-init, which would wipe the tab's nav stack.
 
-- [ ] **P1.10 — No App Intents for either download client** · M
   `ArrStack/AppIntents/` covers Arr + Prowlarr only. Neither qBittorrent nor SABnzbd is in Siri/Shortcuts.
   *Symmetric, so a coverage gap rather than a parity gap — but the intents layer is the natural
   home for reusable action implementations, which the accessory's fan-out verbs also want.*
@@ -200,7 +220,6 @@ These are the ones where a Usenet-only user hits a wall.
   `Views/TorrentListView.swift:65,78,88,513,553-574`, `Views/QBittorrentCategoriesAndTagsView.swift:99,139,193,222`,
   `Views/MoreView.swift:1659`.
   **Mostly correct as-is** — these sit under qBittorrent-scoped screens where "torrent" is the
-  right word. Only revisit if P1.1 / P1.2 restructure moves them.
 
 ---
 
@@ -240,9 +259,7 @@ endpoint (`ViewModels/AddTorrentViewModel.swift:315-322` — deliberate, documen
 ## Suggested order
 
 1. **P0.1** — unblocks the Usenet setup path; everything else in P0 is downstream
-2. **P0.3** then **P1.1** — settle what "Download Clients" means before adding more to it
 3. **P0.2** — NZB in from Safari/Files
-4. **P1.2** — reshape the Torrents hub once P1.1 has decided the structure
 5. ~~small independent fixes~~ — done 2026-08-20 (P0.3, P1.4, P1.9, P2.1, P2.2, P2.3, P2.5, P3.1, P3.3)
 6. **P1.6** — protocol filter, and decide what "Seeding" means for a Usenet-only user
 

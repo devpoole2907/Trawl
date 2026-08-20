@@ -495,3 +495,158 @@ private nonisolated extension KeyedDecodingContainer {
 private nonisolated extension String {
     var nilIfEmpty: String? { isEmpty ? nil : self }
 }
+
+#if DEBUG
+// MARK: - Preview fixtures
+
+nonisolated extension SABnzbdQueue {
+    /// Decoded from a trimmed-down copy of a real SABnzbd `mode=queue` payload so
+    /// the previews exercise the same lossy decoding path the app uses.
+    static var preview: SABnzbdQueue {
+        let json = """
+        {
+          "status": "Downloading",
+          "paused": false,
+          "paused_all": false,
+          "speed": "8.4 M",
+          "kbpersec": 8600.0,
+          "size": "12.4 GB",
+          "sizeleft": "3.1 GB",
+          "mb": 12697.6,
+          "mbleft": 3174.4,
+          "timeleft": "0:06:12",
+          "noofslots": 2,
+          "noofslots_total": 2,
+          "start": 0,
+          "limit": 200,
+          "version": "4.3.2",
+          "slots": [
+            {
+              "nzo_id": "SABnzbd_nzo_preview1",
+              "filename": "Blade.Runner.2049.2017.2160p.UHD.BluRay.x265-TERMINAL",
+              "status": "Downloading",
+              "index": 0,
+              "priority": "High",
+              "cat": "movies",
+              "script": "None",
+              "time_added": 1755600000,
+              "timeleft": "0:06:12",
+              "percentage": "75",
+              "mb": 12697.6,
+              "mbleft": 3174.4,
+              "mbmissing": 0.0,
+              "size": "12.4 GB",
+              "sizeleft": "3.1 GB",
+              "labels": [],
+              "direct_unpack": "12",
+              "unpackopts": "3"
+            },
+            {
+              "nzo_id": "SABnzbd_nzo_preview2",
+              "filename": "Severance.S02E07.1080p.WEB.h264-GROUP",
+              "status": "Paused",
+              "index": 1,
+              "priority": "Normal",
+              "cat": "tv",
+              "script": "None",
+              "time_added": 1755603000,
+              "timeleft": "0:00:00",
+              "percentage": "12",
+              "mb": 4096.0,
+              "mbleft": 3604.0,
+              "mbmissing": 0.0,
+              "size": "4.0 GB",
+              "sizeleft": "3.5 GB",
+              "labels": ["TOO SLOW"],
+              "unpackopts": "3"
+            }
+          ]
+        }
+        """
+        return decodePreview(json)
+    }
+}
+
+nonisolated extension SABnzbdHistory {
+    static var preview: SABnzbdHistory {
+        let json = """
+        {
+          "noofslots": 2,
+          "ppslots": 0,
+          "day_size": "42.1 GB",
+          "week_size": "180.6 GB",
+          "month_size": "702.3 GB",
+          "total_size": "8.1 TB",
+          "last_history_update": 1755610000,
+          "version": "4.3.2",
+          "slots": [
+            {
+              "nzo_id": "SABnzbd_nzo_history1",
+              "name": "Dune.Part.Two.2024.2160p.WEB-DL-GROUP",
+              "nzb_name": "Dune.Part.Two.2024.2160p.WEB-DL-GROUP.nzb",
+              "status": "Completed",
+              "cat": "movies",
+              "size": "18.9 GB",
+              "bytes": 20293386240,
+              "downloaded": 20293386240,
+              "time_added": 1755500000,
+              "completed": 1755506400,
+              "download_time": 5400,
+              "postproc_time": 320,
+              "fail_message": "",
+              "action_line": "",
+              "script_line": "",
+              "storage": "/data/complete/movies/Dune Part Two (2024)",
+              "path": "/data/complete/movies/Dune Part Two (2024)",
+              "loaded": false,
+              "retry": false,
+              "archive": false,
+              "pp": "D",
+              "stage_log": [
+                { "name": "Download", "actions": ["Downloaded in 1 hour 30 minutes at an average of 3.7 MB/s"] },
+                { "name": "Unpack", "actions": ["[Dune.Part.Two] Unpacked 1 files/folders in 4 seconds"] }
+              ]
+            },
+            {
+              "nzo_id": "SABnzbd_nzo_history2",
+              "name": "The.Bear.S03E04.1080p.WEB.h264-GROUP",
+              "status": "Failed",
+              "cat": "tv",
+              "size": "2.4 GB",
+              "bytes": 2576980377,
+              "downloaded": 1288490188,
+              "time_added": 1755400000,
+              "completed": 1755401500,
+              "download_time": 900,
+              "postproc_time": 0,
+              "fail_message": "Unpacking failed, archive is damaged (CRC error)",
+              "storage": "",
+              "loaded": false,
+              "retry": true,
+              "archive": false,
+              "pp": "D",
+              "stage_log": [
+                { "name": "Repair", "actions": ["Repair failed, not enough repair blocks (needed 512)"] }
+              ]
+            }
+          ]
+        }
+        """
+        return decodePreview(json)
+    }
+}
+
+private nonisolated func decodePreview<T: Decodable>(_ json: String) -> T {
+    // Force-unwrapped on purpose: these literals ship only in DEBUG previews, and
+    // a decode failure there is a fixture bug that should surface immediately.
+    // swiftlint:disable:next force_try
+    try! JSONDecoder().decode(T.self, from: Data(json.utf8))
+}
+
+nonisolated extension SABnzbdJob {
+    static var previewDownloading: SABnzbdJob { SABnzbdQueue.preview.jobs[0] }
+    static var previewPaused: SABnzbdJob { SABnzbdQueue.preview.jobs[1] }
+    static var previewCompleted: SABnzbdJob { SABnzbdHistory.preview.jobs[0] }
+    static var previewFailed: SABnzbdJob { SABnzbdHistory.preview.jobs[1] }
+}
+#endif

@@ -8,6 +8,15 @@ final class ShareViewController: UIViewController {
     private var magnetURL: String?
     private var torrentFileData: Data?
     private var torrentFileName: String?
+    private var nzbURL: String?
+    private var nzbFileData: Data?
+    private var nzbFileName: String?
+
+    /// There is no system UTType for NZB, so the app declares `org.newzbin.nzb`
+    /// in both Info.plists. Hosts that never saw the declaration hand the file
+    /// over as plain XML instead, hence the fallback — the filename is what
+    /// actually decides, matching `AddTorrentSheet`.
+    nonisolated private static var nzbType: UTType { UTType("org.newzbin.nzb") ?? UTType(filenameExtension: "nzb") ?? .xml }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -28,7 +37,27 @@ final class ShareViewController: UIViewController {
                 // Don't treat arbitrary shared web URLs as torrents.
                 if provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
                     provider.loadItem(forTypeIdentifier: UTType.url.identifier) { [weak self] item, _ in
-                        guard let url = item as? URL, url.scheme?.lowercased() == "magnet" else {
+                        guard let url = item as? URL else {
+                            Task { @MainActor [weak self] in self?.close() }
+                            return
+                        }
+
+                        // A shared http(s) link ending in .nzb is the realistic way an
+                        // NZB URL reaches an app — indexers publish those, and no iOS
+                        // app emits an `nzb:` scheme, so none is registered.
+                        if Self.isNZBFileName(url.lastPathComponent),
+                           let scheme = url.scheme?.lowercased(),
+                           scheme == "http" || scheme == "https" {
+                            let link = url.absoluteString
+                            Task { @MainActor [weak self] in
+                                guard let self else { return }
+                                self.nzbURL = link
+                                self.presentShareUI()
+                            }
+                            return
+                        }
+
+                        guard url.scheme?.lowercased() == "magnet" else {
                             Task { @MainActor [weak self] in self?.close() }
                             return
                         }
@@ -42,6 +71,24 @@ final class ShareViewController: UIViewController {
                     return
                 }
 
+                // Check for .nzb files. Tested before .torrent because that branch
+                // falls back to `.data`, which would otherwise swallow an NZB.
+                if provider.hasItemConformingToTypeIdentifier(Self.nzbType.identifier) {
+                    provider.loadItem(forTypeIdentifier: Self.nzbType.identifier) { [weak self] item, _ in
+                        guard let url = item as? URL else { return }
+                        Task { [weak self] in
+                            guard let self else { return }
+                            guard let payload = await Self.readSharedFile(from: url),
+                                  Self.isNZBFileName(payload.name) else {
+                                await self.clearSharedFileAndClose()
+                                return
+                            }
+                            await self.presentNZBFile(payload)
+                        }
+                    }
+                    return
+                }
+
                 // Check for .torrent files
                 let torrentType = UTType(filenameExtension: "torrent") ?? .data
                 if provider.hasItemConformingToTypeIdentifier(torrentType.identifier) {
@@ -49,11 +96,17 @@ final class ShareViewController: UIViewController {
                         guard let url = item as? URL else { return }
                         Task { [weak self] in
                             guard let self else { return }
-                            guard let payload = await Self.readTorrentFile(from: url) else {
+                            guard let payload = await Self.readSharedFile(from: url) else {
                                 await self.clearSharedFileAndClose()
                                 return
                             }
-                            await self.presentTorrentFile(payload)
+                            // Some hosts describe an NZB only as generic data, which the
+                            // `?? .data` fallback above matches. The name settles it.
+                            if Self.isNZBFileName(payload.name) {
+                                await self.presentNZBFile(payload)
+                            } else {
+                                await self.presentTorrentFile(payload)
+                            }
                         }
                     }
                     return
@@ -98,6 +151,9 @@ final class ShareViewController: UIViewController {
             magnetURL: magnetURL,
             torrentFileData: torrentFileData,
             torrentFileName: torrentFileName,
+            nzbURL: nzbURL,
+            nzbFileData: nzbFileData,
+            nzbFileName: nzbFileName,
             onComplete: { [weak self] in self?.close() },
             onCancel: { [weak self] in self?.close() }
         )
@@ -128,13 +184,27 @@ final class ShareViewController: UIViewController {
         presentShareUI()
     }
 
+    private func presentNZBFile(_ payload: SharedTorrentFile) {
+        nzbFileData = payload.data
+        nzbFileName = payload.name
+        presentShareUI()
+    }
+
     private func clearSharedFileAndClose() {
         torrentFileData = nil
         torrentFileName = nil
+        nzbFileData = nil
+        nzbFileName = nil
         close()
     }
 
-    nonisolated private static func readTorrentFile(from url: URL) async -> SharedTorrentFile? {
+    /// Mirrors `AddTorrentSheet.isNZBFileName` — SABnzbd also serves gzipped NZBs.
+    nonisolated private static func isNZBFileName(_ fileName: String) -> Bool {
+        let lowercased = fileName.lowercased()
+        return lowercased.hasSuffix(".nzb") || lowercased.hasSuffix(".nzb.gz")
+    }
+
+    nonisolated private static func readSharedFile(from url: URL) async -> SharedTorrentFile? {
         await Task.detached(priority: .userInitiated) {
             guard url.startAccessingSecurityScopedResource() else {
                 return nil

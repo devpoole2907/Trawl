@@ -346,8 +346,6 @@ struct ArrDetailQueueItemRow: View {
                 }
                 .buttonStyle(.plain)
             } else if let job = sabJob {
-                // SABnzbd has no per-job screen to push, so the live detail is
-                // shown inline instead of behind a link.
                 ArrDetailSABJobPanel(job: job)
             } else if let outputPath = item.outputPath, !outputPath.isEmpty {
                 LabeledContent("Destination") {
@@ -399,11 +397,33 @@ struct ArrDetailQueueItemRow: View {
 
 // MARK: - SABnzbd job panel
 
-/// Inline stand-in for `TorrentDetailView` on Usenet-backed queue items.
+/// Live SABnzbd status for a Usenet-backed queue item. The inline summary is
+/// kept — it is the at-a-glance parity for the torrent card's speed line — and
+/// the whole panel now also pushes `SABnzbdJobDetailView`, so Usenet grabs get
+/// the same "there is more behind this" affordance torrents have. The link is
+/// only offered when the SABnzbd manager is actually in the environment, since
+/// movie/series detail is also reachable from screens that do not inject it.
 struct ArrDetailSABJobPanel: View {
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     let job: SABnzbdJob
 
     var body: some View {
+        if let sabnzbdServiceManager {
+            NavigationLink {
+                SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
+                    .environment(sabnzbdServiceManager)
+            } label: {
+                panel(showsChevron: true)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        } else {
+            panel(showsChevron: false)
+        }
+    }
+
+    @ViewBuilder
+    private func panel(showsChevron: Bool) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
                 Image(systemName: job.normalizedStatus.systemImage)
@@ -421,6 +441,11 @@ struct ArrDetailSABJobPanel: View {
                     Label(timeRemaining, systemImage: "clock")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+                if showsChevron {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
                 }
             }
 

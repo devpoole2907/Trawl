@@ -272,7 +272,15 @@ struct DownloadsView: View {
             HistoryRow(item: historyItem)
 
         case .sab(let job):
-            sabRow(for: job)
+            // Mirrors the `.torrent` case: the NavigationLink owns the row, and
+            // the context menu / swipe actions hang off the link so they keep
+            // working alongside the push.
+            NavigationLink {
+                SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
+                    .environment(sabnzbdServiceManager)
+            } label: {
+                sabRow(for: job)
+            }
                 .contextMenu { sabActions(for: job) }
                 .swipeActions(edge: .leading, allowsFullSwipe: true) {
                     if job.source == .queue {

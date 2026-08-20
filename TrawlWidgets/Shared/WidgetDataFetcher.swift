@@ -45,6 +45,13 @@ enum WidgetDataFetcher {
         let serviceType: ArrServiceType
     }
 
+    struct SABnzbdProfileSnapshot: Sendable {
+        let displayName: String
+        let hostURL: String
+        let allowsUntrustedTLS: Bool
+        let apiKeyKeychainKey: String
+    }
+
     struct SeerrProfileSnapshot: Sendable {
         let displayName: String
         let profileID: UUID
@@ -77,7 +84,7 @@ enum WidgetDataFetcher {
         let errorMessage: String?
     }
 
-    struct WidgetActiveTorrentSnapshot: Sendable {
+    struct WidgetActiveDownloadSnapshot: Sendable {
         let name: String
         let progress: Double
         let dlspeed: Int64
@@ -85,11 +92,23 @@ enum WidgetDataFetcher {
         let state: String
     }
 
-    struct WidgetActiveTorrentsSnapshot: Sendable {
+    struct WidgetActiveDownloadsSnapshot: Sendable {
         let activeCount: Int
-        let topTorrent: WidgetActiveTorrentSnapshot?
+        let topTorrent: WidgetActiveDownloadSnapshot?
         let serverName: String
         let errorMessage: String?
+    }
+
+    struct WidgetDownloadSpeedSnapshot: Sendable {
+        let dlSpeed: Int64
+        let upSpeed: Int64
+        /// Aggregate rate caps. Only qBittorrent reports these; 0 means unlimited.
+        let dlLimit: Int64
+        let upLimit: Int64
+        let serverName: String
+        let errorMessage: String?
+
+        var isActive: Bool { dlSpeed > 0 || upSpeed > 0 }
     }
 
     enum WidgetLibraryHealthSeverity: Int, Sendable {
@@ -145,45 +164,242 @@ enum WidgetDataFetcher {
         return try ModelContainer(for: schema, configurations: [config])
     }
 
-    // MARK: - Speed (qBittorrent)
+    // MARK: - Downloads (qBittorrent + SABnzbd)
 
-    /// Fetches global transfer info from the specified server (or the active/first server).
-    static func fetchTransferInfo(serverID: String? = nil) async throws -> (info: TransferInfo, serverName: String) {
-        let snapshot = try await fetchServerSnapshot(serverID: serverID)
-        let client = try await makeQBittorrentClient(from: snapshot)
-        return (try await client.getTransferInfo(), snapshot.displayName)
-    }
+    /// Combined global transfer rates across every configured download client.
+    /// Never throws: an unreachable client simply contributes nothing, so one
+    /// slow server cannot take the whole timeline entry down with it.
+    static func fetchDownloadSpeed(serverID: String? = nil) async -> WidgetDownloadSpeedSnapshot {
+        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
+        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
 
-    static func fetchActiveTorrents(serverID: String? = nil) async throws -> WidgetActiveTorrentsSnapshot {
-        let snapshot = try await fetchServerSnapshot(serverID: serverID)
-        let client = try await makeQBittorrentClient(from: snapshot)
-        let torrents = try await client.getTorrentSummaries()
-        let active = torrents
-            .filter(isActiveTorrent)
-            .sorted { lhs, rhs in
-                let lhsSpeed = lhs.dlspeed ?? 0, rhsSpeed = rhs.dlspeed ?? 0
-                if lhsSpeed != rhsSpeed { return lhsSpeed > rhsSpeed }
-                let lhsProgress = lhs.progress ?? 0, rhsProgress = rhs.progress ?? 0
-                if lhsProgress != rhsProgress { return lhsProgress > rhsProgress }
-                return (lhs.name ?? "").localizedCaseInsensitiveCompare(rhs.name ?? "") == .orderedAscending
-            }
-
-        let top = active.first.map { torrent in
-            WidgetActiveTorrentSnapshot(
-                name: torrent.name ?? "Unknown",
-                progress: max(0, min(1, torrent.progress ?? 0)),
-                dlspeed: torrent.dlspeed ?? 0,
-                etaText: widgetETAText(for: torrent.eta ?? 0),
-                state: (torrent.state ?? .unknown).displayName
+        guard qbSnapshot != nil || !sabProfiles.isEmpty else {
+            return WidgetDownloadSpeedSnapshot(
+                dlSpeed: 0, upSpeed: 0, dlLimit: 0, upLimit: 0,
+                serverName: "No Client",
+                errorMessage: "No Client"
             )
         }
 
-        return WidgetActiveTorrentsSnapshot(
-            activeCount: active.count,
-            topTorrent: top,
-            serverName: snapshot.displayName,
+        async let qbResult = fetchQBittorrentTransferInfo(qbSnapshot)
+        async let sabQueues = fetchSABnzbdQueues(sabProfiles)
+
+        let qb = await qbResult
+        let sab = await sabQueues
+
+        var names: [String] = []
+        if let qb { names.append(qb.name) }
+        names.append(contentsOf: sab.map(\.profile.displayName))
+
+        guard !names.isEmpty else {
+            return WidgetDownloadSpeedSnapshot(
+                dlSpeed: 0, upSpeed: 0, dlLimit: 0, upLimit: 0,
+                serverName: "Unreachable",
+                errorMessage: "Unreachable"
+            )
+        }
+
+        return WidgetDownloadSpeedSnapshot(
+            dlSpeed: (qb?.info.dlInfoSpeed ?? 0)
+                + sab.reduce(0) { $0 + Int64($1.queue.kilobytesPerSecond * 1024) },
+            upSpeed: qb?.info.upInfoSpeed ?? 0,
+            dlLimit: qb?.info.dlRateLimit ?? 0,
+            upLimit: qb?.info.upRateLimit ?? 0,
+            serverName: clientLabel(names),
             errorMessage: nil
         )
+    }
+
+    /// Active downloads across every configured client, ranked by download speed.
+    static func fetchActiveDownloads(serverID: String? = nil) async -> WidgetActiveDownloadsSnapshot {
+        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
+        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+
+        guard qbSnapshot != nil || !sabProfiles.isEmpty else {
+            return WidgetActiveDownloadsSnapshot(
+                activeCount: 0, topTorrent: nil,
+                serverName: "No Client",
+                errorMessage: "No Client"
+            )
+        }
+
+        async let qbResult = fetchQBittorrentActiveDownloads(qbSnapshot)
+        async let sabQueues = fetchSABnzbdQueues(sabProfiles)
+
+        let qb = await qbResult
+        let sab = await sabQueues
+
+        var names: [String] = []
+        if let qb { names.append(qb.name) }
+        names.append(contentsOf: sab.map(\.profile.displayName))
+
+        guard !names.isEmpty else {
+            return WidgetActiveDownloadsSnapshot(
+                activeCount: 0, topTorrent: nil,
+                serverName: "Unreachable",
+                errorMessage: "Unreachable"
+            )
+        }
+
+        let sabItems = sab.flatMap { activeDownloads(in: $0.queue) }
+        let active = ((qb?.items ?? []) + sabItems).sorted { lhs, rhs in
+            if lhs.dlspeed != rhs.dlspeed { return lhs.dlspeed > rhs.dlspeed }
+            if lhs.progress != rhs.progress { return lhs.progress > rhs.progress }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+
+        return WidgetActiveDownloadsSnapshot(
+            activeCount: active.count,
+            topTorrent: active.first,
+            serverName: clientLabel(names),
+            errorMessage: nil
+        )
+    }
+
+    // MARK: - qBittorrent helpers
+
+    private static func fetchQBittorrentTransferInfo(
+        _ snapshot: ServerSnapshot?
+    ) async -> (info: TransferInfo, name: String)? {
+        guard let snapshot else { return nil }
+        return await withWidgetTimeout {
+            let client = try await makeQBittorrentClient(from: snapshot)
+            return (try await client.getTransferInfo(), snapshot.displayName)
+        }
+    }
+
+    private static func fetchQBittorrentActiveDownloads(
+        _ snapshot: ServerSnapshot?
+    ) async -> (items: [WidgetActiveDownloadSnapshot], name: String)? {
+        guard let snapshot else { return nil }
+        return await withWidgetTimeout {
+            let client = try await makeQBittorrentClient(from: snapshot)
+            let torrents = try await client.getTorrentSummaries()
+            // `isActiveTorrent` and `widgetETAText` are main-actor isolated.
+            let items = await MainActor.run {
+                torrents.filter(isActiveTorrent).map { torrent in
+                    WidgetActiveDownloadSnapshot(
+                        name: torrent.name ?? "Unknown",
+                        progress: max(0, min(1, torrent.progress ?? 0)),
+                        dlspeed: torrent.dlspeed ?? 0,
+                        etaText: widgetETAText(for: torrent.eta ?? 0),
+                        state: (torrent.state ?? .unknown).displayName
+                    )
+                }
+            }
+            return (items, snapshot.displayName)
+        }
+    }
+
+    // MARK: - SABnzbd helpers
+
+    /// Queues from every reachable SABnzbd profile. Unreachable ones drop out.
+    private static func fetchSABnzbdQueues(
+        _ profiles: [SABnzbdProfileSnapshot]
+    ) async -> [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)] {
+        guard !profiles.isEmpty else { return [] }
+
+        return await withTaskGroup(
+            of: (profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)?.self
+        ) { group in
+            for profile in profiles {
+                group.addTask {
+                    await withWidgetTimeout {
+                        let client = try await makeSABnzbdClient(from: profile)
+                        return (profile, try await client.getQueue(limit: 100))
+                    }
+                }
+            }
+
+            var results: [(profile: SABnzbdProfileSnapshot, queue: SABnzbdQueue)] = []
+            for await result in group {
+                if let result { results.append(result) }
+            }
+            return results
+        }
+    }
+
+    /// SABnzbd reports one global rate rather than per-job speeds, so the
+    /// currently downloading job is credited with it and the rest show zero.
+    private static func activeDownloads(in queue: SABnzbdQueue) -> [WidgetActiveDownloadSnapshot] {
+        let queueSpeed = Int64(queue.kilobytesPerSecond * 1024)
+        var speedClaimed = false
+
+        return queue.slots.compactMap { slot in
+            let status = slot.normalizedStatus
+            guard status.isActive else { return nil }
+
+            var speed: Int64 = 0
+            if status == .downloading, !speedClaimed {
+                speed = queueSpeed
+                speedClaimed = true
+            }
+
+            return WidgetActiveDownloadSnapshot(
+                name: slot.filename,
+                progress: slot.progress,
+                dlspeed: speed,
+                etaText: slot.timeLeft.isEmpty ? nil : slot.timeLeft,
+                state: slot.status
+            )
+        }
+    }
+
+    private static func fetchSABnzbdProfiles() async throws -> [SABnzbdProfileSnapshot] {
+        let container = try makeModelContainer()
+
+        return try await MainActor.run {
+            let context = ModelContext(container)
+            let all = try context.fetch(FetchDescriptor<SABnzbdServiceProfile>())
+
+            return all
+                .filter(\.isEnabled)
+                .map {
+                    SABnzbdProfileSnapshot(
+                        displayName: $0.displayName,
+                        hostURL: $0.hostURL,
+                        allowsUntrustedTLS: $0.allowsUntrustedTLS,
+                        apiKeyKeychainKey: $0.apiKeyKeychainKey
+                    )
+                }
+                .sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+        }
+    }
+
+    private static func makeSABnzbdClient(from profile: SABnzbdProfileSnapshot) async throws -> SABnzbdAPIClient {
+        let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey) ?? ""
+        guard !apiKey.isEmpty else { throw WidgetError.missingCredentials }
+
+        return SABnzbdAPIClient(
+            baseURL: profile.hostURL,
+            apiKey: apiKey,
+            allowsUntrustedTLS: profile.allowsUntrustedTLS
+        )
+    }
+
+    // MARK: - Multi-client helpers
+
+    private static func clientLabel(_ names: [String]) -> String {
+        names.count == 1 ? names[0] : "\(names.count) Clients"
+    }
+
+    /// Races `operation` against a deadline so a stalled server cannot hold up
+    /// the timeline entry. Returns `nil` on timeout or failure.
+    private static func withWidgetTimeout<T: Sendable>(
+        seconds: TimeInterval = 12,
+        operation: @escaping @Sendable () async throws -> T
+    ) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { try? await operation() }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(seconds))
+                return nil
+            }
+
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
 
     // MARK: - Seerr

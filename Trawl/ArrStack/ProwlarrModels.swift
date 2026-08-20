@@ -17,6 +17,10 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable, ArrAPIIdent
     let supportsRss: Bool?
     let supportsSearch: Bool?
     let `protocol`: ProwlarrIndexerProtocol?
+    /// Pass the grab straight to the indexer instead of proxying it through Prowlarr.
+    /// Prowlarr *requires* this for usenet indexers and rejects a create without it
+    /// ("Redirect must be enabled for usenet indexers").
+    var redirect: Bool?
     let fields: [ProwlarrIndexerField]?
     private let _schemaListID: String
 
@@ -35,6 +39,7 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable, ArrAPIIdent
         supportsRss: Bool?,
         supportsSearch: Bool?,
         protocol: ProwlarrIndexerProtocol?,
+        redirect: Bool? = nil,
         fields: [ProwlarrIndexerField]?
     ) {
         self.id = id
@@ -51,6 +56,7 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable, ArrAPIIdent
         self.supportsRss = supportsRss
         self.supportsSearch = supportsSearch
         self.protocol = `protocol`
+        self.redirect = redirect
         self.fields = fields
         self._schemaListID = ProwlarrIndexer.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }
@@ -73,6 +79,7 @@ nonisolated struct ProwlarrIndexer: Codable, Identifiable, Sendable, ArrAPIIdent
         supportsSearch = try c.decodeIfPresent(Bool.self, forKey: .supportsSearch)
         let protocolValue = try c.decodeIfPresent(String.self, forKey: .protocol)
         `protocol` = protocolValue.flatMap(ProwlarrIndexerProtocol.init(rawValue:))
+        redirect = try c.decodeIfPresent(Bool.self, forKey: .redirect)
         fields = try c.decodeIfPresent([ProwlarrIndexerField].self, forKey: .fields)
         _schemaListID = ProwlarrIndexer.computeSchemaListID(id: id, implementation: implementation, configContract: configContract, implementationName: implementationName, name: name)
     }

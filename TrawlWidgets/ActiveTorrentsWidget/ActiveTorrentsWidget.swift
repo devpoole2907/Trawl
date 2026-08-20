@@ -6,14 +6,14 @@ import AppIntents
 
 struct ActiveTorrentsEntry: TimelineEntry {
     let date: Date
-    let snapshot: WidgetDataFetcher.WidgetActiveTorrentsSnapshot
+    let snapshot: WidgetDataFetcher.WidgetActiveDownloadsSnapshot
 
     var relevance: TimelineEntryRelevance? {
         TimelineEntryRelevance(score: snapshot.activeCount > 0 ? 8 : 1)
     }
 
     static let placeholder = ActiveTorrentsEntry(date: .now, snapshot: .activeTorrentsPlaceholder)
-    static let noConfig = ActiveTorrentsEntry(date: .now, snapshot: .activeTorrentsUnavailable("No Server"))
+    static let noConfig = ActiveTorrentsEntry(date: .now, snapshot: .activeTorrentsUnavailable("No Client"))
 }
 
 // MARK: - Provider
@@ -38,12 +38,8 @@ struct ActiveTorrentsProvider: AppIntentTimelineProvider {
     }
 
     private func fetchEntry(serverID: String?) async -> ActiveTorrentsEntry {
-        do {
-            let snapshot = try await WidgetDataFetcher.fetchActiveTorrents(serverID: serverID)
-            return ActiveTorrentsEntry(date: .now, snapshot: snapshot)
-        } catch {
-            return .noConfig
-        }
+        let snapshot = await WidgetDataFetcher.fetchActiveDownloads(serverID: serverID)
+        return ActiveTorrentsEntry(date: .now, snapshot: snapshot)
     }
 }
 
@@ -78,14 +74,14 @@ struct ActiveTorrentsWidgetEntryView: View {
                 .minimumScaleFactor(0.6)
                 .foregroundStyle(count > 0 ? .blue : .secondary)
 
-            Text(count == 1 ? "Active Torrent" : "Active Torrents")
+            Text(count == 1 ? "Active Download" : "Active Downloads")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
 
             if let top = entry.snapshot.topTorrent {
-                topTorrentFooter(top)
+                topDownloadFooter(top)
             } else {
                 Text(isUnavailable ? (entry.snapshot.errorMessage ?? "Unavailable") : "Idle")
                     .font(.caption2)
@@ -95,7 +91,7 @@ struct ActiveTorrentsWidgetEntryView: View {
         }
         .padding(16)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(ActiveTorrentsWidget.trawlTorrentsURL)
+        .widgetURL(ActiveTorrentsWidget.trawlDownloadsURL)
     }
 
     private var mediumLayout: some View {
@@ -120,7 +116,7 @@ struct ActiveTorrentsWidgetEntryView: View {
 
             VStack(alignment: .leading, spacing: 8) {
                 if let top = entry.snapshot.topTorrent {
-                    Text("Top Torrent")
+                    Text("Top Download")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text(top.name)
@@ -146,7 +142,7 @@ struct ActiveTorrentsWidgetEntryView: View {
                     Image(systemName: isUnavailable ? "wifi.exclamationmark" : "checkmark.circle.fill")
                         .font(.title2.weight(.semibold))
                         .foregroundStyle(isUnavailable ? .orange : .green)
-                    Text(isUnavailable ? "Unavailable" : "No active torrents")
+                    Text(isUnavailable ? "Unavailable" : "No active downloads")
                         .font(.headline.weight(.semibold))
                         .lineLimit(2)
                     Spacer(minLength: 0)
@@ -156,7 +152,7 @@ struct ActiveTorrentsWidgetEntryView: View {
         }
         .padding(16)
         .containerBackground(.regularMaterial, for: .widget)
-        .widgetURL(ActiveTorrentsWidget.trawlTorrentsURL)
+        .widgetURL(ActiveTorrentsWidget.trawlDownloadsURL)
     }
 
     private var widgetHeader: some View {
@@ -164,7 +160,7 @@ struct ActiveTorrentsWidgetEntryView: View {
             Image(systemName: count > 0 ? "arrow.down.circle.fill" : "arrow.down.circle")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(count > 0 ? .blue : .secondary)
-            Text("Torrents")
+            Text("Downloads")
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
@@ -177,7 +173,7 @@ struct ActiveTorrentsWidgetEntryView: View {
         }
     }
 
-    private func topTorrentFooter(_ torrent: WidgetDataFetcher.WidgetActiveTorrentSnapshot) -> some View {
+    private func topDownloadFooter(_ torrent: WidgetDataFetcher.WidgetActiveDownloadSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(torrent.name)
                 .font(.caption.weight(.medium))
@@ -197,7 +193,7 @@ struct ActiveTorrentsWidgetEntryView: View {
 struct ActiveTorrentsWidget: Widget {
     let kind = "com.poole.james.Trawl.ActiveTorrentsWidget"
 
-    static let trawlTorrentsURL = URL(string: "trawl://torrents")!
+    static let trawlDownloadsURL = URL(string: "trawl://downloads")!
 
     var body: some WidgetConfiguration {
         AppIntentConfiguration(
@@ -207,8 +203,8 @@ struct ActiveTorrentsWidget: Widget {
         ) { entry in
             ActiveTorrentsWidgetEntryView(entry: entry)
         }
-        .configurationDisplayName("Active Torrents")
-        .description("Active qBittorrent downloads and top progress.")
+        .configurationDisplayName("Active Downloads")
+        .description("Active downloads across qBittorrent and SABnzbd, with top progress.")
         .supportedFamilies([.systemSmall, .systemMedium])
         .contentMarginsDisabled()
     }
@@ -216,10 +212,10 @@ struct ActiveTorrentsWidget: Widget {
 
 // MARK: - Preview Data
 
-private extension WidgetDataFetcher.WidgetActiveTorrentsSnapshot {
-    static let activeTorrentsPlaceholder = WidgetDataFetcher.WidgetActiveTorrentsSnapshot(
+private extension WidgetDataFetcher.WidgetActiveDownloadsSnapshot {
+    static let activeTorrentsPlaceholder = WidgetDataFetcher.WidgetActiveDownloadsSnapshot(
         activeCount: 4,
-        topTorrent: WidgetDataFetcher.WidgetActiveTorrentSnapshot(
+        topTorrent: WidgetDataFetcher.WidgetActiveDownloadSnapshot(
             name: "Foundation S03E02 2160p",
             progress: 0.64,
             dlspeed: 4_718_592,
@@ -230,8 +226,8 @@ private extension WidgetDataFetcher.WidgetActiveTorrentsSnapshot {
         errorMessage: nil
     )
 
-    static func activeTorrentsUnavailable(_ message: String) -> WidgetDataFetcher.WidgetActiveTorrentsSnapshot {
-        WidgetDataFetcher.WidgetActiveTorrentsSnapshot(
+    static func activeTorrentsUnavailable(_ message: String) -> WidgetDataFetcher.WidgetActiveDownloadsSnapshot {
+        WidgetDataFetcher.WidgetActiveDownloadsSnapshot(
             activeCount: 0,
             topTorrent: nil,
             serverName: message,

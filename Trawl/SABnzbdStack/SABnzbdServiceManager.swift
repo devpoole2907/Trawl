@@ -225,7 +225,7 @@ final class SABnzbdServiceManager {
 #if DEBUG
 extension SABnzbdServiceManager {
     enum PreviewState {
-        case connected, connecting, error(String), notConfigured
+        case connected, populated, connecting, error(String), notConfigured
     }
 
     static func preview(_ state: PreviewState = .connected) -> SABnzbdServiceManager {
@@ -234,6 +234,11 @@ extension SABnzbdServiceManager {
         case .connected:
             mgr.activeProfileID = UUID()
             mgr.isConnected = true
+        case .populated:
+            mgr.activeProfileID = UUID()
+            mgr.isConnected = true
+            mgr.queue = .preview
+            mgr.history = .preview
         case .connecting:
             mgr.isConnecting = true
         case .error(let message):
