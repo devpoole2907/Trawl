@@ -203,14 +203,33 @@ struct DirectIndexerSchemaPickerSheet: View {
     let linkedApplication: ProwlarrApplication?
 
     @State private var searchText = ""
+    /// nil = every protocol.
+    @State private var protocolFilter: IndexerListSection?
 
-    private var filteredSchema: [ArrManagedIndexer] {
+    private var searchedSchema: [ArrManagedIndexer] {
         let schema = viewModel.schema(for: profile.id)
         guard !searchText.isEmpty else { return schema }
         return schema.filter {
             ($0.name ?? "").localizedCaseInsensitiveContains(searchText)
                 || ($0.implementationName ?? "").localizedCaseInsensitiveContains(searchText)
         }
+    }
+
+    private var filteredSchema: [ArrManagedIndexer] {
+        guard let protocolFilter else { return searchedSchema }
+        return searchedSchema.filter { listSection(for: $0) == protocolFilter }
+    }
+
+    /// Built from the whole schema rather than the search results, so the bar doesn't
+    /// reshuffle while typing. Empty when the Arr only returned one protocol — a filter
+    /// with a single option isn't worth the row.
+    private var protocolSegments: [TrawlSegmentBarItem<IndexerListSection?>] {
+        let present = Set(viewModel.schema(for: profile.id).map(listSection(for:)))
+        guard present.count > 1 else { return [] }
+        return [TrawlSegmentBarItem("All", value: nil)]
+            + IndexerListSection.allCases
+                .filter { present.contains($0) }
+                .map { TrawlSegmentBarItem($0.title, value: $0) }
     }
 
     var body: some View {
@@ -236,6 +255,12 @@ struct DirectIndexerSchemaPickerSheet: View {
                         systemImage: "magnifyingglass",
                         description: Text("No indexers match \"\(searchText)\".")
                     )
+                } else if filteredSchema.isEmpty, let protocolFilter {
+                    ContentUnavailableView(
+                        "No \(protocolFilter.title) Indexers",
+                        systemImage: "magnifyingglass",
+                        description: Text("\(profile.displayName) returned no \(protocolFilter.title.lowercased()) indexer types.")
+                    )
                 } else if filteredSchema.isEmpty {
                     ContentUnavailableView(
                         "No Indexers",
@@ -243,18 +268,30 @@ struct DirectIndexerSchemaPickerSheet: View {
                         description: Text("No indexer schemas were returned by \(profile.displayName).")
                     )
                 } else {
-                    List(filteredSchema, id: \.schemaListID) { schema in
-                        NavigationLink {
-                            DirectIndexerEditorView(
-                                profile: profile,
-                                serviceType: serviceType,
-                                viewModel: viewModel,
-                                mode: .add(schema),
-                                linkedApplication: linkedApplication,
-                                onSaved: { dismiss() }
-                            )
-                        } label: {
-                            schemaRow(schema)
+                    List {
+                        // Sectioned by protocol, matching the indexer list, so finding a
+                        // Usenet schema doesn't mean scrolling a flat alphabetical list.
+                        ForEach(IndexerListSection.allCases) { section in
+                            let schemas = filteredSchema.filter { listSection(for: $0) == section }
+
+                            if !schemas.isEmpty {
+                                Section(section.title) {
+                                    ForEach(schemas, id: \.schemaListID) { schema in
+                                        NavigationLink {
+                                            DirectIndexerEditorView(
+                                                profile: profile,
+                                                serviceType: serviceType,
+                                                viewModel: viewModel,
+                                                mode: .add(schema),
+                                                linkedApplication: linkedApplication,
+                                                onSaved: { dismiss() }
+                                            )
+                                        } label: {
+                                            schemaRow(schema)
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                     #if os(iOS)
@@ -264,10 +301,34 @@ struct DirectIndexerSchemaPickerSheet: View {
                     #endif
                 }
             }
+            .safeAreaInset(edge: .top) {
+                if !viewModel.isLoadingSchema(for: profile.id), viewModel.schemaError(for: profile.id) == nil, !protocolSegments.isEmpty {
+                    TrawlSegmentBar(
+                        "Protocol",
+                        selection: Binding(
+                            get: { protocolFilter },
+                            set: { newValue in
+                                withAnimation(.smooth(duration: 0.25)) {
+                                    protocolFilter = newValue
+                                }
+                            }
+                        ),
+                        items: protocolSegments
+                    )
+                }
+            }
             .searchable(text: $searchText, prompt: "Search indexers")
             .task {
                 await viewModel.loadSchema(for: profile.id, serviceType: serviceType)
             }
+        }
+    }
+
+    private func listSection(for schema: ArrManagedIndexer) -> IndexerListSection {
+        switch schema.protocol {
+        case .torrent: .torrent
+        case .usenet: .usenet
+        case .unknown, nil: .other
         }
     }
 

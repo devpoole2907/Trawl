@@ -103,15 +103,21 @@ These are the ones where a Usenet-only user hits a wall.
 - [x] **P1.6c — protocol facet in Downloads — WON'T DO** · decided 2026-08-20
   Protocol is metadata, not navigation. The row chip is the right place to show it.
 
-- [ ] **P1.6a — "Seeding" segment shows for Usenet-only users** · S
+- [x] **P1.6a — "Seeding" segment shows for Usenet-only users** · S
   `DownloadsStack/DownloadSection.swift:3-9`. Usenet has no seeding, so a SABnzbd-only user
   has a segment that can never contain anything. Hide it when no torrent client is configured.
+  **Done 2026-08-20.** `DownloadsView.visibleSections` drops `.seeding` when no torrent client
+  is configured, with an `onChange` guard so removing the last client can't strand the user on
+  the now-hidden segment.
 
-- [ ] **P1.6b — Split the indexer selection menu by protocol** · M
+- [x] **P1.6b — Split the indexer selection menu by protocol** · M
   The menu listing all indexers becomes a two-level menu:
   **Torrents** → All indexers · None · each torrent indexer;
   **Usenet** → All indexers · None · each usenet indexer.
   *Supersedes the vague "add a protocol filter to release search" framing.*
+  **Done 2026-08-20.** The release-search indexer filter is now two submenus (Torrents / Usenet),
+  each All Indexers · None · per-indexer, backed by independent `ArrReleaseSort.torrentIndexer`
+  / `.usenetIndexer` (`ArrReleaseIndexerFilter`) selections.
 
 - [x] **P1.6-redirect — Prowlarr rejected every Usenet indexer** · fixed 2026-08-20
   Adding a Usenet indexer failed with `server error (400): Redirect must be enabled for usenet
@@ -190,10 +196,12 @@ These are the ones where a Usenet-only user hits a wall.
 
 ---
 
-- [ ] **P2.7 — `DirectIndexerSchemaPickerSheet` has the same flat-list problem** · S
-  `ArrStack/ProwlarrIndexerListView.swift` — identical to P2.3 (schema picker with no protocol
-  sectioning), missed because it lives in a different file. Apply the same fix: reuse
-  `IndexerListSection` from `ProwlarrIndexerListHelpers.swift`.
+- [x] **P2.7 — `DirectIndexerSchemaPickerSheet` has the same flat-list problem** · S
+  `ArrStack/ProwlarrIndexerListHelpers.swift` (presented from `ProwlarrIndexerListView.swift`) —
+  identical to P2.3 (schema picker with no protocol sectioning), missed because it lives in a
+  different file from `ProwlarrAddIndexerSheet`. Apply the same fix: reuse `IndexerListSection`
+  from `ProwlarrIndexerListHelpers.swift`.
+  **Done 2026-08-20.** Sectioned by protocol with a `TrawlSegmentBar` protocol filter, matching P2.3.
 
 - [x] **P2.8 — Eyeball the Add Download segment bar** · S
   `Views/AddTorrentSheet.swift` — `TrawlSegmentBar` is attached via `.safeAreaInset(edge: .top)`
@@ -216,10 +224,11 @@ These are the ones where a Usenet-only user hits a wall.
   currently goes through the combined rule in `DownloadsViewModel.attentionItems(...)`.
   Either wire them or drop them.
 
-- [ ] **P3.4 — Torrent-specific copy** · S
+- [x] **P3.4 — Torrent-specific copy** · S
   `Views/TorrentListView.swift:65,78,88,513,553-574`, `Views/QBittorrentCategoriesAndTagsView.swift:99,139,193,222`,
   `Views/MoreView.swift:1659`.
-  **Mostly correct as-is** — these sit under qBittorrent-scoped screens where "torrent" is the
+  **Decided 2026-08-20 — copy is fine as-is.** These sit under qBittorrent-scoped screens where
+  "torrent" is the correct word, so no change is needed.
 
 ---
 
@@ -261,7 +270,7 @@ endpoint (`ViewModels/AddTorrentViewModel.swift:315-322` — deliberate, documen
 1. **P0.1** — unblocks the Usenet setup path; everything else in P0 is downstream
 3. **P0.2** — NZB in from Safari/Files
 5. ~~small independent fixes~~ — done 2026-08-20 (P0.3, P1.4, P1.9, P2.1, P2.2, P2.3, P2.5, P3.1, P3.3)
-6. **P1.6** — protocol filter, and decide what "Seeding" means for a Usenet-only user
+6. ~~P1.6 — protocol filter, and decide what "Seeding" means for a Usenet-only user~~ — done 2026-08-20
 
 **Decided and closed, not pending:** P1.3 (Prowlarr search stays hidden),
 P1.5 (SABnzbd stays single-instance), P3.2 (helpers kept and commented), P3.4 (copy is fine as-is).
