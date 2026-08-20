@@ -364,7 +364,7 @@ private struct HistorySection: Identifiable {
     var sortDate: Date { items.first?.sortDate ?? .distantPast }
 }
 
-private struct HistoryItem: Identifiable {
+struct HistoryItem: Identifiable {
     let record: ArrHistoryRecord
     let source: ArrServiceType
     var indexerName: String?
@@ -380,7 +380,7 @@ private struct HistoryItem: Identifiable {
     }
 }
 
-private struct HistoryRow: View {
+struct HistoryRow: View {
     let item: HistoryItem
 
     var body: some View {

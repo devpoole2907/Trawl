@@ -455,6 +455,7 @@ struct SonarrSeasonSearchView: View {
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
+    @State private var interactiveSearchSessionID = UUID()
     @State private var automaticSearchFeedback: AutomaticSearchFeedback?
     @State private var automaticSearchMonitorTask: Task<Void, Never>?
 
@@ -534,6 +535,15 @@ struct SonarrSeasonSearchView: View {
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
         }
+        .refreshable {
+            guard let seriesId else { return }
+            await viewModel.loadEpisodes(for: seriesId)
+            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadQueue()
+            if let bazarrClient {
+                await refreshBazarrSeasonEpisodes(seriesId: seriesId, client: bazarrClient)
+            }
+        }
         .background {
             ArrArtworkView(url: series?.posterURL ?? series?.fanartURL, contentMode: .fill) {
                 Rectangle().fill(Color.purple.opacity(0.5))
@@ -558,6 +568,7 @@ struct SonarrSeasonSearchView: View {
         .sheet(isPresented: $showInteractiveSearchSheet) {
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, seasonNumber: seasonNumber)
+                    .id(interactiveSearchSessionID)
             }
         }
         .sheet(item: $bazarrInteractiveSearchTarget) { bEp in
@@ -576,15 +587,6 @@ struct SonarrSeasonSearchView: View {
         }
         .task(id: seriesId) {
             await monitorSeasonState()
-        }
-        .refreshable {
-            guard let seriesId else { return }
-            await viewModel.loadEpisodes(for: seriesId)
-            await viewModel.loadEpisodeFiles(for: seriesId)
-            await viewModel.loadQueue()
-            if let bazarrClient {
-                await refreshBazarrSeasonEpisodes(seriesId: seriesId, client: bazarrClient)
-            }
         }
     }
 
@@ -897,6 +899,7 @@ struct SonarrSeasonSearchView: View {
 
     private var interactiveSearchButton: some View {
         Button {
+            interactiveSearchSessionID = UUID()
             showInteractiveSearchSheet = true
         } label: {
             seasonSearchActionRow(
@@ -1165,6 +1168,7 @@ struct SonarrEpisodeSearchView: View {
     /// Snapshot of the episode captured when the sheet opens, keeping the interactive-search
     /// subtree stable against the 2s poll that recomputes `currentEpisode`.
     @State private var interactiveSearchEpisode: SonarrEpisode?
+    @State private var interactiveSearchSessionID = UUID()
     @State private var episodeFileToDelete: SonarrEpisodeFile?
     @State private var showDeleteFileAlert = false
     @State private var isTogglingMonitored = false
@@ -1379,6 +1383,14 @@ struct SonarrEpisodeSearchView: View {
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
         }
+        .refreshable {
+            guard let seriesId else { return }
+            await viewModel.loadEpisodes(for: seriesId)
+            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadQueue()
+            await viewModel.loadHistory()
+            await refreshBazarrEpisode()
+        }
         .background {
             ArrArtworkView(url: series?.posterURL ?? series?.fanartURL, contentMode: .fill) {
                 Rectangle().fill(Color.purple.opacity(0.5))
@@ -1462,6 +1474,7 @@ struct SonarrEpisodeSearchView: View {
         .sheet(item: $interactiveSearchEpisode) { episode in
             if let series {
                 SonarrInteractiveSearchSheet(viewModel: viewModel, series: series, episode: episode)
+                    .id(interactiveSearchSessionID)
             }
         }
         .sheet(isPresented: $showBazarrInteractiveSearchSheet) {
@@ -1479,14 +1492,6 @@ struct SonarrEpisodeSearchView: View {
         }
         .task(id: currentEpisode.id) {
             await monitorEpisodeState()
-        }
-        .refreshable {
-            guard let seriesId else { return }
-            await viewModel.loadEpisodes(for: seriesId)
-            await viewModel.loadEpisodeFiles(for: seriesId)
-            await viewModel.loadQueue()
-            await viewModel.loadHistory()
-            await refreshBazarrEpisode()
         }
     }
 
@@ -1653,6 +1658,7 @@ struct SonarrEpisodeSearchView: View {
 
     private var episodeInteractiveSearchButton: some View {
         Button {
+            interactiveSearchSessionID = UUID()
             interactiveSearchEpisode = currentEpisode
         } label: {
             episodeSearchActionRow(

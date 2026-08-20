@@ -77,7 +77,7 @@ final class SearchViewModel {
     func createLookupViewModels(arrServiceManager: ArrServiceManager) {
         let nextSonarrKey = sonarrLookupKey(
             isConnected: arrServiceManager.sonarrConnected,
-            series: sonarrSeries
+            instanceID: arrServiceManager.activeSonarrInstanceID
         )
         if !arrServiceManager.sonarrConnected {
             sonarrLookupVM = nil
@@ -85,11 +85,13 @@ final class SearchViewModel {
         } else if sonarrLookupVM == nil || sonarrLookupContextKey != nextSonarrKey {
             sonarrLookupVM = SonarrViewModel(serviceManager: arrServiceManager, preloadedSeries: sonarrSeries)
             sonarrLookupContextKey = nextSonarrKey
+        } else {
+            sonarrLookupVM?.setLibraryItems(sonarrSeries)
         }
 
         let nextRadarrKey = radarrLookupKey(
             isConnected: arrServiceManager.radarrConnected,
-            movies: radarrMovies
+            instanceID: arrServiceManager.activeRadarrInstanceID
         )
         if !arrServiceManager.radarrConnected {
             radarrLookupVM = nil
@@ -97,6 +99,8 @@ final class SearchViewModel {
         } else if radarrLookupVM == nil || radarrLookupContextKey != nextRadarrKey {
             radarrLookupVM = RadarrViewModel(serviceManager: arrServiceManager, preloadedMovies: radarrMovies)
             radarrLookupContextKey = nextRadarrKey
+        } else {
+            radarrLookupVM?.setLibraryItems(radarrMovies)
         }
     }
 
@@ -479,42 +483,14 @@ final class SearchViewModel {
         }
     }
 
-    private func sonarrLookupKey(isConnected: Bool, series: [SonarrSeries]) -> String {
+    private func sonarrLookupKey(isConnected: Bool, instanceID: UUID?) -> String {
         guard isConnected else { return "disconnected" }
-        let fingerprint = series
-            .sorted { $0.id < $1.id }
-            .map {
-                [
-                    String($0.id),
-                    $0.title,
-                    $0.status ?? "",
-                    $0.monitored.map(String.init) ?? "",
-                    $0.qualityProfileId.map(String.init) ?? "",
-                    $0.rootFolderPath ?? "",
-                    $0.path ?? ""
-                ].joined(separator: "|")
-            }
-            .joined(separator: ",")
-        return "connected:\(fingerprint)"
+        return "connected:\(instanceID?.uuidString ?? "none")"
     }
 
-    private func radarrLookupKey(isConnected: Bool, movies: [RadarrMovie]) -> String {
+    private func radarrLookupKey(isConnected: Bool, instanceID: UUID?) -> String {
         guard isConnected else { return "disconnected" }
-        let fingerprint = movies
-            .sorted { $0.id < $1.id }
-            .map {
-                [
-                    String($0.id),
-                    $0.title,
-                    $0.status ?? "",
-                    $0.monitored.map(String.init) ?? "",
-                    $0.qualityProfileId.map(String.init) ?? "",
-                    $0.rootFolderPath ?? "",
-                    $0.path ?? ""
-                ].joined(separator: "|")
-            }
-            .joined(separator: ",")
-        return "connected:\(fingerprint)"
+        return "connected:\(instanceID?.uuidString ?? "none")"
     }
 }
 

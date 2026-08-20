@@ -99,6 +99,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 switch sort {
                 case .title:
                     return (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
+                case .recentlyAdded:
+                    return (a.added ?? "") > (b.added ?? "")
                 case .status:
                     return (a.status ?? "") < (b.status ?? "")
                 case .progress:
@@ -633,6 +635,7 @@ nonisolated enum SonarrFilter: String, CaseIterable, Identifiable, Sendable {
 
 nonisolated enum SonarrSortOrder: String, CaseIterable, Identifiable, Sendable {
     case title = "Title"
+    case recentlyAdded = "Recently Added"
     case status = "Status"
     case progress = "Progress"
     case network = "Network"

@@ -13,6 +13,7 @@ extension ArrServiceType {
 
 enum ServiceIdentity: String, CaseIterable {
     case qbittorrent
+    case sabnzbd
     case sonarr
     case radarr
     case prowlarr
@@ -23,6 +24,7 @@ enum ServiceIdentity: String, CaseIterable {
     nonisolated var displayName: String {
         switch self {
         case .qbittorrent: "qBittorrent"
+        case .sabnzbd: "SABnzbd"
         case .sonarr: "Sonarr"
         case .radarr: "Radarr"
         case .prowlarr: "Prowlarr"
@@ -35,6 +37,7 @@ enum ServiceIdentity: String, CaseIterable {
     var brandColor: Color {
         switch self {
         case .qbittorrent: .blue
+        case .sabnzbd: .orange
         case .sonarr: .purple
         case .radarr: .orange
         case .prowlarr: .yellow
@@ -48,6 +51,7 @@ enum ServiceIdentity: String, CaseIterable {
     nonisolated var systemImage: String {
         switch self {
         case .qbittorrent: "arrow.down.circle.fill"
+        case .sabnzbd: "tray.and.arrow.down.fill"
         case .sonarr: "tv.fill"
         case .radarr: "film.fill"
         case .prowlarr: "magnifyingglass.circle.fill"
@@ -61,6 +65,7 @@ enum ServiceIdentity: String, CaseIterable {
     nonisolated var tabSystemImage: String {
         switch self {
         case .qbittorrent: "arrow.down.circle"
+        case .sabnzbd: "tray.and.arrow.down"
         case .sonarr: "tv"
         case .radarr: "film"
         case .prowlarr: "magnifyingglass.circle"

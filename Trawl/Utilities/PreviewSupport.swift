@@ -6,6 +6,7 @@ enum PreviewSupport {
     enum ProfileScenario {
         case empty
         case qBittorrentOnly
+        case sabnzbdOnly
         case arrOnly
         case jellyfinOnly
         case seerrOnly
@@ -23,6 +24,8 @@ enum PreviewSupport {
             break
         case .qBittorrentOnly:
             context.insert(ServerProfile.preview())
+        case .sabnzbdOnly:
+            context.insert(SABnzbdServiceProfile(displayName: "SABnzbd Preview", hostURL: "http://preview.invalid:8080"))
         case .arrOnly:
             context.insert(ArrServiceProfile.preview(.sonarr))
             context.insert(ArrServiceProfile.preview(.radarr))
@@ -32,6 +35,7 @@ enum PreviewSupport {
             context.insert(SeerrServiceProfile.preview())
         case .allServices:
             context.insert(ServerProfile.preview())
+            context.insert(SABnzbdServiceProfile(displayName: "SABnzbd Preview", hostURL: "http://preview.invalid:8080"))
             context.insert(ArrServiceProfile.preview(.sonarr))
             context.insert(ArrServiceProfile.preview(.radarr))
             context.insert(ArrServiceProfile.preview(.prowlarr))
@@ -60,6 +64,7 @@ struct PreviewHost<Content: View>: View {
     let arr: ArrServiceManager
     let jellyfin: JellyfinServiceManager
     let seerr: SeerrServiceManager
+    let sabnzbd: SABnzbdServiceManager
     let sync: SyncService
     let torrent: TorrentService
     let appServices: AppServices
@@ -72,6 +77,7 @@ struct PreviewHost<Content: View>: View {
         arr: ArrServiceManager = .preview(),
         jellyfin: JellyfinServiceManager = .preview(),
         seerr: SeerrServiceManager = .preview(),
+        sabnzbd: SABnzbdServiceManager = SABnzbdServiceManager(),
         sync: SyncService = .preview(),
         torrent: TorrentService = .preview(),
         appServices: AppServices? = nil,
@@ -83,6 +89,7 @@ struct PreviewHost<Content: View>: View {
         self.arr = arr
         self.jellyfin = jellyfin
         self.seerr = seerr
+        self.sabnzbd = sabnzbd
         self.sync = sync
         self.torrent = torrent
         self.appLockController = appLockController
@@ -110,6 +117,7 @@ struct PreviewHost<Content: View>: View {
             .environment(arr)
             .environment(jellyfin)
             .environment(seerr)
+            .environment(sabnzbd)
             .environment(sync)
             .environment(torrent)
             .environment(appServices)

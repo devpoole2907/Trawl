@@ -17,6 +17,7 @@ struct TrawlApp: App {
     @State private var arrServiceManager = ArrServiceManager()
     @State private var seerrServiceManager = SeerrServiceManager()
     @State private var jellyfinServiceManager = JellyfinServiceManager()
+    @State private var sabnzbdServiceManager = SABnzbdServiceManager()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     @State private var appLockController = AppLockController()
 
@@ -70,6 +71,7 @@ struct TrawlApp: App {
                 .environment(arrServiceManager)
                 .environment(seerrServiceManager)
                 .environment(jellyfinServiceManager)
+                .environment(sabnzbdServiceManager)
                 .environment(inAppNotificationCenter)
                 .environment(appLockController)
                 .task {
@@ -137,13 +139,17 @@ struct TrawlApp: App {
             var jellyfinProfileDescriptor = FetchDescriptor<JellyfinServiceProfile>()
             jellyfinProfileDescriptor.fetchLimit = 1
 
+            var sabnzbdProfileDescriptor = FetchDescriptor<SABnzbdServiceProfile>()
+            sabnzbdProfileDescriptor.fetchLimit = 1
+
             return
                 try !context.fetch(serverDescriptor).isEmpty ||
                 !context.fetch(cachedStateDescriptor).isEmpty ||
                 !context.fetch(recentPathDescriptor).isEmpty ||
                 !context.fetch(arrProfileDescriptor).isEmpty ||
                 !context.fetch(seerrProfileDescriptor).isEmpty ||
-                !context.fetch(jellyfinProfileDescriptor).isEmpty
+                !context.fetch(jellyfinProfileDescriptor).isEmpty ||
+                !context.fetch(sabnzbdProfileDescriptor).isEmpty
         } catch {
             logger.error("SwiftData migration probe failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -241,6 +247,22 @@ struct TrawlApp: App {
                 copy.dateAdded = jellyfinProfile.dateAdded
                 copy.serverName = jellyfinProfile.serverName
                 copy.serverVersion = jellyfinProfile.serverVersion
+                destinationContext.insert(copy)
+            }
+
+            let existingSABnzbdIDs = Set(try destinationContext.fetch(FetchDescriptor<SABnzbdServiceProfile>()).map(\.id))
+            for sabnzbdProfile in try sourceContext.fetch(FetchDescriptor<SABnzbdServiceProfile>()) {
+                guard !existingSABnzbdIDs.contains(sabnzbdProfile.id) else { continue }
+                let copy = SABnzbdServiceProfile(
+                    displayName: sabnzbdProfile.displayName,
+                    hostURL: sabnzbdProfile.hostURL,
+                    allowsUntrustedTLS: sabnzbdProfile.allowsUntrustedTLS
+                )
+                copy.id = sabnzbdProfile.id
+                copy.isEnabled = sabnzbdProfile.isEnabled
+                copy.dateAdded = sabnzbdProfile.dateAdded
+                copy.lastSynced = sabnzbdProfile.lastSynced
+                copy.serverVersion = sabnzbdProfile.serverVersion
                 destinationContext.insert(copy)
             }
         } catch {

@@ -6,6 +6,7 @@ enum WelcomeStep: Hashable {
 
 enum SetupTarget: Identifiable {
     case qbittorrent
+    case sabnzbd
     case sonarr
     case radarr
     case prowlarr
@@ -16,6 +17,7 @@ enum SetupTarget: Identifiable {
     var id: String {
         switch self {
         case .qbittorrent: "qbittorrent"
+        case .sabnzbd: "sabnzbd"
         case .sonarr: "sonarr"
         case .radarr: "radarr"
         case .prowlarr: "prowlarr"
@@ -28,6 +30,7 @@ enum SetupTarget: Identifiable {
 
 struct WelcomeServicesState {
     var qbittorrent: Bool
+    var sabnzbd: Bool
     var sonarr: Bool
     var radarr: Bool
     var prowlarr: Bool
@@ -36,7 +39,7 @@ struct WelcomeServicesState {
     var jellyfin: Bool
 
     var hasAny: Bool {
-        qbittorrent || sonarr || radarr || prowlarr || bazarr || seerr || jellyfin
+        qbittorrent || sabnzbd || sonarr || radarr || prowlarr || bazarr || seerr || jellyfin
     }
 }
 
@@ -79,7 +82,9 @@ struct WelcomeFlowView: View {
 
             VStack(alignment: .leading, spacing: 16) {
                 featureRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
-                           title: "qBittorrent", description: "Manage and monitor your downloads")
+                           title: "qBittorrent", description: "Manage and monitor your torrents")
+                featureRow(icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
+                           title: "SABnzbd", description: "Download and process Usenet releases")
                 featureRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
                            title: "Sonarr", description: "Track and automate your TV series")
                 featureRow(icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
@@ -118,8 +123,12 @@ struct WelcomeFlowView: View {
 
                 VStack(spacing: 12) {
                     setupRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
-                             title: "qBittorrent", description: "Manage and monitor your downloads",
+                             title: "qBittorrent", description: "Manage and monitor your torrents",
                              isConfigured: configuredServices.qbittorrent) { setupTarget = .qbittorrent }
+
+                    setupRow(icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
+                             title: "SABnzbd", description: "Download and process Usenet releases",
+                             isConfigured: configuredServices.sabnzbd) { setupTarget = .sabnzbd }
 
                     setupRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
                              title: "Sonarr", description: "Track and automate your TV series",

@@ -204,6 +204,21 @@ actor HTTPTransport {
         try validate(response, data: data, path: path, urlString: urlString)
     }
 
+    private func performUpload<T: Decodable>(_ request: URLRequest, body: Data) async throws -> sending T {
+        let path = request.url?.path ?? "<unknown>"
+        let urlString = request.url?.absoluteString ?? "\(baseURL)\(path)"
+        let (data, response) = try await performRawUpload(request, body: body)
+        try validate(response, data: data, path: path, urlString: urlString)
+        do {
+            return try Self.decodeResponse(T.self, from: data)
+        } catch {
+            if let diagnostics, diagnostics.shouldLog(path) {
+                diagnostics.decodingError(path, urlString, error, data)
+            }
+            throw errorMapper.decode(error)
+        }
+    }
+
     /// Validates the response status code, mapping 401/403 to unauthorized and
     /// non-2xx (excluding 3xx success) to the service's http error.
     private func validate(_ response: HTTPURLResponse, data: Data, path: String, urlString: String) throws {
@@ -356,6 +371,54 @@ actor HTTPTransport {
         if let closing = "\r\n--\(boundary)--\r\n".data(using: .utf8) { body.append(closing) }
 
         try await performVoidUpload(request, body: body)
+    }
+
+    /// POST with a multipart/form-data file plus optional text fields, decoding
+    /// the JSON response. Query items remain available for APIs that require
+    /// credentials outside the multipart form body.
+    func postMultipart<T: Decodable>(
+        _ path: String,
+        fileData: Data,
+        fieldName: String,
+        filename: String,
+        mimeType: String = "application/octet-stream",
+        formItems: [URLQueryItem] = [],
+        queryItems: [URLQueryItem] = []
+    ) async throws -> sending T {
+        let boundary = "TrawlBoundary\(UUID().uuidString.replacing("-", with: ""))"
+        var request = try buildRequest(path: path, method: "POST", queryItems: queryItems)
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+
+        var body = Data()
+        for item in formItems {
+            let name = Self.sanitizedMultipartToken(item.name)
+            guard let valueData = (item.value ?? "").data(using: .utf8) else { continue }
+            body.append(Self.multipartData("--\(boundary)\r\n"))
+            body.append(Self.multipartData("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"))
+            body.append(valueData)
+            body.append(Self.multipartData("\r\n"))
+        }
+
+        let safeFieldName = Self.sanitizedMultipartToken(fieldName)
+        let safeFilename = Self.sanitizedMultipartToken(filename)
+        body.append(Self.multipartData("--\(boundary)\r\n"))
+        body.append(Self.multipartData("Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\(safeFilename)\"\r\n"))
+        body.append(Self.multipartData("Content-Type: \(mimeType)\r\n\r\n"))
+        body.append(fileData)
+        body.append(Self.multipartData("\r\n--\(boundary)--\r\n"))
+
+        return try await performUpload(request, body: body)
+    }
+
+    private nonisolated static func multipartData(_ string: String) -> Data {
+        string.data(using: .utf8) ?? Data()
+    }
+
+    private nonisolated static func sanitizedMultipartToken(_ value: String) -> String {
+        value
+            .replacing("\r", with: "")
+            .replacing("\n", with: "")
+            .replacing("\"", with: "'")
     }
 
     /// POST with a form-urlencoded body. Preserves repeated keys and empty-list

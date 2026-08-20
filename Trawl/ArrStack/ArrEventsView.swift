@@ -174,7 +174,12 @@ struct ArrEventsView: View {
         .moreDestinationBackground(.logsAndEvents)
         .toolbar {
             if !availableServices.isEmpty {
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    ShareLink(item: exportText, preview: SharePreview("Arr Events")) {
+                        Label("Share Events", systemImage: "square.and.arrow.up")
+                    }
+                    .disabled(displayedEntries.isEmpty)
+
                     Menu {
                         ForEach(ArrLogLevelFilter.allCases, id: \.self) { level in
                             Button {
@@ -355,6 +360,29 @@ struct ArrEventsView: View {
             guard let client = serviceManager.activeBazarrEntry?.client else { return }
             await vm.loadMoreBazarr(client: client)
         }
+    }
+
+    private var exportText: String {
+        let lines = displayedEntries.map { entry in
+            var details = [
+                "[\(entry.timestamp.formatted(date: .numeric, time: .standard))]",
+                "[\(entry.service.displayName)]",
+                "[\(entry.level.uppercased())]"
+            ]
+            if let logger = entry.logger, !logger.isEmpty {
+                details.append("[\(logger)]")
+            }
+            details.append(entry.message)
+            if let exceptionType = entry.exceptionType, !exceptionType.isEmpty {
+                details.append("\nException: \(exceptionType)")
+            }
+            if let exception = entry.exception, !exception.isEmpty {
+                details.append("\n\(exception)")
+            }
+            return details.joined(separator: " ")
+        }
+        return (["Arr Events", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+            .joined(separator: "\n")
     }
 }
 

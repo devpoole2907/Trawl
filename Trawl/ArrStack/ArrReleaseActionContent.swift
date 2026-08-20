@@ -790,11 +790,13 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                         }
                     }
                 } else if releases.isEmpty && hasLoaded {
-                    ContentUnavailableView(
-                        "No Releases Found",
-                        systemImage: "magnifyingglass",
-                        description: Text(emptyDescription)
-                    )
+                    ContentUnavailableView {
+                        Label("No Releases Found", systemImage: "magnifyingglass")
+                    } description: {
+                        Text(emptyDescription)
+                    } actions: {
+                        Button("Search Again", systemImage: "arrow.clockwise", action: searchAgain)
+                    }
                 } else if !releases.isEmpty && displayedReleases.isEmpty {
                     ContentUnavailableView {
                         Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
@@ -1050,6 +1052,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         releaseSort.quality = ""
         releaseSort.approvedOnly = false
         releaseSort.seasonPack = .any
+    }
+
+    private func searchAgain() {
+        hasLoaded = false
+        Task { await loadReleases() }
     }
 
     private func loadReleases() async {

@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum RootTab: Hashable, CaseIterable {
-    case torrents
+    case downloads
     case series
     case movies
     case search
@@ -9,7 +9,7 @@ enum RootTab: Hashable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .torrents: "Torrents"
+        case .downloads: "Downloads"
         case .series: "Series"
         case .movies: "Movies"
         case .search: "Search"

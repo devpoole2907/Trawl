@@ -1,0 +1,282 @@
+import Foundation
+
+/// HTTP client for SABnzbd's query-based API.
+actor SABnzbdAPIClient {
+    nonisolated var baseURL: String { transport.baseURL }
+
+    private let transport: HTTPTransport
+    private let apiKey: String
+    private nonisolated let apiPath: String
+
+    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
+        let mapper = HTTPErrorMapper(
+            badURL: { SABnzbdAPIError.badURL },
+            transport: { error in
+                if let urlError = error as? URLError { return SABnzbdAPIError.transport(urlError) }
+                return SABnzbdAPIError.transport(URLError(.unknown))
+            },
+            unauthorized: { SABnzbdAPIError.unauthorized },
+            http: { code, body in SABnzbdAPIError.http(status: code, body: body) },
+            decode: { error in SABnzbdAPIError.decode(reason: String(describing: error)) },
+            invalidResponse: { SABnzbdAPIError.invalidResponse },
+            unauthorizedStatusCodes: [401, 403]
+        )
+
+        let trimmedURL = Self.trimmedBaseURL(baseURL)
+        self.apiKey = apiKey
+        self.apiPath = Self.hasAPIPath(trimmedURL) ? "" : "/api"
+        self.transport = HTTPTransport(
+            baseURL: trimmedURL,
+            auth: .none,
+            allowsUntrustedTLS: allowsUntrustedTLS,
+            errorMapper: mapper
+        )
+    }
+
+    // MARK: - Connection and authentication
+
+    func getVersion() async throws -> String {
+        let envelope: SABnzbdVersionEnvelope = try await request(mode: "version")
+        return envelope.version
+    }
+
+    func getAuthentication() async throws -> SABnzbdAuthentication {
+        let envelope: SABnzbdAuthenticationEnvelope = try await request(
+            mode: "auth",
+            extra: [URLQueryItem(name: "key", value: apiKey)]
+        )
+        return envelope.authentication
+    }
+
+    // MARK: - Queue and history
+
+    func getQueue(
+        start: Int = 0,
+        limit: Int = 200,
+        search: String? = nil,
+        statuses: [String] = []
+    ) async throws -> SABnzbdQueue {
+        var extra = [
+            URLQueryItem(name: "start", value: String(max(start, 0))),
+            URLQueryItem(name: "limit", value: String(max(limit, 1)))
+        ]
+        if let search = search?.trimmingCharacters(in: .whitespacesAndNewlines), !search.isEmpty {
+            extra.append(URLQueryItem(name: "search", value: search))
+        }
+        if !statuses.isEmpty {
+            extra.append(URLQueryItem(name: "status", value: statuses.joined(separator: ",")))
+        }
+        let envelope: SABnzbdQueueEnvelope = try await request(mode: "queue", extra: extra)
+        return envelope.queue
+    }
+
+    /// Returns `nil` only when `lastHistoryUpdate` matched and SABnzbd replied
+    /// with its shape-changing `{ "history": false }` polling response.
+    func getHistory(
+        start: Int = 0,
+        limit: Int = 200,
+        statuses: [String] = [],
+        lastHistoryUpdate: Int? = nil
+    ) async throws -> SABnzbdHistory? {
+        var extra = [
+            URLQueryItem(name: "start", value: String(max(start, 0))),
+            URLQueryItem(name: "limit", value: String(max(limit, 1)))
+        ]
+        if !statuses.isEmpty {
+            extra.append(URLQueryItem(name: "status", value: statuses.joined(separator: ",")))
+        }
+        if let lastHistoryUpdate {
+            extra.append(URLQueryItem(name: "last_history_update", value: String(lastHistoryUpdate)))
+        }
+        let envelope: SABnzbdHistoryEnvelope = try await request(mode: "history", extra: extra)
+        return envelope.history
+    }
+
+    // MARK: - Queue actions
+
+    func pauseQueue() async throws {
+        try await performCommand(mode: "pause")
+    }
+
+    func resumeQueue() async throws {
+        try await performCommand(mode: "resume")
+    }
+
+    func pauseJobs(ids: [String]) async throws {
+        try await performQueueCommand(name: "pause", ids: ids)
+    }
+
+    func resumeJobs(ids: [String]) async throws {
+        try await performQueueCommand(name: "resume", ids: ids)
+    }
+
+    func deleteQueueJobs(ids: [String], deleteFiles: Bool = false) async throws {
+        var extra = try jobIDsQuery(ids)
+        if deleteFiles { extra.append(URLQueryItem(name: "del_files", value: "1")) }
+        try await performCommand(mode: "queue", name: "delete", extra: extra)
+    }
+
+    // MARK: - History actions
+
+    @discardableResult
+    func retryHistoryJob(id: String, password: String? = nil) async throws -> String? {
+        var extra = [URLQueryItem(name: "value", value: try validatedID(id))]
+        if let password, !password.isEmpty {
+            extra.append(URLQueryItem(name: "password", value: password))
+        }
+        let response = try await command(mode: "retry", extra: extra)
+        return response.nzoID ?? response.nzoIDs.first
+    }
+
+    func deleteHistoryJobs(
+        ids: [String],
+        permanently: Bool = false,
+        deleteFiles: Bool = false
+    ) async throws {
+        var extra = try jobIDsQuery(ids)
+        if permanently { extra.append(URLQueryItem(name: "archive", value: "0")) }
+        if deleteFiles { extra.append(URLQueryItem(name: "del_files", value: "1")) }
+        try await performCommand(mode: "history", name: "delete", extra: extra)
+    }
+
+    // MARK: - Add NZB
+
+    @discardableResult
+    func addURL(_ url: URL, options: SABnzbdAddOptions = .init()) async throws -> [String] {
+        var extra = [URLQueryItem(name: "name", value: url.absoluteString)]
+        extra.append(contentsOf: Self.addOptionItems(options))
+        let response = try await command(mode: "addurl", extra: extra)
+        return response.nzoIDs
+    }
+
+    @discardableResult
+    func addNZB(
+        data: Data,
+        filename: String,
+        options: SABnzbdAddOptions = .init()
+    ) async throws -> [String] {
+        guard !data.isEmpty else { throw SABnzbdAPIError.invalidResponse }
+        var fields = [URLQueryItem(name: "mode", value: "addfile")]
+        fields.append(contentsOf: Self.addOptionItems(options))
+        let response: SABnzbdCommandResponse = try await transport.postMultipart(
+            apiPath,
+            fileData: data,
+            fieldName: "nzbfile",
+            filename: filename,
+            mimeType: "application/x-nzb",
+            formItems: fields,
+            queryItems: commonItems
+        )
+        return try validated(response).nzoIDs
+    }
+
+    // MARK: - Request helpers
+
+    private var commonItems: [URLQueryItem] {
+        [
+            URLQueryItem(name: "output", value: "json"),
+            URLQueryItem(name: "apikey", value: apiKey)
+        ]
+    }
+
+    private func request<T: Decodable>(
+        mode: String,
+        name: String? = nil,
+        extra: [URLQueryItem] = []
+    ) async throws -> T {
+        let data = try await transport.getData(apiPath, queryItems: queryItems(mode: mode, name: name, extra: extra))
+        if let apiError = try? JSONDecoder().decode(SABnzbdErrorResponse.self, from: data),
+           apiError.status == false {
+            throw SABnzbdAPIError.api(message: apiError.error ?? "The operation failed.")
+        }
+        do {
+            return try JSONDecoder().decode(T.self, from: data)
+        } catch {
+            throw SABnzbdAPIError.decode(reason: String(describing: error))
+        }
+    }
+
+    private func command(
+        mode: String,
+        name: String? = nil,
+        extra: [URLQueryItem] = []
+    ) async throws -> SABnzbdCommandResponse {
+        let response: SABnzbdCommandResponse = try await request(mode: mode, name: name, extra: extra)
+        return try validated(response)
+    }
+
+    private func performCommand(
+        mode: String,
+        name: String? = nil,
+        extra: [URLQueryItem] = []
+    ) async throws {
+        _ = try await command(mode: mode, name: name, extra: extra)
+    }
+
+    private func performQueueCommand(name: String, ids: [String]) async throws {
+        try await performCommand(mode: "queue", name: name, extra: jobIDsQuery(ids))
+    }
+
+    private func queryItems(
+        mode: String,
+        name: String?,
+        extra: [URLQueryItem]
+    ) -> [URLQueryItem] {
+        var items = commonItems
+        items.append(URLQueryItem(name: "mode", value: mode))
+        if let name { items.append(URLQueryItem(name: "name", value: name)) }
+        items.append(contentsOf: extra)
+        return items
+    }
+
+    private func jobIDsQuery(_ ids: [String]) throws -> [URLQueryItem] {
+        let clean = ids.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        guard !clean.isEmpty else { throw SABnzbdAPIError.invalidResponse }
+        return [URLQueryItem(name: "value", value: clean.joined(separator: ","))]
+    }
+
+    private func validatedID(_ id: String) throws -> String {
+        let clean = id.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !clean.isEmpty else { throw SABnzbdAPIError.invalidResponse }
+        return clean
+    }
+
+    private func validated(_ response: SABnzbdCommandResponse) throws -> SABnzbdCommandResponse {
+        if response.status == false {
+            throw SABnzbdAPIError.api(message: response.error ?? "The operation failed.")
+        }
+        if let error = response.error, !error.isEmpty {
+            throw SABnzbdAPIError.api(message: error)
+        }
+        return response
+    }
+
+    private nonisolated static func addOptionItems(_ options: SABnzbdAddOptions) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let name = options.name?.nilIfBlank { items.append(URLQueryItem(name: "nzbname", value: name)) }
+        if let password = options.password?.nilIfBlank { items.append(URLQueryItem(name: "password", value: password)) }
+        if let category = options.category?.nilIfBlank { items.append(URLQueryItem(name: "cat", value: category)) }
+        if let script = options.script?.nilIfBlank { items.append(URLQueryItem(name: "script", value: script)) }
+        if let priority = options.priority { items.append(URLQueryItem(name: "priority", value: String(priority))) }
+        if let postProcessing = options.postProcessing { items.append(URLQueryItem(name: "pp", value: String(postProcessing))) }
+        return items
+    }
+
+    private nonisolated static func trimmedBaseURL(_ value: String) -> String {
+        var result = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        while result.hasSuffix("/") { result.removeLast() }
+        return result
+    }
+
+    private nonisolated static func hasAPIPath(_ value: String) -> Bool {
+        guard let url = URL(string: value) else { return false }
+        return url.path.trimmingCharacters(in: CharacterSet(charactersIn: "/")).split(separator: "/").last?.lowercased() == "api"
+    }
+}
+
+private nonisolated extension String {
+    var nilIfBlank: String? {
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}

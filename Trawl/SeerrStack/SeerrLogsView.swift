@@ -64,6 +64,14 @@ struct SeerrLogsView: View {
         .background(MoreDestinationGradientBackground(accent: .seerr))
         .navigationTitle("Logs")
         .navigationSubtitle("Seerr")
+        .toolbar {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                ShareLink(item: exportText, preview: SharePreview("Seerr Logs")) {
+                    Label("Share Logs", systemImage: "square.and.arrow.up")
+                }
+                .disabled(entries.isEmpty)
+            }
+        }
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Level",
@@ -127,6 +135,25 @@ struct SeerrLogsView: View {
         }
 
         isLoading = false
+    }
+
+    private var exportText: String {
+        let lines = entries.map { entry in
+            var components = [
+                "[\(entry.timestampDate?.formatted(date: .numeric, time: .standard) ?? entry.timestamp ?? "Unknown time")]",
+                "[\(entry.level?.uppercased() ?? "LOG")]"
+            ]
+            if let label = entry.label, !label.isEmpty {
+                components.append("[\(label)]")
+            }
+            components.append(entry.message ?? "No message")
+            if let data = entry.prettyPrintedData, !data.isEmpty {
+                components.append("\n\(data)")
+            }
+            return components.joined(separator: " ")
+        }
+        return (["Seerr Logs", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+            .joined(separator: "\n")
     }
 }
 

@@ -18,22 +18,23 @@ struct ContentView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
-    @State private var showOnboarding = false
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var appServices: AppServices?
     @State private var disconnectedServices = AppServices.disconnected()
     @State private var connectionError: String?
     @State private var isConnecting = false
     @State private var isInWelcomeFlow = true
-    @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
+    @AppStorage("startupTab") private var startupTab: String = RootTab.downloads.displayName
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
-    @State private var selectedTab: RootTab = .torrents
+    @State private var selectedTab: RootTab = .downloads
     @State private var morePath: [MoreDestination] = []
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
@@ -118,13 +119,14 @@ struct ContentView: View {
                 .environment(inAppNotificationCenter)
             #endif
         }
-        .sheet(isPresented: $showOnboarding) {
-            OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
-        }
         .sheet(item: $setupTarget) { target in
             switch target {
             case .qbittorrent:
                 OnboardingSheet(serverProfile: activeServer, onComplete: { initializeServices() })
+            case .sabnzbd:
+                SABnzbdSetupSheet {
+                    Task { await sabnzbdServiceManager.initialize(from: sabnzbdProfiles) }
+                }
             case .sonarr:
                 ArrSetupSheet(initialServiceType: .sonarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
@@ -158,6 +160,9 @@ struct ContentView: View {
         .onAppear {
             evaluateInitialWelcomeStateIfNeeded()
 
+            if startupTab == "Torrents" {
+                startupTab = RootTab.downloads.displayName
+            }
             if !hasSetStartupTab, let tab = RootTab.allCases.first(where: { $0.displayName == startupTab }) {
                 selectedTab = tab
                 hasSetStartupTab = true
@@ -191,8 +196,8 @@ struct ContentView: View {
                 if shouldShowWelcomeScreen {
                     // Store deep link to be applied after welcome screen completes
                     switch url.host?.lowercased() {
-                    case "torrents":
-                        pendingDeepLink = PendingDeepLink(tab: .torrents, morePath: [])
+                    case "torrents", "downloads":
+                        pendingDeepLink = PendingDeepLink(tab: .downloads, morePath: [])
                     case "calendar":
                         pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
                     case "health":
@@ -206,8 +211,8 @@ struct ContentView: View {
                     }
                 } else {
                     switch url.host?.lowercased() {
-                    case "torrents":
-                        selectedTab = .torrents
+                    case "torrents", "downloads":
+                        selectedTab = .downloads
                     case "calendar":
                         selectedTab = .more
                         morePath = [.calendar]
@@ -241,6 +246,13 @@ struct ContentView: View {
             #endif
             evaluateInitialWelcomeStateIfNeeded()
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
+        }
+        .task(id: sabnzbdProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
+            evaluateInitialWelcomeStateIfNeeded()
+            await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
         }
         .task(id: arrProfilesSyncKey) {
             #if DEBUG
@@ -278,6 +290,7 @@ struct ContentView: View {
             if newPhase == .background {
                 servicesTask?.cancel()
                 appServices?.syncService.stopPolling()
+                sabnzbdServiceManager.stopPolling()
             } else if newPhase == .active && !shouldShowWelcomeScreen {
                 // iOS transitions scenePhase through .inactive in both directions
                 // (.background → .inactive → .active), so checking `oldPhase == .background`
@@ -294,6 +307,11 @@ struct ContentView: View {
                 if !jellyfinServiceManager.isConnected && !jellyfinServiceManager.isConnecting && !jellyfinProfiles.isEmpty {
                     Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
                 }
+                if !sabnzbdServiceManager.isConnected && !sabnzbdServiceManager.isConnecting && !sabnzbdProfiles.isEmpty {
+                    Task { await sabnzbdServiceManager.initialize(from: sabnzbdProfiles) }
+                } else if sabnzbdServiceManager.isConnected {
+                    sabnzbdServiceManager.startPolling()
+                }
                 Task { await arrServiceManager.retryDisconnected() }
             }
         }
@@ -306,6 +324,7 @@ struct ContentView: View {
         }
         .onDisappear {
             appServices?.syncService.stopPolling()
+            sabnzbdServiceManager.stopPolling()
         }
     }
 
@@ -315,6 +334,7 @@ struct ContentView: View {
             setupTarget: $setupTarget,
             configuredServices: WelcomeServicesState(
                 qbittorrent: activeServer != nil,
+                sabnzbd: sabnzbdProfile != nil,
                 sonarr: sonarrProfile != nil,
                 radarr: radarrProfile != nil,
                 prowlarr: prowlarrProfile != nil,
@@ -330,21 +350,18 @@ struct ContentView: View {
     @ViewBuilder
     private var tabContent: some View {
         let services = appServices ?? disconnectedServices
-        let activeTorrentCount = services.syncService.activeTorrentCount
+        let unifiedActiveDownloadCount = services.syncService.activeTorrentCount + sabnzbdServiceManager.activeJobs.count
         TabView(selection: $selectedTab) {
-            Tab("Torrents", systemImage: ServiceIdentity.qbittorrent.tabSystemImage, value: RootTab.torrents) {
+            Tab("Downloads", systemImage: "tray.and.arrow.down", value: RootTab.downloads) {
                 NavigationStack {
-                    if appServices != nil {
-                        TorrentListView(title: activeServer?.displayName ?? "Trawl")
-                            .environment(services.syncService)
-                            .environment(services.torrentService)
-                    } else {
-                        torrentsUnavailableContent
-                            .navigationTitle(activeServer?.displayName ?? "Trawl")
-                    }
+                    DownloadsView()
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                        .environment(arrServiceManager)
+                        .environment(sabnzbdServiceManager)
                 }
             }
-            .badge(activeTorrentCount)
+            .badge(unifiedActiveDownloadCount)
 
             Tab("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage, value: RootTab.series) {
                 NavigationStack {
@@ -381,6 +398,7 @@ struct ContentView: View {
                     .environment(services.syncService)
                     .environment(services.torrentService)
                     .environment(arrServiceManager)
+                    .environment(sabnzbdServiceManager)
                     .environment(\.navigateToSeriesTab) {
                         selectedTab = .series
                     }
@@ -389,6 +407,12 @@ struct ContentView: View {
                     }
                     .environment(\.navigateToQbittorrentSettings) {
                         morePath.append(.qbittorrentSettings)
+                    }
+                    .environment(\.navigateToDownloadsTab) {
+                        selectedTab = .downloads
+                    }
+                    .environment(\.navigateToSABnzbdSettings) {
+                        morePath.append(.sabnzbdSettings)
                     }
                     .environment(\.navigateToSonarrSettings) {
                         morePath.append(.sonarrSettings)
@@ -451,62 +475,6 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
-    private var torrentsUnavailableContent: some View {
-        if isConnecting || connectionError != nil {
-            ConnectionStatusCard(
-                identity: .qbittorrent,
-                title: isConnecting ? "Connecting to qBittorrent" : "qBittorrent Unreachable",
-                message: connectionError ?? "Checking your configured qBittorrent server.",
-                isConnecting: isConnecting,
-                detailTitle: activeServer?.displayName,
-                detailSubtitle: activeServer?.hostURL,
-                presentation: .embedded,
-                onRetry: { initializeServices() },
-                onEdit: { showOnboarding = true }
-            )
-        } else {
-            // qBittorrent not configured — arr-only user or setup pending
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
-            } description: {
-                Text("Add a qBittorrent server in Settings to manage your downloads.")
-            } actions: {
-                Button {
-                    showOnboarding = true
-                } label: {
-                    Label("Add Server", systemImage: "plus")
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
-            }
-            .scrollableUnavailableState()
-            .background(torrentsUnavailableBackground)
-        }
-    }
-
-    private var torrentsUnavailableBackground: some View {
-        ZStack {
-            #if os(macOS)
-            Color(nsColor: .windowBackgroundColor)
-            #else
-            Color(uiColor: .systemGroupedBackground)
-            #endif
-            LinearGradient(
-                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.18), Color.clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            RadialGradient(
-                colors: [ServiceIdentity.qbittorrent.brandColor.opacity(0.14), Color.clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 260
-            )
-        }
-        .ignoresSafeArea()
-    }
 
     #if os(macOS)
     private func isDefaultMagnetHandler() -> Bool {
@@ -550,8 +518,12 @@ struct ContentView: View {
         jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
     }
 
+    private var sabnzbdProfile: SABnzbdServiceProfile? {
+        sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil || jellyfinProfile != nil
+        activeServer != nil || sabnzbdProfile != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil || jellyfinProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
@@ -575,6 +547,13 @@ struct ContentView: View {
             .joined(separator: "|")
     }
 
+    private var sabnzbdProfilesSyncKey: String {
+        sabnzbdProfiles
+            .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
     private var connectionRetryLoopKey: String {
         [
             scenePhase == .active ? "active" : "paused",
@@ -582,7 +561,8 @@ struct ContentView: View {
             activeServerID?.uuidString ?? "no-qbittorrent",
             arrProfilesSyncKey,
             seerrProfilesSyncKey,
-            jellyfinProfilesSyncKey
+            jellyfinProfilesSyncKey,
+            sabnzbdProfilesSyncKey
         ].joined(separator: "|")
     }
 
@@ -711,6 +691,10 @@ struct ContentView: View {
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
         }
 
+        if !sabnzbdProfiles.isEmpty && !sabnzbdServiceManager.isConnected && !sabnzbdServiceManager.isConnecting {
+            await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
+        }
+
         await arrServiceManager.retryDisconnected()
     }
 
@@ -778,7 +762,7 @@ extension ContentView {
         notificationCenter: InAppNotificationCenter(previewNotifications: [])
     ) {
         ContentView(
-            previewSelectedTab: .torrents,
+            previewSelectedTab: .downloads,
             previewAppServices: nil,
             previewIsInWelcomeFlow: true
         )

@@ -85,6 +85,14 @@ struct QBittorrentLogView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarBackground(.hidden, for: .navigationBar)
         #endif
+        .toolbar {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                ShareLink(item: exportText, preview: SharePreview("qBittorrent Log")) {
+                    Label("Share Log", systemImage: "square.and.arrow.up")
+                }
+                .disabled(displayed.isEmpty)
+            }
+        }
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Filter",
@@ -140,6 +148,26 @@ struct QBittorrentLogView: View {
             loadError = ErrorAlertItem(title: "Failed to Load Log", message: error.localizedDescription)
         }
         isLoading = false
+    }
+
+    private var exportText: String {
+        let lines = displayed.map { entry in
+            let timestamp = Date(timeIntervalSince1970: Double(entry.timestamp))
+                .formatted(date: .numeric, time: .standard)
+            return "[\(timestamp)] [\(severityLabel(for: entry.type))] \(entry.message)"
+        }
+        return (["qBittorrent Log", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+            .joined(separator: "\n")
+    }
+
+    private func severityLabel(for type: Int) -> String {
+        switch type {
+        case 1: "Normal"
+        case 2: "Info"
+        case 4: "Warning"
+        case 8: "Critical"
+        default: "Log"
+        }
     }
 }
 

@@ -2,9 +2,6 @@ import SwiftUI
 import SwiftData
 
 enum MoreDestination: Hashable {
-    case activity
-    case activityQueue
-    case activityHistory
     case categoriesAndTags
     case rssFeeds
     case diskSpace
@@ -12,6 +9,7 @@ enum MoreDestination: Hashable {
     case wanted
     case settings
     case qbittorrentSettings
+    case sabnzbdSettings
     case sonarrSettings
     case radarrSettings
     case prowlarrSettings
@@ -141,6 +139,7 @@ struct MoreView: View {
     @Query private var servers: [ServerProfile]
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
     let isQBittorrentConnecting: Bool
@@ -150,7 +149,9 @@ struct MoreView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     @State private var subtitleBadgeCount = 0
     @State private var moreSearchText = ""
     @State private var connectionEditSheet: ConnectionEditSheet?
@@ -160,6 +161,7 @@ struct MoreView: View {
     private var configuredServiceIdentities: [ServiceIdentity] {
         var identities: [ServiceIdentity] = []
         if hasQBittorrentServer { identities.append(.qbittorrent) }
+        if !sabnzbdProfiles.isEmpty { identities.append(.sabnzbd) }
         if arrServiceManager.hasSonarrInstance { identities.append(.sonarr) }
         if arrServiceManager.hasRadarrInstance { identities.append(.radarr) }
         if arrServiceManager.hasProwlarrInstance { identities.append(.prowlarr) }
@@ -175,6 +177,10 @@ struct MoreView: View {
 
     private var jellyfinProfile: JellyfinServiceProfile? {
         jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
+    }
+
+    private var sabnzbdProfile: SABnzbdServiceProfile? {
+        sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
     }
 
     private var trimmedMoreSearchText: String {
@@ -198,6 +204,7 @@ struct MoreView: View {
 
     private enum ConnectionEditSheet: Identifiable, Hashable {
         case qbittorrent
+        case sabnzbd
         case arr(ArrServiceType)
         case seerr
         case jellyfin
@@ -206,6 +213,8 @@ struct MoreView: View {
             switch self {
             case .qbittorrent:
                 "qbittorrent"
+            case .sabnzbd:
+                "sabnzbd"
             case .arr(let service):
                 "arr-\(service.rawValue)"
             case .seerr:
@@ -227,6 +236,14 @@ struct MoreView: View {
                 message: isQBittorrentConnecting
                     ? "Checking your configured qBittorrent server."
                     : "Unable to reach your configured qBittorrent server."
+            ))
+        }
+        if !sabnzbdProfiles.isEmpty && !sabnzbdServiceManager.isConnected
+            && (sabnzbdServiceManager.isConnecting || sabnzbdServiceManager.connectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .sabnzbd,
+                isConnecting: sabnzbdServiceManager.isConnecting,
+                message: sabnzbdServiceManager.connectionError ?? "Checking your configured SABnzbd server."
             ))
         }
         if arrServiceManager.hasSonarrInstance && !arrServiceManager.sonarrConnected
@@ -291,6 +308,9 @@ struct MoreView: View {
         if hasQBittorrentServer && appServices == nil {
             onRetryQBittorrent?()
         }
+        if !sabnzbdServiceManager.isConnected && !sabnzbdServiceManager.isConnecting {
+            Task { await sabnzbdServiceManager.initialize(from: sabnzbdProfiles) }
+        }
         if !seerrServiceManager.isConnected && !seerrServiceManager.isConnecting {
             Task { await seerrServiceManager.initialize(from: seerrProfiles) }
         }
@@ -304,6 +324,8 @@ struct MoreView: View {
         switch identity {
         case .qbittorrent:
             onRetryQBittorrent?()
+        case .sabnzbd:
+            Task { await sabnzbdServiceManager.initialize(from: sabnzbdProfiles) }
         case .sonarr:
             Task { await arrServiceManager.retry(.sonarr) }
         case .radarr:
@@ -324,6 +346,8 @@ struct MoreView: View {
         switch identity {
         case .qbittorrent:
             sheet = .qbittorrent
+        case .sabnzbd:
+            sheet = .sabnzbd
         case .sonarr:
             sheet = .arr(.sonarr)
         case .radarr:
@@ -411,10 +435,6 @@ struct MoreView: View {
                 } else {
                     connectivityAlertSection
                     Section {
-                        NavigationLink(value: MoreDestination.activity) {
-                            moreRow(.activity)
-                        }
-
                         NavigationLink(value: MoreDestination.wanted) {
                             moreRow(.wanted)
                         }
@@ -513,15 +533,6 @@ struct MoreView: View {
             }
             .navigationDestination(for: MoreDestination.self) { destination in
                 switch destination {
-                case .activity:
-                    ArrActivityHubView()
-                        .moreDestinationTitleStyle()
-                case .activityQueue:
-                    ArrActivityQueueView()
-                        .moreDestinationTitleStyle()
-                case .activityHistory:
-                    ArrHistoryView()
-                        .moreDestinationTitleStyle()
                 case .categoriesAndTags:
                     qbittorrentCategoriesAndTagsDestination
                         .moreDestinationTitleStyle()
@@ -575,6 +586,10 @@ struct MoreView: View {
                         .moreDestinationTitleStyle()
                 case .qbittorrentSettings:
                     qbittorrentSettingsDestination
+                        .moreDestinationTitleStyle()
+                case .sabnzbdSettings:
+                    SABnzbdSettingsView()
+                        .environment(sabnzbdServiceManager)
                         .moreDestinationTitleStyle()
                 case .sonarrSettings:
                     ArrServiceSettingsView(serviceType: .sonarr)
@@ -805,8 +820,17 @@ struct MoreView: View {
         } else {
             Section("Search Results") {
                 ForEach(filteredMoreSearchEntries) { entry in
-                    NavigationLink(value: entry.destination) {
-                        MoreSearchResultRow(entry: entry)
+                    if let destination = entry.destination {
+                        NavigationLink(value: destination) {
+                            MoreSearchResultRow(entry: entry)
+                        }
+                    } else {
+                        Button {
+                            navigateToDownloadsTab()
+                        } label: {
+                            MoreSearchResultRow(entry: entry)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -932,6 +956,7 @@ struct MoreView: View {
             .environment(syncService)
             .environment(torrentService)
             .environment(arrServiceManager)
+            .environment(sabnzbdServiceManager)
     }
 
     @ViewBuilder
@@ -942,6 +967,17 @@ struct MoreView: View {
                 QBittorrentSettingsView()
                     .environment(syncService)
                     .environment(torrentService)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", action: dismissConnectionEditor)
+                        }
+                    }
+            }
+
+        case .sabnzbd:
+            NavigationStack {
+                SABnzbdSettingsView()
+                    .environment(sabnzbdServiceManager)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done", action: dismissConnectionEditor)
@@ -1357,7 +1393,9 @@ private struct MoreSearchResultRow: View {
 
 private struct MoreSearchIndexEntry: Identifiable {
     let id: String
-    let destination: MoreDestination
+    /// `nil` for entries that redirect to a root tab (e.g. Downloads) instead of
+    /// pushing a `MoreDestination` in this tab's own navigation stack.
+    let destination: MoreDestination?
     let icon: String
     let color: Color
     let title: String
@@ -1367,7 +1405,7 @@ private struct MoreSearchIndexEntry: Identifiable {
 
     init(
         id: String,
-        destination: MoreDestination,
+        destination: MoreDestination?,
         icon: String,
         color: Color,
         title: String,
@@ -1423,14 +1461,14 @@ private enum MoreSearchIndex {
     static let entries: [MoreSearchIndexEntry] = {
         [
             .init(
-                id: "activity",
-                destination: .activity,
+                id: "downloads",
+                destination: nil,
                 icon: "arrow.down.doc.fill",
                 color: .indigo,
-                title: "Activity",
-                subtitle: "Queue, downloads, and import history",
+                title: "Downloads",
+                subtitle: "Active downloads, queue, and history",
                 category: "Monitoring",
-                keywords: ["queue", "download", "import", "history", "grab", "release"]
+                keywords: ["activity", "queue", "download", "import", "history", "grab", "release", "torrent", "usenet", "sabnzbd", "qbittorrent"]
             ),
             .init(
                 id: "wanted",
@@ -1991,6 +2029,16 @@ private enum MoreSearchIndex {
                 subtitle: "Media server connection and API key",
                 category: "Settings",
                 keywords: ["jellyfin", "server", "api", "connection", "users"]
+            ),
+            .init(
+                id: "sabnzbd-settings",
+                destination: .sabnzbdSettings,
+                icon: ServiceIdentity.sabnzbd.systemImage,
+                color: ServiceIdentity.sabnzbd.brandColor,
+                title: "SABnzbd Settings",
+                subtitle: "Usenet download client connection and API key",
+                category: "Settings",
+                keywords: ["sabnzbd", "usenet", "nzb", "server", "api", "connection", "downloads"]
             )
         ]
     }()
@@ -3152,80 +3200,6 @@ private struct LogsAndEventsHubView: View {
 }
 #endif
 
-private struct ArrActivityHubView: View {
-    @Environment(ArrServiceManager.self) private var arrServiceManager
-
-    private var hasAnyActivitySource: Bool {
-        arrServiceManager.hasSonarrInstance ||
-            arrServiceManager.hasRadarrInstance ||
-            arrServiceManager.hasProwlarrInstance ||
-            arrServiceManager.hasBazarrInstance
-    }
-
-    private var hasQueueCapableService: Bool {
-        arrServiceManager.hasSonarrInstance ||
-            arrServiceManager.hasRadarrInstance ||
-            arrServiceManager.hasBazarrInstance
-    }
-
-    var body: some View {
-        List {
-            if hasAnyActivitySource {
-                Section {
-                    if hasQueueCapableService {
-                        NavigationLink(value: MoreDestination.activityQueue) {
-                            NavigationMenuRow(
-                                icon: "arrow.down.circle.fill",
-                                color: MoreDestinationAccent.activity.color,
-                                title: "Queue",
-                                subtitle: "Downloads, imports, and background tasks"
-                            )
-                        }
-                    }
-
-                    NavigationLink(value: MoreDestination.activityHistory) {
-                        NavigationMenuRow(
-                            icon: "clock.arrow.circlepath",
-                            color: MoreDestinationAccent.activity.color,
-                            title: "History",
-                            subtitle: "Past grabs, imports, and indexer events"
-                        )
-                    }
-                }
-            } else {
-                HubEmptyState(
-                    title: "No Services Configured",
-                    systemImage: "server.rack",
-                    message: "Connect Sonarr, Radarr, Prowlarr, or Bazarr in Settings to view activity."
-                )
-            }
-        }
-        #if os(iOS)
-        .scrollContentBackground(.hidden)
-        #endif
-        .navigationTitle("Activity")
-        .moreDestinationBackground(.activity)
-    }
-}
-
-#if DEBUG
-#Preview("Arr Activity Hub - Configured") {
-    MorePreviewHost(profiles: .arrOnly, arr: .preview(.allConfigured)) { _ in
-        NavigationStack {
-            ArrActivityHubView()
-        }
-    }
-}
-
-#Preview("Arr Activity Hub - Empty") {
-    MorePreviewHost(profiles: .empty, arr: .preview(.noneConfigured), appServices: nil) { _ in
-        NavigationStack {
-            ArrActivityHubView()
-        }
-    }
-}
-#endif
-
 private struct TasksHubView: View {
     let jellyfinProfile: JellyfinServiceProfile?
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -3713,12 +3687,14 @@ struct RecentNotificationsSheet: View {
         if tokens.contains("prowlarr") { return .prowlarr }
         if tokens.contains("bazarr") { return .bazarr }
         if tokens.contains("seerr") || tokens.contains("overseerr") || tokens.contains("jellyseerr") { return .seerr }
+        if tokens.contains("sabnzbd") || tokens.contains("usenet") || tokens.contains("nzb") { return .sabnzbd }
         if tokens.contains("qbittorrent") || tokens.contains("qbit") || tokens.contains("torrent") { return .qbittorrent }
         return .trawl
     }
 
     private enum NotificationServiceContext {
         case qbittorrent
+        case sabnzbd
         case sonarr
         case radarr
         case prowlarr
@@ -3729,6 +3705,7 @@ struct RecentNotificationsSheet: View {
         var title: String {
             switch self {
             case .qbittorrent: "qBittorrent"
+            case .sabnzbd: "SABnzbd"
             case .sonarr: "Sonarr"
             case .radarr: "Radarr"
             case .prowlarr: "Prowlarr"
@@ -3741,6 +3718,7 @@ struct RecentNotificationsSheet: View {
         var systemImage: String {
             switch self {
             case .qbittorrent: ServiceIdentity.qbittorrent.systemImage
+            case .sabnzbd: ServiceIdentity.sabnzbd.systemImage
             case .sonarr: ServiceIdentity.sonarr.systemImage
             case .radarr: ServiceIdentity.radarr.systemImage
             case .prowlarr: ServiceIdentity.prowlarr.systemImage

@@ -89,6 +89,8 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                 switch sort {
                 case .title:
                     (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
+                case .recentlyAdded:
+                    (a.added ?? "") > (b.added ?? "")
                 case .year:
                     (a.year ?? 0) > (b.year ?? 0)
                 case .size:
@@ -445,6 +447,7 @@ nonisolated enum RadarrFilter: String, CaseIterable, Identifiable, Sendable {
 
 nonisolated enum RadarrSortOrder: String, CaseIterable, Identifiable, Sendable {
     case title = "Title"
+    case recentlyAdded = "Recently Added"
     case year = "Year"
     case size = "Size"
     case status = "Status"

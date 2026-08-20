@@ -8,7 +8,8 @@ enum TrawlModelSchema {
             RecentSavePath.self,
             ArrServiceProfile.self,
             SeerrServiceProfile.self,
-            JellyfinServiceProfile.self
+            JellyfinServiceProfile.self,
+            SABnzbdServiceProfile.self
         ])
     }
 }

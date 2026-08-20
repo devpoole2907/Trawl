@@ -14,11 +14,12 @@ struct SettingsView: View {
     @Query private var servers: [ServerProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
-    @AppStorage("startupTab") private var startupTab: String = RootTab.torrents.displayName
+    @AppStorage("startupTab") private var startupTab: String = RootTab.downloads.displayName
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     let showsDoneButton: Bool
     @Environment(\.navigateToQbittorrentSettings) private var navigateToQbittorrentSettings
+    @Environment(\.navigateToSABnzbdSettings) private var navigateToSABnzbdSettings
     @Environment(\.navigateToSonarrSettings) private var navigateToSonarrSettings
     @Environment(\.navigateToRadarrSettings) private var navigateToRadarrSettings
     @Environment(\.navigateToProwlarrSettings) private var navigateToProwlarrSettings
@@ -29,6 +30,8 @@ struct SettingsView: View {
     @Environment(\.navigateToJellyfinSettings) private var navigateToJellyfinSettings
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
+    @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
@@ -109,6 +112,10 @@ struct SettingsView: View {
         jellyfinProfiles.first(where: { $0.isEnabled }) ?? jellyfinProfiles.first
     }
 
+    private var sabnzbdProfile: SABnzbdServiceProfile? {
+        sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
+    }
+
     private var arrProfilesSyncKey: String {
         arrProfiles
             .map {
@@ -130,6 +137,18 @@ struct SettingsView: View {
                         url: activeServer?.hostURL,
                         isConnected: syncService.isPolling,
                         isConfigured: activeServer != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToSABnzbdSettings) {
+                    serviceRow(
+                        icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
+                        name: sabnzbdProfile?.displayName ?? "SABnzbd",
+                        url: sabnzbdProfile?.hostURL,
+                        isConnected: sabnzbdServiceManager.isConnected,
+                        isConfigured: sabnzbdProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -810,6 +829,14 @@ private struct NavigateToQbittorrentSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToDownloadsTabKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
+private struct NavigateToSABnzbdSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 private struct NavigateToSonarrSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -852,6 +879,16 @@ extension EnvironmentValues {
     var navigateToQbittorrentSettings: () -> Void {
         get { self[NavigateToQbittorrentSettingsKey.self] }
         set { self[NavigateToQbittorrentSettingsKey.self] = newValue }
+    }
+
+    var navigateToDownloadsTab: () -> Void {
+        get { self[NavigateToDownloadsTabKey.self] }
+        set { self[NavigateToDownloadsTabKey.self] = newValue }
+    }
+
+    var navigateToSABnzbdSettings: () -> Void {
+        get { self[NavigateToSABnzbdSettingsKey.self] }
+        set { self[NavigateToSABnzbdSettingsKey.self] = newValue }
     }
 
     var navigateToSonarrSettings: () -> Void {

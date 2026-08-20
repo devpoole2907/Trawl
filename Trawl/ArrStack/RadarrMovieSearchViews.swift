@@ -233,6 +233,7 @@ struct RadarrMovieSearchView: View {
 
     @State private var isDispatchingAutomaticSearch = false
     @State private var showInteractiveSearchSheet = false
+    @State private var interactiveSearchSessionID = UUID()
     @State private var automaticSearchFeedback: AutomaticSearchFeedback?
     @State private var automaticSearchMonitorTask: Task<Void, Never>?
 
@@ -291,6 +292,11 @@ struct RadarrMovieSearchView: View {
             .frame(maxWidth: 720)
             .frame(maxWidth: .infinity)
         }
+        .refreshable {
+            await viewModel.loadMovies()
+            await viewModel.loadQueue()
+            await viewModel.loadMovieFiles(movieId: movie.id)
+        }
         .background {
             ArrArtworkView(url: movie.posterURL ?? movie.fanartURL, contentMode: .fill) {
                 Rectangle().fill(Color.orange.opacity(0.5))
@@ -315,14 +321,10 @@ struct RadarrMovieSearchView: View {
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: automaticSearchFeedback)
         .sheet(isPresented: $showInteractiveSearchSheet) {
             RadarrInteractiveSearchSheet(viewModel: viewModel, movie: movie)
+                .id(interactiveSearchSessionID)
         }
         .onDisappear {
             automaticSearchMonitorTask?.cancel()
-        }
-        .refreshable {
-            await viewModel.loadMovies()
-            await viewModel.loadQueue()
-            await viewModel.loadMovieFiles(movieId: movie.id)
         }
     }
 
@@ -442,6 +444,7 @@ struct RadarrMovieSearchView: View {
 
     private var interactiveSearchButton: some View {
         Button {
+            interactiveSearchSessionID = UUID()
             showInteractiveSearchSheet = true
         } label: {
             movieSearchActionRow(

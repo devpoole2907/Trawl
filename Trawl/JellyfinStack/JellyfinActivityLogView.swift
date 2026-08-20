@@ -30,6 +30,14 @@ struct JellyfinActivityLogView: View {
         }
         .navigationTitle("Activity Log")
         .navigationSubtitle("Jellyfin")
+        .toolbar {
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                ShareLink(item: exportText, preview: SharePreview("Jellyfin Activity Log")) {
+                    Label("Share Activity Log", systemImage: "square.and.arrow.up")
+                }
+                .disabled(exportEntries.isEmpty)
+            }
+        }
         .task {
             #if DEBUG
             if isPreview { return }
@@ -167,6 +175,32 @@ struct JellyfinActivityLogView: View {
         } catch {
             // Non-fatal: entries still render with raw userId
         }
+    }
+
+    private var exportText: String {
+        let lines = exportEntries.map { entry in
+            var details: [String] = [
+                "[\(entry.date)]",
+                "[\(entry.severity?.uppercased() ?? "INFO")]"
+            ]
+            if let type = entry.type, !type.isEmpty {
+                details.append("[\(type)]")
+            }
+            if let userID = entry.userId {
+                details.append("[\(userNames[userID] ?? userID)]")
+            }
+            details.append(entry.name)
+            if let overview = entry.shortOverview ?? entry.overview, !overview.isEmpty {
+                details.append("— \(overview)")
+            }
+            return details.joined(separator: " ")
+        }
+        return (["Jellyfin Activity Log", "Exported \(Date.now.formatted(date: .numeric, time: .standard))", ""] + lines)
+            .joined(separator: "\n")
+    }
+
+    private var exportEntries: [JellyfinActivityEntry] {
+        viewModel.map { filteredEntries(from: $0.entries) } ?? []
     }
 }
 
