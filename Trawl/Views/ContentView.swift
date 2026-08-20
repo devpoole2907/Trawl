@@ -197,68 +197,13 @@ struct ContentView: View {
         }
         #endif
         .onOpenURL { url in
-            // NZBs arrive as a file the system hands us ("Open in Trawl" from Files
-            // or Safari's download tray), or as an http(s) link to a .nzb. Neither
-            // has a scheme of its own, so they're matched before the switch.
-            if let nzb = NZBDeepLink(openedURL: url) ?? NZBDeepLink(trawlURL: url) {
-                nzbDeepLink = nzb
-                return
-            }
-
-            switch url.scheme?.lowercased() {
-            case "magnet":
-                if appServices != nil {
-                    magnetDeepLink = MagnetDeepLink(url: url.absoluteString)
-                } else {
-                    pendingMagnetURL = url.absoluteString
-                }
-            case "trawl":
-                if shouldShowWelcomeScreen {
-                    // Store deep link to be applied after welcome screen completes
-                    switch url.host?.lowercased() {
-                    case "torrents", "downloads":
-                        pendingDeepLink = PendingDeepLink(
-                            tab: .downloads,
-                            morePath: [],
-                            downloadsSection: Self.downloadsSection(from: url)
-                        )
-                    case "calendar":
-                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
-                    case "health":
-                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.health])
-                    case "seerr-requests":
-                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrAdmin])
-                    case "seerr-issue":
-                        pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrIssues])
-                    default:
-                        break
-                    }
-                } else {
-                    switch url.host?.lowercased() {
-                    case "torrents", "downloads":
-                        selectedTab = .downloads
-                        if let section = Self.downloadsSection(from: url) {
-                            downloadsNavigator.show(section)
-                        }
-                    case "calendar":
-                        selectedTab = .more
-                        morePath = [.calendar]
-                    case "health":
-                        selectedTab = .more
-                        morePath = [.health]
-                    case "seerr-requests":
-                        selectedTab = .more
-                        morePath = [.seerrAdmin]
-                    case "seerr-issue":
-                        selectedTab = .more
-                        morePath = [.seerrIssues]
-                    default:
-                        return
-                    }
-                }
-            default:
-                return
-            }
+            handleIncomingURL(url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NotificationConstants.pushDeepLinkNotification)) { notification in
+            // A tapped push routes through exactly the same handler as an external
+            // link, so the two can't drift apart.
+            guard let url = notification.object as? URL else { return }
+            handleIncomingURL(url)
         }
         .task(id: seerrProfilesSyncKey) {
             #if DEBUG
@@ -543,6 +488,73 @@ struct ContentView: View {
             Button("OK", role: .cancel) { }
         } message: { message in
             Text(message)
+        }
+    }
+
+    /// Single entry point for every URL that reaches the app — external links,
+    /// opened files, and tapped push notifications.
+    private func handleIncomingURL(_ url: URL) {
+        // NZBs arrive as a file the system hands us ("Open in Trawl" from Files
+        // or Safari's download tray), or as an http(s) link to a .nzb. Neither
+        // has a scheme of its own, so they're matched before the switch.
+        if let nzb = NZBDeepLink(openedURL: url) ?? NZBDeepLink(trawlURL: url) {
+            nzbDeepLink = nzb
+            return
+        }
+
+        switch url.scheme?.lowercased() {
+        case "magnet":
+            if appServices != nil {
+                magnetDeepLink = MagnetDeepLink(url: url.absoluteString)
+            } else {
+                pendingMagnetURL = url.absoluteString
+            }
+        case "trawl":
+            if shouldShowWelcomeScreen {
+                // Store deep link to be applied after welcome screen completes
+                switch url.host?.lowercased() {
+                case "torrents", "downloads":
+                    pendingDeepLink = PendingDeepLink(
+                        tab: .downloads,
+                        morePath: [],
+                        downloadsSection: Self.downloadsSection(from: url)
+                    )
+                case "calendar":
+                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.calendar])
+                case "health":
+                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.health])
+                case "seerr-requests":
+                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrAdmin])
+                case "seerr-issue":
+                    pendingDeepLink = PendingDeepLink(tab: .more, morePath: [.seerrIssues])
+                default:
+                    break
+                }
+            } else {
+                switch url.host?.lowercased() {
+                case "torrents", "downloads":
+                    selectedTab = .downloads
+                    if let section = Self.downloadsSection(from: url) {
+                        downloadsNavigator.show(section)
+                    }
+                case "calendar":
+                    selectedTab = .more
+                    morePath = [.calendar]
+                case "health":
+                    selectedTab = .more
+                    morePath = [.health]
+                case "seerr-requests":
+                    selectedTab = .more
+                    morePath = [.seerrAdmin]
+                case "seerr-issue":
+                    selectedTab = .more
+                    morePath = [.seerrIssues]
+                default:
+                    return
+                }
+            }
+        default:
+            return
         }
     }
 

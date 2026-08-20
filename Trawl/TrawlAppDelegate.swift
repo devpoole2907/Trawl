@@ -65,6 +65,26 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         completionHandler([.list, .badge])
     }
 
+    /// Handle a tapped notification. Without this the worker's routing data is inert —
+    /// the app has `trawl://` deep links, but nothing was ever wired to trigger them
+    /// from a push, so tapping a banner just opened the app on whatever tab it was on.
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {
+        defer { completionHandler() }
+
+        guard response.actionIdentifier == UNNotificationDefaultActionIdentifier else { return }
+
+        let userInfo = response.notification.request.content.userInfo
+        guard let link = Self.nestedNotificationValue(for: "deepLink", in: userInfo),
+              let url = URL(string: link.trimmingCharacters(in: .whitespacesAndNewlines)),
+              url.scheme?.lowercased() == "trawl" else {
+            return
+        }
+
+        Task { @MainActor in
+            NotificationCenter.default.post(name: NotificationConstants.pushDeepLinkNotification, object: url)
+        }
+    }
+
     /// Broadens "is this an error push?" beyond the explicit `style == "error"` flag so that
     /// Sonarr/Radarr/Prowlarr HEALTH notifications (indexer failures, etc.) don't render as green
     /// success banners.
