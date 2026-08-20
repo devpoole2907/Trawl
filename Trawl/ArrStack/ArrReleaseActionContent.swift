@@ -711,6 +711,14 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         self._releaseSort = State(initialValue: initialSort)
     }
 
+    private var torrentIndexers: [String] {
+        Array(Set(releases.filter { $0.indexerProtocol == .torrent }.compactMap(\.indexer))).sorted()
+    }
+
+    private var usenetIndexers: [String] {
+        Array(Set(releases.filter { $0.indexerProtocol == .usenet }.compactMap(\.indexer))).sorted()
+    }
+
     private var availableIndexers: [String] {
         Array(Set(releases.compactMap(\.indexer))).sorted()
     }
@@ -719,9 +727,17 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         Array(Set(releases.map(\.qualityName))).sorted()
     }
 
+    private func matchesIndexerFilter(_ release: ArrRelease) -> Bool {
+        switch release.indexerProtocol {
+        case .torrent: releaseSort.torrentIndexer.matches(indexer: release.indexer)
+        case .usenet: releaseSort.usenetIndexer.matches(indexer: release.indexer)
+        case .unknown, nil: true
+        }
+    }
+
     private var sortedFilteredReleases: [ArrRelease] {
         let filtered = releases.filter { release in
-            let matchesIndexer = releaseSort.indexer.isEmpty || releaseSort.indexer == release.indexer
+            let matchesIndexer = matchesIndexerFilter(release)
             let matchesQuality = releaseSort.quality.isEmpty || releaseSort.quality == release.qualityName
             let matchesApproved = !releaseSort.approvedOnly || release.approved == true
             let matchesSeasonPack = matchesSeasonPack(for: release)
@@ -1019,14 +1035,31 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             }
 
             if !availableIndexers.isEmpty {
-                Picker("Indexer", selection: $releaseSort.indexer) {
-                    Text("All Indexers").tag("")
-                    ForEach(availableIndexers, id: \.self) { indexer in
-                        Text(indexer).tag(indexer)
+                Menu {
+                    Picker("Torrents", selection: $releaseSort.torrentIndexer) {
+                        Text("All Indexers").tag(ArrReleaseIndexerFilter.all)
+                        Text("None").tag(ArrReleaseIndexerFilter.none)
+                        ForEach(torrentIndexers, id: \.self) { indexer in
+                            Text(indexer).tag(ArrReleaseIndexerFilter.named(indexer))
+                        }
                     }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("Torrents", systemImage: ArrIndexerProtocol.torrent.systemImage)
                 }
-                .pickerStyle(.inline)
-                .menuIndicator(.hidden)
+
+                Menu {
+                    Picker("Usenet", selection: $releaseSort.usenetIndexer) {
+                        Text("All Indexers").tag(ArrReleaseIndexerFilter.all)
+                        Text("None").tag(ArrReleaseIndexerFilter.none)
+                        ForEach(usenetIndexers, id: \.self) { indexer in
+                            Text(indexer).tag(ArrReleaseIndexerFilter.named(indexer))
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    Label("Usenet", systemImage: ArrIndexerProtocol.usenet.systemImage)
+                }
             }
 
             Toggle("Approved Only", isOn: $releaseSort.approvedOnly)
@@ -1048,7 +1081,8 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     }
 
     private func clearFilters() {
-        releaseSort.indexer = ""
+        releaseSort.torrentIndexer = .all
+        releaseSort.usenetIndexer = .all
         releaseSort.quality = ""
         releaseSort.approvedOnly = false
         releaseSort.seasonPack = .any

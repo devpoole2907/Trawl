@@ -422,7 +422,7 @@ struct ArrReleaseSortTests {
         #expect(sort.isFiltered == false)
         #expect(sort.isActive == false)
 
-        sort.indexer = "MyIndexer"
+        sort.torrentIndexer = .named("MyIndexer")
         #expect(sort.isFiltered == true)
         #expect(sort.isActive == true)
 
@@ -436,7 +436,8 @@ struct ArrReleaseSortTests {
         var sort = ArrReleaseSort()
         sort.option = .age
         sort.isAscending = true
-        sort.indexer = "NZBGeek"
+        sort.torrentIndexer = .named("NZBGeek")
+        sort.usenetIndexer = .none
         sort.quality = "720p"
         sort.approvedOnly = true
         sort.seasonPack = .season
@@ -446,7 +447,8 @@ struct ArrReleaseSortTests {
 
         #expect(decoded.option == .age)
         #expect(decoded.isAscending == true)
-        #expect(decoded.indexer == "NZBGeek")
+        #expect(decoded.torrentIndexer == .named("NZBGeek"))
+        #expect(decoded.usenetIndexer == .none)
         #expect(decoded.quality == "720p")
         #expect(decoded.approvedOnly == true)
         #expect(decoded.seasonPack == .season)

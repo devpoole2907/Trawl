@@ -510,18 +510,70 @@ enum ArrSeasonPackFilter: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
+/// An independent, per-protocol indexer selection for the interactive search
+/// browser. Torrent and Usenet each get their own, so a user can exclude one
+/// protocol outright (`.none`) while still picking a specific indexer from the
+/// other — something a single flat indexer string could never express.
+enum ArrReleaseIndexerFilter: Hashable, Sendable {
+    /// Show every indexer of this protocol.
+    case all
+    /// Show nothing from this protocol.
+    case none
+    /// Show only this indexer.
+    case named(String)
+
+    func matches(indexer name: String?) -> Bool {
+        switch self {
+        case .all: return true
+        case .none: return false
+        case .named(let selected): return name == selected
+        }
+    }
+}
+
+extension ArrReleaseIndexerFilter: Codable {
+    private enum Kind: String, Codable {
+        case all, none, named
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case kind, name
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        switch try container.decode(Kind.self, forKey: .kind) {
+        case .all: self = .all
+        case .none: self = .none
+        case .named: self = .named(try container.decode(String.self, forKey: .name))
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .all: try container.encode(Kind.all, forKey: .kind)
+        case .none: try container.encode(Kind.none, forKey: .kind)
+        case .named(let name):
+            try container.encode(Kind.named, forKey: .kind)
+            try container.encode(name, forKey: .name)
+        }
+    }
+}
+
 // MARK: - Release Sort State
 
 struct ArrReleaseSort: RawRepresentable, Codable {
     var option: ArrReleaseSortKey = .default
     var isAscending: Bool = false
-    var indexer: String = ""   // "" = all indexers
+    var torrentIndexer: ArrReleaseIndexerFilter = .all
+    var usenetIndexer: ArrReleaseIndexerFilter = .all
     var quality: String = ""   // "" = all qualities
     var approvedOnly: Bool = false
     var seasonPack: ArrSeasonPackFilter = .any
 
     var isFiltered: Bool {
-        !indexer.isEmpty || !quality.isEmpty || approvedOnly || seasonPack != .any
+        torrentIndexer != .all || usenetIndexer != .all || !quality.isEmpty || approvedOnly || seasonPack != .any
     }
 
     var isActive: Bool {
@@ -547,14 +599,15 @@ struct ArrReleaseSort: RawRepresentable, Codable {
     // stdlib's RawRepresentable path, which encodes `rawValue` — and `rawValue`
     // JSON-encodes self, recursing until the process stack-overflows.
     private enum CodingKeys: String, CodingKey {
-        case option, isAscending, indexer, quality, approvedOnly, seasonPack
+        case option, isAscending, torrentIndexer, usenetIndexer, quality, approvedOnly, seasonPack
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         option = try container.decodeIfPresent(ArrReleaseSortKey.self, forKey: .option) ?? .default
         isAscending = try container.decodeIfPresent(Bool.self, forKey: .isAscending) ?? false
-        indexer = try container.decodeIfPresent(String.self, forKey: .indexer) ?? ""
+        torrentIndexer = try container.decodeIfPresent(ArrReleaseIndexerFilter.self, forKey: .torrentIndexer) ?? .all
+        usenetIndexer = try container.decodeIfPresent(ArrReleaseIndexerFilter.self, forKey: .usenetIndexer) ?? .all
         quality = try container.decodeIfPresent(String.self, forKey: .quality) ?? ""
         approvedOnly = try container.decodeIfPresent(Bool.self, forKey: .approvedOnly) ?? false
         seasonPack = try container.decodeIfPresent(ArrSeasonPackFilter.self, forKey: .seasonPack) ?? .any
@@ -564,7 +617,8 @@ struct ArrReleaseSort: RawRepresentable, Codable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(option, forKey: .option)
         try container.encode(isAscending, forKey: .isAscending)
-        try container.encode(indexer, forKey: .indexer)
+        try container.encode(torrentIndexer, forKey: .torrentIndexer)
+        try container.encode(usenetIndexer, forKey: .usenetIndexer)
         try container.encode(quality, forKey: .quality)
         try container.encode(approvedOnly, forKey: .approvedOnly)
         try container.encode(seasonPack, forKey: .seasonPack)
@@ -648,6 +702,14 @@ nonisolated struct ArrRelease: Codable, Identifiable, Sendable {
 
     var protocolName: String {
         protocol_?.uppercased() ?? "UNKNOWN"
+    }
+
+    var indexerProtocol: ArrIndexerProtocol? {
+        switch protocol_?.lowercased() {
+        case "torrent": .torrent
+        case "usenet": .usenet
+        default: nil
+        }
     }
 
     var ageDescription: String? {

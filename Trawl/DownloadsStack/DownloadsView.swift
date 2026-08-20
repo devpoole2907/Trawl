@@ -75,13 +75,20 @@ struct DownloadsView: View {
                             withAnimation { selectedSection = newSection }
                         }
                     ),
-                    items: DownloadSection.allCases.map(\.segmentBarItem),
+                    items: visibleSections.map(\.segmentBarItem),
                     searchText: $viewModel.searchText,
                     searchHint: "Search downloads",
                     isSearchExpanded: $isSearchExpanded,
                     searchPlacement: .leading,
                     alignment: .leading
                 )
+            }
+            .onChange(of: hasQBittorrentServer) { _, _ in
+                // Removing the last torrent client while sitting on Seeding would otherwise
+                // strand the user on a segment that no longer has a tab.
+                if !visibleSections.contains(selectedSection) {
+                    withAnimation { selectedSection = .active }
+                }
             }
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
@@ -647,6 +654,14 @@ struct DownloadsView: View {
     private var navigationSubtitle: String {
         let count = items.count
         return count == 1 ? "1 item" : "\(count) items"
+    }
+
+    /// Seeding is a torrent-only concept — a Usenet job never seeds — so the segment is
+    /// dropped entirely when no torrent client is configured rather than sitting there
+    /// permanently empty.
+    private var visibleSections: [DownloadSection] {
+        guard !hasQBittorrentServer else { return DownloadSection.allCases }
+        return DownloadSection.allCases.filter { $0 != .seeding }
     }
 
     private var hasQBittorrentServer: Bool {
