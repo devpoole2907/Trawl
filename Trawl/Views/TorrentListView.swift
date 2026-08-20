@@ -479,6 +479,9 @@ struct TorrentListView: View {
         }
     }
 
+    /// Trawl is single-instance for qBittorrent now, so no new install can reach this.
+    /// Kept as an escape hatch for anyone still carrying multiple profiles from an
+    /// older build — otherwise their second server would be unreachable.
     private var shouldShowServerSwitcher: Bool {
         !editMode.isEditing && servers.count > 1
     }

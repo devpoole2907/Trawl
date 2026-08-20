@@ -17,7 +17,7 @@ struct ServerListView: View {
                 ContentUnavailableView {
                     Label("No Servers", systemImage: "server.rack")
                 } description: {
-                    Text("Add a qBittorrent server to switch between multiple instances.")
+                    Text("Connect your qBittorrent server to manage torrents in Trawl.")
                 } actions: {
                     Button("Add Server") {
                         showAddSheet = true
@@ -48,16 +48,20 @@ struct ServerListView: View {
                 }
             }
         }
-        .navigationTitle("Servers")
+        .navigationTitle("qBittorrent Server")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showAddSheet = true
-                } label: {
-                    Label("Add Server", systemImage: "plus")
+            // Trawl is single-instance for qBittorrent, so adding is only offered
+            // while nothing is configured.
+            if servers.isEmpty {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        showAddSheet = true
+                    } label: {
+                        Label("Add Server", systemImage: "plus")
+                    }
                 }
             }
         }

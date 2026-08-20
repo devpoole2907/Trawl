@@ -30,11 +30,15 @@ struct ArrDownloadClientEditorSheet: View {
     init(
         serviceType: ArrServiceType,
         existingClient: ArrDownloadClient? = nil,
+        initialImplementation: String? = nil,
         onComplete: @escaping (ArrDownloadClient) -> Void
     ) {
         self.serviceType = serviceType
         self.existingClient = existingClient
         self.onComplete = onComplete
+        // The add menu already asked which client the user wants, so open on it.
+        // loadSchema() keeps this selection as long as the Arr actually offers it.
+        _selectedImplementation = State(initialValue: initialImplementation ?? "")
     }
 
     #if DEBUG

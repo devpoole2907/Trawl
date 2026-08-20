@@ -45,21 +45,22 @@ struct DownloadClientManagementView: View {
                 }
             }
 
-            // qBittorrent is multi-instance, so its add row is always available.
-            // SABnzbd is deliberately single-instance — its row only appears
-            // while no profile exists.
+            // Both clients are single-instance for now, so each add row only appears
+            // while no profile of that kind exists.
             Section {
-                Button {
-                    showQBittorrentSetup = true
-                } label: {
-                    NavigationMenuRow(
-                        icon: "plus.circle.fill",
-                        color: ServiceIdentity.qbittorrent.brandColor,
-                        title: qbittorrentServers.isEmpty ? "Add qBittorrent" : "Add Another qBittorrent",
-                        subtitle: "Connect a torrent client"
-                    )
+                if qbittorrentServers.isEmpty {
+                    Button {
+                        showQBittorrentSetup = true
+                    } label: {
+                        NavigationMenuRow(
+                            icon: "plus.circle.fill",
+                            color: ServiceIdentity.qbittorrent.brandColor,
+                            title: "Add qBittorrent",
+                            subtitle: "Connect a torrent client"
+                        )
+                    }
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
 
                 if sabnzbdProfiles.isEmpty {
                     Button {

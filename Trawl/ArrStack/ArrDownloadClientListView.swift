@@ -13,7 +13,7 @@ struct ArrDownloadClientListView: View {
     @State private var clientBeingEdited: ArrDownloadClient?
     @State private var isTogglingID: Int?
     @State private var isTestingID: Int?
-    @State private var showAddSheet = false
+    @State private var pendingAddClient: PendingAddClient?
     @State private var showSettings = false
     @State private var reachability: [Int: Bool] = [:]
     @State private var isCheckingIDs: Set<Int> = []
@@ -113,16 +113,26 @@ struct ArrDownloadClientListView: View {
         .toolbar {
             if supportsDownloadClients {
                 ToolbarItem(placement: platformTopBarTrailingPlacement) {
-                    Button {
-                        showAddSheet = true
+                    Menu {
+                        // Trawl integrates with qBittorrent and SABnzbd directly, so these are
+                        // the two it can prefill host/credentials for. The sheet's own Client
+                        // Type picker still exposes every implementation the Arr offers.
+                        ForEach(PendingAddClient.allCases) { choice in
+                            Button(choice.title, systemImage: choice.icon) {
+                                pendingAddClient = choice
+                            }
+                        }
                     } label: {
                         Label("Add Download Client", systemImage: "plus")
                     }
                 }
             }
         }
-        .sheet(isPresented: supportsDownloadClients ? $showAddSheet : .constant(false)) {
-            ArrDownloadClientEditorSheet(serviceType: serviceType) { saved in
+        .sheet(item: supportsDownloadClients ? $pendingAddClient : .constant(nil)) { choice in
+            ArrDownloadClientEditorSheet(
+                serviceType: serviceType,
+                initialImplementation: choice.implementation
+            ) { saved in
                 clients.append(saved)
                 clients.sort { ($0.name ?? "") < ($1.name ?? "") }
                 checkReachability(for: saved)
@@ -340,7 +350,37 @@ struct ArrDownloadClientListView: View {
 
         Section {
         } footer: {
-            Text("Only qBittorrent is currently supported when adding new download clients through Trawl.")
+            Text("Trawl can prefill connection details for qBittorrent and SABnzbd. Other client types can still be added, but you'll need to enter their host and credentials yourself.")
+        }
+    }
+
+    /// The two clients Trawl itself integrates with, offered up front by the add menu.
+    private enum PendingAddClient: String, CaseIterable, Identifiable {
+        case qbittorrent
+        case sabnzbd
+
+        var id: String { rawValue }
+
+        /// Must match the `implementation` value Sonarr/Radarr return in their schema.
+        var implementation: String {
+            switch self {
+            case .qbittorrent: "QBittorrent"
+            case .sabnzbd: "Sabnzbd"
+            }
+        }
+
+        var title: String {
+            switch self {
+            case .qbittorrent: "qBittorrent"
+            case .sabnzbd: "SABnzbd"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .qbittorrent: "arrow.down.circle"
+            case .sabnzbd: "newspaper"
+            }
         }
     }
 

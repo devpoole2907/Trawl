@@ -53,6 +53,15 @@ struct DownloadsView: View {
 
     var body: some View {
         content
+            // Applied before .safeAreaInset so the RefreshAction stays scoped to the list.
+            // Attached after the inset it also propagates into the segment bar, which then
+            // becomes pull-to-refreshable itself.
+            .refreshable {
+                async let arrRefresh: Void = viewModel.refresh(serviceManager: arrServiceManager)
+                async let torrentRefresh: Void = syncService.refreshNow()
+                async let sabRefresh: Void = sabnzbdServiceManager.refresh()
+                _ = await (arrRefresh, torrentRefresh, sabRefresh)
+            }
             .onChange(of: downloadsNavigator?.requestedSection) { _, requested in
                 applyRequestedSection(requested)
             }
@@ -164,12 +173,6 @@ struct DownloadsView: View {
                 )
                 arrQueueRemovalActions(item: target.item, source: target.source)
                 Button("Cancel", role: .cancel) { queueActionTarget = nil }
-            }
-            .refreshable {
-                async let arrRefresh: Void = viewModel.refresh(serviceManager: arrServiceManager)
-                async let torrentRefresh: Void = syncService.refreshNow()
-                async let sabRefresh: Void = sabnzbdServiceManager.refresh()
-                _ = await (arrRefresh, torrentRefresh, sabRefresh)
             }
     }
 

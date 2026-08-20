@@ -426,7 +426,7 @@ struct QBittorrentSettingsView: View {
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             } else {
-                                Text("No qBittorrent servers configured")
+                                Text("No qBittorrent server configured")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
