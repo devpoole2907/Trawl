@@ -1729,7 +1729,7 @@ private enum MoreSearchIndex {
                 title: "Download Clients",
                 subtitle: "Sonarr and Radarr download clients",
                 category: "Integrations",
-                keywords: ["qbittorrent", "client", "download", "sonarr", "radarr"]
+                keywords: ["qbittorrent", "sabnzbd", "sab", "usenet", "nzb", "newsgroup", "torrent", "client", "download", "sonarr", "radarr"]
             ),
             .init(
                 id: "sonarr-download-clients",
@@ -1739,7 +1739,7 @@ private enum MoreSearchIndex {
                 title: "Sonarr Download Clients",
                 subtitle: "Torrent and Usenet clients for series grabs",
                 category: "Integrations",
-                keywords: ["sonarr", "download", "clients", "qbittorrent", "series"]
+                keywords: ["sonarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "series"]
             ),
             .init(
                 id: "radarr-download-clients",
@@ -1749,7 +1749,7 @@ private enum MoreSearchIndex {
                 title: "Radarr Download Clients",
                 subtitle: "Torrent and Usenet clients for movie grabs",
                 category: "Integrations",
-                keywords: ["radarr", "download", "clients", "qbittorrent", "movies"]
+                keywords: ["radarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "movies"]
             ),
             .init(
                 id: "remote-path-mappings",
@@ -2039,7 +2039,7 @@ private enum MoreSearchIndex {
                 title: "SABnzbd Settings",
                 subtitle: "Usenet download client connection and API key",
                 category: "Settings",
-                keywords: ["sabnzbd", "usenet", "nzb", "server", "api", "connection", "downloads"]
+                keywords: ["sabnzbd", "sab", "usenet", "nzb", "newsgroup", "news server", "queue", "server", "api", "connection", "downloads"]
             ),
             .init(
                 id: "qbittorrent-settings",
