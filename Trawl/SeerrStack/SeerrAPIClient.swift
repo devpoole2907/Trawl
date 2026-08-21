@@ -212,13 +212,13 @@ actor SeerrAPIClient {
         try await deleteVoid("/api/v1/request/\(id)")
     }
 
-    func discoverTrendingMovies() async throws -> [SeerrDiscoverItem] {
-        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/movies/trending")
-        return response.results
-    }
-
-    func discoverTrendingTV() async throws -> [SeerrDiscoverItem] {
-        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/tv/trending")
+    /// One combined trending feed, tagged per item.
+    ///
+    /// `/discover/movies/trending` and `/discover/tv/trending` do not exist —
+    /// both 404 on 3.3.0. The per-type calls that used to live here always
+    /// failed, and the caller quietly fell back to hitting TMDb directly.
+    func discoverTrending() async throws -> [SeerrDiscoverItem] {
+        let response: SeerrPagedResponse<SeerrDiscoverItem> = try await get("/api/v1/discover/trending")
         return response.results
     }
 

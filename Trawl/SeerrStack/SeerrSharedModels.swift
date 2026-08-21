@@ -297,15 +297,23 @@ nonisolated struct SeerrDiscoverItem: Codable, Sendable {
     let releaseDate: String?
     let firstAirDate: String?
     let genreIds: [Int]?
+    /// `/discover/trending` returns movies and series mixed together, tagged by
+    /// this field, so the caller doesn't have to know which list it asked for.
+    let mediaType: String?
 
+    /// Seerr re-serialises TMDb in camelCase rather than passing TMDb's own
+    /// snake_case through. These keys were snake_case, so every field but the
+    /// handful that happen to match decoded as nil — confirmed against a live
+    /// 3.3.0 server. Same trap as the cast payload.
     enum CodingKeys: String, CodingKey {
         case id, title, name, overview
-        case posterPath = "poster_path"
-        case backdropPath = "backdrop_path"
-        case voteAverage = "vote_average"
-        case releaseDate = "release_date"
-        case firstAirDate = "first_air_date"
-        case genreIds = "genre_ids"
+        case posterPath
+        case backdropPath
+        case voteAverage
+        case releaseDate
+        case firstAirDate
+        case genreIds
+        case mediaType
     }
 
     func toTMDbItem(mediaType: String) -> TMDbItem {
@@ -394,8 +402,12 @@ nonisolated enum SeerrRequestBadgeStatus: Sendable {
     }
 }
 
-/// Mirrors the `filter` values Seerr's `/api/v1/request` accepts. Pending leads
-/// because it's the only one that needs a decision.
+/// Mirrors the `filter` values Seerr's `/api/v1/request` accepts, each confirmed
+/// against a live 3.3.0 server. Pending leads because it's the only one that
+/// needs a decision.
+///
+/// `declined` is deliberately absent: it is a request *status* but not a valid
+/// filter, and passing it returns 400 rather than an empty list.
 enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     case all = "All"
     case pending = "Pending"
@@ -404,6 +416,7 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     case available = "Available"
     case unavailable = "Unavailable"
     case failed = "Failed"
+    case completed = "Completed"
 
     var id: String { rawValue }
 
@@ -420,6 +433,7 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
         case .available: "available"
         case .unavailable: "unavailable"
         case .failed: "failed"
+        case .completed: "completed"
         }
     }
 }

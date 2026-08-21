@@ -268,11 +268,17 @@ final class SearchViewModel {
 
         if let seerrClient = seerrServiceManager.activeClient, seerrServiceManager.isConnected {
             do {
-                async let moviesTask = seerrClient.discoverTrendingMovies()
-                async let tvTask = seerrClient.discoverTrendingTV()
-                let (rawMovies, rawTV) = try await (moviesTask, tvTask)
-                let movies = rawMovies.map { $0.toTMDbItem(mediaType: "movie") }
-                let tv = rawTV.map { $0.toTMDbItem(mediaType: "tv") }
+                // One combined feed, split on the mediaType each item carries.
+                let trending = try await seerrClient.discoverTrending()
+                let movies = trending
+                    .filter { $0.mediaType == "movie" }
+                    .map { $0.toTMDbItem(mediaType: "movie") }
+                let tv = trending
+                    .filter { $0.mediaType == "tv" }
+                    .map { $0.toTMDbItem(mediaType: "tv") }
+                // A feed that decoded but split into nothing means the shape moved
+                // again; fall through to TMDb rather than showing empty shelves.
+                guard !movies.isEmpty || !tv.isEmpty else { throw SeerrAPIError.invalidResponse }
                 trendingMovies = movies
                 trendingTV = tv
                 await resolveTrendingMatches(movies: movies, tv: tv, arrServiceManager: arrServiceManager)
