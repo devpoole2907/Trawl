@@ -235,6 +235,18 @@ final class SABnzbdServiceManager {
         }
     }
 
+    func saveNewsServer(_ server: SABnzbdNewsServer, originalName: String?) async throws {
+        guard let client = activeClient else { return }
+        try await client.saveNewsServer(server, originalName: originalName)
+        await refreshNewsServers()
+    }
+
+    func deleteNewsServer(name: String) async throws {
+        guard let client = activeClient else { return }
+        try await client.deleteNewsServer(name: name)
+        await refreshNewsServers()
+    }
+
     /// Drops the cached credentials once the editor is gone.
     func clearNewsServers() {
         newsServers = []

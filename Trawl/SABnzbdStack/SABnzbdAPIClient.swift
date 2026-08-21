@@ -92,6 +92,67 @@ actor SABnzbdAPIClient {
         return envelope.config.servers ?? []
     }
 
+    /// Creates or updates one news server.
+    ///
+    /// `originalName` is the name SABnzbd currently knows the server by; it goes
+    /// out as `keyword`, which is how `set_config` addresses an existing entry,
+    /// while `name` carries the (possibly new) name so a rename works. For a new
+    /// server the two are the same. Booleans go out as 1/0 because that is what
+    /// SABnzbd's config parser accepts on the way in, regardless of what shape it
+    /// hands back on the way out.
+    func saveNewsServer(_ server: SABnzbdNewsServer, originalName: String?) async throws {
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "section", value: "servers"),
+            URLQueryItem(name: "keyword", value: originalName ?? server.name),
+            URLQueryItem(name: "name", value: server.name),
+            URLQueryItem(name: "host", value: server.host),
+            URLQueryItem(name: "port", value: String(server.port)),
+            URLQueryItem(name: "connections", value: String(server.connections)),
+            URLQueryItem(name: "ssl", value: server.ssl ? "1" : "0"),
+            URLQueryItem(name: "enable", value: server.enabled ? "1" : "0"),
+            URLQueryItem(name: "optional", value: server.optional ? "1" : "0")
+        ]
+
+        if let displayName = server.displayName {
+            items.append(URLQueryItem(name: "displayname", value: displayName))
+        }
+        if let username = server.username {
+            items.append(URLQueryItem(name: "username", value: username))
+        }
+        if let password = server.password {
+            items.append(URLQueryItem(name: "password", value: password))
+        }
+        if let retention = server.retention {
+            items.append(URLQueryItem(name: "retention", value: String(retention)))
+        }
+        if let timeout = server.timeout {
+            items.append(URLQueryItem(name: "timeout", value: String(timeout)))
+        }
+        if let priority = server.priority {
+            items.append(URLQueryItem(name: "priority", value: String(priority)))
+        }
+        if let sslVerify = server.sslVerify {
+            items.append(URLQueryItem(name: "ssl_verify", value: String(sslVerify)))
+        }
+        if let notes = server.notes {
+            items.append(URLQueryItem(name: "notes", value: notes))
+        }
+
+        // set_config echoes the saved section rather than a plain status envelope,
+        // so a decode into the command shape would fail on a successful write.
+        _ = try await transport.getData(apiPath, queryItems: queryItems(mode: "set_config", name: nil, extra: items))
+    }
+
+    func deleteNewsServer(name: String) async throws {
+        try await performCommand(
+            mode: "del_config",
+            extra: [
+                URLQueryItem(name: "section", value: "servers"),
+                URLQueryItem(name: "keyword", value: name)
+            ]
+        )
+    }
+
     /// Drops SABnzbd's own "server default" sentinels; Trawl renders that choice itself.
     private nonisolated static func withoutServerDefault(_ values: [String]) -> [String] {
         values

@@ -2,11 +2,22 @@ import SwiftUI
 
 /// SABnzbd's Usenet servers, read from `get_config&section=servers`.
 ///
-/// Read-only for now: creating and editing these means handling a Usenet password
-/// in a form field, which is a deliberate second step rather than something to
-/// inherit by accident.
+/// Editing writes back through `set_config&section=servers`. The payload carries
+/// credentials, so the list is loaded on demand and dropped again on disappear
+/// rather than living in the poll.
 struct SABnzbdNewsServersView: View {
     @Environment(SABnzbdServiceManager.self) private var serviceManager
+
+    @State private var editorTarget: EditorTarget?
+    @State private var serverPendingDeletion: SABnzbdNewsServer?
+    @State private var actionError: String?
+
+    /// `server == nil` is the add case. Wrapped in an Identifiable box so one
+    /// `.sheet(item:)` covers both add and edit.
+    private struct EditorTarget: Identifiable {
+        let server: SABnzbdNewsServer?
+        var id: String { server?.id ?? "new-server" }
+    }
 
     private var servers: [SABnzbdNewsServer] { serviceManager.newsServers }
 
@@ -35,17 +46,32 @@ struct SABnzbdNewsServersView: View {
                         Text("SABnzbd has no news servers configured.")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
+                        Button("Add Server", systemImage: "plus") {
+                            editorTarget = EditorTarget(server: nil)
+                        }
                     }
                 }
             } else {
                 Section {
                     ForEach(servers) { server in
-                        serverRow(server)
+                        Button {
+                            editorTarget = EditorTarget(server: server)
+                        } label: {
+                            serverRow(server)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button("Delete", systemImage: "trash", role: .destructive) {
+                                serverPendingDeletion = server
+                            }
+                        }
                     }
                 } header: {
                     Text(servers.count == 1 ? "1 Server" : "\(servers.count) Servers")
                 } footer: {
-                    Text("Servers are configured in SABnzbd itself. Trawl shows them here so you can check what's set without leaving the app.")
+                    Text("Changes are written straight to SABnzbd's own configuration.")
                 }
             }
         }
@@ -59,9 +85,51 @@ struct SABnzbdNewsServersView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    editorTarget = EditorTarget(server: nil)
+                } label: {
+                    Label("Add Server", systemImage: "plus")
+                }
+            }
+        }
         .refreshable { await serviceManager.refreshNewsServers() }
         .task { await serviceManager.refreshNewsServers() }
         .onDisappear { serviceManager.clearNewsServers() }
+        .sheet(item: $editorTarget) { target in
+            SABnzbdNewsServerEditorSheet(existingServer: target.server) {
+                editorTarget = nil
+            }
+            .environment(serviceManager)
+        }
+        .alert(
+            "Delete Server?",
+            isPresented: Binding(
+                get: { serverPendingDeletion != nil },
+                set: { if !$0 { serverPendingDeletion = nil } }
+            )
+        ) {
+            Button("Delete", role: .destructive) {
+                guard let server = serverPendingDeletion else { return }
+                serverPendingDeletion = nil
+                Task { await delete(server) }
+            }
+            Button("Cancel", role: .cancel) { serverPendingDeletion = nil }
+        } message: {
+            Text("This removes the server from SABnzbd's configuration.")
+        }
+        .alert(
+            "Couldn't Delete Server",
+            isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { actionError = nil }
+        } message: {
+            Text(actionError ?? "")
+        }
     }
 
     private func serverRow(_ server: SABnzbdNewsServer) -> some View {
@@ -94,6 +162,14 @@ struct SABnzbdNewsServersView: View {
             }
         }
         .padding(.vertical, 2)
+    }
+
+    private func delete(_ server: SABnzbdNewsServer) async {
+        do {
+            try await serviceManager.deleteNewsServer(name: server.name)
+        } catch {
+            actionError = error.localizedDescription
+        }
     }
 
     private func chips(for server: SABnzbdNewsServer) -> [String] {
