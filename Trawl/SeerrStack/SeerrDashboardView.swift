@@ -61,7 +61,16 @@ struct SeerrDashboardView: View {
             } else {
                 Section {
                     ForEach(filteredRequests) { item in
-                        SeerrRequestRow(item: item)
+                        NavigationLink {
+                            SeerrRequestDetailView(
+                                request: item.request,
+                                onApprove: { Task { await viewModel.approve(item) } },
+                                onDecline: { Task { await viewModel.decline(item) } },
+                                onDelete: { Task { await viewModel.delete(item) } }
+                            )
+                        } label: {
+                            SeerrRequestRow(item: item)
+                        }
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
                                     Button {

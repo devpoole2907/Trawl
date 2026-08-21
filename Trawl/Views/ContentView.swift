@@ -544,8 +544,11 @@ struct ContentView: View {
                     selectedTab = .more
                     morePath = [.health]
                 case "seerr-requests":
-                    selectedTab = .more
-                    morePath = [.seerrAdmin]
+                    // A pending-request push exists to get a decision, so it opens
+                    // the notification sheet's Pending Approval section rather than
+                    // the management list three levels into More. Browsing every
+                    // request is a different intent and still lives there.
+                    inAppNotificationCenter.showRecentNotifications()
                 case "seerr-issue":
                     selectedTab = .more
                     morePath = [.seerrIssues]

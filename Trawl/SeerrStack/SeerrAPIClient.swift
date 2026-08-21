@@ -227,6 +227,13 @@ actor SeerrAPIClient {
         return try await get(path)
     }
 
+    /// Same endpoints as `getMediaSummary`, decoded in full. Kept separate so the
+    /// list's lightweight enrichment isn't paying to decode cast and genres.
+    func getMediaDetail(tmdbId: Int, mediaType: String) async throws -> SeerrMediaDetail {
+        let path = mediaType == "tv" ? "/api/v1/tv/\(tmdbId)" : "/api/v1/movie/\(tmdbId)"
+        return try await get(path)
+    }
+
     func getJobs() async throws -> [SeerrJob] {
         try await get("/api/v1/settings/jobs")
     }

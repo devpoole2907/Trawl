@@ -18,6 +18,7 @@ struct NotificationTabBarAccessory: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
 
     /// Downloads that need a human, using the exact rule the Downloads Issues
     /// segment renders — see `DownloadsViewModel.attentionItems(…)`.
@@ -31,6 +32,11 @@ struct NotificationTabBarAccessory: View {
     }
 
     private var attentionCount: Int { attentionItems.count }
+
+    /// Requests waiting on a decision. Deliberately kept apart from `unreadCount`:
+    /// this is standing state, not an event. Folding it into "unread" would leave a
+    /// badge that never clears while a request sits there, which reads as broken.
+    private var pendingApprovalCount: Int { seerrServiceManager.pendingRequests.count }
 
     private var latestNotification: NotificationLogEntry? {
         inAppNotificationCenter.recentNotifications.first
@@ -60,6 +66,11 @@ struct NotificationTabBarAccessory: View {
                 ? "1 download needs attention"
                 : "\(attentionCount) downloads need attention"
         }
+        if pendingApprovalCount > 0 {
+            return pendingApprovalCount == 1
+                ? "1 request awaiting approval"
+                : "\(pendingApprovalCount) requests awaiting approval"
+        }
         if runningImportJobs.count > 1 {
             return "Importing \(runningImportJobs.count) jobs"
         }
@@ -78,6 +89,9 @@ struct NotificationTabBarAccessory: View {
             return attentionCount == 1
                 ? failure.attentionDetail
                 : "\(failure.attentionTitle) · and \(attentionCount - 1) more"
+        }
+        if pendingApprovalCount > 0 {
+            return "Swipe up to approve or decline"
         }
         if runningImportJobs.count > 1 {
             let services = Set(runningImportJobs.map(\.serviceTitle)).sorted().joined(separator: " · ")
@@ -101,6 +115,10 @@ struct NotificationTabBarAccessory: View {
         if attentionCount > 0 {
             let word = attentionCount == 1 ? "download needs" : "downloads need"
             return "\(attentionCount) \(word) attention"
+        }
+        if pendingApprovalCount > 0 {
+            let word = pendingApprovalCount == 1 ? "request is" : "requests are"
+            return "\(pendingApprovalCount) \(word) awaiting approval"
         }
         if !runningImportJobs.isEmpty {
             let count = runningImportJobs.count
@@ -137,6 +155,14 @@ struct NotificationTabBarAccessory: View {
         .simultaneousGesture(swipeUpGesture)
         .accessibilityLabel("Notifications")
         .accessibilityValue(notificationAccessibilityValue)
+        .task {
+            // Slow cadence on purpose. Approvals arrive by push, and this is only
+            // here so the count is right when the app has been sitting open.
+            while !Task.isCancelled {
+                await seerrServiceManager.refreshPendingRequests()
+                try? await Task.sleep(for: .seconds(60))
+            }
+        }
     }
 
     private var swipeUpGesture: some Gesture {
@@ -155,6 +181,11 @@ struct NotificationTabBarAccessory: View {
             return attentionCount == 1
                 ? "1 download needs attention"
                 : "\(attentionCount) downloads need attention"
+        }
+        if pendingApprovalCount > 0 {
+            return pendingApprovalCount == 1
+                ? "1 request awaiting approval"
+                : "\(pendingApprovalCount) requests awaiting approval"
         }
         if runningImportJobs.count > 1 {
             return "Importing \(runningImportJobs.count) jobs"
@@ -232,13 +263,18 @@ struct NotificationTabBarAccessory: View {
 
     /// Warning orange while something is failing, otherwise the usual accent tint.
     private var iconTint: AnyShapeStyle {
-        attentionCount > 0 ? AnyShapeStyle(Color.orange) : AnyShapeStyle(.tint)
+        if attentionCount > 0 { return AnyShapeStyle(Color.orange) }
+        if pendingApprovalCount > 0 { return AnyShapeStyle(ServiceIdentity.seerr.brandColor) }
+        return AnyShapeStyle(.tint)
     }
 
     private var notificationIcon: some View {
         Group {
             if attentionCount > 0 {
                 Image(systemName: "exclamationmark.triangle.fill")
+                    .symbolRenderingMode(.hierarchical)
+            } else if pendingApprovalCount > 0 {
+                Image(systemName: "checkmark.circle.badge.questionmark.fill")
                     .symbolRenderingMode(.hierarchical)
             } else if inAppNotificationCenter.hasRunningImportJobs {
                 Image(systemName: "tray.and.arrow.down.fill")
@@ -258,6 +294,17 @@ struct NotificationTabBarAccessory: View {
                     .padding(.horizontal, 5)
                     .frame(minWidth: 18, minHeight: 18)
                     .background(.orange, in: Capsule())
+                    .offset(x: 10, y: -10)
+                    .accessibilityHidden(true)
+            } else if pendingApprovalCount > 0 {
+                Text(pendingApprovalCount > 99 ? "99+" : "\(pendingApprovalCount)")
+                    .font(.caption2.weight(.bold))
+                    .foregroundStyle(.white)
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
+                    .padding(.horizontal, 5)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(ServiceIdentity.seerr.brandColor, in: Capsule())
                     .offset(x: 10, y: -10)
                     .accessibilityHidden(true)
             } else if inAppNotificationCenter.hasRunningImportJobs {

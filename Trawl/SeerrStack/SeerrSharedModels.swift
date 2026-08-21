@@ -146,6 +146,110 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
     }
 }
 
+/// The full detail Seerr returns from `/api/v1/movie/{id}` and `/api/v1/tv/{id}`.
+/// `SeerrMediaSummary` decodes the same payload but keeps only a title and poster,
+/// which is enough to label a row and nowhere near enough to judge a request on.
+/// Everything is optional: the two endpoints share a shape only loosely, and a
+/// missing field should thin the screen out rather than fail the decode.
+nonisolated struct SeerrMediaDetail: Codable, Sendable {
+    let id: Int?
+    let title: String?
+    let name: String?
+    let originalTitle: String?
+    let originalName: String?
+    let tagline: String?
+    let overview: String?
+    let posterPath: String?
+    let backdropPath: String?
+    let releaseDate: String?
+    let firstAirDate: String?
+    let runtime: Int?
+    let episodeRunTime: [Int]?
+    let numberOfSeasons: Int?
+    let numberOfEpisodes: Int?
+    let voteAverage: Double?
+    let genres: [SeerrGenre]?
+    let credits: SeerrCredits?
+
+    var displayTitle: String {
+        title ?? name ?? originalTitle ?? originalName ?? id.map { "TMDb \($0)" } ?? "Unknown Media"
+    }
+
+    var yearText: String? {
+        let dateText = releaseDate ?? firstAirDate
+        guard let dateText, dateText.count >= 4 else { return nil }
+        return String(dateText.prefix(4))
+    }
+
+    var posterURL: URL? {
+        guard let posterPath, !posterPath.isEmpty else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/w500\(posterPath)")
+    }
+
+    var backdropURL: URL? {
+        guard let backdropPath, !backdropPath.isEmpty else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/w780\(backdropPath)")
+    }
+
+    var genreNames: [String] {
+        (genres ?? []).compactMap(\.name).filter { !$0.isEmpty }
+    }
+
+    /// Movies carry a single runtime; series carry a per-episode list.
+    var runtimeMinutes: Int? {
+        let minutes = runtime ?? episodeRunTime?.first
+        guard let minutes, minutes > 0 else { return nil }
+        return minutes
+    }
+
+    var runtimeText: String? {
+        let minutes = runtime ?? episodeRunTime?.first
+        guard let minutes, minutes > 0 else { return nil }
+        let hours = minutes / 60
+        let remainder = minutes % 60
+        if hours > 0 {
+            return remainder > 0 ? "\(hours)h \(remainder)m" : "\(hours)h"
+        }
+        return "\(minutes)m"
+    }
+
+    var ratingText: String? {
+        guard let voteAverage, voteAverage > 0 else { return nil }
+        return String(format: "%.1f", voteAverage)
+    }
+
+    var seasonsText: String? {
+        guard let numberOfSeasons, numberOfSeasons > 0 else { return nil }
+        let seasonWord = numberOfSeasons == 1 ? "season" : "seasons"
+        guard let numberOfEpisodes, numberOfEpisodes > 0 else {
+            return "\(numberOfSeasons) \(seasonWord)"
+        }
+        let episodeWord = numberOfEpisodes == 1 ? "episode" : "episodes"
+        return "\(numberOfSeasons) \(seasonWord) · \(numberOfEpisodes) \(episodeWord)"
+    }
+}
+
+nonisolated struct SeerrGenre: Codable, Identifiable, Sendable {
+    let id: Int?
+    let name: String?
+}
+
+nonisolated struct SeerrCredits: Codable, Sendable {
+    let cast: [SeerrCastMember]?
+}
+
+nonisolated struct SeerrCastMember: Codable, Identifiable, Sendable {
+    let id: Int?
+    let name: String?
+    let character: String?
+    let profilePath: String?
+
+    var profileURL: URL? {
+        guard let profilePath, !profilePath.isEmpty else { return nil }
+        return URL(string: "https://image.tmdb.org/t/p/w185\(profilePath)")
+    }
+}
+
 nonisolated enum SeerrMediaStatus: Int, Codable, Sendable {
     case unknown = 1
     case pending = 2
@@ -290,10 +394,16 @@ nonisolated enum SeerrRequestBadgeStatus: Sendable {
     }
 }
 
+/// Mirrors the `filter` values Seerr's `/api/v1/request` accepts. Pending leads
+/// because it's the only one that needs a decision.
 enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     case all = "All"
     case pending = "Pending"
     case approved = "Approved"
+    case processing = "Processing"
+    case available = "Available"
+    case unavailable = "Unavailable"
+    case failed = "Failed"
 
     var id: String { rawValue }
 
@@ -303,9 +413,13 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
 
     var apiValue: String {
         switch self {
+        case .all: "all"
         case .pending: "pending"
         case .approved: "approved"
-        case .all: "all"
+        case .processing: "processing"
+        case .available: "available"
+        case .unavailable: "unavailable"
+        case .failed: "failed"
         }
     }
 }
