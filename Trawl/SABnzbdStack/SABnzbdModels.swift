@@ -670,3 +670,140 @@ nonisolated extension SABnzbdJob {
     static var previewFailed: SABnzbdJob { SABnzbdHistory.preview.jobs[1] }
 }
 #endif
+
+// MARK: - News servers
+
+/// One Usenet server as SABnzbd's `get_config&section=servers` reports it.
+///
+/// SABnzbd is inconsistent about scalar types across versions and across fields:
+/// the same flag comes back as `1`, `"1"` or `true` depending on where you ask.
+/// Every value is therefore read leniently rather than trusting one shape, and
+/// everything is optional so a field this app doesn't know about can't fail the
+/// whole decode.
+nonisolated struct SABnzbdNewsServer: Codable, Identifiable, Sendable {
+    var name: String
+    var displayName: String?
+    var host: String
+    var port: Int
+    var username: String?
+    var password: String?
+    var connections: Int
+    var ssl: Bool
+    var sslVerify: Int?
+    var enabled: Bool
+    var optional: Bool
+    var retention: Int?
+    var timeout: Int?
+    var priority: Int?
+    var notes: String?
+
+    /// SABnzbd keys a server by its `name`, which is what `set_config` and
+    /// `del_config` address it by.
+    var id: String { name }
+
+    var title: String {
+        let trimmed = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmed, !trimmed.isEmpty { return trimmed }
+        return name.isEmpty ? host : name
+    }
+
+    var hostLine: String {
+        port > 0 ? "\(host):\(port)" : host
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case displayName = "displayname"
+        case host, port, username, password, connections, ssl
+        case sslVerify = "ssl_verify"
+        case enabled = "enable"
+        case optional, retention, timeout, priority, notes
+    }
+
+    init(
+        name: String,
+        displayName: String? = nil,
+        host: String,
+        port: Int = 563,
+        username: String? = nil,
+        password: String? = nil,
+        connections: Int = 8,
+        ssl: Bool = true,
+        sslVerify: Int? = nil,
+        enabled: Bool = true,
+        optional: Bool = false,
+        retention: Int? = nil,
+        timeout: Int? = nil,
+        priority: Int? = nil,
+        notes: String? = nil
+    ) {
+        self.name = name
+        self.displayName = displayName
+        self.host = host
+        self.port = port
+        self.username = username
+        self.password = password
+        self.connections = connections
+        self.ssl = ssl
+        self.sslVerify = sslVerify
+        self.enabled = enabled
+        self.optional = optional
+        self.retention = retention
+        self.timeout = timeout
+        self.priority = priority
+        self.notes = notes
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = Self.string(container, .name) ?? ""
+        self.displayName = Self.string(container, .displayName)
+        self.host = Self.string(container, .host) ?? ""
+        self.port = Self.int(container, .port) ?? 563
+        self.username = Self.string(container, .username)
+        self.password = Self.string(container, .password)
+        self.connections = Self.int(container, .connections) ?? 1
+        self.ssl = Self.bool(container, .ssl) ?? false
+        self.sslVerify = Self.int(container, .sslVerify)
+        self.enabled = Self.bool(container, .enabled) ?? true
+        self.optional = Self.bool(container, .optional) ?? false
+        self.retention = Self.int(container, .retention)
+        self.timeout = Self.int(container, .timeout)
+        self.priority = Self.int(container, .priority)
+        self.notes = Self.string(container, .notes)
+    }
+
+    private static func string(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> String? {
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) { return value }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) { return String(value) }
+        return nil
+    }
+
+    private static func int(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) { return value }
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) { return Int(value) }
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: key) { return value ? 1 : 0 }
+        return nil
+    }
+
+    private static func bool(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Bool? {
+        if let value = try? container.decodeIfPresent(Bool.self, forKey: key) { return value }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) { return value != 0 }
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) {
+            switch value.lowercased() {
+            case "1", "true", "yes": return true
+            case "0", "false", "no": return false
+            default: return nil
+            }
+        }
+        return nil
+    }
+}
+
+nonisolated struct SABnzbdServersEnvelope: Decodable, Sendable {
+    let config: Config
+
+    nonisolated struct Config: Decodable, Sendable {
+        let servers: [SABnzbdNewsServer]?
+    }
+}

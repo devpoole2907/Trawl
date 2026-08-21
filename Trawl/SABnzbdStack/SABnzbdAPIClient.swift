@@ -79,6 +79,19 @@ actor SABnzbdAPIClient {
         try await performCommand(mode: "history", name: "delete", extra: [URLQueryItem(name: "value", value: "all")])
     }
 
+    // MARK: - News servers
+
+    /// SABnzbd's news servers, as configured in its own settings. The response
+    /// includes each server's password in plain text — it is the only way SABnzbd
+    /// offers to read this section, so an editor that prefills has no alternative.
+    func getNewsServers() async throws -> [SABnzbdNewsServer] {
+        let envelope: SABnzbdServersEnvelope = try await request(
+            mode: "get_config",
+            extra: [URLQueryItem(name: "section", value: "servers")]
+        )
+        return envelope.config.servers ?? []
+    }
+
     /// Drops SABnzbd's own "server default" sentinels; Trawl renders that choice itself.
     private nonisolated static func withoutServerDefault(_ values: [String]) -> [String] {
         values

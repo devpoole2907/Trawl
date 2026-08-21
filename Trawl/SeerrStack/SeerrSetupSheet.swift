@@ -2,15 +2,16 @@ import SwiftUI
 import SwiftData
 
 struct SeerrSetupSheet: View {
+    var existingProfile: SeerrServiceProfile?
     var onComplete: (() -> Void)?
 
     var body: some View {
         AppSheetShell(
-            title: "Add Seerr",
+            title: existingProfile == nil ? "Add Seerr" : "Edit Seerr",
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
-            SeerrConnectionFormView(onComplete: onComplete)
+            SeerrConnectionFormView(existingProfile: existingProfile, onComplete: onComplete)
         }
     }
 }
@@ -20,12 +21,19 @@ private struct SeerrConnectionFormView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var viewModel = SeerrSetupViewModel()
 
+    /// Editing an existing server should start from what's already configured,
+    /// the way every other service's editor does. Only the URL can be restored:
+    /// the username and password are Jellyfin credentials exchanged once for a
+    /// session cookie and never stored, so re-authenticating is required.
+    var existingProfile: SeerrServiceProfile?
     var onComplete: (() -> Void)?
 
     var body: some View {
         Form {
             Section {
-                Text("Connect Trawl to your Seerr instance as an Admin.")
+                Text(existingProfile == nil
+                     ? "Connect Trawl to your Seerr instance as an Admin."
+                     : "Sign in again to refresh this server's session.")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -79,6 +87,11 @@ private struct SeerrConnectionFormView: View {
             }
         }
         .tint(ServiceIdentity.seerr.brandColor)
+        .onAppear {
+            if viewModel.hostURL.isEmpty, let existingProfile {
+                viewModel.hostURL = existingProfile.hostURL
+            }
+        }
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
@@ -228,11 +241,12 @@ struct SeerrSettingsView: View {
         }
         .sheet(isPresented: $showingConnectionSheet) {
             AppSheetShell(
-                title: "Add Seerr",
+                title: profile == nil ? "Add Seerr" : "Edit Seerr",
                 detents: [.medium, .large],
                 dragIndicator: .visible
             ) {
                 SeerrConnectionFormView(
+                    existingProfile: profile,
                     onComplete: {
                         Task {
                             await seerrServiceManager.initialize(from: profiles)

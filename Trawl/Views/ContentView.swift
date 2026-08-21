@@ -152,7 +152,9 @@ struct ContentView: View {
                 ArrSetupSheet(initialServiceType: .bazarr, onComplete: refreshArrConfiguration)
                     .environment(arrServiceManager)
             case .seerr:
-                SeerrSetupSheet()
+                SeerrSetupSheet(
+                    existingProfile: seerrProfiles.first(where: { $0.isEnabled }) ?? seerrProfiles.first
+                )
             case .jellyfin:
                 JellyfinSetupSheet()
             }

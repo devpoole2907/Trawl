@@ -210,6 +210,37 @@ final class SABnzbdServiceManager {
         return (await categories ?? [], await scripts ?? [])
     }
 
+    // MARK: - News servers
+
+    /// Loaded on demand rather than polled: this changes when a human changes it,
+    /// and the payload carries credentials worth not holding longer than needed.
+    private(set) var newsServers: [SABnzbdNewsServer] = []
+    private(set) var isLoadingNewsServers = false
+    private(set) var newsServersError: String?
+
+    func refreshNewsServers() async {
+        guard let client = activeClient else {
+            newsServers = []
+            return
+        }
+
+        isLoadingNewsServers = true
+        defer { isLoadingNewsServers = false }
+
+        do {
+            newsServers = try await client.getNewsServers()
+            newsServersError = nil
+        } catch {
+            newsServersError = error.localizedDescription
+        }
+    }
+
+    /// Drops the cached credentials once the editor is gone.
+    func clearNewsServers() {
+        newsServers = []
+        newsServersError = nil
+    }
+
     /// `value` is either a bare percentage of line speed (`"50"`, `"0"` for
     /// unlimited) or an absolute rate with a K/M suffix (`"1500K"`).
     func setSpeedLimit(_ value: String) async throws {

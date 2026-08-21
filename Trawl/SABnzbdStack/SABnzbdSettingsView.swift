@@ -85,6 +85,15 @@ struct SABnzbdSettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        SABnzbdNewsServersView()
+                            .environment(serviceManager)
+                    } label: {
+                        Label("News Servers", systemImage: "server.rack")
+                    }
+                }
+
+                Section {
                     LabeledContent("Current Limit") {
                         Text(speedLimitDisplayValue)
                             .foregroundStyle(.secondary)
