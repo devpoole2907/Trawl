@@ -28,7 +28,14 @@ struct SABnzbdNewsServerEditorSheet: View {
 
     @State private var revealsPassword = false
     @State private var isSaving = false
+    @State private var isTesting = false
+    @State private var testResult: TestResult?
     @State private var errorMessage: String?
+
+    private struct TestResult {
+        let succeeded: Bool
+        let message: String
+    }
 
     private var isEditing: Bool { existingServer != nil }
 
@@ -121,6 +128,30 @@ struct SABnzbdNewsServerEditorSheet: View {
                     Text("Leave retention and priority empty to keep SABnzbd's defaults. An optional server is skipped when it's unreachable rather than failing the download.")
                 }
 
+                Section {
+                    Button {
+                        Task { await test() }
+                    } label: {
+                        HStack {
+                            if isTesting {
+                                ProgressView()
+                                    .padding(.trailing, 4)
+                            }
+                            Text("Test Server")
+                        }
+                        .frame(maxWidth: .infinity, alignment: .center)
+                    }
+                    .disabled(!canSave)
+
+                    if let testResult {
+                        Label(testResult.message, systemImage: testResult.succeeded ? "checkmark.circle" : "xmark.circle")
+                            .font(.footnote)
+                            .foregroundStyle(testResult.succeeded ? .green : .red)
+                    }
+                } footer: {
+                    Text("Opens a real connection with these settings. Nothing is saved.")
+                }
+
                 if let errorMessage {
                     Section {
                         Text(errorMessage)
@@ -167,6 +198,31 @@ struct SABnzbdNewsServerEditorSheet: View {
         retention = existingServer.retention.map(String.init) ?? ""
         priority = existingServer.priority.map(String.init) ?? ""
         notes = existingServer.notes ?? ""
+    }
+
+    private func test() async {
+        guard let portValue = Int(port), let connectionsValue = Int(connections) else { return }
+
+        isTesting = true
+        testResult = nil
+        defer { isTesting = false }
+
+        do {
+            let outcome = try await serviceManager.testNewsServer(
+                SABnzbdNewsServer(
+                    name: name,
+                    host: host.trimmingCharacters(in: .whitespacesAndNewlines),
+                    port: portValue,
+                    username: username.isEmpty ? nil : username,
+                    password: password.isEmpty ? nil : password,
+                    connections: connectionsValue,
+                    ssl: ssl
+                )
+            )
+            testResult = TestResult(succeeded: outcome.succeeded, message: outcome.message)
+        } catch {
+            testResult = TestResult(succeeded: false, message: error.localizedDescription)
+        }
     }
 
     private func save() async {

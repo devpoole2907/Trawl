@@ -362,6 +362,9 @@ nonisolated struct SABnzbdAddOptions: Hashable, Sendable {
     var name: String?
     var password: String?
     var category: String?
+    /// Two sentinels rather than one, both confirmed on a live server: "Default"
+    /// inherits the global script setting, "None" runs nothing. Neither is a real
+    /// script, and `getScripts()` filters both out of the installed list.
     var script: String?
     var priority: Int?
     var postProcessing: Int?
@@ -805,5 +808,153 @@ nonisolated struct SABnzbdServersEnvelope: Decodable, Sendable {
 
     nonisolated struct Config: Decodable, Sendable {
         let servers: [SABnzbdNewsServer]?
+    }
+}
+
+// MARK: - Categories
+
+/// A SABnzbd category as `get_config&section=categories` reports it. The bare
+/// `get_cats` list used for pickers gives names only; this carries the settings
+/// behind each one.
+///
+/// Decoded leniently for the same reason `SABnzbdNewsServer` is: SABnzbd's scalar
+/// types vary by version and by field.
+nonisolated struct SABnzbdCategory: Codable, Identifiable, Sendable {
+    var name: String
+    var order: Int?
+    /// Post-processing level: 0 download, 1 +repair, 2 +unpack, 3 +delete.
+    ///
+    /// Verified against SABnzbd 5.1.1: this comes back as a *string* ("3"), and is
+    /// empty on any category that inherits the global setting. `nil` here means
+    /// inherit — writing an explicit level to such a category would silently pin
+    /// it to whatever the editor happened to be showing.
+    var postProcessing: Int?
+    var script: String?
+    var directory: String?
+    var priority: Int?
+
+    var id: String { name }
+
+    /// SABnzbd's own catch-all category. It can be edited but not deleted, and
+    /// renaming it would orphan every job that references it.
+    var isDefault: Bool { name == "*" }
+
+    var displayName: String { isDefault ? "Default" : name }
+
+    enum CodingKeys: String, CodingKey {
+        case name, order, script, priority
+        case postProcessing = "pp"
+        case directory = "dir"
+    }
+
+    init(
+        name: String,
+        order: Int? = nil,
+        postProcessing: Int? = nil,
+        script: String? = nil,
+        directory: String? = nil,
+        priority: Int? = nil
+    ) {
+        self.name = name
+        self.order = order
+        self.postProcessing = postProcessing
+        self.script = script
+        self.directory = directory
+        self.priority = priority
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = Self.string(container, .name) ?? ""
+        self.order = Self.int(container, .order)
+        self.postProcessing = Self.int(container, .postProcessing)
+        self.script = Self.string(container, .script)
+        self.directory = Self.string(container, .directory)
+        self.priority = Self.int(container, .priority)
+    }
+
+    private static func string(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> String? {
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) { return value }
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) { return String(value) }
+        return nil
+    }
+
+    private static func int(_ container: KeyedDecodingContainer<CodingKeys>, _ key: CodingKeys) -> Int? {
+        if let value = try? container.decodeIfPresent(Int.self, forKey: key) { return value }
+        if let value = try? container.decodeIfPresent(String.self, forKey: key) { return Int(value) }
+        return nil
+    }
+}
+
+extension SABnzbdCategory {
+    static let inheritScript = "Default"
+    static let noScript = "None"
+
+    /// A script value that names an actual script, rather than one of SABnzbd's
+    /// two sentinels.
+    var realScriptName: String? {
+        guard let script, !script.isEmpty else { return nil }
+        guard script != Self.inheritScript, script != Self.noScript else { return nil }
+        return script
+    }
+}
+
+nonisolated struct SABnzbdCategoriesConfigEnvelope: Decodable, Sendable {
+    let config: Config
+
+    nonisolated struct Config: Decodable, Sendable {
+        let categories: [SABnzbdCategory]?
+    }
+}
+
+/// `mode=config&name=test_server` replies `{"value":{"result":Bool,"message":String}}`.
+nonisolated struct SABnzbdServerTestEnvelope: Decodable, Sendable {
+    let value: Value
+
+    nonisolated struct Value: Decodable, Sendable {
+        let result: Bool?
+        let message: String?
+    }
+}
+
+/// The post-processing levels SABnzbd offers per category.
+nonisolated enum SABnzbdPostProcessing: Int, CaseIterable, Identifiable, Sendable {
+    case download = 0
+    case repair = 1
+    case unpack = 2
+    case delete = 3
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .download: "Download"
+        case .repair: "+ Repair"
+        case .unpack: "+ Unpack"
+        case .delete: "+ Delete"
+        }
+    }
+}
+
+/// Category priorities, matching SABnzbd's own values.
+nonisolated enum SABnzbdCategoryPriority: Int, CaseIterable, Identifiable, Sendable {
+    case `default` = -100
+    case paused = -2
+    case low = -1
+    case normal = 0
+    case high = 1
+    case force = 2
+
+    var id: Int { rawValue }
+
+    var title: String {
+        switch self {
+        case .default: "Default"
+        case .paused: "Paused"
+        case .low: "Low"
+        case .normal: "Normal"
+        case .high: "High"
+        case .force: "Force"
+        }
     }
 }

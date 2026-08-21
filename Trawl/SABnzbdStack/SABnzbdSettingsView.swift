@@ -91,6 +91,13 @@ struct SABnzbdSettingsView: View {
                     } label: {
                         Label("News Servers", systemImage: "server.rack")
                     }
+
+                    NavigationLink {
+                        SABnzbdCategoriesView()
+                            .environment(serviceManager)
+                    } label: {
+                        Label("Categories & Scripts", systemImage: "folder.badge.gearshape")
+                    }
                 }
 
                 Section {

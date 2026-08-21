@@ -79,6 +79,49 @@ actor SABnzbdAPIClient {
         try await performCommand(mode: "history", name: "delete", extra: [URLQueryItem(name: "value", value: "all")])
     }
 
+    // MARK: - Category configuration
+
+    /// The full settings behind each category. `get_cats` returns names only,
+    /// which is all a picker needs but not enough to manage them.
+    func getCategoryConfigs() async throws -> [SABnzbdCategory] {
+        let envelope: SABnzbdCategoriesConfigEnvelope = try await request(
+            mode: "get_config",
+            extra: [URLQueryItem(name: "section", value: "categories")]
+        )
+        return envelope.config.categories ?? []
+    }
+
+    /// Same `keyword`/`name` rename handling as the news servers.
+    func saveCategory(_ category: SABnzbdCategory, originalName: String?) async throws {
+        var items: [URLQueryItem] = [
+            URLQueryItem(name: "section", value: "categories"),
+            URLQueryItem(name: "keyword", value: originalName ?? category.name),
+            URLQueryItem(name: "name", value: category.name)
+        ]
+
+        if let postProcessing = category.postProcessing {
+            items.append(URLQueryItem(name: "pp", value: String(postProcessing)))
+        }
+        // Sent even when empty so clearing a script or folder actually clears it.
+        items.append(URLQueryItem(name: "script", value: category.script ?? ""))
+        items.append(URLQueryItem(name: "dir", value: category.directory ?? ""))
+        if let priority = category.priority {
+            items.append(URLQueryItem(name: "priority", value: String(priority)))
+        }
+
+        _ = try await transport.getData(apiPath, queryItems: queryItems(mode: "set_config", name: nil, extra: items))
+    }
+
+    func deleteCategory(name: String) async throws {
+        try await performCommand(
+            mode: "del_config",
+            extra: [
+                URLQueryItem(name: "section", value: "categories"),
+                URLQueryItem(name: "keyword", value: name)
+            ]
+        )
+    }
+
     // MARK: - News servers
 
     /// SABnzbd's news servers, as configured in its own settings. The response
@@ -141,6 +184,29 @@ actor SABnzbdAPIClient {
         // set_config echoes the saved section rather than a plain status envelope,
         // so a decode into the command shape would fail on a successful write.
         _ = try await transport.getData(apiPath, queryItems: queryItems(mode: "set_config", name: nil, extra: items))
+    }
+
+    /// Asks SABnzbd to open a real connection with these settings. Verified
+    /// against 5.1.1: replies `{"value":{"result":Bool,"message":String}}` — a
+    /// failed test is a successful request, so the message is returned rather
+    /// than thrown.
+    func testNewsServer(_ server: SABnzbdNewsServer) async throws -> (succeeded: Bool, message: String) {
+        let envelope: SABnzbdServerTestEnvelope = try await request(
+            mode: "config",
+            name: "test_server",
+            extra: [
+                URLQueryItem(name: "host", value: server.host),
+                URLQueryItem(name: "port", value: String(server.port)),
+                URLQueryItem(name: "username", value: server.username ?? ""),
+                URLQueryItem(name: "password", value: server.password ?? ""),
+                URLQueryItem(name: "connections", value: String(server.connections)),
+                URLQueryItem(name: "ssl", value: server.ssl ? "1" : "0")
+            ]
+        )
+        return (
+            envelope.value.result ?? false,
+            envelope.value.message ?? "No response from SABnzbd."
+        )
     }
 
     func deleteNewsServer(name: String) async throws {

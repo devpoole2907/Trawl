@@ -210,6 +210,45 @@ final class SABnzbdServiceManager {
         return (await categories ?? [], await scripts ?? [])
     }
 
+    // MARK: - Category configuration
+
+    private(set) var categoryConfigs: [SABnzbdCategory] = []
+    private(set) var scripts: [String] = []
+    private(set) var isLoadingCategoryConfigs = false
+    private(set) var categoryConfigsError: String?
+
+    func refreshCategoryConfigs() async {
+        guard let client = activeClient else {
+            categoryConfigs = []
+            return
+        }
+
+        isLoadingCategoryConfigs = true
+        defer { isLoadingCategoryConfigs = false }
+
+        do {
+            async let categories = client.getCategoryConfigs()
+            async let scriptList = try? client.getScripts()
+            categoryConfigs = try await categories
+            scripts = await scriptList ?? []
+            categoryConfigsError = nil
+        } catch {
+            categoryConfigsError = error.localizedDescription
+        }
+    }
+
+    func saveCategory(_ category: SABnzbdCategory, originalName: String?) async throws {
+        guard let client = activeClient else { return }
+        try await client.saveCategory(category, originalName: originalName)
+        await refreshCategoryConfigs()
+    }
+
+    func deleteCategory(name: String) async throws {
+        guard let client = activeClient else { return }
+        try await client.deleteCategory(name: name)
+        await refreshCategoryConfigs()
+    }
+
     // MARK: - News servers
 
     /// Loaded on demand rather than polled: this changes when a human changes it,
@@ -239,6 +278,13 @@ final class SABnzbdServiceManager {
         guard let client = activeClient else { return }
         try await client.saveNewsServer(server, originalName: originalName)
         await refreshNewsServers()
+    }
+
+    func testNewsServer(_ server: SABnzbdNewsServer) async throws -> (succeeded: Bool, message: String) {
+        guard let client = activeClient else {
+            return (false, "Not connected to SABnzbd.")
+        }
+        return try await client.testNewsServer(server)
     }
 
     func deleteNewsServer(name: String) async throws {
