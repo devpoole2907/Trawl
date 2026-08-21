@@ -365,6 +365,11 @@ extension NotificationLogEntry {
 
 // MARK: - Recent Notifications Sheet
 
+private enum NotificationSheetLayout {
+    /// How many failing downloads render before "Load More".
+    static let attentionPageSize = 5
+}
+
 /// The two halves of the notification sheet. `activity` is the default and holds
 /// the import/notification log; `actions` holds global service commands.
 private enum NotificationSheetSection: String, CaseIterable, Identifiable {
@@ -398,6 +403,10 @@ struct RecentNotificationsSheet: View {
     /// Requests with an approve/decline call in flight, so the row can't be
     /// double-tapped while the server is still deciding.
     @State private var requestActionIDs: Set<Int> = []
+    @State private var isAttentionExpanded = false
+    @State private var attentionVisibleCount = NotificationSheetLayout.attentionPageSize
+
+    fileprivate static let attentionPageSize = NotificationSheetLayout.attentionPageSize
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
     private var unreadNotificationCount: Int {
@@ -512,6 +521,13 @@ struct RecentNotificationsSheet: View {
             unreadSinceDate = inAppNotificationCenter.lastReadDate
             inAppNotificationCenter.markAllRead()
         }
+        .onChange(of: isAttentionExpanded) { _, expanded in
+            // Collapsing resets the page, so reopening doesn't restore a list the
+            // user already scrolled past.
+            if !expanded {
+                attentionVisibleCount = Self.attentionPageSize
+            }
+        }
         .task {
             await seerrServiceManager.refreshPendingRequests()
         }
@@ -548,8 +564,11 @@ struct RecentNotificationsSheet: View {
         } else {
             List {
                 if !failures.isEmpty {
-                    Section {
-                        ForEach(failures) { item in
+                    // Collapsed by default and paged: this list is unbounded, and
+                    // fully expanded it buried the notification log underneath it.
+                    // The count lives in the header so it still reads while shut.
+                    Section(isExpanded: $isAttentionExpanded) {
+                        ForEach(failures.prefix(attentionVisibleCount)) { item in
                             Button {
                                 dismiss()
                                 // These rows are the Issues segment's contents, so
@@ -561,8 +580,29 @@ struct RecentNotificationsSheet: View {
                             }
                             .buttonStyle(.plain)
                         }
+
+                        if failures.count > attentionVisibleCount {
+                            Button {
+                                withAnimation {
+                                    attentionVisibleCount += Self.attentionPageSize
+                                }
+                            } label: {
+                                let remaining = failures.count - attentionVisibleCount
+                                Label(
+                                    remaining == 1 ? "Load 1 More" : "Load \(min(remaining, Self.attentionPageSize)) More",
+                                    systemImage: "chevron.down.circle"
+                                )
+                                .font(.subheadline.weight(.medium))
+                            }
+                        }
                     } header: {
-                        Text("Needs Attention")
+                        HStack {
+                            Text("Needs Attention")
+                            Spacer(minLength: 8)
+                            Text("\(failures.count)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.orange)
+                        }
                     }
                 }
 
