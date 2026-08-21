@@ -566,45 +566,27 @@ struct RecentNotificationsSheet: View {
                 if !failures.isEmpty {
                     // Collapsed by default and paged: this list is unbounded, and
                     // fully expanded it buried the notification log underneath it.
-                    // The count lives in the header so it still reads while shut.
-                    Section(isExpanded: $isAttentionExpanded) {
-                        ForEach(failures.prefix(attentionVisibleCount)) { item in
-                            Button {
-                                dismiss()
-                                // These rows are the Issues segment's contents, so
-                                // land there rather than on the default segment.
-                                downloadsNavigator?.show(.issues)
-                                navigateToDownloadsTab()
-                            } label: {
-                                attentionRow(item)
+                    // The count lives in the label so it still reads while shut.
+                    //
+                    // DisclosureGroup rather than Section(isExpanded:) — the latter
+                    // compiles fine but renders without a chevron under this list
+                    // style, so the section was permanently open.
+                    Section {
+                        DisclosureGroup(isExpanded: $isAttentionExpanded) {
+                            attentionRows(failures)
+                        } label: {
+                            HStack {
+                                Text("Needs Attention")
+                                    .font(.subheadline.weight(.semibold))
+                                Spacer(minLength: 8)
+                                Text("\(failures.count)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.orange)
                             }
-                            .buttonStyle(.plain)
-                        }
-
-                        if failures.count > attentionVisibleCount {
-                            Button {
-                                withAnimation {
-                                    attentionVisibleCount += Self.attentionPageSize
-                                }
-                            } label: {
-                                let remaining = failures.count - attentionVisibleCount
-                                Label(
-                                    remaining == 1 ? "Load 1 More" : "Load \(min(remaining, Self.attentionPageSize)) More",
-                                    systemImage: "chevron.down.circle"
-                                )
-                                .font(.subheadline.weight(.medium))
-                            }
-                        }
-                    } header: {
-                        HStack {
-                            Text("Needs Attention")
-                            Spacer(minLength: 8)
-                            Text("\(failures.count)")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.orange)
                         }
                     }
                 }
+
 
                 if !pendingRequests.isEmpty {
                     Section {
@@ -1069,6 +1051,37 @@ struct RecentNotificationsSheet: View {
                 .map { QueuedImportCommand(command: $0, service: service) }
         } catch {
             return []
+        }
+    }
+
+    @ViewBuilder
+    private func attentionRows(_ failures: [DownloadListItem]) -> some View {
+        ForEach(failures.prefix(attentionVisibleCount)) { item in
+            Button {
+                dismiss()
+                // These rows are the Issues segment's contents, so land there
+                // rather than on the default segment.
+                downloadsNavigator?.show(.issues)
+                navigateToDownloadsTab()
+            } label: {
+                attentionRow(item)
+            }
+            .buttonStyle(.plain)
+        }
+
+        if failures.count > attentionVisibleCount {
+            Button {
+                withAnimation {
+                    attentionVisibleCount += Self.attentionPageSize
+                }
+            } label: {
+                let remaining = failures.count - attentionVisibleCount
+                Label(
+                    remaining == 1 ? "Load 1 More" : "Load \(min(remaining, Self.attentionPageSize)) More",
+                    systemImage: "chevron.down.circle"
+                )
+                .font(.subheadline.weight(.medium))
+            }
         }
     }
 

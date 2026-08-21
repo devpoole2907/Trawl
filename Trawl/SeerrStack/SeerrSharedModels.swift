@@ -413,8 +413,6 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
     case pending = "Pending"
     case approved = "Approved"
     case processing = "Processing"
-    case available = "Available"
-    case unavailable = "Unavailable"
     case failed = "Failed"
     case completed = "Completed"
 
@@ -430,8 +428,6 @@ enum SeerrRequestFilter: String, CaseIterable, Identifiable {
         case .pending: "pending"
         case .approved: "approved"
         case .processing: "processing"
-        case .available: "available"
-        case .unavailable: "unavailable"
         case .failed: "failed"
         case .completed: "completed"
         }

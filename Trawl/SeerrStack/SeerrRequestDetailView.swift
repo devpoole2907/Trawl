@@ -19,12 +19,20 @@ struct SeerrRequestDetailView: View {
     var onDelete: (() -> Void)?
 
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(SyncService.self) private var syncService
     @Environment(\.dismiss) private var dismiss
 
     @State private var detail: SeerrMediaDetail?
     @State private var isLoadingDetail = false
     @State private var detailError: String?
     @State private var selectedCastMember: CastPersonRoute?
+    /// Picking a credit inside the person sheet can't push while the sheet is up,
+    /// so it's held and resolved on dismiss — the same handoff the Arr detail
+    /// screens use.
+    @State private var pendingCastCredit: TMDbPersonCredit?
+    @State private var castCreditMovie: RadarrMovie?
+    @State private var castCreditSeries: SonarrSeries?
 
     private var media: SeerrRequestMedia? { request.media }
     private var isPending: Bool { request.requestStatus == .pending }
@@ -50,8 +58,22 @@ struct SeerrRequestDetailView: View {
             }
         }
         .task { await loadDetail() }
-        .sheet(item: $selectedCastMember) { route in
-            CastPersonSheet(route: route)
+        .sheet(item: $selectedCastMember, onDismiss: completeCastCreditNavigation) { route in
+            CastPersonSheet(route: route, onSelectCredit: { pendingCastCredit = $0 })
+        }
+        .navigationDestination(item: $castCreditMovie) { creditMovie in
+            RadarrMovieDetailView(
+                movie: creditMovie,
+                viewModel: RadarrViewModel(serviceManager: arrServiceManager)
+            )
+            .environment(syncService)
+        }
+        .navigationDestination(item: $castCreditSeries) { creditSeries in
+            SonarrSeriesDetailView(
+                series: creditSeries,
+                viewModel: SonarrViewModel(serviceManager: arrServiceManager)
+            )
+            .environment(syncService)
         }
     }
 
@@ -276,6 +298,38 @@ struct SeerrRequestDetailView: View {
                 fallbackProfileURL: member.profileURL
             )
         )
+    }
+
+    /// Resolves the tapped credit into something Trawl can actually show. Seerr has
+    /// no standalone media screen, so a credit lands on the Radarr or Sonarr detail
+    /// via the shared lookup — the same resolver and failure message the Arr detail
+    /// screens use, rather than a second way of doing it.
+    private func completeCastCreditNavigation() {
+        guard let credit = pendingCastCredit else { return }
+        pendingCastCredit = nil
+
+        Task {
+            let resolver = ArrMediaLookupResolver(serviceManager: arrServiceManager)
+            if credit.isMovie {
+                if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
+                    castCreditMovie = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Radarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
+            } else {
+                if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
+                    castCreditSeries = resolved
+                } else {
+                    InAppNotificationCenter.shared.showError(
+                        title: "Couldn't Open Title",
+                        message: "Sonarr couldn't find \"\(credit.displayTitle)\"."
+                    )
+                }
+            }
+        }
     }
 
     // MARK: - Loading

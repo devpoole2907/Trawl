@@ -85,27 +85,6 @@ struct SABnzbdSettingsView: View {
                 }
 
                 Section {
-                    NavigationLink {
-                        SABnzbdNewsServersView()
-                            .environment(serviceManager)
-                    } label: {
-                        Label("News Servers", systemImage: "server.rack")
-                    }
-
-                    NavigationLink {
-                        SABnzbdCategoriesView()
-                            .environment(serviceManager)
-                    } label: {
-                        Label("Categories & Scripts", systemImage: "folder.badge.gearshape")
-                    }
-                }
-
-                Section {
-                    LabeledContent("Current Limit") {
-                        Text(speedLimitDisplayValue)
-                            .foregroundStyle(.secondary)
-                    }
-
                     Picker("Speed Limit", selection: $speedLimitPercent) {
                         ForEach(speedLimitOptions(including: speedLimitPercent), id: \.self) { percent in
                             Text(speedLimitOptionLabel(percent)).tag(percent)
@@ -116,10 +95,17 @@ struct SABnzbdSettingsView: View {
                         guard didLoadSpeedLimit, !isUpdatingSpeedLimit else { return }
                         Task { await updateSpeedLimit(speedLimitPercent) }
                     }
+                    // The picker is the only thing showing this value now, so it
+                    // has to follow the server rather than only local edits —
+                    // otherwise a change made in SABnzbd's own UI leaves it stale.
+                    .onChange(of: serviceManager.queue?.speedLimit) { _, serverValue in
+                        guard let serverValue, didLoadSpeedLimit, !isUpdatingSpeedLimit else { return }
+                        speedLimitPercent = serverValue
+                    }
                 } header: {
                     Text("Speed Limit")
                 } footer: {
-                    Text("Caps SABnzbd's download speed as a percentage of line speed. Unlimited removes the cap.")
+                    Text(speedLimitFooter)
                 }
 
                 Section {
@@ -225,9 +211,14 @@ struct SABnzbdSettingsView: View {
             .joined(separator: "|")
     }
 
-    private var speedLimitDisplayValue: String {
-        let current = serviceManager.queue?.speedLimit ?? speedLimitPercent
-        return speedLimitOptionLabel(current)
+    /// The percentage is in the picker itself; the footer adds the one thing the
+    /// picker can't say — what that percentage currently works out to.
+    private var speedLimitFooter: String {
+        let base = "Caps SABnzbd's download speed as a percentage of line speed. Unlimited removes the cap."
+        guard let absolute = serviceManager.queue?.speedLimitAbsolute, absolute > 0 else {
+            return base
+        }
+        return "\(base) Currently about \(ByteFormatter.format(bytes: Int64(absolute * 1024)))/s."
     }
 
     private func speedLimitOptions(including current: Int) -> [Int] {

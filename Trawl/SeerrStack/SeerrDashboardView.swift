@@ -141,6 +141,10 @@ struct SeerrDashboardView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
+        // Applied before .safeAreaInset so the RefreshAction stays scoped to the
+        // list. Attached after the inset it also propagates into the segment bar,
+        // which then becomes pull-to-refreshable itself.
+        .refreshable { await viewModel.loadRequests() }
         .safeAreaInset(edge: .top) {
             TrawlSegmentBar(
                 "Filter",
@@ -157,7 +161,6 @@ struct SeerrDashboardView: View {
             )
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
-        .refreshable { await viewModel.loadRequests() }
         .onChange(of: requestSearchText) { _, newValue in
             Task { await viewModel.updateSearchRequests(for: newValue) }
         }

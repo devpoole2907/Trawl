@@ -20,6 +20,12 @@ struct SABnzbdManagerView: View {
             #if os(iOS)
             .toolbarTitleDisplayMode(.inlineLarge)
             #endif
+            // Applied before .safeAreaInset so the RefreshAction stays scoped to
+            // the list. Attached after the inset it also propagates into the
+            // segment bar, which then becomes pull-to-refreshable itself.
+            .refreshable {
+                await serviceManager.refresh()
+            }
             .safeAreaInset(edge: .top) {
                 TrawlSegmentBar(
                     "Filter",
@@ -52,9 +58,6 @@ struct SABnzbdManagerView: View {
                     }
                 }
             }
-            .refreshable {
-                await serviceManager.refresh()
-            }
             .task {
                 await serviceManager.refresh()
                 serviceManager.startPolling()
@@ -83,7 +86,10 @@ struct SABnzbdManagerView: View {
 
     @ViewBuilder
     private var content: some View {
-        if serviceManager.isRefreshing && filteredJobs.isEmpty {
+        // Gated on the first load rather than on `isRefreshing`, which flips true
+        // on every poll — an empty queue would otherwise blink spinner/content
+        // once per cycle.
+        if serviceManager.isRefreshing && !serviceManager.hasRefreshedOnce && filteredJobs.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = serviceManager.connectionError, filteredJobs.isEmpty {

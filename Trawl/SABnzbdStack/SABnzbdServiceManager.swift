@@ -9,6 +9,10 @@ final class SABnzbdServiceManager {
     private(set) var isConnected: Bool = false
     private(set) var isConnecting: Bool = false
     private(set) var isRefreshing: Bool = false
+    /// Whether a refresh has ever completed. `isRefreshing` flips true on every
+    /// poll, so a first-load spinner keyed off it alone blinks the whole view
+    /// once per cycle whenever the queue is empty.
+    private(set) var hasRefreshedOnce: Bool = false
     private(set) var connectionError: String?
     private(set) var queue: SABnzbdQueue?
     private(set) var history: SABnzbdHistory?
@@ -96,7 +100,10 @@ final class SABnzbdServiceManager {
     func refresh() async {
         guard let client = activeClient, !isRefreshing else { return }
         isRefreshing = true
-        defer { isRefreshing = false }
+        defer {
+            isRefreshing = false
+            hasRefreshedOnce = true
+        }
 
         do {
             async let queueResult = client.getQueue(start: 0, limit: 200)

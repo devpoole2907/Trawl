@@ -37,14 +37,14 @@ struct DownloadClientManagementView: View {
 
                     if !sabnzbdProfiles.isEmpty {
                         NavigationLink {
-                            SABnzbdManagerView()
+                            SABnzbdClientHubView()
                                 .environment(sabnzbdServiceManager)
                         } label: {
                             NavigationMenuRow(
                                 icon: ServiceIdentity.sabnzbd.systemImage,
                                 color: ServiceIdentity.sabnzbd.brandColor,
                                 title: "SABnzbd",
-                                subtitle: "Queue, repairs, unpacking, and history"
+                                subtitle: "Queue, categories, servers, and settings"
                             )
                         }
                     }
@@ -207,6 +207,81 @@ struct DownloadClientManagementView: View {
 /// and RSS have no SABnzbd analogue (SAB exposes no stats, category, or RSS endpoints),
 /// so an umbrella protocol-neutral hub would read as empty-by-accident to a SAB-only
 /// user. Naming the hub after the client keeps the empty state predictable.
+/// SABnzbd's counterpart to `QBittorrentClientHubView`, laid out the same way:
+/// the live queue first, then the configuration the client owns, then settings
+/// and logs. Both clients are reached the same way — Downloads → Client
+/// Management → the client — rather than one living here and the other buried in
+/// app settings.
+struct SABnzbdClientHubView: View {
+    @Environment(SABnzbdServiceManager.self) private var serviceManager
+
+    var body: some View {
+        List {
+            Section {
+                NavigationLink {
+                    SABnzbdManagerView()
+                        .environment(serviceManager)
+                } label: {
+                    NavigationMenuRow(
+                        icon: ServiceIdentity.sabnzbd.systemImage,
+                        color: ServiceIdentity.sabnzbd.brandColor,
+                        title: "Queue",
+                        subtitle: "Downloads, repairs, unpacking, and history"
+                    )
+                }
+            }
+
+            Section {
+                NavigationLink {
+                    SABnzbdCategoriesView()
+                        .environment(serviceManager)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "tag.fill",
+                        color: MoreDestinationAccent.categoriesAndTags.color,
+                        title: "Categories & Scripts",
+                        subtitle: "Folders, post-processing, and priorities"
+                    )
+                }
+
+                NavigationLink {
+                    SABnzbdNewsServersView()
+                        .environment(serviceManager)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "server.rack",
+                        color: ServiceIdentity.sabnzbd.brandColor,
+                        title: "News Servers",
+                        subtitle: "Usenet providers, connections, and SSL"
+                    )
+                }
+            } footer: {
+                Text("These tools are specific to SABnzbd. qBittorrent's equivalents live in its own hub.")
+            }
+
+            Section {
+                NavigationLink {
+                    SABnzbdSettingsView()
+                        .environment(serviceManager)
+                } label: {
+                    NavigationMenuRow(
+                        icon: "gearshape.fill",
+                        color: .secondary,
+                        title: "SABnzbd Settings",
+                        subtitle: "Connection, speed limit, and queue controls"
+                    )
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .navigationTitle("SABnzbd")
+    }
+}
+
 struct QBittorrentClientHubView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
@@ -266,7 +341,7 @@ struct QBittorrentClientHubView: View {
                     )
                 }
             } footer: {
-                Text("These tools are provided by qBittorrent. SABnzbd exposes no equivalent endpoints, so it gets its own hub if and when it does.")
+                Text("These tools are specific to qBittorrent. SABnzbd's equivalents live in its own hub.")
             }
 
             Section {
