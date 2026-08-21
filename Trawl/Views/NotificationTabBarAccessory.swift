@@ -339,6 +339,7 @@ struct RecentNotificationsSheet: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(SyncService.self) private var syncService
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     /// Optional so the sheet still works anywhere a navigator isn't injected.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
@@ -347,6 +348,9 @@ struct RecentNotificationsSheet: View {
     @State private var unreadSinceDate: Date = .distantPast
     @State private var queuedImportCommands: [QueuedImportCommand] = []
     @State private var runningActions: Set<NotificationQuickAction> = []
+    /// Requests with an approve/decline call in flight, so the row can't be
+    /// double-tapped while the server is still deciding.
+    @State private var requestActionIDs: Set<Int> = []
 
     private var notificationCount: Int { inAppNotificationCenter.recentNotifications.count }
     private var unreadNotificationCount: Int {
@@ -354,6 +358,13 @@ struct RecentNotificationsSheet: View {
     }
     private var effectiveUnreadSinceDate: Date {
         unreadSinceDate == .distantPast ? inAppNotificationCenter.lastReadDate : unreadSinceDate
+    }
+
+    /// Requests awaiting a decision. This is the only part of Seerr that belongs in
+    /// this sheet: it's time-sensitive and answerable in one tap. Browsing requests
+    /// stays where it lives, under More.
+    private var pendingRequests: [SeerrMediaRequest] {
+        seerrServiceManager.pendingRequests
     }
 
     private var activeJobs: [ActiveImportJob] {
@@ -455,6 +466,9 @@ struct RecentNotificationsSheet: View {
             inAppNotificationCenter.markAllRead()
         }
         .task {
+            await seerrServiceManager.refreshPendingRequests()
+        }
+        .task {
             await refreshQueuedImportCommands()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
@@ -469,7 +483,8 @@ struct RecentNotificationsSheet: View {
     @ViewBuilder
     private var activityContent: some View {
         let failures = attentionItems
-        if failures.isEmpty && !hasImportActivity && inAppNotificationCenter.recentNotifications.isEmpty {
+        if failures.isEmpty && pendingRequests.isEmpty && !hasImportActivity
+            && inAppNotificationCenter.recentNotifications.isEmpty {
             ContentUnavailableView {
                 Label("No Notifications Yet", systemImage: "bell.slash")
             } description: {
@@ -501,6 +516,16 @@ struct RecentNotificationsSheet: View {
                         }
                     } header: {
                         Text("Needs Attention")
+                    }
+                }
+
+                if !pendingRequests.isEmpty {
+                    Section {
+                        ForEach(pendingRequests) { request in
+                            pendingRequestRow(request)
+                        }
+                    } header: {
+                        Text("Pending Approval")
                     }
                 }
 
@@ -957,6 +982,100 @@ struct RecentNotificationsSheet: View {
                 .map { QueuedImportCommand(command: $0, service: service) }
         } catch {
             return []
+        }
+    }
+
+    /// Approve and decline sit on the row itself rather than behind a push. A
+    /// pending request has exactly two answers, and making the user leave the sheet
+    /// to give one defeats the point of surfacing it here.
+    @ViewBuilder
+    private func pendingRequestRow(_ request: SeerrMediaRequest) -> some View {
+        let isInFlight = requestActionIDs.contains(request.id)
+
+        HStack(alignment: .top, spacing: 12) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(ServiceIdentity.seerr.brandColor.opacity(0.15))
+                    .frame(width: 38, height: 38)
+                Image(systemName: request.media?.mediaType == "tv" ? "tv" : "film")
+                    .font(.title3)
+                    .foregroundStyle(ServiceIdentity.seerr.brandColor)
+            }
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(request.media?.displayTitle ?? "Unknown Media")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                Text(pendingRequestDetail(request))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if isInFlight {
+                ProgressView()
+            }
+        }
+        .padding(.vertical, 4)
+        .disabled(isInFlight)
+        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+            Button {
+                performRequestDecision(request, approve: true)
+            } label: {
+                Label("Approve", systemImage: "checkmark.circle")
+            }
+            .tint(.green)
+        }
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button {
+                performRequestDecision(request, approve: false)
+            } label: {
+                Label("Decline", systemImage: "xmark.circle")
+            }
+            .tint(.orange)
+        }
+        .contextMenu {
+            Button("Approve", systemImage: "checkmark.circle") {
+                performRequestDecision(request, approve: true)
+            }
+            Button("Decline", systemImage: "xmark.circle") {
+                performRequestDecision(request, approve: false)
+            }
+        }
+    }
+
+    private func pendingRequestDetail(_ request: SeerrMediaRequest) -> String {
+        var parts = [request.media?.typeLabel ?? "Media"]
+        if request.is4k == true {
+            parts.append("4K")
+        }
+        if let requester = request.requestedBy?.displayName, !requester.isEmpty {
+            parts.append("Requested by \(requester)")
+        }
+        return parts.joined(separator: " · ")
+    }
+
+    private func performRequestDecision(_ request: SeerrMediaRequest, approve: Bool) {
+        guard !requestActionIDs.contains(request.id) else { return }
+        requestActionIDs.insert(request.id)
+
+        Task {
+            defer { requestActionIDs.remove(request.id) }
+            do {
+                if approve {
+                    try await seerrServiceManager.approveRequest(id: request.id)
+                } else {
+                    try await seerrServiceManager.declineRequest(id: request.id)
+                }
+            } catch {
+                inAppNotificationCenter.showError(
+                    title: approve ? "Approve Failed" : "Decline Failed",
+                    message: error.localizedDescription
+                )
+            }
         }
     }
 

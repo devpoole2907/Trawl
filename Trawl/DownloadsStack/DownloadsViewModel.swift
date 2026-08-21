@@ -87,11 +87,20 @@ final class DownloadsViewModel {
                 .map(DownloadListItem.sab)
             result = waitingQueue + waitingTorrents + waitingSAB
 
-        case .seeding:
-            // Unmatched only: a completed-but-still-importing torrent is already
-            // rendered as its Arr queue row over in Active.
+        case .completed:
+            // Finished but not uploading — paused or stopped on the seeding side.
+            // `isCompleted` alone means "fully downloaded", which is why these used
+            // to sit in Seeding alongside torrents that were actually seeding.
             result = unmatchedTorrents
-                .filter { $0.state.isCompleted }
+                .filter { $0.state.isCompleted && $0.state.filterCategory == .paused }
+                .sorted { $0.addedOn > $1.addedOn }
+                .map(DownloadListItem.torrent)
+
+        case .seeding:
+            // Actually uploading. Unmatched only: a completed-but-still-importing
+            // torrent is already rendered as its Arr queue row over in Active.
+            result = unmatchedTorrents
+                .filter { $0.state.filterCategory == .seeding }
                 .sorted { $0.addedOn > $1.addedOn }
                 .map(DownloadListItem.torrent)
 

@@ -5,11 +5,19 @@ struct HistoryItem: Identifiable {
     let source: ArrServiceType
     var indexerName: String?
 
-    var id: String { "\(source.rawValue)-\(record.id)" }
+    /// Parsed once at construction rather than on every read. This is the sort key
+    /// for the whole history list, so a computed version was re-parsing the date
+    /// twice per comparison — thousands of parses per sort.
+    let sortDate: Date
 
-    var sortDate: Date {
-        HistoryDateParser.parse(record.date) ?? .distantPast
+    init(record: ArrHistoryRecord, source: ArrServiceType, indexerName: String? = nil) {
+        self.record = record
+        self.source = source
+        self.indexerName = indexerName
+        self.sortDate = HistoryDateParser.parse(record.date) ?? .distantPast
     }
+
+    var id: String { "\(source.rawValue)-\(record.id)" }
 
     var dayKey: String {
         sortDate.formatted(date: .abbreviated, time: .omitted)
@@ -123,23 +131,35 @@ struct HistoryRow: View {
     }
 }
 
+/// Formatters are held rather than built per call. Constructing an
+/// `ISO8601DateFormatter` is expensive enough that allocating three of them per
+/// parse dominated the cost of rendering the History segment.
 private enum HistoryDateParser {
+    private static let fractionalISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let iso = ISO8601DateFormatter()
+
+    private static let dayOnly: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
+    }()
+
     static func parse(_ value: String?) -> Date? {
         guard let value, !value.isEmpty else { return nil }
 
-        let fractionalISO = ISO8601DateFormatter()
-        fractionalISO.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         if let date = fractionalISO.date(from: value) {
             return date
         }
 
-        let iso = ISO8601DateFormatter()
         if let date = iso.date(from: value) {
             return date
         }
 
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: value)
+        return dayOnly.date(from: value)
     }
 }

@@ -62,6 +62,7 @@ final class SeerrServiceManager {
             activeProfileID = nil
             isConnected = false
             cachedUserCount = nil
+            pendingRequests = []
         }
     }
 
@@ -72,10 +73,50 @@ final class SeerrServiceManager {
         connectionError = nil
         isConnecting = false
         cachedUserCount = nil
+        pendingRequests = []
     }
 
     func updateCachedUserCount(_ count: Int) {
         cachedUserCount = count
+    }
+
+    // MARK: - Pending approvals
+
+    /// Requests waiting on a decision. Held here rather than in the Requests screen's
+    /// own view model because the notification sheet surfaces them too, and that sheet
+    /// has no business spinning up the full request-management stack just to show a
+    /// handful of rows.
+    private(set) var pendingRequests: [SeerrMediaRequest] = []
+    private(set) var isLoadingPendingRequests = false
+
+    func refreshPendingRequests() async {
+        guard let client = activeClient, isConnected else {
+            pendingRequests = []
+            return
+        }
+
+        isLoadingPendingRequests = true
+        defer { isLoadingPendingRequests = false }
+
+        do {
+            let response = try await client.getRequests(take: 20, skip: 0, filter: "pending")
+            pendingRequests = response.results
+        } catch {
+            // Leave whatever was already loaded in place. A failed refresh shouldn't
+            // blank a list the user may be mid-way through acting on.
+        }
+    }
+
+    func approveRequest(id: Int) async throws {
+        guard let client = activeClient else { return }
+        _ = try await client.approveRequest(id: id)
+        pendingRequests.removeAll { $0.id == id }
+    }
+
+    func declineRequest(id: Int) async throws {
+        guard let client = activeClient else { return }
+        _ = try await client.declineRequest(id: id)
+        pendingRequests.removeAll { $0.id == id }
     }
 
     private func prefetchUserCount(using client: SeerrAPIClient) async {

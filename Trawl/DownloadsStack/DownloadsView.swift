@@ -132,10 +132,11 @@ struct DownloadsView: View {
                     alignment: .leading
                 )
             }
-            .onChange(of: hasQBittorrentServer) { _, _ in
-                // Removing the last torrent client while sitting on Seeding would otherwise
-                // strand the user on a segment that no longer has a tab.
-                if !visibleSections.contains(selectedSection) {
+            .onChange(of: visibleSections) { _, sections in
+                // The selected segment keeps itself visible while it's selected, so
+                // this only fires when the segment goes away for a reason the user
+                // can't see around — the torrent client being removed.
+                if !sections.contains(selectedSection) {
                     withAnimation { selectedSection = .active }
                 }
             }
@@ -449,13 +450,29 @@ struct DownloadsView: View {
                 } label: {
                     ArrInfoRowView(queueItem: item, source: source, linkedTorrent: linkedTorrent)
                 }
+            } else if let linkedSABJob {
+                // A matched Usenet job is every bit as navigable as a matched
+                // torrent — the detail view already exists and the `.sab` rows
+                // use it. This branch was simply missing, so Arr rows backed by
+                // SABnzbd dead-ended in the actions dialog.
+                NavigationLink {
+                    SABnzbdJobDetailView(jobID: linkedSABJob.id, fallbackName: linkedSABJob.name)
+                        .environment(sabnzbdServiceManager)
+                } label: {
+                    ArrInfoRowView(queueItem: item, source: source)
+                }
             } else {
                 Button {
                     queueActionTarget = target
                 } label: {
-                    ArrInfoRowView(queueItem: item, source: source)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .contentShape(Rectangle())
+                    VStack(alignment: .leading, spacing: 4) {
+                        ArrInfoRowView(queueItem: item, source: source)
+                        if showsUnlinkedNotice(for: item) {
+                            unlinkedNotice
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
@@ -485,6 +502,29 @@ struct DownloadsView: View {
                 .tint(.blue)
             }
         }
+    }
+
+    /// An Arr says this is downloading right now, but neither client Trawl is
+    /// connected to has it. Usually that means the Arr is pointed at a download
+    /// client Trawl can't see — the same disconnect `DownloadClientLinkChecker`
+    /// reports over in Client Management.
+    ///
+    /// Deliberately narrow. Only "downloading" qualifies: an importing or moving
+    /// item may have legitimately already left the client, and an item with no
+    /// client configured at all isn't a mismatch, it's an empty setup.
+    private func showsUnlinkedNotice(for item: ArrQueueItem) -> Bool {
+        guard hasQBittorrentServer || hasSABnzbdServer else { return false }
+        guard !item.isImportIssueQueueItem else { return false }
+        return item.normalizedState == "downloading"
+    }
+
+    private var unlinkedNotice: some View {
+        Label(
+            "No matching download in the clients Trawl is connected to.",
+            systemImage: "questionmark.circle"
+        )
+        .font(.caption)
+        .foregroundStyle(.orange)
     }
 
     private func sabRow(for job: SABnzbdJob) -> some View {
@@ -726,6 +766,7 @@ struct DownloadsView: View {
         switch selectedSection {
         case .active: "No Active Downloads"
         case .queue: "Queue is Empty"
+        case .completed: "Nothing Completed"
         case .seeding: "Nothing Seeding"
         case .history: "No Download History"
         case .issues: "No Download Issues"
@@ -736,7 +777,8 @@ struct DownloadsView: View {
         switch selectedSection {
         case .active: "Downloads, repairs, unpacking, and imports in progress will appear here."
         case .queue: "Downloads waiting for a client or import will appear here."
-        case .seeding: "Completed torrents that are uploading will appear here."
+        case .completed: "Finished torrents that are paused or stopped will appear here."
+        case .seeding: "Finished torrents that are still uploading will appear here."
         case .history: "Completed grabs and imports will appear here."
         case .issues: "Client failures and imports requiring attention will appear here."
         }
@@ -746,6 +788,7 @@ struct DownloadsView: View {
         switch selectedSection {
         case .active: "arrow.down.circle"
         case .queue: "tray"
+        case .completed: "checkmark.circle"
         case .seeding: "arrow.up.circle"
         case .history: "clock.arrow.circlepath"
         case .issues: "exclamationmark.triangle"
@@ -757,12 +800,38 @@ struct DownloadsView: View {
         return count == 1 ? "1 item" : "\(count) items"
     }
 
-    /// Seeding is a torrent-only concept — a Usenet job never seeds — so the segment is
-    /// dropped entirely when no torrent client is configured rather than sitting there
-    /// permanently empty.
+    /// Seeding and Completed are torrent-only concepts — a Usenet job never seeds —
+    /// so both are dropped when no torrent client is configured, and each is dropped
+    /// again when it has nothing in it rather than sitting there permanently empty.
+    ///
+    /// The segment the user is currently *on* always stays, even once it empties.
+    /// Pausing the last seeding torrent while sitting on Seeding would otherwise
+    /// yank the tab out from under them mid-action; instead the segment holds with
+    /// its empty state and only disappears — animated, with the selection change —
+    /// once they move somewhere else.
+    ///
+    /// The counts are taken straight off the torrent dictionary rather than through
+    /// the view model: this runs on every body pass, and the full match/sort pipeline
+    /// is far too expensive to drive a segment bar with.
     private var visibleSections: [DownloadSection] {
-        guard !hasQBittorrentServer else { return DownloadSection.allCases }
-        return DownloadSection.allCases.filter { $0 != .seeding }
+        DownloadSection.allCases.filter { section in
+            switch section {
+            case .completed:
+                hasQBittorrentServer && (hasCompletedTorrents || selectedSection == .completed)
+            case .seeding:
+                hasQBittorrentServer && (hasSeedingTorrents || selectedSection == .seeding)
+            case .active, .queue, .history, .issues:
+                true
+            }
+        }
+    }
+
+    private var hasSeedingTorrents: Bool {
+        syncService.torrents.values.contains { $0.state.filterCategory == .seeding }
+    }
+
+    private var hasCompletedTorrents: Bool {
+        syncService.torrents.values.contains { $0.state.isCompleted && $0.state.filterCategory == .paused }
     }
 
     private var hasQBittorrentServer: Bool {
