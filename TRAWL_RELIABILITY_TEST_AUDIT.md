@@ -225,6 +225,14 @@ An earlier attempt to add a client-revision component to that task id did **not*
 
 **Regression cover.** `ArrRepointJourneyUITests` drives the entire repoint through the real Settings UI against two loopback servers and asserts the list repoints, the old server's title disappears, the new server received the library request, and server A stays silent. It failed before this fix and passes after.
 
+## UI journey #4 — switching Arr instances
+
+Landed alongside the N-01 fix, because instance switching drives the same view-lifecycle machinery by a different route and was worth pinning while that code was fresh.
+
+Two Sonarr fixture servers are seeded as two real profiles. The journey asserts the first instance's library renders, switches through the real "Instance" toolbar menu, asserts the second instance's library replaces it and the first title is gone, asserts the second fixture actually received `GET /api/v3/series`, then switches back and asserts the first instance renders again — a one-way switch could otherwise pass by accident.
+
+The DEBUG seed hook now takes an optional second Sonarr base URL. Both profiles are seeded synchronously with fixed, distinct UUIDs, for the reasons documented at the seed site.
+
 ## One UI journey written but not landed
 
 `QBittorrentOnboardingJourneyUITests` plus `QBittorrentFixtureServer` are preserved on the branch `wip/ui-journeys` rather than committed, because the test is not reliably green and a flaky test is worse than none.

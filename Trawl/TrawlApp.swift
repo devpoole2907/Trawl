@@ -126,6 +126,12 @@ struct TrawlApp: App {
     /// call the real `connectService(_:)`, and the real `SonarrAPIClient` will make real
     /// HTTP requests to the fixture server. Nothing about the connect path itself is
     /// stubbed — only the external Sonarr server is faked, which is the whole point.
+    ///
+    /// A second, optional Sonarr profile can be seeded alongside the first through
+    /// `TRAWL_UITEST_SONARR_B_BASE_URL`, for journeys that need two live instances to
+    /// switch between (see `ArrInstanceSwitchJourneyUITests`). It is intentionally
+    /// additive: the first variable and profile behave exactly as before whether or
+    /// not the second is present.
     private static func seedUITestArrServiceIfRequested(into modelContainer: ModelContainer) {
         guard let sonarrBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_SONARR_BASE_URL"],
               !sonarrBaseURL.isEmpty else {
@@ -157,6 +163,39 @@ struct TrawlApp: App {
             try context.save()
         } catch {
             fatalError("Failed to seed UI test Sonarr profile: \(error)")
+        }
+
+        // Second instance, only when a journey asks for one. Seeded strictly after the
+        // first profile's insert+save has already committed, so the two profiles have a
+        // stable, ordered insertion sequence for the unsorted `@Query private var
+        // arrProfiles: [ArrServiceProfile]` in ContentView to return them in — the first
+        // profile connects first and becomes `activeSonarrProfileID` by default
+        // (`ArrServiceManager.connectService` only sets it `if activeSonarrProfileID ==
+        // nil`), which is what lets a test assert which instance is active immediately
+        // after launch.
+        if let sonarrBBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_SONARR_B_BASE_URL"],
+           !sonarrBBaseURL.isEmpty {
+            // Deliberately does not start with, or contain, "Fixture Sonarr": UI tests
+            // that seed both profiles need to select one of the two "Instance" switcher
+            // menu buttons unambiguously by a `label CONTAINS[c]` match, and "Fixture
+            // Sonarr" is itself a substring match against the first profile's name.
+            let profileB = ArrServiceProfile(
+                displayName: "Alternate Sonarr",
+                hostURL: sonarrBBaseURL,
+                serviceType: .sonarr
+            )
+            // Distinct fixed UUID from the first profile, for the same orphaned-Keychain-
+            // entry reason given above.
+            profileB.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000002")!
+
+            seedUITestKeychainValue("uitest-api-key", forKey: profileB.apiKeyKeychainKey)
+
+            context.insert(profileB)
+            do {
+                try context.save()
+            } catch {
+                fatalError("Failed to seed second UI test Sonarr profile: \(error)")
+            }
         }
     }
 
