@@ -280,9 +280,17 @@ A disposable test environment was made available (qBittorrent, two Sonarr, two R
 
 Two operational notes for anyone re-running this: qBittorrent v5 validates the `Host` header, so calls from another machine need `-H "Host: localhost:8080"` naming the container's internal port. **SABnzbd does the same**, which is not in the environment's own notes — without that header every request returns a bare `403 Forbidden` HTML page, which is indistinguishable from a rejected key until the header is added. The SABnzbd API keys in the handoff notes were themselves rejected, so they appear to have drifted from the container's actual config.
 
+### A real Sonarr payload, captured without writing anything
+
+The Sonarr instance had no root folder configured, so adding a series would have meant changing the environment's configuration. `GET /api/v3/series/lookup` returns the same `SonarrSeries` shape from Sonarr's metadata server, so a genuine 36-field payload was captured with **zero writes**.
+
+The load-bearing detail is what a real lookup result is *missing*: **no `id`**, because the series is not in the library yet. Every hand-written fixture here included one, so the real shape of the add-a-series-you-don't-own path had never been decoded in a test. `SonarrSeries` already handles it — a missing `id` becomes a stable negative one derived from the tvdb id, falling back through tvMaze, tvRage and finally a title hash. A non-optional `id` would have failed to decode and taken the whole discover-and-add flow with it.
+
+That makes five for five: every shape captured from a live service confirmed production was already correct and the hand-written fixture was the naive one.
+
 ### Still worth doing against live services
 
-- Seed a real Sonarr/Radarr library and capture a genuine series/movie payload. The system-status response alone carries 30 fields; the fixtures use two.
+- Radarr's equivalent lookup shape, and a real movie payload.
 - Re-check the qBittorrent onboarding journey (on `wip/ui-journeys`) against a real server, since its flakiness is in the sync-then-render half and may well be a fixture-shape problem rather than a timing one.
 - Jellyfin's `AnyProviderIdEquals` quirk, which the `SearchTerm` fallback is built on, has still only been reproduced against a fixture.
 
