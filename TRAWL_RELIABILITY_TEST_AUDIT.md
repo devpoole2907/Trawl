@@ -249,6 +249,20 @@ The DEBUG seed hook now takes an optional second Sonarr base URL. Both profiles 
 
 **Regression cover.** `SABnzbdUnauthorizedJourneyUITests` walks that exact path, so any future regression crashes the test rather than a user.
 
+## N-03 — a rejected SABnzbd key silently emptied the Downloads tab
+
+Noticed while writing the SABnzbd journey. Not a crash, but the worst *kind* of failure: silent data loss.
+
+When SABnzbd rejected the API key, its jobs simply vanished from the unified Downloads list with no explanation anywhere on that tab. `DownloadsView` never read `sabnzbdServiceManager.connectionError`, and its one error branch explicitly required `!hasSABnzbdServer` — so configuring SABnzbd actively *suppressed* the error. The only screen that surfaced it was the SABnzbd manager view, four navigations away.
+
+The fix adds a compact warning above the unified list. It deliberately does **not** blank the screen: this is a unified view and qBittorrent may still be perfectly healthy, so a failing SABnzbd should annotate, not take over. The SABnzbd journey now asserts the warning appears on the Downloads tab itself.
+
+## UI tests no longer depend on the public internet
+
+`SonarrSeriesDetailView` fires a real TMDb cast lookup through a Cloudflare worker. In the UI suite that was genuine outbound traffic sitting out a 15s timeout repeatedly — **one journey took 140 seconds** — and it would fail outright on a sandboxed CI runner, making the suite's result depend on network conditions rather than on Trawl.
+
+`TMDbClient`'s base URL now honours a DEBUG-only override, and the journeys point it at a closed loopback port so the lookup fails immediately. The cast lookup is `try?` fire-and-forget, so nothing under test depends on it. That journey now runs in **20.8 seconds**, and the whole UI suite is hermetic.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).

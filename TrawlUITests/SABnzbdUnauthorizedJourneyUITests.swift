@@ -227,6 +227,23 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             app: app,
             regression: "H-05 regression: 'Pause All' should guard on the cleared active client and issue no request at all once SABnzbd is unauthorized, not send a mutation through a stale client."
         )
+
+        // MARK: Step 6 — the Downloads tab itself must say something.
+
+        // The unified Downloads list is where a user actually lives. Before this was
+        // surfaced there, a rejected API key simply made SABnzbd's jobs disappear from
+        // that list with no explanation: the only screen that showed the error was
+        // this manager view, four navigations away. Silent data loss is the worst
+        // failure mode of the three, so it gets its own assertion.
+        app.tabBars.buttons["Downloads"].tap()
+
+        let downloadsWarning = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Unavailable"))
+            .firstMatch
+        XCTAssertTrue(
+            downloadsWarning.waitForExistence(timeout: 15),
+            "The Downloads tab should tell the user SABnzbd is unavailable rather than silently dropping its jobs from the unified list."
+        )
     }
 
     // MARK: - Helpers

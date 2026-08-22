@@ -317,15 +317,48 @@ struct DownloadsView: View {
             // segment-bar search field doesn't lose keyboard focus the moment the
             // results drop to empty. Swapping the List out for the empty state
             // tears down the scroll container and resigns first responder.
-            ZStack {
-                list
-                    .opacity(items.isEmpty ? 0 : 1)
-                    .allowsHitTesting(!items.isEmpty)
+            VStack(spacing: 0) {
+                sabnzbdConnectionWarning
 
-                if items.isEmpty {
-                    emptyState
+                ZStack {
+                    list
+                        .opacity(items.isEmpty ? 0 : 1)
+                        .allowsHitTesting(!items.isEmpty)
+
+                    if items.isEmpty {
+                        emptyState
+                    }
                 }
             }
+        }
+    }
+
+    /// A failing SABnzbd must not blank this screen — it is a unified view and
+    /// qBittorrent may still be perfectly healthy — but it must not fail silently
+    /// either. Before this, a rejected API key simply made SABnzbd's jobs vanish
+    /// from the list with no explanation anywhere on the Downloads tab; the only
+    /// place that surfaced `connectionError` was the SABnzbd manager screen, four
+    /// navigations away.
+    @ViewBuilder
+    private var sabnzbdConnectionWarning: some View {
+        if hasSABnzbdServer, let message = sabnzbdServiceManager.connectionError {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("SABnzbd Unavailable")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                    Text(message)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityElement(children: .combine)
         }
     }
 

@@ -143,6 +143,12 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        // The series detail screen fires a real TMDb cast lookup. Left alone it
+        // reaches the public internet and sits out a 15s timeout — that alone made
+        // this journey take 140s — and it would fail outright on a sandboxed
+        // runner. A closed loopback port fails immediately, and the cast lookup is
+        // `try?` fire-and-forget, so nothing under test depends on it.
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
         try searchForNewSeries(titled: "Fixture New Series", in: app)
@@ -243,6 +249,12 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        // The series detail screen fires a real TMDb cast lookup. Left alone it
+        // reaches the public internet and sits out a 15s timeout — that alone made
+        // this journey take 140s — and it would fail outright on a sandboxed
+        // runner. A closed loopback port fails immediately, and the cast lookup is
+        // `try?` fire-and-forget, so nothing under test depends on it.
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
         try searchForNewSeries(titled: "Existing Fixture Show", in: app)
@@ -298,6 +310,12 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = server.baseURL
+        // The series detail screen fires a real TMDb cast lookup. Left alone it
+        // reaches the public internet and sits out a 15s timeout — that alone made
+        // this journey take 140s — and it would fail outright on a sandboxed
+        // runner. A closed loopback port fails immediately, and the cast lookup is
+        // `try?` fire-and-forget, so nothing under test depends on it.
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
         try searchForNewSeries(titled: "Fixture Failing Series", in: app)

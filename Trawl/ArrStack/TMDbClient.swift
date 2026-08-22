@@ -5,7 +5,20 @@ import Foundation
 actor TMDbClient {
     private let session: URLSession
     private let decoder = JSONDecoder()
-    private static let baseURL = "https://trawl-apns-worker.james-5d8.workers.dev/tmdb"
+    private static let baseURL: String = {
+        #if DEBUG
+        // UI tests must not depend on the public internet. A real request here is
+        // what made one journey take 140 seconds — it was sitting out the 15s
+        // timeout below, repeatedly — and it would fail outright on a sandboxed CI
+        // runner. Pointing this at a loopback address makes the lookup fail fast
+        // and keeps the test measuring Trawl rather than the network.
+        if let override = ProcessInfo.processInfo.environment["TRAWL_UITEST_TMDB_BASE_URL"],
+           !override.isEmpty {
+            return override
+        }
+        #endif
+        return "https://trawl-apns-worker.james-5d8.workers.dev/tmdb"
+    }()
     static let imageBase = "https://image.tmdb.org/t/p"
 
     init() {
