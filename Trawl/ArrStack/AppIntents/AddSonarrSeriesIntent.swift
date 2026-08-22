@@ -67,8 +67,15 @@ struct AddSonarrSeriesIntent: AppIntent {
             throw ArrIntentError.requestFailed("That series is missing the details Sonarr needs to add it.")
         }
 
-        // Duplicate guard.
-        let existing = (try? await client.getSeries()) ?? []
+        // Duplicate guard. A failed read is not the same as an empty library — swallowing
+        // it here would let a real duplicate through, so surface the failure and stop
+        // before any add mutation is sent.
+        let existing: [SonarrSeries]
+        do {
+            existing = try await client.getSeries()
+        } catch {
+            throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
+        }
         if existing.contains(where: { $0.tvdbId == tvdbId }) {
             return .result(dialog: IntentDialog(stringLiteral: ArrIntentError.itemAlreadyExists(lookup.title).message))
         }

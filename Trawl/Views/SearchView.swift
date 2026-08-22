@@ -59,7 +59,7 @@ struct SearchView: View {
         .searchable(
             text: $viewModel.searchText,
             isPresented: $viewModel.isSearchPresented,
-            placement: .navigationBarDrawer(displayMode: .always),
+            placement: searchFieldPlacement,
             prompt: searchPrompt
         )
         .onSubmit(of: .search) {
@@ -119,6 +119,14 @@ struct SearchView: View {
             trendingLookupTask?.cancel()
             trendingLookupTask = nil
         }
+    }
+
+    private var searchFieldPlacement: SearchFieldPlacement {
+        #if os(macOS)
+        .automatic
+        #else
+        .navigationBarDrawer(displayMode: .always)
+        #endif
     }
 
     // MARK: - Content routing

@@ -1,0 +1,41 @@
+{
+  "configurations" : [
+    {
+      "id" : "5E0F1A00-0000-4000-A000-000000000001",
+      "name" : "Default",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "codeCoverage" : {
+      "targets" : [
+        {
+          "containerPath" : "container:Trawl.xcodeproj",
+          "identifier" : "7C724A192F81D5920073A650",
+          "name" : "Trawl"
+        }
+      ]
+    },
+    "testExecutionOrdering" : "random",
+    "testTimeoutsEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Trawl.xcodeproj",
+        "identifier" : "7C724A282F81D5940073A650",
+        "name" : "TrawlTests"
+      }
+    },
+    {
+      "target" : {
+        "containerPath" : "container:Trawl.xcodeproj",
+        "identifier" : "7C724A322F81D5940073A650",
+        "name" : "TrawlUITests"
+      }
+    }
+  ],
+  "version" : 1
+}

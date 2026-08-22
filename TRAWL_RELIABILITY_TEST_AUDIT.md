@@ -4,6 +4,175 @@
 **Repository snapshot:** `rework/downloads-navigation-experience` at `a5f29d9`, plus the uncommitted working tree present during the audit  
 **Scope:** iOS app, macOS app, share extension, widgets, test architecture, build configuration, network boundaries, service state, concurrency, persistence boundaries, and representative SwiftUI accessibility
 
+## Implementation addendum — 22 August 2026
+
+The first reliability tranche has now been implemented against repository commit `ee84c0a` plus the working tree. These are behavior-driven regression tests, not coverage padding: production request builders/managers run against recording `URLProtocol` fixtures, loopback HTTP servers, manual clocks, and checked-continuation barriers.
+
+### Completed in this tranche
+
+| Audit item | Result | Regression evidence |
+|---|---|---|
+| B-01 macOS compile failure | Fixed | `SearchView` now selects a macOS-compatible search placement; a clean `TrawlMac` generic macOS build exits 0. |
+| H-03 out-of-order qB sync / stopped polling | Fixed | Controlled RID 20-before-15 ordering cannot move state backward or duplicate completion; a delayed response after `stopPolling()` cannot apply. |
+| H-05 SAB unauthorized polling/client lifecycle | Fixed | A controlled 401 now stops polling and clears the active client; mutation and subsequent manual poll tick produce no request. The pre-fix test failed five intended assertions. |
+| H-07 Arr same-ID cache repoint | Fixed | Real manager reconnects from loopback server A to B for both Sonarr and Radarr. Pre-fix, both returned A and B received no library request; post-fix, both fetch B while an unrelated profile cache remains fresh. |
+| M-03 qB non-403 status validation | Partially fixed and covered | Real-client request tests reject 401/404/429/500 before text/JSON decoding and assert method/path/query. A deterministic 403 reauthentication contract still needs an injectable credential/reauthentication seam. |
+| M-06 multipart header injection | Fixed | Byte-level helper tests and a captured real upload request prove hostile CR/LF/quotes cannot create injected part headers. |
+| Final 3xx handling gap | Fixed | Shared `HTTPTransport` now accepts only 2xx; a terminal 302 is mapped as an HTTP error. |
+
+Shared HTTP contract coverage now also asserts GET path/query/static authorization, successful JSON decoding, and domain mappings for 401/404/429/500.
+
+### Validation after integration
+
+| Check | Result |
+|---|---:|
+| Six new focused suites together | **Passed:** 15 logical tests / 20 concrete executions, 0 failed, 0 skipped |
+| Entire `Trawl` scheme | **Passed:** 159 logical tests / 236 concrete executions, 0 failed, 0 skipped |
+| Generic iOS Simulator build | **Passed** (also compiles share/widget dependencies) |
+| Generic macOS `TrawlMac` build | **Passed** |
+| `git diff --check` | **Passed** |
+
+Integrated result bundles are under Xcode DerivedData, including `Test-Trawl-2026.08.22_17-09-17-+1200.xcresult` for the focused tranche and `Test-Trawl-2026.08.22_17-09-38-+1200.xcresult` for the full scheme.
+
+## Second tranche — 22 August 2026
+
+### Completed in this tranche
+
+| Audit item | Result | Regression evidence |
+|---|---|---|
+| H-04 calendar refresh ordering | Fixed | A refresh generation guard plus deferred state commit. Overlapping refreshes leave each event in state exactly once, and a stale profile-A refresh released after profile B has loaded cannot overwrite B. Refresh also no longer blanks the calendar while it reloads. |
+| M-05 canceled torrent filter overwriting a newer query | Fixed | Behavioral red captured first: a canceled Alpha filter applied after and overwrote Beta. A filter generation plus cancellation checks on both sides of the computation now prevent it. |
+| H-01 same-ID Arr repoint leaves screens on the old client | Fixed | Two real loopback servers per test. A deliberately retained Sonarr and Radarr view model is driven through an in-place host edit; after the reconnect, server A receives no further request and server B receives both the library `GET` and the command `POST`. |
+| H-02 failed Arr reconnect leaves a stale client exposed | Fixed | A same-ID reconnect to a 401 server clears the entry's client and rotates its revision. Every manager and retained-view-model entry point — `sonarrClient`, `sonarrClient(for:)`, `loadSeriesLibrary()`, `loadHealth()`, `refreshQueues()`, the view model's library load and its search command — is exercised after the failure, and server A receives nothing. |
+
+### A real defect the H-02 test caught
+
+The first green run was not green. `ArrLibraryViewModel.client` resolved as `clientProvider?() ?? storedClient`, so whenever the live resolver correctly returned `nil` — exactly the failed-reconnect case — the `??` fell back to the client the view model had been constructed with. A retained view model could still reach the old server after a failed credential edit, which is H-02 itself surviving its own fix. The resolver is now authoritative when present.
+
+The same pass replaced the `Client??` tri-state override that guarded this property. Its only two callers were `SonarrViewModel` and `RadarrViewModel` preview initializers, both assigning `nil`; that intent is now an explicit `detachClientForPreview()`, so previews still issue no network work and the double optional is gone.
+
+### Validation after integration
+
+| Check | Result |
+|---|---:|
+| Three second-tranche suites together | **Passed:** 6 tests, 0 failed, 0 skipped |
+| Entire `Trawl` scheme | **Passed:** 165 logical tests / 242 concrete executions, 0 failed, 0 skipped |
+| Generic iOS Simulator build | **Passed** |
+| Generic macOS `TrawlMac` build | **Passed** |
+
+New and extended test files in this tranche: `TrawlTests/ArrClientLifecycleTests.swift`, `TrawlTests/ArrCalendarConcurrencyTests.swift`, `TrawlTests/TorrentListViewModelConcurrencyTests.swift`.
+
+### Still open after the second tranche
+
+H-06 and M-01, M-02, M-04 remained, along with the qBittorrent 403 reauthentication contract. All five were taken in the third tranche below.
+
+## Third tranche — 22 August 2026
+
+This tranche closed every remaining item from the original prioritized list.
+
+### Completed in this tranche
+
+| Audit item | Result | Regression evidence |
+|---|---|---|
+| H-06 slow SABnzbd response overwriting a new profile | Fixed | A connection generation, stamped on entry and re-checked before every shared-state write, plus an `activeClient === client` identity check that catches connections cleared in place by a 401. Two fake SABnzbd servers behind one injected `URLProtocol`: profile A's refresh is parked mid-flight, B connects, A is released — `activeProfileID`, queue, history and completion notifications stay exclusively B's. A parked *connect* handshake is covered the same way. |
+| H-06 `isRefreshing` starvation | Fixed | The boolean gate became `refreshingGeneration`, so a newly connected profile's first refresh is no longer swallowed by the previous profile's in-flight one. Pre-fix, B connected but never loaded history at all. |
+| M-01 retry skipping failed secondary Arr instances | Fixed | `retryDisconnected()` now decides per profile via `isConnected(_:profileID:)` and a new `isConnecting(_:profileID:)`, not from the active instance's state. Two loopback Sonarr servers: the failed profile is reconnected while the healthy one gets no second handshake. |
+| M-02 Add Movie/Series intents failing open | Fixed | `try?` around the duplicate-check read replaced with an explicit `do/catch` in both intents. Real intents run against a loopback server that fails only the library `GET`: the read failure is surfaced as `ArrIntentError.requestFailed` and no add `POST` is sent. Counterpart tests prove a genuinely empty library still adds. |
+| M-04 share-extension provider failure paths | Fixed | Every input path now funnels through one idempotent termination, so the sheet cannot be stranded and cannot be completed twice. Four paths previously returned without ending the request at all. |
+| qBittorrent 403 reauthentication contract | Covered, one bug fixed | A `QBittorrentCredentialProviding` seam plus an injectable login transport make the retry path deterministic. The contract itself was already correct — one re-auth, one retry, same request replayed with a refreshed cookie, no retry after a failed re-auth. The bug: credential-resolution failures escaped into the catch-all and surfaced as *"Network error: Keychain read failed…"* instead of an authentication error. |
+
+### Making M-04 testable without a project-file change
+
+The audit assumed `ShareViewController.swift` compiled into the app target. It does not — it is listed individually in the `Trawl` and `TrawlMac` `membershipExceptions` blocks, so `@testable import Trawl` cannot reach it, and `NSExtensionContext` cannot be injected into a `final` `UIViewController` anyway.
+
+Because those exceptions name the two files individually rather than the `Share/` directory, a *new* file at `Share/ShareInputResolution.swift` is in no exception list and is therefore compiled by every target, tests included. The pure decision logic — which provider outcome means what, and the idempotent termination gate — moved there as Foundation-only code, and `ShareViewController` became a thin adapter over it (`extractSharedContent` went from 130 lines of nested callbacks to 41). No `project.pbxproj` edit was needed.
+
+### Two test defects the integration run caught
+
+Both were faults in the new tests, not in production, and both were fixed by making the test more precise rather than less demanding.
+
+- The M-01 test compared the healthy server's entire request list before and after the retry. `ArrServiceManager.initialize(from:)` ends by spawning a detached health/blocklist prefetch, so that list keeps growing on its own timeline. The assertion now counts `system/status` requests — the handshake every reconnect begins with — which is what "was not reconnected" actually means.
+- A share-extension fixture used `https://indexer.example/api?t=get&id=99/Example.Release.nzb`, whose `.nzb` is in the query string, not the path. Production correctly declined to treat it as an NZB link. The fixture now uses a path-based link, and a second test pins the query-string case so the path rule cannot loosen silently.
+
+### Validation after integration
+
+| Check | Result |
+|---|---:|
+| Entire `Trawl` scheme | **Passed:** 214 logical tests / 298 concrete executions, 0 failed, 0 skipped |
+| Generic iOS Simulator build | **Passed** |
+| Generic macOS `TrawlMac` build | **Passed** |
+| `TrawlShare` build | **Passed** |
+| `TrawlWidgets` build | **Passed** |
+| `git diff --check` | **Passed** |
+
+New test files in this tranche: `TrawlTests/SABnzbdProfileSwitchTests.swift`, `TrawlTests/ArrRetryDisconnectedTests.swift`, `TrawlTests/ArrAddIntentDuplicateCheckTests.swift`, `TrawlTests/ShareExtensionInputTests.swift`, `TrawlTests/QBittorrentReauthContractTests.swift`. New production file: `Trawl/Share/ShareInputResolution.swift`.
+
+### Still open after the third tranche
+
+Every numbered finding in the original prioritization was fixed and covered. What remained was structural, and the fourth tranche took most of it.
+
+## Fourth tranche — 23 August 2026
+
+### Service contract matrices
+
+The audit's first recommendation — "network contract tests that run production request code" — is now implemented for four services. Each suite drives the real request builder, auth layer, serializer, status validator, decoder and error mapper against a faked *server*, never a faked Trawl method.
+
+| Suite | Approach | Notes |
+|---|---|---|
+| `JellyfinContractTests` | Loopback `NWListener` | No production change needed. Asserts the real `Authorization` header field-by-field, exact query encoding, pagination boundaries, and the documented `AnyProviderIdEquals` quirk — including that the `SearchTerm` fallback actually fires and narrows. |
+| `SeerrContractTests` | Recording `URLProtocol` | Needed a defaulted `sessionConfiguration:` on `SeerrAPIClient`; the default is identical to the configuration it built for itself. |
+| `ArrAPIClientContractTests` | Loopback `NWListener` | Covers method/path/query, the `X-Api-Key` header and its configurable name, mutation bodies, and each `ArrError` mapping. Model decoding stays with `ArrStackTests`. |
+| `SABnzbdAPIClientContractTests` | Recording `URLProtocol` via the existing `sessionConfiguration:` seam | `SABnzbdAPIClient` was at **0%** line coverage. Now covers the query-driven API shape, both unauthorized signals, and the NZB multipart upload including hostile-filename header injection. |
+
+Every suite covers the audit's checklist: exact method/path/query/headers/body, documented success, mixed-shape fields, 401/403/404/429/5xx, malformed JSON, empty bodies, HTML error pages, and cancellation. No suite relies on `Task.sleep`.
+
+### CI and all-target gating
+
+The audit's other structural gap was that nothing stopped a `TrawlMac` compile failure reaching a branch. That is now gated:
+
+- `Trawl.xctestplan` — code coverage on the app target, test timeouts enabled, and **randomized execution order**;
+- **shared schemes** for `TrawlMac`, `TrawlShare` and `TrawlWidgets`. Only `Trawl.xcscheme` was shared before, so those three schemes existed purely as local autocreated artifacts and a fresh clone could not have built them at all;
+- `.github/workflows/ci.yml` — six build gates (iOS Debug + Release, macOS Debug + Release, Share, Widgets) plus a serialized test job. Parallel testing is disabled deliberately: several suites stand up loopback servers and share process-wide state;
+- `Scripts/assert-test-results.py` — reads the `.xcresult` and fails the job unless `passed > 0`, `failed == 0` and `skipped == 0`.
+
+That last gate is not theoretical. A `test-without-building` invocation during this tranche produced a run with **zero tests** and still exited 0; the script caught it. It also rejects fabricated zero/skipped/failed summaries, verified directly.
+
+### Accessibility labels
+
+Every icon-only control named in the audit now carries an action-shaped `.accessibilityLabel`, plus two more found by sweeping the same files. The calendar's filter menu also gained an `.accessibilityValue`, because the icon's fill state was the only indication of the current filter.
+
+One honest limitation: `TrawlSegmentBar`'s collapsed search affordance uses a bare `.gesture()`, so labeling the image stops VoiceOver reading the SF Symbol name but does not make the tap target actionable. Fixing that means restructuring the control, not adding a modifier.
+
+### Two flaky assertions caught by running the suite repeatedly
+
+Both were faults in the new tests, and both were fixed by making the assertion more precise rather than weaker.
+
+`JSONEncoder` gives no key-order guarantee for synthesized `CodingKeys`, so asserting an encoded body byte-for-byte fails intermittently on an encoder implementation detail. One Seerr assertion and one Arr assertion did exactly that — the Arr one passed on the first run and failed on the second. Both now compare **parsed JSON**, which still pins the exact key set (so a stray or omitted optional still fails) without depending on ordering.
+
+This is precisely what the test plan's randomized ordering plus a repeated run is for. The final validation ran the whole plan three times.
+
+### Validation after integration
+
+| Check | Result |
+|---|---:|
+| Entire `Trawl` scheme via `Trawl.xctestplan`, run **three times** | **Passed each time:** 318 logical tests / 436 concrete executions, 0 failed, 0 skipped |
+| Generic iOS Simulator build | **Passed** |
+| Generic macOS `TrawlMac` build | **Passed** |
+| `TrawlShare` build | **Passed** |
+| `TrawlWidgets` build | **Passed** |
+| `git diff --check` | **Passed** |
+
+Coverage grew from 133 logical tests at the original audit to **318**, and from 205 concrete executions to **436**.
+
+### Still open
+
+- Keychain / App Group cross-process tests on an installed app plus an extension-side probe.
+- Meaningful UI journeys. The three `TrawlUITests` methods are still Xcode templates that assert nothing, and the nine journeys the audit lists are unwritten. This is now the largest single gap.
+- Share-extension *behavioral* tests. `ShareViewController` itself is still unreachable from `TrawlTests` — only its extracted decision logic is covered. Reaching the controller needs a `project.pbxproj` membership change, which was deliberately not made.
+- The Swift 6 isolation/sendability warning backlog.
+- An `LSSupportsOpeningDocumentsInPlace` / `UISupportsDocumentBrowser` Info.plist decision.
+- The optional scheduled real-service contract lab.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.

@@ -6,7 +6,16 @@ actor SeerrAPIClient {
     private let transport: HTTPTransport
     private var onCookieUpdate: (@Sendable (String) -> Void)?
 
-    init(baseURL: String, sessionCookie: String? = nil, allowsUntrustedTLS: Bool = false) {
+    /// `sessionConfiguration` defaults to a fresh ephemeral configuration, which is
+    /// exactly what this client built for itself before the parameter existed. Tests
+    /// pass a configuration carrying a stub `URLProtocol`; the cookie and timeout
+    /// policy below is applied either way.
+    init(
+        baseURL: String,
+        sessionCookie: String? = nil,
+        allowsUntrustedTLS: Bool = false,
+        sessionConfiguration: URLSessionConfiguration = .ephemeral
+    ) {
         let mapper = HTTPErrorMapper(
             badURL: { SeerrAPIError.badURL },
             transport: { error in
@@ -20,7 +29,7 @@ actor SeerrAPIClient {
             unauthorizedStatusCodes: [401, 403]
         )
 
-        let config = URLSessionConfiguration.ephemeral
+        let config = sessionConfiguration
         config.httpShouldSetCookies = false
         config.httpCookieAcceptPolicy = .never
         config.timeoutIntervalForRequest = 30

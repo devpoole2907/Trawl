@@ -15,6 +15,9 @@ struct ArrClientEntry<Client: SharedArrClient>: Identifiable {
     var qualityProfiles: [ArrQualityProfile] = []
     var rootFolders: [ArrRootFolder] = []
     var tags: [ArrTag] = []
+    /// Changes whenever a connection replaces this entry's client. Views use it
+    /// to discard screen state that belongs to the previous server.
+    var clientRevision = UUID()
 
     init(id: UUID, displayName: String) {
         self.id = id
@@ -167,11 +170,11 @@ final class ArrServiceManager {
     }
 
     func sonarrClient(for profileID: UUID) -> SonarrAPIClient? {
-        sonarrInstances.first(where: { $0.id == profileID })?.client
+        sonarrInstances.first(where: { $0.id == profileID && $0.isConnected })?.client
     }
 
     func radarrClient(for profileID: UUID) -> RadarrAPIClient? {
-        radarrInstances.first(where: { $0.id == profileID })?.client
+        radarrInstances.first(where: { $0.id == profileID && $0.isConnected })?.client
     }
 
     func bazarrClient(for profileID: UUID) -> BazarrAPIClient? {
@@ -288,6 +291,20 @@ final class ArrServiceManager {
             activeProwlarrProfileID == profileID && prowlarrConnected
         case .bazarr:
             bazarrInstances.first(where: { $0.id == profileID })?.isConnected ?? false
+        }
+    }
+
+    func isConnecting(_ serviceType: ArrServiceType, profileID: UUID) -> Bool {
+
+        switch serviceType {
+        case .sonarr:
+            sonarrInstances.first(where: { $0.id == profileID })?.isConnecting ?? false
+        case .radarr:
+            radarrInstances.first(where: { $0.id == profileID })?.isConnecting ?? false
+        case .prowlarr:
+            activeProwlarrProfileID == profileID && prowlarrIsConnecting
+        case .bazarr:
+            bazarrInstances.first(where: { $0.id == profileID })?.isConnecting ?? false
         }
     }
 
@@ -506,7 +523,10 @@ final class ArrServiceManager {
 
     // MARK: - Backward-compatible Sonarr computed properties
 
-    var sonarrClient: SonarrAPIClient? { activeSonarrEntry?.client }
+    var sonarrClient: SonarrAPIClient? {
+        guard let entry = activeSonarrEntry, entry.isConnected else { return nil }
+        return entry.client
+    }
     var sonarrConnected: Bool { activeSonarrEntry?.isConnected ?? false }
     var sonarrIsConnecting: Bool {
         activeSonarrEntry?.isConnecting ?? sonarrInstances.contains { $0.isConnecting }
@@ -520,10 +540,14 @@ final class ArrServiceManager {
 
     /// ID of the active Sonarr instance — use as `.task(id:)` trigger for view model recreation
     var activeSonarrInstanceID: UUID? { activeSonarrEntry?.id }
+    var activeSonarrClientRevision: UUID? { activeSonarrEntry?.clientRevision }
 
     // MARK: - Backward-compatible Radarr computed properties
 
-    var radarrClient: RadarrAPIClient? { activeRadarrEntry?.client }
+    var radarrClient: RadarrAPIClient? {
+        guard let entry = activeRadarrEntry, entry.isConnected else { return nil }
+        return entry.client
+    }
     var radarrConnected: Bool { activeRadarrEntry?.isConnected ?? false }
     var radarrIsConnecting: Bool {
         activeRadarrEntry?.isConnecting ?? radarrInstances.contains { $0.isConnecting }
@@ -537,6 +561,7 @@ final class ArrServiceManager {
 
     /// ID of the active Radarr instance — use as `.task(id:)` trigger for view model recreation
     var activeRadarrInstanceID: UUID? { activeRadarrEntry?.id }
+    var activeRadarrClientRevision: UUID? { activeRadarrEntry?.clientRevision }
 
     // MARK: - Instance switching
 
@@ -612,15 +637,17 @@ final class ArrServiceManager {
         }
     }
 
-    /// Retry only services that are configured but not currently connected or connecting.
-    /// Safe to call on foreground return — does not reset already-connected services.
+    /// Retry only profiles that are configured but not currently connected or connecting.
+    /// Safe to call on foreground return — does not reset already-connected profiles.
+    /// The decision is per profile (not per service type) so a failed secondary
+    /// instance is retried even while another instance of the same type is healthy.
     func retryDisconnected() async {
         guard !isInitializing else { return }
         for serviceType in ArrServiceType.allCases {
-            guard !isConnected(serviceType), !isConnecting(serviceType) else { continue }
             let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
             guard !profiles.isEmpty else { continue }
             for profile in profiles {
+                guard !isConnected(serviceType, profileID: profile.id), !isConnecting(serviceType, profileID: profile.id) else { continue }
                 await connectService(profile)
             }
         }
@@ -661,12 +688,14 @@ final class ArrServiceManager {
                 if sonarrInstances.contains(where: { $0.id == profile.id }) {
                     updateEntry(in: &sonarrInstances, id: profile.id) { entry in
                         entry.client = client
+                        entry.clientRevision = UUID()
                         entry.isConnected = true
                         entry.connectionError = nil
                         entry.qualityProfiles = fetchedProfiles
                         entry.rootFolders = folders
                         entry.tags = fetchedTags
                     }
+                    seriesLibrary.invalidate(profile.id)
                 } else {
                     // Profile was added after initialization
                     var entry = SonarrClientEntry(id: profile.id, displayName: profile.displayName)
@@ -701,12 +730,14 @@ final class ArrServiceManager {
                 if radarrInstances.contains(where: { $0.id == profile.id }) {
                     updateEntry(in: &radarrInstances, id: profile.id) { entry in
                         entry.client = client
+                        entry.clientRevision = UUID()
                         entry.isConnected = true
                         entry.connectionError = nil
                         entry.qualityProfiles = fetchedProfiles
                         entry.rootFolders = folders
                         entry.tags = fetchedTags
                     }
+                    movieLibrary.invalidate(profile.id)
                 } else {
                     var entry = RadarrClientEntry(id: profile.id, displayName: profile.displayName)
                     entry.client = client
@@ -1411,11 +1442,15 @@ final class ArrServiceManager {
         switch serviceType {
         case .sonarr:
             updateEntry(in: &sonarrInstances, id: id) {
+                $0.client = nil
+                $0.clientRevision = UUID()
                 $0.connectionError = message
                 $0.isConnected = false
             }
         case .radarr:
             updateEntry(in: &radarrInstances, id: id) {
+                $0.client = nil
+                $0.clientRevision = UUID()
                 $0.connectionError = message
                 $0.isConnected = false
             }

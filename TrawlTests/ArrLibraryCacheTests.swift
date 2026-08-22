@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import Network
 @testable import Trawl
 
 private struct StubItem: Sendable, Equatable {
@@ -176,4 +177,189 @@ struct ArrLibraryCacheTests {
 private final class Counter {
     private(set) var value = 0
     func increment() { value += 1 }
+}
+
+@Suite("Arr service library cache repointing", .serialized)
+@MainActor
+struct ArrServiceLibraryCacheRepointingTests {
+    @Test("Reconnecting a Sonarr profile ID to a new server refetches that profile's appear-time library")
+    func reconnectingSonarrProfileRefetchesItsLibrary() async throws {
+        try await assertRepointedSonarrProfileRefetches()
+    }
+
+    @Test("Reconnecting a Radarr profile ID to a new server refetches that profile's appear-time library")
+    func reconnectingRadarrProfileRefetchesItsLibrary() async throws {
+        try await assertRepointedRadarrProfileRefetches()
+    }
+
+    private func assertRepointedSonarrProfileRefetches() async throws {
+        let serverA = try await RepointingArrTestServer(label: "server-a", libraryBody: #"[{"id": 1, "title": "Server A Series"}]"#)
+        let serverB = try await RepointingArrTestServer(label: "server-b", libraryBody: #"[{"id": 2, "title": "Server B Series"}]"#)
+        defer {
+            serverA.stop()
+            serverB.stop()
+        }
+        let profile = ArrServiceProfile(
+            displayName: "Sonarr",
+            hostURL: serverA.baseURL,
+            serviceType: .sonarr
+        )
+        let manager = ArrServiceManager()
+        try await withSavedAPIKey(for: profile) {
+            await manager.connectService(profile)
+            let fromServerA = try await manager.loadSeriesLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+
+            let unaffectedID = UUID()
+            _ = try await manager.seriesLibrary.load(instanceID: unaffectedID, maxAge: 60) { [] }
+
+            profile.hostURL = serverB.baseURL
+            await manager.connectService(profile)
+            let fromServerB = try await manager.loadSeriesLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+
+            #expect(fromServerA.map(\.title) == ["Server A Series"])
+            #expect(fromServerB.map(\.title) == ["Server B Series"])
+            #expect(serverA.requestedPaths == ["/api/v3/series"])
+            #expect(serverB.requestedPaths == ["/api/v3/series"])
+            #expect(manager.seriesLibrary.isFresh(unaffectedID, maxAge: 60))
+        }
+    }
+
+    private func assertRepointedRadarrProfileRefetches() async throws {
+        let serverA = try await RepointingArrTestServer(label: "server-a", libraryBody: #"[{"id": 1, "title": "Server A Movie"}]"#)
+        let serverB = try await RepointingArrTestServer(label: "server-b", libraryBody: #"[{"id": 2, "title": "Server B Movie"}]"#)
+        defer {
+            serverA.stop()
+            serverB.stop()
+        }
+        let profile = ArrServiceProfile(
+            displayName: "Radarr",
+            hostURL: serverA.baseURL,
+            serviceType: .radarr
+        )
+        let manager = ArrServiceManager()
+        try await withSavedAPIKey(for: profile) {
+            await manager.connectService(profile)
+            let fromServerA = try await manager.loadMovieLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+
+            let unaffectedID = UUID()
+            _ = try await manager.movieLibrary.load(instanceID: unaffectedID, maxAge: 60) { [] }
+
+            profile.hostURL = serverB.baseURL
+            await manager.connectService(profile)
+            let fromServerB = try await manager.loadMovieLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+
+            #expect(fromServerA.map(\.title) == ["Server A Movie"])
+            #expect(fromServerB.map(\.title) == ["Server B Movie"])
+            #expect(serverA.requestedPaths == ["/api/v3/movie"])
+            #expect(serverB.requestedPaths == ["/api/v3/movie"])
+            #expect(manager.movieLibrary.isFresh(unaffectedID, maxAge: 60))
+        }
+    }
+
+    private func withSavedAPIKey(
+        for profile: ArrServiceProfile,
+        operation: () async throws -> Void
+    ) async throws {
+        try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: "test-api-key")
+        do {
+            try await operation()
+        } catch {
+            try await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
+            throw error
+        }
+        try await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey)
+    }
+
+}
+
+private final class RepointingArrTestServer: @unchecked Sendable {
+    private let listener: NWListener
+    private let queue: DispatchQueue
+    private let libraryBody: String
+    private let lock = NSLock()
+    private var paths: [String] = []
+
+    init(label: String, libraryBody: String) async throws {
+        self.libraryBody = libraryBody
+        self.queue = DispatchQueue(label: "RepointingArrTestServer.\(label)")
+        self.listener = try NWListener(using: .tcp, on: .any)
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.respond(to: connection)
+        }
+        try await withCheckedThrowingContinuation { continuation in
+            listener.stateUpdateHandler = { state in
+                switch state {
+                case .ready:
+                    continuation.resume()
+                case .failed(let error):
+                    continuation.resume(throwing: error)
+                default:
+                    break
+                }
+            }
+            listener.start(queue: queue)
+        }
+    }
+
+    var baseURL: String {
+        guard let port = listener.port else {
+            fatalError("Repointing test server did not bind a port.")
+        }
+        return "http://127.0.0.1:\(port.rawValue)"
+    }
+
+    var requestedPaths: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return paths.filter { $0 == "/api/v3/series" || $0 == "/api/v3/movie" }
+    }
+
+    func stop() {
+        listener.cancel()
+    }
+
+    private func respond(to connection: NWConnection) {
+        connection.start(queue: queue)
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 65_536) { [weak self] data, _, _, error in
+            guard let self, let data, error == nil else {
+                connection.cancel()
+                return
+            }
+            let path = Self.requestPath(from: data)
+            self.lock.lock()
+            self.paths.append(path)
+            self.lock.unlock()
+
+            let body: String
+            switch path {
+            case "/api/v3/system/status":
+                body = "{}"
+            case "/api/v3/qualityprofile", "/api/v3/rootfolder", "/api/v3/tag":
+                body = "[]"
+            case "/api/v3/series", "/api/v3/movie":
+                body = self.libraryBody
+            default:
+                body = "[]"
+            }
+            let response = Self.httpResponse(body: body)
+            connection.send(content: response, contentContext: .finalMessage, isComplete: true, completion: .contentProcessed { _ in
+                connection.cancel()
+            })
+        }
+    }
+
+    private static func requestPath(from data: Data) -> String {
+        guard let request = String(data: data, encoding: .utf8),
+              let requestLine = request.split(separator: "\r\n", maxSplits: 1).first else {
+            return ""
+        }
+        let parts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
+        guard parts.count > 1 else { return "" }
+        return String(parts[1].split(separator: "?", maxSplits: 1).first ?? "")
+    }
+
+    private static func httpResponse(body: String) -> Data {
+        let bytes = Data(body.utf8)
+        return Data("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n".utf8) + bytes
+    }
 }

@@ -10,9 +10,63 @@ import AppKit
 // MARK: - Calendar View Model
 
 @MainActor
+protocol ArrCalendarDataSource: AnyObject {
+    var calendarConnectionKey: String { get }
+    func calendarRefreshSnapshot() -> ArrCalendarRefreshSnapshot
+    func iCalFeedLinks() async throws -> [ArrICalFeedLink]
+    func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink
+}
+
+struct ArrCalendarRefreshSnapshot: Sendable {
+    let connectionKey: String
+    let loadSeries: @Sendable () async throws -> [SonarrSeries]
+    let loadMovies: @Sendable () async throws -> [RadarrMovie]
+    let loadEpisodes: (@Sendable (Date, Date) async throws -> [SonarrEpisode])?
+    let loadMovieCalendar: (@Sendable (Date, Date) async throws -> [RadarrMovie])?
+}
+
+extension ArrServiceManager: ArrCalendarDataSource {
+    var calendarConnectionKey: String {
+        "\(sonarrConnected)-\(radarrConnected)-\(activeSonarrInstanceID?.uuidString ?? "none")-\(activeRadarrInstanceID?.uuidString ?? "none")"
+    }
+
+    func calendarRefreshSnapshot() -> ArrCalendarRefreshSnapshot {
+        let sonarr = sonarrClient
+        let radarr = radarrClient
+        let loadEpisodes: (@Sendable (Date, Date) async throws -> [SonarrEpisode])? = if let sonarr {
+            { start, end in
+                try await sonarr.getCalendar(start: start, end: end, unmonitored: true, includeSeries: true)
+            }
+        } else {
+            nil
+        }
+        let loadMovieCalendar: (@Sendable (Date, Date) async throws -> [RadarrMovie])? = if let radarr {
+            { start, end in
+                try await radarr.getCalendar(start: start, end: end, unmonitored: true)
+            }
+        } else {
+            nil
+        }
+        return ArrCalendarRefreshSnapshot(
+            connectionKey: calendarConnectionKey,
+            loadSeries: {
+                guard let sonarr else { return [] }
+                return try await sonarr.getSeries()
+            },
+            loadMovies: {
+                guard let radarr else { return [] }
+                return try await radarr.getMovies()
+            },
+            loadEpisodes: loadEpisodes,
+            loadMovieCalendar: loadMovieCalendar
+        )
+    }
+}
+
+@MainActor
 @Observable
 final class ArrCalendarViewModel {
-    fileprivate let serviceManager: ArrServiceManager
+    fileprivate let serviceManager: any ArrCalendarDataSource
     
     // Core Data
     fileprivate var loadedMonths: [YearMonth] = []
@@ -33,9 +87,14 @@ final class ArrCalendarViewModel {
     
     private var seriesLookup: [Int: SonarrSeries] = [:]
     private let calendar = Calendar.current
+    private var refreshGeneration = 0
     
     init(serviceManager: ArrServiceManager) {
         self.serviceManager = serviceManager
+    }
+
+    init(dataSource: any ArrCalendarDataSource) {
+        self.serviceManager = dataSource
     }
 
     func iCalFeedLinks() async throws -> [ArrICalFeedLink] {
@@ -46,14 +105,8 @@ final class ArrCalendarViewModel {
         try await serviceManager.iCalFeedLink(for: serviceType)
     }
 
-    /// Identifies the connected services *and* their active instances, so switching
-    /// between two connected Sonarr/Radarr instances invalidates the cached calendar.
-    private var connectionKey: String {
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
-    }
-
     func initialize() async {
-        let currentKey = connectionKey
+        let currentKey = serviceManager.calendarConnectionKey
         if isLoadingInitial || loadedMonths.isEmpty || currentKey != lastRefreshKey {
             await refresh()
             isLoadingInitial = false
@@ -61,15 +114,11 @@ final class ArrCalendarViewModel {
     }
 
     func refresh() async {
+        refreshGeneration += 1
+        let generation = refreshGeneration
+        let snapshot = serviceManager.calendarRefreshSnapshot()
         isRefreshing = true
-        lastRefreshKey = connectionKey
-
-        await loadLibraries()
-
-        // Clear existing data for a clean refresh of the initial window
-        loadedMonths = []
-        eventsByDay = [:]
-        monthLoadErrors = [:]
+        let libraries = await loadLibraries(from: snapshot)
         
         let today = calendar.startOfDay(for: .now)
         let startMonth = YearMonth.from(today).advanced(by: -1)
@@ -79,24 +128,39 @@ final class ArrCalendarViewModel {
         for i in 0..<3 {
             monthsToLoad.append(startMonth.advanced(by: i))
         }
-        
+
+        let lookup = Dictionary(uniqueKeysWithValues: libraries.series.map { ($0.id, $0) })
+        var monthData: [(YearMonth, [Date: [CalendarEvent]])] = []
+        var errors: [YearMonth: String] = [:]
+
         await withTaskGroup(of: Result<(YearMonth, [Date: [CalendarEvent]]), Error>.self) { group in
             for month in monthsToLoad {
-                let lookup = self.seriesLookup
-                group.addTask { await self.fetchMonthData(month, lookup: lookup) }
+                group.addTask { await self.fetchMonthData(month, lookup: lookup, snapshot: snapshot) }
             }
             
             for await result in group {
                 switch result {
                 case let .success((month, data)):
-                    self.monthLoadErrors[month] = nil
-                    self.mergeMonth(month, data: data)
+                    monthData.append((month, data))
                 case let .failure(error):
                     if let monthError = error as? CalendarMonthLoadError {
-                        self.monthLoadErrors[monthError.month] = monthError.localizedDescription
+                        errors[monthError.month] = monthError.localizedDescription
                     }
                 }
             }
+        }
+
+        guard generation == refreshGeneration else { return }
+
+        lastRefreshKey = snapshot.connectionKey
+        sonarrSeries = libraries.series
+        radarrMovies = libraries.movies
+        seriesLookup = lookup
+        loadedMonths = []
+        eventsByDay = [:]
+        monthLoadErrors = errors
+        for (month, data) in monthData {
+            mergeMonth(month, data: data)
         }
         self.loadedMonths.sort()
 
@@ -111,7 +175,8 @@ final class ArrCalendarViewModel {
         isLoadingMore = true
         let next = latest.advanced(by: 1)
         let lookup = seriesLookup
-        switch await fetchMonthData(next, lookup: lookup) {
+        let snapshot = serviceManager.calendarRefreshSnapshot()
+        switch await fetchMonthData(next, lookup: lookup, snapshot: snapshot) {
         case let .success((month, data)):
             withAnimation {
                 monthLoadErrors[month] = nil
@@ -130,7 +195,8 @@ final class ArrCalendarViewModel {
         isLoadingEarlier = true
         let prev = earliest.advanced(by: -1)
         let lookup = seriesLookup
-        switch await fetchMonthData(prev, lookup: lookup) {
+        let snapshot = serviceManager.calendarRefreshSnapshot()
+        switch await fetchMonthData(prev, lookup: lookup, snapshot: snapshot) {
         case let .success((month, data)):
             withAnimation {
                 monthLoadErrors[month] = nil
@@ -144,23 +210,30 @@ final class ArrCalendarViewModel {
         isLoadingEarlier = false
     }
     
-    private func loadLibraries() async {
-        async let seriesTask = (try? await serviceManager.sonarrClient?.getSeries()) ?? []
-        async let moviesTask = (try? await serviceManager.radarrClient?.getMovies()) ?? []
-        (sonarrSeries, radarrMovies) = await (seriesTask, moviesTask)
-        seriesLookup = Dictionary(uniqueKeysWithValues: sonarrSeries.map { ($0.id, $0) })
+    var calendarEventIDs: [String] {
+        eventsByDay.values.flatMap { $0.map(\.id) }.sorted()
     }
 
-    private func fetchMonthData(_ month: YearMonth, lookup: [Int: SonarrSeries]) async -> Result<(YearMonth, [Date: [CalendarEvent]]), Error> {
+    private func loadLibraries(from snapshot: ArrCalendarRefreshSnapshot) async -> (series: [SonarrSeries], movies: [RadarrMovie]) {
+        async let series = (try? await snapshot.loadSeries()) ?? []
+        async let movies = (try? await snapshot.loadMovies()) ?? []
+        return await (series, movies)
+    }
+
+    private func fetchMonthData(
+        _ month: YearMonth,
+        lookup: [Int: SonarrSeries],
+        snapshot: ArrCalendarRefreshSnapshot
+    ) async -> Result<(YearMonth, [Date: [CalendarEvent]]), Error> {
         let start = month.startDate
         let end = month.endDate
 
         let results: Result<[Date: [CalendarEvent]], Error> = await withTaskGroup(of: Result<[Date: [CalendarEvent]], Error>.self) { group in
-            if let client = serviceManager.sonarrClient {
+            if let loadEpisodes = snapshot.loadEpisodes {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
                     do {
-                        let episodes = try await client.getCalendar(start: start, end: end, unmonitored: true, includeSeries: true)
+                        let episodes = try await loadEpisodes(start, end)
                         for ep in episodes {
                             guard let seriesId = ep.seriesId,
                                   let date = ArrDateParser.parse(ep.airDateUtc) ?? ArrDateParser.parseDay(ep.airDate) else { continue }
@@ -174,11 +247,11 @@ final class ArrCalendarViewModel {
                 }
             }
 
-            if let client = serviceManager.radarrClient {
+            if let loadMovieCalendar = snapshot.loadMovieCalendar {
                 group.addTask {
                     var dict: [Date: [CalendarEvent]] = [:]
                     do {
-                        let movies = try await client.getCalendar(start: start, end: end, unmonitored: true)
+                        let movies = try await loadMovieCalendar(start, end)
                         for movie in movies {
                             let releases = [
                                 (movie.digitalRelease, MovieReleaseKind.digital),
@@ -429,6 +502,7 @@ struct ArrCalendarView: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
+                    .accessibilityLabel("Close")
                 }
             }
             if hasConfiguredService {
@@ -452,6 +526,8 @@ struct ArrCalendarView: View {
                             ? "line.3.horizontal.decrease.circle.fill"
                             : "line.3.horizontal.decrease.circle")
                     }
+                    .accessibilityLabel("Filter")
+                    .accessibilityValue(showMonitoredOnly ? "Monitored only" : "All")
                 }
             }
             if isConnected {

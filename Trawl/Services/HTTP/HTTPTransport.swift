@@ -220,12 +220,12 @@ actor HTTPTransport {
     }
 
     /// Validates the response status code, mapping 401/403 to unauthorized and
-    /// non-2xx (excluding 3xx success) to the service's http error.
+    /// every non-2xx response (including a final redirect) to the service's HTTP error.
     private func validate(_ response: HTTPURLResponse, data: Data, path: String, urlString: String) throws {
         if errorMapper.unauthorizedStatusCodes.contains(response.statusCode) {
             throw errorMapper.unauthorized()
         }
-        guard (200..<400).contains(response.statusCode) else {
+        guard (200..<300).contains(response.statusCode) else {
             if let diagnostics, diagnostics.shouldLog(path) {
                 diagnostics.httpError(path, urlString, response.statusCode, data)
             }
@@ -358,11 +358,13 @@ actor HTTPTransport {
         let boundary = "TrawlBoundary\(UUID().uuidString.replacingOccurrences(of: "-", with: ""))"
         var request = try buildRequest(path: path, method: "POST")
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let safeFieldName = MultipartFormData.sanitizedToken(fieldName)
+        let safeFilename = MultipartFormData.sanitizedToken(filename)
 
         var body = Data()
         for string in [
             "--\(boundary)\r\n",
-            "Content-Disposition: form-data; name=\"\(fieldName)\"; filename=\"\(filename)\"\r\n",
+            "Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\(safeFilename)\"\r\n",
             "Content-Type: \(mimeType)\r\n\r\n"
         ] {
             if let d = string.data(using: .utf8) { body.append(d) }
@@ -391,7 +393,7 @@ actor HTTPTransport {
 
         var body = Data()
         for item in formItems {
-            let name = Self.sanitizedMultipartToken(item.name)
+            let name = MultipartFormData.sanitizedToken(item.name)
             guard let valueData = (item.value ?? "").data(using: .utf8) else { continue }
             body.append(Self.multipartData("--\(boundary)\r\n"))
             body.append(Self.multipartData("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n"))
@@ -399,8 +401,8 @@ actor HTTPTransport {
             body.append(Self.multipartData("\r\n"))
         }
 
-        let safeFieldName = Self.sanitizedMultipartToken(fieldName)
-        let safeFilename = Self.sanitizedMultipartToken(filename)
+        let safeFieldName = MultipartFormData.sanitizedToken(fieldName)
+        let safeFilename = MultipartFormData.sanitizedToken(filename)
         body.append(Self.multipartData("--\(boundary)\r\n"))
         body.append(Self.multipartData("Content-Disposition: form-data; name=\"\(safeFieldName)\"; filename=\"\(safeFilename)\"\r\n"))
         body.append(Self.multipartData("Content-Type: \(mimeType)\r\n\r\n"))
@@ -412,13 +414,6 @@ actor HTTPTransport {
 
     private nonisolated static func multipartData(_ string: String) -> Data {
         string.data(using: .utf8) ?? Data()
-    }
-
-    private nonisolated static func sanitizedMultipartToken(_ value: String) -> String {
-        value
-            .replacing("\r", with: "")
-            .replacing("\n", with: "")
-            .replacing("\"", with: "'")
     }
 
     /// POST with a form-urlencoded body. Preserves repeated keys and empty-list

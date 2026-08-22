@@ -127,6 +127,7 @@ struct RemotePathBrowserView: View {
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Go to path")
                 .disabled(trimmedManualPath.isEmpty)
             }
             .frame(height: 45)

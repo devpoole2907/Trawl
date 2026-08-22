@@ -14,7 +14,7 @@ struct RadarrMovieListView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
     @State private var viewModel: RadarrViewModel?
-    @State private var viewModelInstanceID: UUID?
+    @State private var viewModelLifecycleKey: String?
     @State private var showSetupSheet = false
     #if DEBUG
     private var previewPresentation: RadarrMovieListPreviewPresentation?
@@ -25,13 +25,13 @@ struct RadarrMovieListView: View {
 
     init(previewViewModel: RadarrViewModel) {
         _viewModel = State(initialValue: previewViewModel)
-        _viewModelInstanceID = State(initialValue: previewViewModel.serviceManager.activeRadarrInstanceID)
+        _viewModelLifecycleKey = State(initialValue: nil)
         previewPresentation = nil
     }
 
     fileprivate init(previewPresentation: RadarrMovieListPreviewPresentation) {
         _viewModel = State(initialValue: nil)
-        _viewModelInstanceID = State(initialValue: nil)
+        _viewModelLifecycleKey = State(initialValue: nil)
         self.previewPresentation = previewPresentation
     }
     #endif
@@ -59,15 +59,15 @@ struct RadarrMovieListView: View {
             #if DEBUG
             guard previewPresentation == nil else { return }
             #endif
-            let activeID = serviceManager.activeRadarrInstanceID
+            let lifecycleKey = viewModelLoadKey
             guard serviceManager.radarrConnected else {
                 viewModel = nil
-                viewModelInstanceID = nil
+                viewModelLifecycleKey = nil
                 return
             }
-            if viewModel == nil || viewModelInstanceID != activeID {
+            if viewModel == nil || viewModelLifecycleKey != lifecycleKey {
                 viewModel = RadarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
-                viewModelInstanceID = activeID
+                viewModelLifecycleKey = lifecycleKey
             }
         }
     }
@@ -187,7 +187,7 @@ struct RadarrMovieListView: View {
     }
 
     private var viewModelLoadKey: String {
-        "\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none"):\(serviceManager.radarrConnected)"
+        "\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none"):\(serviceManager.activeRadarrClientRevision?.uuidString ?? "none"):\(serviceManager.radarrConnected)"
     }
 }
 

@@ -237,6 +237,7 @@ struct ArrWantedView: View {
                     } label: {
                         Image(systemName: "xmark")
                     }
+                    .accessibilityLabel("Close")
                 }
             }
             if hasConfiguredService {

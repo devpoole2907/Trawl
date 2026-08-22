@@ -2,23 +2,36 @@ import Foundation
 
 actor AuthService {
     private let session: URLSession
+    private let ownsSession: Bool
     private let trustPolicy: ServerTrustPolicy
     private var sid: String?
     private var cookieName: String?
     private var authTask: Task<Void, Error>?
     let serverProfileID: UUID
 
-    init(serverProfileID: UUID, allowsUntrustedTLS: Bool = false) {
+    /// - Parameter session: Transport used for the login round trip. Defaults to a
+    ///   private cookie-less ephemeral session; inject one to drive login against a
+    ///   stubbed transport.
+    init(serverProfileID: UUID, allowsUntrustedTLS: Bool = false, session: URLSession? = nil) {
         self.serverProfileID = serverProfileID
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
-        let config = URLSessionConfiguration.ephemeral
-        config.httpShouldSetCookies = false
-        config.httpCookieAcceptPolicy = .never
-        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+        if let session {
+            self.session = session
+            self.ownsSession = false
+        } else {
+            let config = URLSessionConfiguration.ephemeral
+            config.httpShouldSetCookies = false
+            config.httpCookieAcceptPolicy = .never
+            self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+            self.ownsSession = true
+        }
     }
 
     deinit {
-        session.invalidateAndCancel()
+        // An injected session belongs to its owner; only tear down one we created.
+        if ownsSession {
+            session.invalidateAndCancel()
+        }
     }
 
     var isAuthenticated: Bool { sid != nil }

@@ -1,6 +1,12 @@
 import Foundation
 import Observation
 
+protocol SyncDataFetching: Sendable {
+    func syncMainData(rid: Int) async throws -> SyncMainData
+}
+
+extension QBittorrentAPIClient: SyncDataFetching {}
+
 @MainActor
 @Observable
 final class SyncService {
@@ -26,10 +32,11 @@ final class SyncService {
     // MARK: - Internal State
     private var rid: Int = 0
     private var pollingTask: Task<Void, Never>?
-    private let apiClient: QBittorrentAPIClient
+    private var pollingGeneration: UInt64 = 0
+    private let apiClient: any SyncDataFetching
     var pollingInterval: TimeInterval = 2.0
 
-    init(apiClient: QBittorrentAPIClient) {
+    init(apiClient: any SyncDataFetching) {
         self.apiClient = apiClient
     }
 
@@ -144,12 +151,16 @@ final class SyncService {
         guard pollingTask == nil else { return }
         isPolling = true
         rid = 0
+        pollingGeneration &+= 1
+        let generation = pollingGeneration
 
         pollingTask = Task { [weak self] in
             guard let self else { return }
             while !Task.isCancelled {
                 do {
                     let data = try await self.apiClient.syncMainData(rid: self.rid)
+                    guard !Task.isCancelled, generation == self.pollingGeneration else { break }
+                    guard data.rid >= self.rid else { continue }
                     self.applyDelta(data)
                     self.rid = data.rid
                     self.lastError = nil
@@ -162,6 +173,7 @@ final class SyncService {
     }
 
     func stopPolling() {
+        pollingGeneration &+= 1
         pollingTask?.cancel()
         pollingTask = nil
         isPolling = false
@@ -172,6 +184,7 @@ final class SyncService {
     func refreshNow() async {
         do {
             let data = try await apiClient.syncMainData(rid: rid)
+            guard data.rid >= rid else { return }
             applyDelta(data)
             rid = data.rid
             lastError = nil
@@ -319,7 +332,7 @@ final class SyncService {
 #if DEBUG
 extension SyncService {
     static func preview() -> SyncService {
-        SyncService(apiClient: .preview())
+        SyncService(apiClient: QBittorrentAPIClient.preview())
     }
 }
 #endif

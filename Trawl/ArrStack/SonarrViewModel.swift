@@ -27,6 +27,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         super.init(
             serviceManager: serviceManager,
             client: serviceManager.sonarrClient,
+            clientProvider: { [weak serviceManager] in serviceManager?.sonarrClient },
             jellyfinManager: jellyfinManager,
             defaultFilter: .all,
             defaultSort: .title
@@ -38,6 +39,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         super.init(
             serviceManager: serviceManager,
             client: serviceManager.sonarrClient,
+            clientProvider: { [weak serviceManager] in serviceManager?.sonarrClient },
             jellyfinManager: jellyfinManager,
             defaultFilter: .all,
             defaultSort: .title
@@ -684,7 +686,7 @@ extension SonarrViewModel {
         jellyfinManager: JellyfinServiceManager? = .preview()
     ) {
         self.init(serviceManager: serviceManager, preloadedSeries: previewSeries, jellyfinManager: jellyfinManager)
-        self.client = nil
+        detachClientForPreview()
         self.isLoading = isLoading
         self.error = error
         self.episodes = episodes

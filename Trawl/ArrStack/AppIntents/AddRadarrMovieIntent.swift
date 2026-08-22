@@ -63,8 +63,15 @@ struct AddRadarrMovieIntent: AppIntent {
             throw ArrIntentError.requestFailed("That movie is missing a TMDb id and can't be added.")
         }
 
-        // Duplicate guard.
-        let existing = (try? await client.getMovies()) ?? []
+        // Duplicate guard. A failed read is not the same as an empty library — swallowing
+        // it here would let a real duplicate through, so surface the failure and stop
+        // before any add mutation is sent.
+        let existing: [RadarrMovie]
+        do {
+            existing = try await client.getMovies()
+        } catch {
+            throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
+        }
         if existing.contains(where: { $0.tmdbId == tmdbId }) {
             return .result(dialog: IntentDialog(stringLiteral: ArrIntentError.itemAlreadyExists(lookup.title).message))
         }

@@ -18,6 +18,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         super.init(
             serviceManager: serviceManager,
             client: serviceManager.radarrClient,
+            clientProvider: { [weak serviceManager] in serviceManager?.radarrClient },
             jellyfinManager: jellyfinManager,
             defaultFilter: .all,
             defaultSort: .title
@@ -29,6 +30,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         super.init(
             serviceManager: serviceManager,
             client: serviceManager.radarrClient,
+            clientProvider: { [weak serviceManager] in serviceManager?.radarrClient },
             jellyfinManager: jellyfinManager,
             defaultFilter: .all,
             defaultSort: .title
@@ -495,7 +497,7 @@ extension RadarrViewModel {
         jellyfinManager: JellyfinServiceManager? = .preview()
     ) {
         self.init(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
-        self.client = nil
+        detachClientForPreview()
         setLibraryItems(previewMovies)
         self.isLoading = isLoading
         self.error = error

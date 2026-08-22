@@ -18,7 +18,35 @@ final class SABnzbdServiceManager {
     private(set) var history: SABnzbdHistory?
 
     private var pollingTask: Task<Void, Never>?
+    private var pollingGeneration = 0
+    /// Bumped whenever the manager commits to a different connection — a new
+    /// `connectService` attempt, or an explicit `disconnect`. Every async
+    /// operation stamps it on entry and re-checks it before touching shared
+    /// state, so a slow response addressed to the previous server can never
+    /// land under the newly selected profile.
+    private var connectionGeneration = 0
+    /// The connection generation whose refresh is currently in flight. Keyed by
+    /// generation rather than by the plain `isRefreshing` flag: a newly connected
+    /// profile's first refresh must not be swallowed because the *previous*
+    /// profile's refresh is still waiting on a slow server.
+    private var refreshingGeneration: Int?
+    private let sessionConfiguration: URLSessionConfiguration
+    private let waitForPollingInterval: @Sendable (TimeInterval) async -> Void
+    private let didFinishRefresh: @MainActor @Sendable () -> Void
+    private(set) var isPolling = false
     var pollingInterval: TimeInterval = 4.0
+
+    init(
+        sessionConfiguration: URLSessionConfiguration = .makeTrawlSecure(),
+        waitForPollingInterval: @escaping @Sendable (TimeInterval) async -> Void = { interval in
+            try? await Task.sleep(for: .seconds(interval))
+        },
+        didFinishRefresh: @escaping @MainActor @Sendable () -> Void = {}
+    ) {
+        self.sessionConfiguration = sessionConfiguration
+        self.waitForPollingInterval = waitForPollingInterval
+        self.didFinishRefresh = didFinishRefresh
+    }
 
     /// Queue jobs plus nonterminal history entries (repair/unpack/move), matching
     /// what SABnzbd itself considers still "in flight" past the download stage.
@@ -43,12 +71,20 @@ final class SABnzbdServiceManager {
     }
 
     func connectService(_ profile: SABnzbdServiceProfile) async {
+        connectionGeneration += 1
+        let generation = connectionGeneration
         isConnecting = true
         connectionError = nil
-        defer { isConnecting = false }
+        // Only the newest attempt owns the spinner; an older one finishing late
+        // must not declare the connection settled.
+        defer {
+            if connectionGeneration == generation { isConnecting = false }
+        }
 
         do {
-            guard let apiKey = try await storedAPIKey(for: profile), !apiKey.isEmpty else {
+            let storedKey = try await storedAPIKey(for: profile)
+            guard connectionGeneration == generation else { return }
+            guard let apiKey = storedKey, !apiKey.isEmpty else {
                 clearActiveConnection()
                 connectionError = "SABnzbd API key not found in Keychain. Add the server again from Settings."
                 return
@@ -57,7 +93,8 @@ final class SABnzbdServiceManager {
             let client = SABnzbdAPIClient(
                 baseURL: profile.hostURL,
                 apiKey: apiKey,
-                allowsUntrustedTLS: profile.allowsUntrustedTLS
+                allowsUntrustedTLS: profile.allowsUntrustedTLS,
+                sessionConfiguration: sessionConfiguration
             )
 
             let version: String
@@ -67,14 +104,21 @@ final class SABnzbdServiceManager {
                 async let queueResult = client.getQueue(start: 0, limit: 200)
                 (version, fetchedQueue) = try await (versionResult, queueResult)
             } catch SABnzbdAPIError.unauthorized {
+                guard connectionGeneration == generation else { return }
                 clearActiveConnection()
                 connectionError = "SABnzbd rejected the API key. Update it in Settings."
                 return
             } catch SABnzbdAPIError.insufficientAPIKey {
+                guard connectionGeneration == generation else { return }
                 clearActiveConnection()
                 connectionError = "Trawl needs the full SABnzbd API key, not the add-only NZB key."
                 return
             }
+
+            // A newer connection (or a disconnect) happened while this server was
+            // answering. Its client, queue, and version belong to a profile the
+            // user has already navigated away from — drop the whole result.
+            guard connectionGeneration == generation else { return }
 
             activeClient = client
             activeProfileID = profile.id
@@ -86,24 +130,40 @@ final class SABnzbdServiceManager {
 
             await refresh()
         } catch {
+            guard connectionGeneration == generation else { return }
             connectionError = error.localizedDescription
             clearActiveConnection()
         }
     }
 
     func disconnect() {
+        // Retires any connect or refresh still in flight. `isConnecting` is
+        // cleared here because the retired attempt's own `defer` deliberately
+        // no longer owns it.
+        connectionGeneration += 1
         stopPolling()
         clearActiveConnection()
         connectionError = nil
+        isConnecting = false
     }
 
     func refresh() async {
-        guard let client = activeClient, !isRefreshing else { return }
+        let generation = connectionGeneration
+        guard let client = activeClient, refreshingGeneration != generation else { return }
+        refreshingGeneration = generation
         isRefreshing = true
         let previousHistoryJobs = history?.jobs
         defer {
-            isRefreshing = false
-            hasRefreshedOnce = true
+            // Only the refresh that still owns the flag may release it; a stale
+            // one finishing late would otherwise clear the current profile's.
+            if refreshingGeneration == generation {
+                refreshingGeneration = nil
+                isRefreshing = false
+            }
+            if connectionGeneration == generation {
+                hasRefreshedOnce = true
+            }
+            didFinishRefresh()
         }
 
         do {
@@ -114,6 +174,10 @@ final class SABnzbdServiceManager {
                 lastHistoryUpdate: history?.lastHistoryUpdate
             )
             let (fetchedQueue, fetchedHistory) = try await (queueResult, historyResult)
+            // This payload describes whichever server `client` points at. If the
+            // manager has since moved on, publishing it would show the old
+            // server's queue under the new profile and misattribute completions.
+            guard isCurrentConnection(generation: generation, client: client) else { return }
             queue = fetchedQueue
             // A `nil` result means SABnzbd's `{ "history": false }` shape-changing
             // response — history hasn't changed since `lastHistoryUpdate`, so keep it.
@@ -128,11 +192,22 @@ final class SABnzbdServiceManager {
             }
             connectionError = nil
         } catch SABnzbdAPIError.unauthorized {
+            guard isCurrentConnection(generation: generation, client: client) else { return }
+            stopPolling()
+            clearActiveConnection()
             connectionError = "SABnzbd rejected the API key. Update it in Settings."
-            isConnected = false
         } catch {
+            guard isCurrentConnection(generation: generation, client: client) else { return }
             connectionError = error.localizedDescription
         }
+    }
+
+    /// True only while `client` is still the manager's live client for the
+    /// connection that `generation` was stamped from. The identity check covers
+    /// the cases the counter cannot: a connection cleared in place by a 401, or
+    /// by a failed reconnect.
+    private func isCurrentConnection(generation: Int, client: SABnzbdAPIClient) -> Bool {
+        connectionGeneration == generation && activeClient === client
     }
 
     /// The first history response establishes a baseline. Later responses only
@@ -168,10 +243,19 @@ final class SABnzbdServiceManager {
 
     func startPolling() {
         guard pollingTask == nil, activeClient != nil else { return }
+        pollingGeneration += 1
+        let generation = pollingGeneration
+        isPolling = true
         pollingTask = Task { [weak self] in
             guard let self else { return }
+            defer {
+                if self.pollingGeneration == generation {
+                    self.isPolling = false
+                    self.pollingTask = nil
+                }
+            }
             while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(self.pollingInterval))
+                await self.waitForPollingInterval(self.pollingInterval)
                 guard !Task.isCancelled else { return }
                 await self.refresh()
             }
@@ -179,8 +263,10 @@ final class SABnzbdServiceManager {
     }
 
     func stopPolling() {
+        pollingGeneration += 1
         pollingTask?.cancel()
         pollingTask = nil
+        isPolling = false
     }
 
     // MARK: - Global actions

@@ -62,12 +62,37 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
     private(set) var historyTotalRecords: Int = 0
     private var historyLoader = PaginatedLoader<ArrHistoryRecord>(pageSize: 20)
 
-    var client: Client?
+    /// Library view models can survive an in-place profile edit. When a resolver
+    /// is supplied it is the only source of truth, so a same-ID reconnect cannot
+    /// leave the view model bound to the previous host or API key — and a failed
+    /// reconnect, which leaves no client at all, resolves to `nil` instead of
+    /// falling back to the client this view model was born with.
+    private let storedClient: Client?
+    private let clientProvider: (@MainActor () -> Client?)?
+    private var isDetachedFromClient = false
+
+    var client: Client? {
+        guard !isDetachedFromClient else { return nil }
+        if let clientProvider { return clientProvider() }
+        return storedClient
+    }
+
+    /// Previews build their view models against a preview service manager that
+    /// still vends a client. Detaching guarantees a preview body issues no
+    /// requests while it renders its injected fixture data.
+    func detachClientForPreview() {
+        isDetachedFromClient = true
+    }
     var serviceManager: ArrServiceManager
 
-    init(serviceManager: ArrServiceManager, client: Client?) {
+    init(
+        serviceManager: ArrServiceManager,
+        client: Client?,
+        clientProvider: (@MainActor () -> Client?)? = nil
+    ) {
         self.serviceManager = serviceManager
-        self.client = client
+        self.storedClient = client
+        self.clientProvider = clientProvider
     }
 
     @discardableResult
@@ -270,12 +295,23 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     var isNonDefaultSortOrder: Bool { sortOrder != defaultSort }
 
-    init(serviceManager: ArrServiceManager, client: Client?, jellyfinManager: JellyfinServiceManager? = nil, defaultFilter: Filter, defaultSort: Sort) {
+    init(
+        serviceManager: ArrServiceManager,
+        client: Client?,
+        clientProvider: (@MainActor () -> Client?)? = nil,
+        jellyfinManager: JellyfinServiceManager? = nil,
+        defaultFilter: Filter,
+        defaultSort: Sort
+    ) {
         self.selectedFilter = defaultFilter
         self.sortOrder = defaultSort
         self.defaultSort = defaultSort
         self.jellyfinManager = jellyfinManager
-        super.init(serviceManager: serviceManager, client: client)
+        super.init(
+            serviceManager: serviceManager,
+            client: client,
+            clientProvider: clientProvider
+        )
     }
 
     func refreshFilters() {

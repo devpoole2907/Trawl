@@ -1,0 +1,107 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PROJECT: Trawl.xcodeproj
+
+jobs:
+  # The audit's headline gate: a TrawlMac compile failure shipped on a branch
+  # because only the iOS app was ever built. Every target is built here, and a
+  # failure in any one of them fails the pull request.
+  build:
+    name: Build ${{ matrix.scheme }} (${{ matrix.configuration }})
+    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scheme: Trawl
+            destination: generic/platform=iOS Simulator
+            configuration: Debug
+          - scheme: Trawl
+            destination: generic/platform=iOS Simulator
+            configuration: Release
+          - scheme: TrawlMac
+            destination: generic/platform=macOS
+            configuration: Debug
+          - scheme: TrawlMac
+            destination: generic/platform=macOS
+            configuration: Release
+          - scheme: TrawlShare
+            destination: generic/platform=iOS Simulator
+            configuration: Debug
+          - scheme: TrawlWidgets
+            destination: generic/platform=iOS Simulator
+            configuration: Debug
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "${{ matrix.scheme }}" \
+            -destination "${{ matrix.destination }}" \
+            -configuration "${{ matrix.configuration }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd-${{ matrix.scheme }}-${{ matrix.configuration }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+  test:
+    name: Test (Trawl.xctestplan)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pinned by name so the destination is explicit rather than whatever the
+      # runner happens to default to. Update the name when the project moves to
+      # a newer device generation.
+      - name: Resolve simulator
+        id: sim
+        run: |
+          UDID=$(xcrun simctl list devices available --json \
+            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(dev['udid'] for rt in sorted(d) if 'iOS' in rt for dev in d[rt] if dev['name'].startswith('iPhone')))")
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+
+      # Parallel testing is disabled deliberately. Several suites stand up
+      # loopback HTTP servers and share process-wide state (Keychain, the App
+      # Group store), so concurrent test workers make them flaky rather than
+      # fast.
+      - name: Run tests
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme Trawl \
+            -testPlan Trawl \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath "$RUNNER_TEMP/dd-test" \
+            -resultBundlePath "$RUNNER_TEMP/Trawl.xcresult" \
+            -parallel-testing-enabled NO \
+            -maximum-concurrent-test-simulator-destinations 1 \
+            -collect-test-diagnostics never \
+            test
+
+      # A green exit code is not enough: a run that discovered zero tests, or
+      # quietly skipped them, also exits 0. This turns those into failures.
+      - name: Assert the run is real evidence
+        if: always()
+        run: Scripts/assert-test-results.py "$RUNNER_TEMP/Trawl.xcresult"
+
+      - name: Upload result bundle
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcresult
+          path: ${{ runner.temp }}/Trawl.xcresult

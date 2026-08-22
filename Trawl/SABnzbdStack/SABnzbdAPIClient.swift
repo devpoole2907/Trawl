@@ -8,7 +8,12 @@ actor SABnzbdAPIClient {
     private let apiKey: String
     private nonisolated let apiPath: String
 
-    init(baseURL: String, apiKey: String, allowsUntrustedTLS: Bool = false) {
+    init(
+        baseURL: String,
+        apiKey: String,
+        allowsUntrustedTLS: Bool = false,
+        sessionConfiguration: URLSessionConfiguration = .makeTrawlSecure()
+    ) {
         let mapper = HTTPErrorMapper(
             badURL: { SABnzbdAPIError.badURL },
             transport: { error in
@@ -29,6 +34,7 @@ actor SABnzbdAPIClient {
             baseURL: trimmedURL,
             auth: .none,
             allowsUntrustedTLS: allowsUntrustedTLS,
+            sessionConfiguration: sessionConfiguration,
             errorMapper: mapper
         )
     }

@@ -1,26 +1,80 @@
 import Foundation
 
+/// The username/password pair used to establish a qBittorrent session.
+nonisolated struct QBittorrentCredentials: Sendable, Equatable {
+    let username: String
+    let password: String
+
+    init(username: String, password: String) {
+        self.username = username
+        self.password = password
+    }
+}
+
+/// Resolves the credentials `QBittorrentAPIClient` re-authenticates with when the
+/// server rejects a request with HTTP 403 (an expired SID).
+///
+/// This is the seam between the client's retry policy and wherever credentials
+/// actually live, so the retry contract can be exercised without a keychain.
+protocol QBittorrentCredentialProviding: Sendable {
+    /// Throws when no usable credentials exist for the profile.
+    func credentials(forServerProfileID serverProfileID: UUID) async throws -> QBittorrentCredentials
+}
+
+/// The shipping provider: reads the credentials stored for a server profile in the keychain.
+nonisolated struct KeychainQBittorrentCredentialProvider: QBittorrentCredentialProviding {
+    init() {}
+
+    func credentials(forServerProfileID serverProfileID: UUID) async throws -> QBittorrentCredentials {
+        let keychain = KeychainHelper.shared
+        guard let username = try await keychain.read(key: "server_\(serverProfileID.uuidString)_username"),
+              let password = try await keychain.read(key: "server_\(serverProfileID.uuidString)_password") else {
+            throw QBError.authFailed
+        }
+        return QBittorrentCredentials(username: username, password: password)
+    }
+}
+
 actor QBittorrentAPIClient {
     let authService: AuthService
     private let session: URLSession
+    private let ownsSession: Bool
     private let trustPolicy: ServerTrustPolicy
     private let baseURL: String
     private let serverProfileID: UUID
+    private let credentialProvider: any QBittorrentCredentialProviding
 
-    init(baseURL: String, authService: AuthService, allowsUntrustedTLS: Bool = false) {
+    init(
+        baseURL: String,
+        authService: AuthService,
+        allowsUntrustedTLS: Bool = false,
+        session: URLSession? = nil,
+        credentialProvider: any QBittorrentCredentialProviding = KeychainQBittorrentCredentialProvider()
+    ) {
         self.baseURL = baseURL.hasSuffix("/") ? String(baseURL.dropLast()) : baseURL
         self.authService = authService
         self.serverProfileID = authService.serverProfileID
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
-        let config = URLSessionConfiguration.ephemeral
-        config.httpShouldSetCookies = false
-        config.httpCookieAcceptPolicy = .never
-        config.timeoutIntervalForRequest = 30
-        self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+        self.credentialProvider = credentialProvider
+        if let session {
+            self.session = session
+            self.ownsSession = false
+        } else {
+            let config = URLSessionConfiguration.ephemeral
+            config.httpShouldSetCookies = false
+            config.httpCookieAcceptPolicy = .never
+            config.timeoutIntervalForRequest = 30
+            self.session = URLSession(configuration: config, delegate: trustPolicy, delegateQueue: nil)
+            self.ownsSession = true
+        }
     }
 
     deinit {
-        session.invalidateAndCancel()
+        // Only tear down a session this client created; an injected session belongs
+        // to its owner and may outlive (or be shared with) this client.
+        if ownsSession {
+            session.invalidateAndCancel()
+        }
     }
 
     // MARK: - Auth
@@ -204,7 +258,10 @@ actor QBittorrentAPIClient {
         failureMessage: String
     ) async throws {
         let request = try buildFormRequest(path: path, params: params)
-        let (_, response) = try await performRequest(request)
+        let (_, response) = try await performRequest(
+            request,
+            additionalAcceptedStatusCodes: [404]
+        )
         if response.statusCode == 404 {
             let fallback = try buildFormRequest(path: legacyPath, params: params)
             try await performSuccessfulMutation(fallback, failureMessage: failureMessage)
@@ -486,7 +543,10 @@ actor QBittorrentAPIClient {
 
     // MARK: - Request Infrastructure
 
-    private func performRequest(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+    private func performRequest(
+        _ request: URLRequest,
+        additionalAcceptedStatusCodes: Set<Int> = []
+    ) async throws -> (Data, HTTPURLResponse) {
         var mutableRequest = request
         await authService.authorize(&mutableRequest)
 
@@ -507,9 +567,17 @@ actor QBittorrentAPIClient {
                 if retryHTTP.statusCode == 403 {
                     throw QBError.authFailed
                 }
+                try validateSuccessfulStatus(
+                    retryHTTP,
+                    additionalAcceptedStatusCodes: additionalAcceptedStatusCodes
+                )
                 return (retryData, retryHTTP)
             }
 
+            try validateSuccessfulStatus(
+                httpResponse,
+                additionalAcceptedStatusCodes: additionalAcceptedStatusCodes
+            )
             return (data, httpResponse)
         } catch let error as QBError {
             throw error
@@ -542,9 +610,11 @@ actor QBittorrentAPIClient {
                 if retryHTTP.statusCode == 403 {
                     throw QBError.authFailed
                 }
+                try validateSuccessfulStatus(retryHTTP)
                 return (retryData, retryHTTP)
             }
 
+            try validateSuccessfulStatus(httpResponse)
             return (data, httpResponse)
         } catch let error as QBError {
             throw error
@@ -658,12 +728,22 @@ actor QBittorrentAPIClient {
     }
 
     private func reAuthenticate() async throws {
-        let keychain = KeychainHelper.shared
-        guard let username = try await keychain.read(key: "server_\(serverProfileID.uuidString)_username"),
-              let password = try await keychain.read(key: "server_\(serverProfileID.uuidString)_password") else {
+        let credentials: QBittorrentCredentials
+        do {
+            credentials = try await credentialProvider.credentials(forServerProfileID: serverProfileID)
+        } catch let error as QBError {
+            throw error
+        } catch {
+            // Failing to *resolve* credentials (e.g. a keychain read error) means we
+            // cannot authenticate. Surface that plainly — otherwise `performRequest`'s
+            // catch-all reports it as a network failure, which is actively misleading.
             throw QBError.authFailed
         }
-        try await authService.login(hostURL: baseURL, username: username, password: password)
+        try await authService.login(
+            hostURL: baseURL,
+            username: credentials.username,
+            password: credentials.password
+        )
     }
 
     private func buildRequest(path: String, method: String = "GET", queryItems: [URLQueryItem] = []) throws -> URLRequest {
@@ -697,6 +777,16 @@ actor QBittorrentAPIClient {
         let (_, response) = try await performRequest(request)
         guard successCodes.contains(response.statusCode) else {
             throw QBError.serverError(statusCode: response.statusCode, message: failureMessage)
+        }
+    }
+
+    private func validateSuccessfulStatus(
+        _ response: HTTPURLResponse,
+        additionalAcceptedStatusCodes: Set<Int> = []
+    ) throws {
+        guard (200...299).contains(response.statusCode) ||
+                additionalAcceptedStatusCodes.contains(response.statusCode) else {
+            throw QBError.serverError(statusCode: response.statusCode, message: nil)
         }
     }
 

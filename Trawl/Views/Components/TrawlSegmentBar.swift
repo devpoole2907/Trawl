@@ -136,6 +136,7 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
                         .contentShape(.capsule)
                 }
                 .buttonStyle(.plain)
+                .accessibilityLabel("Close search")
                 .padding(isLast ? .leading : .trailing, 12)
             } else {
                 TrawlSegmentBarButton(
@@ -180,6 +181,7 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
                 Image(systemName: "magnifyingglass")
                     .font(.title3)
                     .frame(width: isSearchExpanded ? 40 : 60)
+                    .accessibilityLabel("Search")
 
                 if isSearchExpanded, let searchText {
                     TextField(searchHint ?? "", text: searchText)
@@ -218,6 +220,7 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
+            .accessibilityLabel("Clear search")
             .opacity(isKeyboardActive ? 1 : 0)
             .zIndex(0)
         }

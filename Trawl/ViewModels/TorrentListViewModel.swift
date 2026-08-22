@@ -21,17 +21,24 @@ final class TorrentListViewModel {
     private let syncService: SyncService
     private let torrentService: TorrentService
     private let notificationCenter: InAppNotificationCenter
+    private let beforeFilterCompute: @Sendable (String) async -> Void
+    private let didFinishFilterWork: @MainActor @Sendable (String, Bool) -> Void
     private var filterTask: Task<Void, Never>?
+    private var filterGeneration = 0
     @ObservationIgnored private var observationGeneration = 0
 
     init(
         syncService: SyncService,
         torrentService: TorrentService,
-        notificationCenter: InAppNotificationCenter? = nil
+        notificationCenter: InAppNotificationCenter? = nil,
+        beforeFilterCompute: @escaping @Sendable (String) async -> Void = { _ in },
+        didFinishFilterWork: @escaping @MainActor @Sendable (String, Bool) -> Void = { _, _ in }
     ) {
         self.syncService = syncService
         self.torrentService = torrentService
         self.notificationCenter = notificationCenter ?? .shared
+        self.beforeFilterCompute = beforeFilterCompute
+        self.didFinishFilterWork = didFinishFilterWork
     }
 
     // MARK: - Passthrough State
@@ -146,6 +153,7 @@ final class TorrentListViewModel {
 
     func stopSync() {
         filterTask?.cancel()
+        filterGeneration += 1
         observationGeneration += 1
     }
 
@@ -208,15 +216,34 @@ final class TorrentListViewModel {
     /// Cancels any in-flight work and starts a new computation on a background thread.
     private func scheduleFilterUpdate() {
         filterTask?.cancel()
+        filterGeneration += 1
+        let generation = filterGeneration
         let snapshot = syncService.torrents
         let filter = selectedFilter
         let search = searchText
         let sort = sortOrder
+        let beforeFilterCompute = beforeFilterCompute
         filterTask = Task.detached(priority: .userInitiated) {
+            await beforeFilterCompute(search)
+            guard !Task.isCancelled else {
+                await MainActor.run { [weak self] in
+                    self?.didFinishFilterWork(search, false)
+                }
+                return
+            }
             let result = Self.compute(torrents: snapshot, filter: filter, searchText: search, sortOrder: sort)
+            guard !Task.isCancelled else {
+                await MainActor.run { [weak self] in
+                    self?.didFinishFilterWork(search, false)
+                }
+                return
+            }
 
-            Task { @MainActor [weak self] in
-                guard let self else { return }
+            await MainActor.run { [weak self] in
+                guard let self, self.filterGeneration == generation, !Task.isCancelled else {
+                    self?.didFinishFilterWork(search, false)
+                    return
+                }
                 self.filteredTorrents = result.sorted
                 self.filterCounts = result.counts
 
@@ -225,6 +252,7 @@ final class TorrentListViewModel {
                 // is undefined behaviour in Swift and can trap.
                 let settled = self.processingHashes.filter { snapshot[$0] != nil }
                 self.processingHashes.subtract(settled)
+                self.didFinishFilterWork(search, true)
             }
         }
     }

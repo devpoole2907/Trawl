@@ -7,7 +7,7 @@ struct SonarrSeriesListView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
 
     @State private var viewModel: SonarrViewModel?
-    @State private var viewModelInstanceID: UUID?
+    @State private var viewModelLifecycleKey: String?
     @State private var showSetupSheet = false
 
     var body: some View {
@@ -45,15 +45,15 @@ struct SonarrSeriesListView: View {
         }
         .background(backgroundGradient)
         .task(id: viewModelLoadKey) {
-            let activeID = serviceManager.activeSonarrInstanceID
+            let lifecycleKey = viewModelLoadKey
             guard serviceManager.sonarrConnected else {
                 viewModel = nil
-                viewModelInstanceID = nil
+                viewModelLifecycleKey = nil
                 return
             }
-            if viewModel == nil || viewModelInstanceID != activeID {
+            if viewModel == nil || viewModelLifecycleKey != lifecycleKey {
                 viewModel = SonarrViewModel(serviceManager: serviceManager, jellyfinManager: jellyfinManager)
-                viewModelInstanceID = activeID
+                viewModelLifecycleKey = lifecycleKey
             }
         }
     }
@@ -114,7 +114,7 @@ struct SonarrSeriesListView: View {
     }
 
     private var viewModelLoadKey: String {
-        "\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none"):\(serviceManager.sonarrConnected)"
+        "\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none"):\(serviceManager.activeSonarrClientRevision?.uuidString ?? "none"):\(serviceManager.sonarrConnected)"
     }
 }
 
@@ -223,7 +223,7 @@ extension SonarrSeriesListView {
     init(previewViewModel: SonarrViewModel) {
         self.init()
         _viewModel = State(initialValue: previewViewModel)
-        _viewModelInstanceID = State(initialValue: previewViewModel.serviceManager.activeSonarrInstanceID)
+        _viewModelLifecycleKey = State(initialValue: nil)
     }
 }
 
