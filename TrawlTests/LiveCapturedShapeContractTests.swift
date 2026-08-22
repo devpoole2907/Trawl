@@ -109,6 +109,115 @@ struct LiveCapturedShapeContractTests {
         #expect(decoded.torrentsRemoved == nil)
     }
 
+    // MARK: - qBittorrent torrent object
+
+    /// Verbatim `GET /api/v2/sync/maindata?rid=0` from qBittorrent **v5.2.3**,
+    /// carrying one torrent. The real torrent object has **68 fields**; the
+    /// hand-written fixtures used three.
+    ///
+    /// The state is `stoppedDL`, which is the v5 name — v4 called this `pausedDL`.
+    /// A client that only knew the v4 spelling would mis-categorise every paused
+    /// torrent on a modern server.
+    private static let capturedQBittorrentMainData = """
+        {
+            "full_update": true,
+            "rid": 1,
+            "torrents": {
+                "0123456789abcdef0123456789abcdef01234567": {
+                    "added_on": 1787441350,
+                    "amount_left": 0,
+                    "auto_tmm": false,
+                    "availability": 0,
+                    "category": "",
+                    "comment": "",
+                    "completed": 0,
+                    "completion_on": -1,
+                    "connections_count": 0,
+                    "connections_limit": 100,
+                    "content_path": "",
+                    "created_by": "",
+                    "creation_date": -1,
+                    "dl_limit": 0,
+                    "dlspeed": 0,
+                    "download_path": "",
+                    "downloaded": 0,
+                    "downloaded_session": 0,
+                    "eta": 8640000,
+                    "f_l_piece_prio": false,
+                    "force_start": false,
+                    "has_metadata": false,
+                    "has_other_announce_error": false,
+                    "has_tracker_error": false,
+                    "has_tracker_warning": false,
+                    "inactive_seeding_time_limit": -2,
+                    "infohash_v1": "0123456789abcdef0123456789abcdef01234567",
+                    "infohash_v2": "",
+                    "last_activity": 1787441350,
+                    "magnet_uri": "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=trawl-shape-probe",
+                    "max_inactive_seeding_time": -1,
+                    "max_ratio": -1,
+                    "max_seeding_time": -1,
+                    "name": "trawl-shape-probe",
+                    "num_complete": 0,
+                    "num_incomplete": 0,
+                    "num_leechs": 0,
+                    "num_seeds": 0,
+                    "piece_size": -1,
+                    "pieces_have": 0,
+                    "pieces_num": -1,
+                    "popularity": 0,
+                    "priority": 1,
+                    "private": null,
+                    "progress": 0,
+                    "ratio": 0,
+                    "ratio_limit": -2,
+                    "reannounce": 0,
+                    "root_path": "",
+                    "save_path": "/downloads",
+                    "seeding_time": 0,
+                    "seeding_time_limit": -2,
+                    "seen_complete": -1,
+                    "seq_dl": false,
+                    "share_limit_action": "Default",
+                    "size": 0,
+                    "state": "stoppedDL",
+                    "super_seeding": false,
+                    "tags": "",
+                    "time_active": 0,
+                    "total_size": -1,
+                    "total_wasted": 0,
+                    "tracker": "",
+                    "trackers_count": 0,
+                    "up_limit": 0,
+                    "uploaded": 0,
+                    "uploaded_session": 0,
+                    "upspeed": 0
+                }
+            }
+        }
+    """
+
+    @Test("A real qBittorrent v5 torrent object decodes, including the v5-only stopped state")
+    @MainActor
+    func realTorrentObjectDecodes() throws {
+        let decoded = try JSONDecoder().decode(
+            SyncMainData.self,
+            from: Data(Self.capturedQBittorrentMainData.utf8)
+        )
+
+        let torrents = try #require(decoded.torrents)
+        #expect(torrents.count == 1)
+        let entry = try #require(torrents.values.first)
+
+        #expect(entry.name == "trawl-shape-probe")
+        // `state` decodes straight into `TorrentState`, so an unrecognised spelling
+        // would land as `.unknown` and strand every paused torrent on a v5 server in
+        // the wrong section of the Downloads list.
+        #expect(entry.state == .stoppedDL)
+        #expect(TorrentState.stoppedDL.displayName == "Stopped")
+        #expect(TorrentState.stoppedDL != .unknown)
+    }
+
     // MARK: - Sonarr lookup payload
 
     /// Verbatim from `GET /api/v3/series/lookup?term=Severance` against Sonarr
