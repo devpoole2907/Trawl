@@ -164,13 +164,56 @@ This is precisely what the test plan's randomized ordering plus a repeated run i
 
 Coverage grew from 133 logical tests at the original audit to **318**, and from 205 concrete executions to **436**.
 
+### Still open after the fourth tranche
+
+Keychain/App Group coverage, meaningful UI journeys, extension behavioral tests and the Swift 6 warning backlog remained. The fifth tranche took the first two.
+
+## Fifth tranche — 23 August 2026
+
+### Keychain and App Group
+
+`KeychainHelper` was at **0%**. It now has a behavior matrix run inside the app's test host, so it exercises the real Keychain under the app's own entitlements: round-trips including non-ASCII, combining diacritics and a ~21,000-character value; overwrite proven single-item by a raw `SecItemCopyMatching` with `kSecMatchLimitAll` (a plain `read` would return one either way); delete-then-read returning `nil`; reads of never-written keys; and deletes of absent keys not throwing. Every key is namespaced outside all production prefixes and removed on both the success and failure paths.
+
+App Group coverage proves the shared container resolves and is writable, that `ArrIntentSupport.makeModelContainer()` — the helper widgets and App Intents actually use — opens against `TrawlModelSchema.full`, and that a record written through one container is read back through a second, independently constructed one, which is what proves it is really in the shared store rather than a live object graph.
+
+### A latent sharp edge found and recorded, not papered over
+
+A test was written asserting that a `ModelContainer` on an unentitled App Group *throws*, since `TrawlApp.init`'s App Group → local → in-memory fallback ladder depends on exactly that. It does not throw — **it crashes the process**. So that `catch` cannot rescue an entitlement mismatch; it only rescues a store that fails for a catchable reason. The identifier is hardcoded and correct today, so this is a latent sharp edge rather than a live defect. The test was removed (a crashing test takes its whole process with it) and the finding recorded as a comment where the test used to be.
+
+### UI journeys, and the wall that had to be broken first
+
+The three `TrawlUITests` methods were Xcode templates asserting nothing. Replacing them surfaced why real journeys had never been written: with no services configured the app shows `WelcomeFlowView`, whose "Go" button stays disabled until a service exists, and **every setup sheet only persists a profile after a live `testConnection` call succeeds**. The entire tab UI was therefore unreachable from a test.
+
+Two DEBUG-only hooks in `TrawlApp.init()` break that wall along the lines the audit prescribes — seed external state, never Trawl's own behavior:
+
+- `-TrawlUITestInMemoryStore` points the `ModelContainer` at an in-memory store. Deliberately not a "wipe the store" hook: an in-memory container is inherently empty and cannot touch anything on disk, so passing the flag by accident can never destroy real data.
+- `TRAWL_UITEST_SONARR_BASE_URL` seeds one real `ArrServiceProfile` plus its Keychain API key. Everything after that is the real app: the real `ArrServiceManager.connectService`, the real `SonarrAPIClient`, real HTTP to a loopback fixture server hosted by the test process, real SwiftData, real navigation.
+
+The end-to-end journey asserts the app clears the welcome gate, reaches the Series tab, renders the fixture's series title, **and** that the fixture server actually received the library request — so the on-screen text is proven to have arrived over real HTTP rather than from a stub.
+
+### Two ordering traps, both found by running rather than reasoning
+
+- Awaiting the async `KeychainHelper` from `init()` under a `DispatchSemaphore` hangs the main thread at launch. XCUITest reports this as *"Timed out while fetching snapshot from testmanagerd"*, which names neither the app nor the deadlock.
+- Seeding asynchronously instead is too late: `ContentView` **latches** its welcome-vs-tabs decision the first time it evaluates, so a profile inserted from a `Task` arrives after the app has already committed to the welcome screen.
+
+Both writes are therefore synchronous, which removes both races. A comment at the seed site records why, so neither trap gets reintroduced.
+
+### Validation after integration
+
+| Check | Result |
+|---|---:|
+| Entire `Trawl` scheme via `Trawl.xctestplan`, run **twice** | **Passed both times:** 324 logical tests / 329 concrete executions, 0 failed, 0 skipped |
+| UI journeys specifically | 6 executions, all passed, real app launches of 7–12s each |
+| Full six-way CI build matrix run locally as CI runs it | **All passed**, including **Release** for iOS and macOS, which had never previously been built |
+| `git diff --check` | **Passed** |
+
 ### Still open
 
-- Keychain / App Group cross-process tests on an installed app plus an extension-side probe.
-- Meaningful UI journeys. The three `TrawlUITests` methods are still Xcode templates that assert nothing, and the nine journeys the audit lists are unwritten. This is now the largest single gap.
-- Share-extension *behavioral* tests. `ShareViewController` itself is still unreachable from `TrawlTests` — only its extracted decision logic is covered. Reaching the controller needs a `project.pbxproj` membership change, which was deliberately not made.
-- The Swift 6 isolation/sendability warning backlog.
-- An `LSSupportsOpeningDocumentsInPlace` / `UISupportsDocumentBrowser` Info.plist decision.
+- **Extension behavioral tests.** `ShareViewController` remains unreachable from `TrawlTests`; only its extracted decision logic is covered. Reaching the controller needs a `project.pbxproj` membership change, deliberately not made — see the note in the third tranche.
+- **True cross-process Keychain/App Group verification.** The current tests prove the shared configuration round-trips within one process; proving the signed entitlements agree across installed binaries needs an extension-side probe.
+- **More UI journeys.** The harness now exists and one journey uses it; the audit lists nine. The remaining ones need fixture servers for qBittorrent, SABnzbd, Jellyfin and Seerr alongside the Sonarr one.
+- **The Swift 6 isolation/sendability warning backlog.** Deliberately not attempted: it is a broad mechanical refactor across files that were just stabilized, and the audit itself classes it as warning debt rather than proven races.
+- An `LSSupportsOpeningDocumentsInPlace` / `UISupportsDocumentBrowser` Info.plist decision. Trawl reads a shared file's bytes and uploads them without editing it, so opening a copy is the correct semantic — but declaring that explicitly is a product call.
 - The optional scheduled real-service contract lab.
 
 ## Executive verdict

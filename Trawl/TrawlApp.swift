@@ -1,6 +1,9 @@
 import SwiftUI
 import SwiftData
 import OSLog
+#if DEBUG
+import Security
+#endif
 #if os(macOS)
 import CoreServices
 #endif
@@ -39,6 +42,8 @@ struct TrawlApp: App {
             } catch {
                 fatalError("Failed to initialize in-memory ModelContainer for UI tests: \(error)")
             }
+
+            Self.seedUITestArrServiceIfRequested(into: modelContainer)
 
             #if os(macOS)
             LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
@@ -110,6 +115,82 @@ struct TrawlApp: App {
         }
         .modelContainer(modelContainer)
     }
+
+    #if DEBUG
+    /// UI tests that need to get past the welcome gate into the real tab UI pass a
+    /// loopback fixture server's base URL through `TRAWL_UITEST_SONARR_BASE_URL` (see
+    /// the fixture server in `TrawlUITests`). When present, seed one real
+    /// `ArrServiceProfile` plus its Keychain-stored API key into the in-memory store
+    /// created above, then let the app's *normal* startup take over from there:
+    /// `ContentView` will query this profile, `ArrServiceManager.initialize(from:)` will
+    /// call the real `connectService(_:)`, and the real `SonarrAPIClient` will make real
+    /// HTTP requests to the fixture server. Nothing about the connect path itself is
+    /// stubbed — only the external Sonarr server is faked, which is the whole point.
+    private static func seedUITestArrServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let sonarrBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_SONARR_BASE_URL"],
+              !sonarrBaseURL.isEmpty else {
+            return
+        }
+
+        let profile = ArrServiceProfile(
+            displayName: "Fixture Sonarr",
+            hostURL: sonarrBaseURL,
+            serviceType: .sonarr
+        )
+        // Fixed, hardcoded UUID (not `UUID()`): the in-memory ModelContainer is wiped on
+        // every launch, but the simulator's real Keychain is not. Reusing the same ID
+        // means each run overwrites one Keychain entry instead of orphaning a new one.
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000001")!
+
+        // Both writes below are synchronous, and deliberately so. `ContentView` latches
+        // its welcome-vs-tabs decision the first time it evaluates, so a profile inserted
+        // asynchronously arrives after the app has already committed to the welcome
+        // screen. And `connectService` reads the API key as its first step, so an
+        // asynchronous key write races the first connection attempt. Doing both before
+        // `init()` returns removes both races — and note an earlier attempt to await the
+        // async path from `init()` under a semaphore hung the main thread at launch.
+        seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
+
+        let context = ModelContext(modelContainer)
+        context.insert(profile)
+        do {
+            try context.save()
+        } catch {
+            fatalError("Failed to seed UI test Sonarr profile: \(error)")
+        }
+    }
+
+    /// Writes one Keychain item the way `KeychainHelper` would, but synchronously.
+    ///
+    /// `KeychainHelper` is an actor, so its `save` cannot be called from a synchronous
+    /// `init()` without either racing or blocking. The Keychain is external state, so
+    /// seeding it directly is legitimate here — the production *read* path
+    /// (`KeychainHelper.read`) is still the one under test. The query mirrors
+    /// `KeychainHelper`'s: same class, same service, same account, and the same access
+    /// group derived from `AppIdentifierPrefix`, so the production read finds it.
+    private static func seedUITestKeychainValue(_ value: String, forKey key: String) {
+        var query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.poole.james.Trawl",
+            kSecAttrAccount as String: key
+        ]
+        if let prefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String,
+           !prefix.isEmpty {
+            query[kSecAttrAccessGroup as String] = "\(prefix)com.poole.james.Trawl.shared"
+        }
+
+        SecItemDelete(query as CFDictionary)
+
+        var insert = query
+        insert[kSecValueData as String] = Data(value.utf8)
+        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        let status = SecItemAdd(insert as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            fatalError("Failed to seed UI test Keychain entry: OSStatus \(status)")
+        }
+    }
+
+    #endif
 
     private static func migrateDefaultStoreIfNeeded(schema: Schema, destination: ModelContainer) throws {
         guard defaultStoreExists() else { return }
