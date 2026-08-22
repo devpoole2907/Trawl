@@ -62,14 +62,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Pinned by name so the destination is explicit rather than whatever the
-      # runner happens to default to. Update the name when the project moves to
-      # a newer device generation.
       - name: Resolve simulator
         id: sim
         run: |
-          UDID=$(xcrun simctl list devices available --json \
-            | python3 -c "import json,sys;d=json.load(sys.stdin)['devices'];print(next(dev['udid'] for rt in sorted(d) if 'iOS' in rt for dev in d[rt] if dev['name'].startswith('iPhone')))")
+          set -o pipefail
+          UDID=$(Scripts/pick-simulator.py)
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           xcrun simctl boot "$UDID" || true
           xcrun simctl bootstatus "$UDID" -b

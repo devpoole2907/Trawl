@@ -7,6 +7,10 @@
 
 import XCTest
 
+/// Runs the same real assertion once per target application UI configuration
+/// (e.g. per supported device/orientation) instead of just capturing a
+/// screenshot. See `TrawlUITests` for why the welcome screen is the only
+/// content this suite can reach from a genuinely unconfigured launch.
 final class TrawlUITestsLaunchTests: XCTestCase {
 
     override class var runsForEachTargetApplicationUIConfiguration: Bool {
@@ -17,18 +21,21 @@ final class TrawlUITestsLaunchTests: XCTestCase {
         continueAfterFailure = false
     }
 
+    /// Fails if the welcome screen doesn't render its real content on this
+    /// configuration — a blank window, a crash, or a stuck spinner would all
+    /// fail this, whereas a bare screenshot attachment would not.
     @MainActor
-    func testLaunch() throws {
+    func testLaunchShowsWelcomeContent() throws {
         let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launch()
 
-        // Insert steps here to perform after app launch but before taking a screenshot,
-        // such as logging into a test account or navigating somewhere in the app
-        // XCUIAutomation Documentation
-        // https://developer.apple.com/documentation/xcuiautomation
+        let title = app.staticTexts["Welcome to Trawl"]
+        XCTAssertTrue(title.waitForExistence(timeout: 5), "Welcome title should appear on launch in this configuration.")
+        XCTAssertTrue(app.buttons["Get Started"].exists)
 
         let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "Launch Screen"
+        attachment.name = "Welcome Screen"
         attachment.lifetime = .keepAlways
         add(attachment)
     }

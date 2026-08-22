@@ -25,6 +25,28 @@ struct TrawlApp: App {
     init() {
         let schema = TrawlModelSchema.full
 
+        #if DEBUG
+        // UI tests need a deterministic, empty starting state, but the simulator's
+        // on-disk App Group container may already hold the developer's real service
+        // profiles. Rather than wiping and reusing that real store — which would risk
+        // destroying actual user data if this flag were ever passed by accident — hand
+        // tests an in-memory store instead: it's inherently empty and can't touch
+        // anything on disk. DEBUG-only so this can never exist in a Release build.
+        if ProcessInfo.processInfo.arguments.contains("-TrawlUITestInMemoryStore") {
+            do {
+                let inMemoryConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+                modelContainer = try ModelContainer(for: schema, configurations: [inMemoryConfiguration])
+            } catch {
+                fatalError("Failed to initialize in-memory ModelContainer for UI tests: \(error)")
+            }
+
+            #if os(macOS)
+            LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
+            #endif
+            return
+        }
+        #endif
+
         do {
             let groupConfiguration = ModelConfiguration(
                 schema: schema,
