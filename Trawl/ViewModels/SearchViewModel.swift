@@ -228,26 +228,28 @@ final class SearchViewModel {
         }
     }
 
-    func refreshLibrary(arrServiceManager: ArrServiceManager) async {
+    /// Pulls both libraries from `ArrServiceManager`'s shared cache.
+    ///
+    /// `maxAge` of 0 — the default — refetches, which is what the callers that run
+    /// straight after adding or re-monitoring something need. The appear-time
+    /// caller passes a window so opening Search doesn't re-download libraries the
+    /// Series and Movies tabs already have.
+    func refreshLibrary(arrServiceManager: ArrServiceManager, maxAge: TimeInterval = 0) async {
         isLoadingLibrary = true
         defer { isLoadingLibrary = false }
-        let sonarrClient = arrServiceManager.sonarrClient
-        let radarrClient = arrServiceManager.radarrClient
         let existingSonarrSeries = sonarrSeries
         let existingRadarrMovies = radarrMovies
 
         async let sonarrTask: [SonarrSeries] = {
-            guard let client = sonarrClient else { return [] }
             do {
-                return try await client.getSeries()
+                return try await arrServiceManager.loadSeriesLibrary(maxAge: maxAge)
             } catch {
                 return existingSonarrSeries
             }
         }()
         async let radarrTask: [RadarrMovie] = {
-            guard let client = radarrClient else { return [] }
             do {
-                return try await client.getMovies()
+                return try await arrServiceManager.loadMovieLibrary(maxAge: maxAge)
             } catch {
                 return existingRadarrMovies
             }

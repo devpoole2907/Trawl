@@ -23,6 +23,12 @@ protocol ArrLibraryAPIClient: SharedArrClient {
 
     static var serviceType: ArrServiceType { get }
 
+    /// The shared, instance-keyed cache this client's library lives in. Routing
+    /// every load through it is what stops the Series/Movies tabs, Search, and
+    /// Seerr's cast-credit navigation each pulling the full library separately.
+    @MainActor
+    static func libraryCache(in manager: ArrServiceManager) -> ArrLibraryCache<LibraryItem>
+
     func getLibraryItems() async throws -> [LibraryItem]
     func lookup(term: String) async throws -> [LibraryItem]
     func wantedMissingPage(page: Int, pageSize: Int) async throws -> WantedPage
@@ -295,10 +301,53 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     // MARK: - Library
 
-    func loadLibraryItems() async {
-        guard let loadedItems = await performLoad({ try await $0.getLibraryItems() }) else { return }
-        setLibraryItems(loadedItems)
+    /// Loads the library through `ArrServiceManager`'s shared cache.
+    ///
+    /// `maxAge` of 0 — the default — always refetches, which is what every
+    /// mutation-driven caller (delete, monitor toggle, add, edit) needs. Appear-time
+    /// callers pass `ArrLibraryCachePolicy.appearMaxAge` so switching tabs or popping a
+    /// detail view reuses what's already loaded instead of re-downloading the whole
+    /// library. Concurrent callers share a single request either way.
+    func loadLibraryItems(maxAge: TimeInterval = 0) async {
+        guard let client else { return }
+        let cache = Client.libraryCache(in: serviceManager)
+        let instanceID = serviceManager.activeInstanceID(Client.serviceType)
+
+        // Adopt a fresh cache without touching `isLoading`, so a tab switch shows
+        // content immediately rather than flashing a spinner over data we have.
+        if cache.isFresh(instanceID, maxAge: maxAge), cache.hasItems(for: instanceID) {
+            setLibraryItems(cache.items(for: instanceID))
+            onLibraryLoaded()
+            return
+        }
+
+        isLoading = true
+        error = nil
+        defer { isLoading = false }
+
+        do {
+            let loadedItems = try await cache.load(instanceID: instanceID, maxAge: maxAge) {
+                try await client.getLibraryItems()
+            }
+            setLibraryItems(loadedItems)
+            onLibraryLoaded()
+        } catch is CancellationError {
+            return
+        } catch {
+            captureAndNotify(error, title: "Load Failed")
+        }
+    }
+
+    /// Seeds this view model from the shared cache without any network access.
+    /// Returns false when nothing has been cached for the active instance yet.
+    @discardableResult
+    func adoptCachedLibraryItems() -> Bool {
+        let cache = Client.libraryCache(in: serviceManager)
+        let instanceID = serviceManager.activeInstanceID(Client.serviceType)
+        guard cache.hasItems(for: instanceID) else { return false }
+        setLibraryItems(cache.items(for: instanceID))
         onLibraryLoaded()
+        return true
     }
 
     /// Override hook
@@ -656,7 +705,8 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     var items: [Item] { get }
     var queue: [ArrQueueItem] { get }
 
-    func loadLibraryItems() async
+    func loadLibraryItems(maxAge: TimeInterval) async
+    @discardableResult func adoptCachedLibraryItems() -> Bool
     func loadQueue() async
     func refreshLibrary() async throws
     func rssSync() async throws
@@ -667,6 +717,14 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     func refreshFilters()
     func refreshJellyfinLibraryCache() async
     func rebuildFilteredItems()
+}
+
+extension ArrMediaListViewModel {
+    /// Forced refetch. Default arguments aren't visible through a protocol, so
+    /// generic callers need this to spell the common case.
+    func loadLibraryItems() async {
+        await loadLibraryItems(maxAge: 0)
+    }
 }
 
 // MARK: - Wanted-page conformances
@@ -684,6 +742,11 @@ extension SonarrAPIClient: ArrLibraryAPIClient {
     typealias WantedPage = SonarrWantedPage
 
     static var serviceType: ArrServiceType { .sonarr }
+
+    @MainActor
+    static func libraryCache(in manager: ArrServiceManager) -> ArrLibraryCache<SonarrSeries> {
+        manager.seriesLibrary
+    }
 
     func getLibraryItems() async throws -> [SonarrSeries] {
         try await getSeries()
@@ -712,6 +775,11 @@ extension RadarrAPIClient: ArrLibraryAPIClient {
     typealias WantedPage = RadarrWantedPage
 
     static var serviceType: ArrServiceType { .radarr }
+
+    @MainActor
+    static func libraryCache(in manager: ArrServiceManager) -> ArrLibraryCache<RadarrMovie> {
+        manager.movieLibrary
+    }
 
     func getLibraryItems() async throws -> [RadarrMovie] {
         try await getMovies()

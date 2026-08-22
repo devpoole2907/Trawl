@@ -109,10 +109,11 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
 
     // MARK: - Library
 
-    func loadMovies() async {
-        guard let loadedMovies = await performLoad({ try await $0.getMovies() }) else { return }
-        movies = loadedMovies
-        setLibraryItems(loadedMovies)
+    /// Domain-named alias for `loadLibraryItems(maxAge:)`, which is where the
+    /// shared per-instance cache lives. `setLibraryItems` assigns `movies`, so
+    /// there is nothing extra to do here.
+    func loadMovies(maxAge: TimeInterval = 0) async {
+        await loadLibraryItems(maxAge: maxAge)
     }
 
     func loadMovieFiles(movieId: Int) async {

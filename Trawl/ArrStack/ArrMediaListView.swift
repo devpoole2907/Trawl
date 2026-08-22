@@ -11,6 +11,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
+    @Environment(\.scenePhase) private var scenePhase
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     #endif
@@ -118,6 +119,16 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
             }
             .task(id: serviceManager.activeInstanceID(serviceType)) { [viewModel] in
                 await performInitialLoadAndStartPolling(viewModel: viewModel)
+            }
+            .onChange(of: scenePhase) { _, newPhase in
+                // Backgrounding never fires `onDisappear`, so the `.task` above
+                // doesn't re-run on return and the list would sit on whatever it
+                // had when the app went away. The staleness window means a quick
+                // trip out of the app still costs nothing.
+                guard newPhase == .active else { return }
+                Task { [viewModel] in
+                    await viewModel.loadLibraryItems(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+                }
             }
             .task(id: serviceManager.lastLibraryImportTimestamp) { [viewModel] in
                 guard serviceManager.lastLibraryImportTimestamp != .distantPast else { return }
@@ -459,8 +470,13 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     private func performInitialLoadAndStartPolling(viewModel: VM) async {
         guard serviceManager.isConnected(serviceType) else { return }
 
-        async let loadItems = viewModel.loadLibraryItems()
-        async let loadQueue = viewModel.loadQueue()
+        // `.task` restarts on every appear, not just the first, so this runs again
+        // on each tab switch and every pop back from a detail view. Seed from the
+        // shared cache first so those show content immediately, then let the
+        // staleness window decide whether the whole library is worth refetching.
+        viewModel.adoptCachedLibraryItems()
+        async let loadItems: Void = viewModel.loadLibraryItems(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+        async let loadQueue: Void = viewModel.loadQueue()
         _ = await (loadItems, loadQueue)
 
         var knownQueueIds = Set(viewModel.queue.map(\.id))

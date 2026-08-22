@@ -297,7 +297,10 @@ struct RadarrMovieDetailView: View {
             #endif
             guard let id = resolvedLibraryId else { return }
             await viewModel.loadMovieFiles(movieId: id)
-            await viewModel.loadMovies()
+            // Appear-time only, so the shared cache serves it — opening a movie
+            // shouldn't re-download the whole library the list already has. Pull to
+            // refresh and the queue-driven reloads below still force a fetch.
+            await viewModel.loadMovies(maxAge: ArrLibraryCachePolicy.appearMaxAge)
             var knownQueueIds = Set(viewModel.queue.map(\.id))
             do {
                 while true {

@@ -253,6 +253,11 @@ struct ContentView: View {
             // Slow app-wide poll purely so the tab-bar accessory's failure count
             // stays honest; Downloads speeds it up while that tab is on screen.
             arrServiceManager.startQueuePolling()
+            // Fire-and-forget: `/series` and `/movie` are unpaged full-library
+            // dumps, so this must never sit in front of the first frame. It just
+            // means the Series and Movies tabs open with content instead of
+            // starting the download on appear.
+            arrServiceManager.prefetchLibraries()
             await arrServiceManager.refreshQueues()
         }
         .task(id: connectionRetryLoopKey) {
@@ -309,6 +314,10 @@ struct ContentView: View {
                 }
                 Task { await arrServiceManager.retryDisconnected() }
                 arrServiceManager.startQueuePolling()
+                // Covers returning to a tab that isn't Series or Movies — those two
+                // refresh themselves on `.active`. Staleness-gated, so a quick trip
+                // out of the app doesn't refetch anything.
+                arrServiceManager.prefetchLibraries()
             }
         }
         .onChange(of: shouldShowWelcomeScreen) { _, isShowing in

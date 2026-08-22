@@ -97,7 +97,9 @@ struct SearchView: View {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
             #endif
-            await refreshLibrary()
+            // Reuses whatever the Series/Movies tabs already fetched, rather than
+            // pulling both full libraries again just to build match badges.
+            await refreshLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
             createLookupViewModels()
             await reconcileTrendingMatches()
         }
@@ -762,8 +764,8 @@ struct SearchView: View {
         viewModel.startLibrarySearch()
     }
 
-    private func refreshLibrary() async {
-        await viewModel.refreshLibrary(arrServiceManager: arrServiceManager)
+    private func refreshLibrary(maxAge: TimeInterval = 0) async {
+        await viewModel.refreshLibrary(arrServiceManager: arrServiceManager, maxAge: maxAge)
     }
 
     private func loadTrending() async {

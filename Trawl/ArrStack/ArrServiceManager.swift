@@ -122,9 +122,17 @@ final class ArrServiceManager {
     /// How many views currently want the fast cadence.
     private var fastQueuePollingRequests = 0
 
+    // MARK: - Shared library caches
+    // The Series/Movies tabs, Search, and Seerr's cast-credit navigation all read
+    // the same two libraries. Owning them here means one fetch per instance rather
+    // than one per view model, and no drift between what each surface believes is
+    // in the library.
+    @ObservationIgnored let seriesLibrary = ArrLibraryCache<SonarrSeries>()
+    @ObservationIgnored let movieLibrary = ArrLibraryCache<RadarrMovie>()
+
     // MARK: - Persistent ViewModels
     public private(set) var calendarViewModel: ArrCalendarViewModel!
-    
+
     init() {
         self.calendarViewModel = ArrCalendarViewModel(serviceManager: self)
     }
@@ -571,10 +579,17 @@ final class ArrServiceManager {
                 .map { BazarrClientEntry(id: $0.id, displayName: $0.displayName) }
         }
 
+        // A profile can be re-pointed at a different server without changing its ID,
+        // so treat every re-initialize as making the cached libraries stale. Items
+        // are kept so the UI has something to render until the refetch lands.
+        seriesLibrary.prune(keeping: Set(sonarrInstances.map(\.id)))
+        movieLibrary.prune(keeping: Set(radarrInstances.map(\.id)))
+        invalidateLibraryCaches()
+
         for profile in profiles where profile.isEnabled {
             await connectService(profile)
         }
-        
+
         await calendarViewModel.initialize()
 
         // Prefetch health and blocklist so nav subtitles are populated immediately on first navigation
@@ -968,6 +983,49 @@ final class ArrServiceManager {
             let status: ArrSystemStatus = try await client.get("/api/v3/system/status")
             return status
         }
+    }
+
+    // MARK: - Shared library access
+
+    /// The active instance's Sonarr library, from cache when it was fetched within
+    /// `maxAge` and from the server otherwise. `maxAge: 0` (the default) always
+    /// refetches; pass `ArrLibraryCache.appearMaxAge` for appear-time refreshes.
+    @discardableResult
+    func loadSeriesLibrary(maxAge: TimeInterval = 0) async throws -> [SonarrSeries] {
+        guard let client = sonarrClient else { return [] }
+        return try await seriesLibrary.load(instanceID: activeSonarrInstanceID, maxAge: maxAge) {
+            try await client.getSeries()
+        }
+    }
+
+    /// The active instance's Radarr library. See `loadSeriesLibrary(maxAge:)`.
+    @discardableResult
+    func loadMovieLibrary(maxAge: TimeInterval = 0) async throws -> [RadarrMovie] {
+        guard let client = radarrClient else { return [] }
+        return try await movieLibrary.load(instanceID: activeRadarrInstanceID, maxAge: maxAge) {
+            try await client.getMovies()
+        }
+    }
+
+    /// Warms both libraries in the background so the Series and Movies tabs have
+    /// content the first time they're opened instead of starting a multi-megabyte
+    /// fetch on appear. Errors are swallowed: this is opportunistic, and every
+    /// consumer still loads (and surfaces failures) on its own.
+    func prefetchLibraries() {
+        guard sonarrClient != nil || radarrClient != nil else { return }
+        Task { [weak self] in
+            guard let self else { return }
+            async let series: Void = { _ = try? await self.loadSeriesLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge) }()
+            async let movies: Void = { _ = try? await self.loadMovieLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge) }()
+            _ = await (series, movies)
+        }
+    }
+
+    /// Marks both libraries stale without clearing them, so the next appear-time
+    /// load refetches while the UI keeps showing what it already has.
+    func invalidateLibraryCaches() {
+        seriesLibrary.invalidateAll()
+        movieLibrary.invalidateAll()
     }
 
     // MARK: - Download queue cache

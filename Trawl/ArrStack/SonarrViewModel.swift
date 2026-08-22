@@ -129,10 +129,11 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
 
     // MARK: - Library
 
-    func loadSeries() async {
-        guard let loadedSeries = await performLoad({ try await $0.getSeries() }) else { return }
-        series = loadedSeries
-        setLibraryItems(loadedSeries)
+    /// Domain-named alias for `loadLibraryItems(maxAge:)`, which is where the
+    /// shared per-instance cache lives. `setLibraryItems` assigns `series`, so
+    /// there is nothing extra to do here.
+    func loadSeries(maxAge: TimeInterval = 0) async {
+        await loadLibraryItems(maxAge: maxAge)
     }
 
     func refreshSeries() async throws {
