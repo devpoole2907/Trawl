@@ -49,6 +49,8 @@ enum MoreDestination: Hashable {
     case jellyfinScheduledTasks
     case jellyfinPlugins
     case jellyfinTranscoding
+    case cleanuparrDashboard
+    case cleanuparrSettings
     case unifiedUsers
     case logsAndEvents
     case arrEvents
@@ -89,6 +91,7 @@ enum MoreDestinationAccent {
     case requestManagement
     case seerr
     case jellyfin
+    case cleanuparr
     case logsAndEvents
     case tasks
     case updates
@@ -125,6 +128,7 @@ enum MoreDestinationAccent {
         case .requestManagement: return ServiceIdentity.seerr.brandColor
         case .seerr: return ServiceIdentity.seerr.brandColor
         case .jellyfin: return ServiceIdentity.jellyfin.brandColor
+        case .cleanuparr: return ServiceIdentity.cleanuparr.brandColor
         case .logsAndEvents: return .brown
         case .tasks: return .teal
         case .updates: return .green
@@ -140,6 +144,7 @@ struct MoreView: View {
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
+    @Query private var cleanuparrProfiles: [CleanuparrServiceProfile]
     let appServices: AppServices?
     @Binding var path: [MoreDestination]
     let isQBittorrentConnecting: Bool
@@ -150,6 +155,7 @@ struct MoreView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     /// Optional so previews and any host that doesn't inject a navigator still work.
@@ -170,6 +176,7 @@ struct MoreView: View {
         if arrServiceManager.hasBazarrInstance { identities.append(.bazarr) }
         if !seerrProfiles.isEmpty { identities.append(.seerr) }
         if !jellyfinProfiles.isEmpty { identities.append(.jellyfin) }
+        if !cleanuparrProfiles.isEmpty { identities.append(.cleanuparr) }
         return identities
     }
 
@@ -210,6 +217,7 @@ struct MoreView: View {
         case arr(ArrServiceType)
         case seerr
         case jellyfin
+        case cleanuparr
 
         var id: String {
             switch self {
@@ -223,6 +231,8 @@ struct MoreView: View {
                 "seerr"
             case .jellyfin:
                 "jellyfin"
+            case .cleanuparr:
+                "cleanuparr"
             }
         }
     }
@@ -296,6 +306,14 @@ struct MoreView: View {
                 message: jellyfinServiceManager.connectionError ?? "Checking your configured Jellyfin server."
             ))
         }
+        if !cleanuparrProfiles.isEmpty && !cleanuparrServiceManager.isConnected
+            && (cleanuparrServiceManager.isConnecting || cleanuparrServiceManager.connectionError != nil) {
+            issues.append(ConnectionIssue(
+                identity: .cleanuparr,
+                isConnecting: cleanuparrServiceManager.isConnecting,
+                message: cleanuparrServiceManager.connectionError ?? "Checking your configured Cleanuparr server."
+            ))
+        }
 
         return issues
     }
@@ -319,6 +337,9 @@ struct MoreView: View {
         if !jellyfinServiceManager.isConnected && !jellyfinServiceManager.isConnecting {
             Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
         }
+        if !cleanuparrServiceManager.isConnected && !cleanuparrServiceManager.isConnecting {
+            Task { await cleanuparrServiceManager.initialize(from: cleanuparrProfiles) }
+        }
         Task { await arrServiceManager.retryDisconnected() }
     }
 
@@ -340,6 +361,8 @@ struct MoreView: View {
             Task { await seerrServiceManager.initialize(from: seerrProfiles) }
         case .jellyfin:
             Task { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
+        case .cleanuparr:
+            Task { await cleanuparrServiceManager.initialize(from: cleanuparrProfiles) }
         }
     }
 
@@ -362,6 +385,8 @@ struct MoreView: View {
             sheet = .seerr
         case .jellyfin:
             sheet = .jellyfin
+        case .cleanuparr:
+            sheet = .cleanuparr
         }
 
         withAnimation(.snappy) {
@@ -658,6 +683,15 @@ struct MoreView: View {
                 case .jellyfinSettings:
                     JellyfinSettingsView()
                         .moreDestinationTitleStyle()
+                case .cleanuparrDashboard:
+                    CleanuparrDashboardView()
+                        .environment(cleanuparrServiceManager)
+                        .moreDestinationBackground(.cleanuparr)
+                        .moreDestinationTitleStyle()
+                case .cleanuparrSettings:
+                    CleanuparrSettingsView()
+                        .environment(cleanuparrServiceManager)
+                        .moreDestinationTitleStyle()
                 case .logsAndEvents:
                     LogsAndEventsHubView(hasQBittorrentLog: appServices != nil)
                         .moreDestinationTitleStyle()
@@ -897,6 +931,7 @@ struct MoreView: View {
             .environment(torrentService)
             .environment(arrServiceManager)
             .environment(sabnzbdServiceManager)
+            .environment(cleanuparrServiceManager)
     }
 
     @ViewBuilder
@@ -945,6 +980,17 @@ struct MoreView: View {
                 JellyfinSettingsView()
                     .environment(jellyfinServiceManager)
                     .environment(inAppNotificationCenter)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Done", action: dismissConnectionEditor)
+                        }
+                    }
+            }
+
+        case .cleanuparr:
+            NavigationStack {
+                CleanuparrSettingsView()
+                    .environment(cleanuparrServiceManager)
                     .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             Button("Done", action: dismissConnectionEditor)
@@ -1578,6 +1624,16 @@ private enum MoreSearchIndex {
                 category: "Downloads › qBittorrent",
                 keywords: ["qbittorrent", "rss", "feeds", "automatic", "rules"],
                 downloadsRoute: .rssFeeds
+            ),
+            .init(
+                id: "cleanuparr",
+                destination: .cleanuparrDashboard,
+                icon: ServiceIdentity.cleanuparr.systemImage,
+                color: ServiceIdentity.cleanuparr.brandColor,
+                title: "Cleanuparr",
+                subtitle: "Cleanup activity, job results, and service health",
+                category: "Automation & Clients",
+                keywords: ["cleanup", "strikes", "removals", "malware", "seeding", "health", "jobs"]
             ),
             .init(
                 id: "automation-clients",
@@ -2996,6 +3052,15 @@ private struct AutomationAndClientsHubView: View {
                         color: MoreDestinationAccent.indexers.color,
                         title: "Indexers",
                         subtitle: "Indexers across your services"
+                    )
+                }
+
+                NavigationLink(value: MoreDestination.cleanuparrDashboard) {
+                    NavigationMenuRow(
+                        icon: ServiceIdentity.cleanuparr.systemImage,
+                        color: ServiceIdentity.cleanuparr.brandColor,
+                        title: "Cleanuparr",
+                        subtitle: "Cleanup activity, jobs, and service health"
                     )
                 }
             }

@@ -69,10 +69,13 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
     let progress: Double
     let size: String
     let sizeRemaining: String?
+    let totalBytes: Int64?
+    let downloadedBytes: Int64?
     let timeRemaining: String?
     let category: String?
     let isPostProcessing: Bool
     let failureMessage: String?
+    let addedAt: Date?
     let completedAt: Date?
     let source: SABnzbdJobSource
 
@@ -84,10 +87,23 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
         progress = slot.progress
         size = slot.size
         sizeRemaining = slot.sizeLeft
+        if slot.megabytes > 0 {
+            let total = Int64((slot.megabytes * 1_048_576).rounded())
+            let remainingMegabytes = slot.megabytesLeft > 0
+                ? slot.megabytesLeft
+                : slot.megabytes * (1 - slot.progress)
+            let remaining = Int64((remainingMegabytes * 1_048_576).rounded())
+            totalBytes = total
+            downloadedBytes = max(0, total - min(remaining, total))
+        } else {
+            totalBytes = nil
+            downloadedBytes = nil
+        }
         timeRemaining = slot.timeLeft
         category = slot.category
         isPostProcessing = false
         failureMessage = nil
+        addedAt = slot.timeAdded > 0 ? Date(timeIntervalSince1970: TimeInterval(slot.timeAdded)) : nil
         completedAt = nil
         source = .queue
     }
@@ -100,13 +116,31 @@ nonisolated struct SABnzbdJob: Identifiable, Hashable, Sendable {
         progress = slot.progress
         size = slot.size
         sizeRemaining = nil
+        if slot.bytes > 0 {
+            totalBytes = slot.bytes
+            downloadedBytes = slot.normalizedStatus == .completed
+                ? slot.bytes
+                : min(max(0, slot.downloaded), slot.bytes)
+        } else {
+            totalBytes = nil
+            downloadedBytes = nil
+        }
         timeRemaining = nil
         category = slot.category
         isPostProcessing = slot.normalizedStatus.isActive
         failureMessage = slot.failMessage.nilIfEmpty
+        addedAt = slot.timeAdded > 0 ? Date(timeIntervalSince1970: TimeInterval(slot.timeAdded)) : nil
         completedAt = slot.completed > 0 ? Date(timeIntervalSince1970: TimeInterval(slot.completed)) : nil
         source = .history
     }
+
+    /// Matches torrent rows by presenting transferred bytes before total bytes.
+    @MainActor
+    var downloadedSizeSummary: String {
+        guard let totalBytes, let downloadedBytes else { return size }
+        return "\(ByteFormatter.format(bytes: downloadedBytes)) / \(ByteFormatter.format(bytes: totalBytes))"
+    }
+
 }
 
 // MARK: - Queue

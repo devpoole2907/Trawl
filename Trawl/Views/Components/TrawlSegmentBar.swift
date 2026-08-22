@@ -62,28 +62,30 @@ struct TrawlSegmentBar<Selection: Hashable>: View {
         let offsetsExpandedSearch = searchPlacement == .trailing
 
         ScrollView(.horizontal) {
-            HStack(spacing: 12) {
-                if searchPlacement == .leading, searchText != nil {
-                    expandableSearchBar
-                }
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 12) {
+                    if searchPlacement == .leading, searchText != nil {
+                        expandableSearchBar
+                    }
 
-                ForEach(items) { item in
-                    itemView(item)
-                }
+                    ForEach(items) { item in
+                        itemView(item)
+                    }
 
-                if searchPlacement == .trailing, searchText != nil {
-                    expandableSearchBar
+                    if searchPlacement == .trailing, searchText != nil {
+                        expandableSearchBar
+                    }
                 }
-            }
-            .padding(.horizontal, horizontalPadding)
-            .frame(minWidth: viewSize.width, alignment: frameAlignment)
-            .visualEffect { [isSearchExpanded, viewSize, offsetsExpandedSearch] content, proxy in
-                let rect = proxy.frame(in: .scrollView)
-                let maxX = rect.maxX - viewSize.width
-                let offset = offsetsExpandedSearch ? -maxX : 0
+                .padding(.horizontal, horizontalPadding)
+                .frame(minWidth: viewSize.width, alignment: frameAlignment)
+                .visualEffect { [isSearchExpanded, viewSize, offsetsExpandedSearch] content, proxy in
+                    let rect = proxy.frame(in: .scrollView)
+                    let maxX = rect.maxX - viewSize.width
+                    let offset = offsetsExpandedSearch ? -maxX : 0
 
-                return content
-                    .offset(x: isSearchExpanded ? offset : 0)
+                    return content
+                        .offset(x: isSearchExpanded ? offset : 0)
+                }
             }
         }
         .frame(height: 50)

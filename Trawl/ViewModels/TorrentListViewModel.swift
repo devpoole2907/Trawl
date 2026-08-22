@@ -359,7 +359,7 @@ final class TorrentListViewModel {
     }
 }
 
-enum TorrentSortOrder: String, CaseIterable, Identifiable {
+nonisolated enum TorrentSortOrder: String, DownloadSortOption {
     case name = "Name"
     case addedDate = "Date Added"
     case size = "Size"

@@ -61,4 +61,76 @@ enum DownloadListItem: Identifiable {
                 .joined(separator: " ")
         }
     }
+
+    var sortValues: DownloadSortValues {
+        switch self {
+        case .torrent(let torrent):
+            return DownloadSortValues(
+                identifier: id,
+                name: torrent.name,
+                date: torrent.addedOn > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(torrent.addedOn))
+                    : nil,
+                size: torrent.totalSize > 0 ? torrent.totalSize : torrent.size,
+                progress: torrent.progress,
+                eta: torrent.eta > 0 && torrent.eta < 8_640_000 ? TimeInterval(torrent.eta) : nil,
+                status: torrent.state.displayName
+            )
+
+        case .arrQueue(let item, let source, let linkedTorrent, let linkedSABJob):
+            let torrentDate = linkedTorrent.flatMap { torrent in
+                torrent.addedOn > 0
+                    ? Date(timeIntervalSince1970: TimeInterval(torrent.addedOn))
+                    : nil
+            }
+            let torrentSize = linkedTorrent.flatMap { torrent in
+                let size = torrent.totalSize > 0 ? torrent.totalSize : torrent.size
+                return size > 0 ? size : nil
+            }
+            let itemSize = item.size.flatMap { $0 > 0 ? Int64($0) : nil }
+            let torrentETA = linkedTorrent.flatMap { torrent in
+                torrent.eta > 0 && torrent.eta < 8_640_000 ? TimeInterval(torrent.eta) : nil
+            }
+            return DownloadSortValues(
+                identifier: id,
+                name: item.title ?? linkedTorrent?.name ?? linkedSABJob?.name ?? "Unknown Download",
+                date: torrentDate ?? linkedSABJob?.addedAt,
+                size: torrentSize ?? linkedSABJob?.totalBytes ?? itemSize,
+                progress: linkedTorrent?.progress ?? linkedSABJob?.progress ?? item.progress,
+                eta: torrentETA
+                    ?? DownloadSortValues.etaSeconds(from: linkedSABJob?.timeRemaining)
+                    ?? DownloadSortValues.etaSeconds(from: item.timeleft),
+                status: linkedTorrent?.state.displayName
+                    ?? linkedSABJob?.normalizedStatus.displayName
+                    ?? item.trackedDownloadState
+                    ?? item.status
+                    ?? source.rawValue
+            )
+
+        case .arrHistory(let item):
+            return DownloadSortValues(
+                identifier: id,
+                name: item.record.sourceTitle
+                    ?? item.record.data?["releaseTitle"]
+                    ?? item.record.data?["title"]
+                    ?? "Unknown Event",
+                date: item.sortDate,
+                size: nil,
+                progress: nil,
+                eta: nil,
+                status: item.record.eventDisplayName
+            )
+
+        case .sab(let job):
+            return DownloadSortValues(
+                identifier: id,
+                name: job.name,
+                date: job.completedAt ?? job.addedAt,
+                size: job.totalBytes,
+                progress: job.progress,
+                eta: DownloadSortValues.etaSeconds(from: job.timeRemaining),
+                status: job.normalizedStatus.displayName
+            )
+        }
+    }
 }

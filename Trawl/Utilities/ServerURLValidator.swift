@@ -27,7 +27,11 @@ enum ServerURLValidationError: LocalizedError {
 }
 
 enum ServerURLValidator {
-    static func normalizedURLString(from rawValue: String, defaultScheme: String = "http") throws -> String {
+    nonisolated static func normalizedURLString(
+        from rawValue: String,
+        defaultScheme: String = "http",
+        allowsPath: Bool = false
+    ) throws -> String {
         let trimmedValue = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedValue.isEmpty else {
             throw ServerURLValidationError.empty
@@ -52,7 +56,10 @@ enum ServerURLValidator {
             throw ServerURLValidationError.missingHost
         }
 
-        if let path = components.percentEncodedPath.removingPercentEncoding, !path.isEmpty, path != "/" {
+        if !allowsPath,
+           let path = components.percentEncodedPath.removingPercentEncoding,
+           !path.isEmpty,
+           path != "/" {
             throw ServerURLValidationError.unexpectedPath
         }
 
@@ -62,7 +69,13 @@ enum ServerURLValidator {
 
         components.scheme = scheme
         components.host = host
-        components.path = ""
+        if allowsPath {
+            while components.path.hasSuffix("/") {
+                components.path.removeLast()
+            }
+        } else {
+            components.path = ""
+        }
         components.query = nil
         components.fragment = nil
 

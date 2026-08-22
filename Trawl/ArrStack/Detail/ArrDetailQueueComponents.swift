@@ -378,16 +378,13 @@ struct ArrDetailQueueItemRow: View {
         return .orange
     }
 
-    /// SABnzbd only reports preformatted size strings, so the Usenet variant
-    /// reads "1.2 GB left of 4.0 GB" rather than a downloaded/total pair.
     private func sizeSummary(torrent: Torrent?, sabJob: SABnzbdJob?) -> String? {
         if let torrent, torrent.totalSize > 0 {
             let downloaded = max(0, torrent.totalSize - torrent.amountLeft)
             return "\(ByteFormatter.format(bytes: downloaded)) / \(ByteFormatter.format(bytes: torrent.totalSize))"
         }
         if let sabJob {
-            guard let sizeRemaining = sabJob.sizeRemaining, !sizeRemaining.isEmpty else { return sabJob.size }
-            return "\(sizeRemaining) left of \(sabJob.size)"
+            return sabJob.downloadedSizeSummary
         }
         guard let total = item.size else { return nil }
         let downloaded = Int64(max(0, total - (item.sizeleft ?? total)))
@@ -451,7 +448,7 @@ struct ArrDetailSABJobPanel: View {
 
             HStack(spacing: 6) {
                 arrDetailInfoChip("\(Int(job.progress * 100))%", color: job.normalizedStatus.color, isProminent: true)
-                arrDetailInfoChip(job.size, color: .secondary)
+                arrDetailInfoChip(job.downloadedSizeSummary, color: .secondary)
                 if let category = job.category, !category.isEmpty {
                     arrDetailInfoChip(category, color: .primary)
                 }

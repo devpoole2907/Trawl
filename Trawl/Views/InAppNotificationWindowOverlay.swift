@@ -5,6 +5,7 @@ import UIKit
 @MainActor
 final class InAppNotificationWindowPresenter {
     private var window: UIWindow?
+    private var hostingController: InAppNotificationHostingController?
 
     func install(notificationCenter: InAppNotificationCenter) {
         guard let scene = UIApplication.shared.connectedScenes
@@ -17,9 +18,13 @@ final class InAppNotificationWindowPresenter {
             return
         }
 
-        let hostingController = UIHostingController(
-            rootView: InAppNotificationWindowOverlay(notificationCenter: notificationCenter)
-                .environment(notificationCenter)
+        let hostingController = InAppNotificationHostingController(
+            rootView: InAppNotificationWindowOverlay(
+                notificationCenter: notificationCenter,
+                dynamicIslandPresentationChanged: { [weak self] isPresented in
+                    self?.hostingController?.hidesStatusBar = isPresented
+                }
+            )
         )
         hostingController.view.backgroundColor = .clear
 
@@ -31,6 +36,7 @@ final class InAppNotificationWindowPresenter {
         overlayWindow.isHidden = false
 
         window = overlayWindow
+        self.hostingController = hostingController
     }
 }
 
@@ -53,12 +59,29 @@ final class PassthroughNotificationWindow: UIWindow {
 
 struct InAppNotificationWindowOverlay: View {
     let notificationCenter: InAppNotificationCenter
+    let dynamicIslandPresentationChanged: (Bool) -> Void
+
+    init(
+        notificationCenter: InAppNotificationCenter,
+        dynamicIslandPresentationChanged: @escaping (Bool) -> Void = { _ in }
+    ) {
+        self.notificationCenter = notificationCenter
+        self.dynamicIslandPresentationChanged = dynamicIslandPresentationChanged
+    }
 
     var body: some View {
         GeometryReader { geometry in
+            let safeAreaTop = effectiveSafeAreaTop(geometry.safeAreaInsets.top)
+
             Color.clear
                 .overlay(alignment: .top) {
-                    if let banner = notificationCenter.currentBanner {
+                    if supportsDynamicIsland(safeAreaTop: safeAreaTop) {
+                        DynamicIslandNotificationToast(
+                            notificationCenter: notificationCenter,
+                            safeAreaTop: safeAreaTop,
+                            presentationChanged: dynamicIslandPresentationChanged
+                        )
+                    } else if let banner = notificationCenter.currentBanner {
                         InAppNotificationBanner(item: banner) {
                             notificationCenter.dismissCurrentBanner()
                         } onTap: {
@@ -89,6 +112,21 @@ struct InAppNotificationWindowOverlay: View {
         }
         .ignoresSafeArea()
         .animation(.spring(response: 0.34, dampingFraction: 0.86), value: notificationCenter.currentBanner)
+    }
+
+    private func supportsDynamicIsland(safeAreaTop: CGFloat) -> Bool {
+        safeAreaTop >= 59
+    }
+
+    private func effectiveSafeAreaTop(_ geometrySafeAreaTop: CGFloat) -> CGFloat {
+        let scene = UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })
+        let applicationWindowSafeAreaTop = scene?.windows
+            .first(where: { !($0 is PassthroughNotificationWindow) && !$0.isHidden })?
+            .safeAreaInsets.top ?? 0
+
+        return max(geometrySafeAreaTop, applicationWindowSafeAreaTop)
     }
 
     private func toolbarAwareTopPadding(safeAreaTop: CGFloat) -> CGFloat {

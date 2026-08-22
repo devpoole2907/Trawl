@@ -19,6 +19,7 @@ struct ContentView: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager
     @Environment(AppLockController.self) private var appLockController
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @Query private var servers: [ServerProfile]
@@ -26,6 +27,7 @@ struct ContentView: View {
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
+    @Query private var cleanuparrProfiles: [CleanuparrServiceProfile]
     @State private var appServices: AppServices?
     @State private var disconnectedServices = AppServices.disconnected()
     @State private var connectionError: String?
@@ -157,6 +159,10 @@ struct ContentView: View {
                 )
             case .jellyfin:
                 JellyfinSetupSheet()
+            case .cleanuparr:
+                CleanuparrSetupSheet {
+                    Task { await cleanuparrServiceManager.initialize(from: cleanuparrProfiles) }
+                }
             }
         }
         .sheet(isPresented: $showArrSetup) {
@@ -228,6 +234,13 @@ struct ContentView: View {
             evaluateInitialWelcomeStateIfNeeded()
             await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
         }
+        .task(id: cleanuparrProfilesSyncKey) {
+            #if DEBUG
+            guard !isPreview else { return }
+            #endif
+            evaluateInitialWelcomeStateIfNeeded()
+            await cleanuparrServiceManager.initialize(from: cleanuparrProfiles)
+        }
         .task(id: arrProfilesSyncKey) {
             #if DEBUG
             guard !isPreview else { return }
@@ -291,6 +304,9 @@ struct ContentView: View {
                 } else if sabnzbdServiceManager.isConnected {
                     sabnzbdServiceManager.startPolling()
                 }
+                if !cleanuparrServiceManager.isConnected && !cleanuparrServiceManager.isConnecting && !cleanuparrProfiles.isEmpty {
+                    Task { await cleanuparrServiceManager.initialize(from: cleanuparrProfiles) }
+                }
                 Task { await arrServiceManager.retryDisconnected() }
                 arrServiceManager.startQueuePolling()
             }
@@ -324,7 +340,8 @@ struct ContentView: View {
                 prowlarr: prowlarrProfile != nil,
                 bazarr: bazarrProfile != nil,
                 seerr: seerrProfile != nil,
-                jellyfin: jellyfinProfile != nil
+                jellyfin: jellyfinProfile != nil,
+                cleanuparr: cleanuparrProfile != nil
             )
         )
     }
@@ -369,11 +386,22 @@ struct ContentView: View {
                 .environment(sabnzbdServiceManager)
             }
 
-            Tab(value: RootTab.search, role: .search) {
-                SearchView()
-                    .environment(arrServiceManager)
-                    .environment(services.syncService)
-                    .environment(services.torrentService)
+            if #available(iOS 27.0, macOS 27.0, *) {
+                Tab(value: RootTab.search, role: .prominent) {
+                    SearchView()
+                        .environment(arrServiceManager)
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                } label: {
+                    Label("Search", systemImage: "magnifyingglass")
+                }
+            } else {
+                Tab(value: RootTab.search, role: .search) {
+                    SearchView()
+                        .environment(arrServiceManager)
+                        .environment(services.syncService)
+                        .environment(services.torrentService)
+                }
             }
 
             Tab("More", systemImage: "ellipsis", value: RootTab.more) {
@@ -387,6 +415,7 @@ struct ContentView: View {
                     .environment(services.torrentService)
                     .environment(arrServiceManager)
                     .environment(sabnzbdServiceManager)
+                    .environment(cleanuparrServiceManager)
                     .environment(\.navigateToSeriesTab) {
                         selectedTab = .series
                     }
@@ -423,6 +452,9 @@ struct ContentView: View {
                     }
                     .environment(\.navigateToJellyfinSettings) {
                         morePath.append(.jellyfinSettings)
+                    }
+                    .environment(\.navigateToCleanuparrSettings) {
+                        morePath.append(.cleanuparrSettings)
                     }
                     .environment(\.navigateToSettings) {
                         morePath.append(.settings)
@@ -651,8 +683,12 @@ struct ContentView: View {
         sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
     }
 
+    private var cleanuparrProfile: CleanuparrServiceProfile? {
+        cleanuparrProfiles.first(where: { $0.isEnabled }) ?? cleanuparrProfiles.first
+    }
+
     private var hasConfiguredAnyService: Bool {
-        activeServer != nil || sabnzbdProfile != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil || jellyfinProfile != nil
+        activeServer != nil || sabnzbdProfile != nil || sonarrProfile != nil || radarrProfile != nil || prowlarrProfile != nil || bazarrProfile != nil || seerrProfile != nil || jellyfinProfile != nil || cleanuparrProfile != nil
     }
 
     private var arrProfilesSyncKey: String {
@@ -683,6 +719,13 @@ struct ContentView: View {
             .joined(separator: "|")
     }
 
+    private var cleanuparrProfilesSyncKey: String {
+        cleanuparrProfiles
+            .map { "\($0.id.uuidString):\($0.hostURL):\($0.isEnabled)" }
+            .sorted()
+            .joined(separator: "|")
+    }
+
     private var connectionRetryLoopKey: String {
         [
             scenePhase == .active ? "active" : "paused",
@@ -691,7 +734,8 @@ struct ContentView: View {
             arrProfilesSyncKey,
             seerrProfilesSyncKey,
             jellyfinProfilesSyncKey,
-            sabnzbdProfilesSyncKey
+            sabnzbdProfilesSyncKey,
+            cleanuparrProfilesSyncKey
         ].joined(separator: "|")
     }
 
@@ -822,6 +866,10 @@ struct ContentView: View {
 
         if !sabnzbdProfiles.isEmpty && !sabnzbdServiceManager.isConnected && !sabnzbdServiceManager.isConnecting {
             await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
+        }
+
+        if !cleanuparrProfiles.isEmpty && !cleanuparrServiceManager.isConnected && !cleanuparrServiceManager.isConnecting {
+            await cleanuparrServiceManager.initialize(from: cleanuparrProfiles)
         }
 
         await arrServiceManager.retryDisconnected()

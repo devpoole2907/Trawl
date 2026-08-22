@@ -32,6 +32,9 @@ struct SettingsView: View {
     @Query private var jellyfinProfiles: [JellyfinServiceProfile]
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
+    @Environment(\.navigateToCleanuparrSettings) private var navigateToCleanuparrSettings
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager
+    @Query private var cleanuparrProfiles: [CleanuparrServiceProfile]
     #if DEBUG
     private var skipsAutomaticLoading = false
     #endif
@@ -114,6 +117,10 @@ struct SettingsView: View {
 
     private var sabnzbdProfile: SABnzbdServiceProfile? {
         sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first
+    }
+
+    private var cleanuparrProfile: CleanuparrServiceProfile? {
+        cleanuparrProfiles.first(where: { $0.isEnabled }) ?? cleanuparrProfiles.first
     }
 
     private var arrProfilesSyncKey: String {
@@ -221,6 +228,18 @@ struct SettingsView: View {
                         url: jellyfinProfile?.hostURL,
                         isConnected: jellyfinServiceManager.isConnected,
                         isConfigured: jellyfinProfile != nil
+                    )
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+
+                Button(action: navigateToCleanuparrSettings) {
+                    serviceRow(
+                        icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
+                        name: cleanuparrProfile?.displayName ?? "Cleanuparr",
+                        url: cleanuparrProfile?.hostURL,
+                        isConnected: cleanuparrServiceManager.isConnected,
+                        isConfigured: cleanuparrProfile != nil
                     )
                     .contentShape(Rectangle())
                 }
@@ -859,6 +878,10 @@ private struct NavigateToJellyfinSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+private struct NavigateToCleanuparrSettingsKey: EnvironmentKey {
+    static let defaultValue: () -> Void = {}
+}
+
 private struct NavigateToSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -917,6 +940,11 @@ extension EnvironmentValues {
     var navigateToJellyfinSettings: () -> Void {
         get { self[NavigateToJellyfinSettingsKey.self] }
         set { self[NavigateToJellyfinSettingsKey.self] = newValue }
+    }
+
+    var navigateToCleanuparrSettings: () -> Void {
+        get { self[NavigateToCleanuparrSettingsKey.self] }
+        set { self[NavigateToCleanuparrSettingsKey.self] = newValue }
     }
 
     var navigateToSettings: () -> Void {

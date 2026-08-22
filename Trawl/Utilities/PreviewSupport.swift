@@ -10,6 +10,7 @@ enum PreviewSupport {
         case arrOnly
         case jellyfinOnly
         case seerrOnly
+        case cleanuparrOnly
         case allServices
         case custom(@MainActor (ModelContext) -> Void)
     }
@@ -33,6 +34,8 @@ enum PreviewSupport {
             context.insert(JellyfinServiceProfile.preview())
         case .seerrOnly:
             context.insert(SeerrServiceProfile.preview())
+        case .cleanuparrOnly:
+            context.insert(CleanuparrServiceProfile(displayName: "Cleanuparr Preview", hostURL: "http://preview.invalid:11011"))
         case .allServices:
             context.insert(ServerProfile.preview())
             context.insert(SABnzbdServiceProfile(displayName: "SABnzbd Preview", hostURL: "http://preview.invalid:8080"))
@@ -42,6 +45,7 @@ enum PreviewSupport {
             context.insert(ArrServiceProfile.preview(.bazarr))
             context.insert(JellyfinServiceProfile.preview())
             context.insert(SeerrServiceProfile.preview())
+            context.insert(CleanuparrServiceProfile(displayName: "Cleanuparr Preview", hostURL: "http://preview.invalid:11011"))
         case .custom(let configure):
             configure(context)
         }
@@ -65,6 +69,7 @@ struct PreviewHost<Content: View>: View {
     let jellyfin: JellyfinServiceManager
     let seerr: SeerrServiceManager
     let sabnzbd: SABnzbdServiceManager
+    let cleanuparr: CleanuparrServiceManager
     let sync: SyncService
     let torrent: TorrentService
     let appServices: AppServices
@@ -78,6 +83,7 @@ struct PreviewHost<Content: View>: View {
         jellyfin: JellyfinServiceManager = .preview(),
         seerr: SeerrServiceManager = .preview(),
         sabnzbd: SABnzbdServiceManager = SABnzbdServiceManager(),
+        cleanuparr: CleanuparrServiceManager = CleanuparrServiceManager(),
         sync: SyncService = .preview(),
         torrent: TorrentService = .preview(),
         appServices: AppServices? = nil,
@@ -90,6 +96,7 @@ struct PreviewHost<Content: View>: View {
         self.jellyfin = jellyfin
         self.seerr = seerr
         self.sabnzbd = sabnzbd
+        self.cleanuparr = cleanuparr
         self.sync = sync
         self.torrent = torrent
         self.appLockController = appLockController
@@ -118,6 +125,7 @@ struct PreviewHost<Content: View>: View {
             .environment(jellyfin)
             .environment(seerr)
             .environment(sabnzbd)
+            .environment(cleanuparr)
             .environment(sync)
             .environment(torrent)
             .environment(appServices)

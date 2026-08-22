@@ -13,6 +13,7 @@ enum SetupTarget: Identifiable {
     case bazarr
     case seerr
     case jellyfin
+    case cleanuparr
 
     var id: String {
         switch self {
@@ -24,6 +25,7 @@ enum SetupTarget: Identifiable {
         case .bazarr: "bazarr"
         case .seerr: "seerr"
         case .jellyfin: "jellyfin"
+        case .cleanuparr: "cleanuparr"
         }
     }
 }
@@ -37,9 +39,10 @@ struct WelcomeServicesState {
     var bazarr: Bool
     var seerr: Bool
     var jellyfin: Bool
+    var cleanuparr: Bool
 
     var hasAny: Bool {
-        qbittorrent || sabnzbd || sonarr || radarr || prowlarr || bazarr || seerr || jellyfin
+        qbittorrent || sabnzbd || sonarr || radarr || prowlarr || bazarr || seerr || jellyfin || cleanuparr
     }
 }
 
@@ -64,42 +67,49 @@ struct WelcomeFlowView: View {
     }
 
     private var introScreen: some View {
-        VStack(spacing: 32) {
-            VStack(spacing: 12) {
-                Image(systemName: "externaldrive.badge.wifi")
-                    .font(.system(size: 56))
-                    .foregroundStyle(.tint)
+        ScrollView {
+            VStack(spacing: 32) {
+                VStack(spacing: 12) {
+                    Image(systemName: "externaldrive.badge.wifi")
+                        .font(.system(size: 56))
+                        .foregroundStyle(.tint)
 
-                Text("Welcome to Trawl")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                    Text("Welcome to Trawl")
+                        .font(.largeTitle)
+                        .fontWeight(.bold)
 
-                Text("Your home for torrents, TV, and movies.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .multilineTextAlignment(.center)
+                    Text("Your home for torrents, TV, and movies.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(alignment: .leading, spacing: 16) {
+                    featureRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
+                               title: "qBittorrent", description: "Manage and monitor your torrents")
+                    featureRow(icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
+                               title: "SABnzbd", description: "Download and process Usenet releases")
+                    featureRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
+                               title: "Sonarr", description: "Track and automate your TV series")
+                    featureRow(icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
+                               title: "Radarr", description: "Discover and collect movies")
+                    featureRow(icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
+                               title: "Prowlarr", description: "Manage and search your indexers")
+                    featureRow(icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
+                               title: "Bazarr", description: "Manage subtitles for series and movies")
+                    featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
+                               title: "Seerr", description: "Manage requests and users")
+                    featureRow(icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
+                               title: "Jellyfin", description: "Manage your media server")
+                    featureRow(icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
+                               title: "Cleanuparr", description: "Monitor automated download cleanup")
+                }
+                .padding(.horizontal, 8)
             }
-
-            VStack(alignment: .leading, spacing: 16) {
-                featureRow(icon: ServiceIdentity.qbittorrent.systemImage, color: ServiceIdentity.qbittorrent.brandColor,
-                           title: "qBittorrent", description: "Manage and monitor your torrents")
-                featureRow(icon: ServiceIdentity.sabnzbd.systemImage, color: ServiceIdentity.sabnzbd.brandColor,
-                           title: "SABnzbd", description: "Download and process Usenet releases")
-                featureRow(icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
-                           title: "Sonarr", description: "Track and automate your TV series")
-                featureRow(icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
-                           title: "Radarr", description: "Discover and collect movies")
-                featureRow(icon: ServiceIdentity.prowlarr.systemImage, color: ServiceIdentity.prowlarr.brandColor,
-                           title: "Prowlarr", description: "Manage and search your indexers")
-                featureRow(icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
-                           title: "Bazarr", description: "Manage subtitles for series and movies")
-                featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
-                           title: "Seerr", description: "Manage requests and users")
-            }
-            .padding(.horizontal, 8)
+            .padding(32)
+            .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
+            .frame(maxWidth: .infinity)
         }
-        .padding(32)
-        .frame(maxWidth: hSizeClass == .regular ? 600 : 440)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .prominentBottomButton("Get Started") {
             welcomePath.append(.services)
@@ -153,6 +163,10 @@ struct WelcomeFlowView: View {
                     setupRow(icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
                              title: "Jellyfin", description: "Manage users, libraries, and server activity",
                              isConfigured: configuredServices.jellyfin) { setupTarget = .jellyfin }
+
+                    setupRow(icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
+                             title: "Cleanuparr", description: "Monitor cleanup activity and service health",
+                             isConfigured: configuredServices.cleanuparr) { setupTarget = .cleanuparr }
                 }
             }
             .padding(32)

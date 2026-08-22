@@ -305,9 +305,22 @@ struct ArrInfoRowView: View {
         }
     }
 
-    init(queueItem item: ArrQueueItem, source: ArrServiceType, linkedTorrent: Torrent? = nil) {
-        let progress = linkedTorrent?.progress ?? item.progress
-        let primaryStatus = linkedTorrent?.state.displayName ?? item.trackedDownloadState ?? item.status ?? "queued"
+    init(
+        queueItem item: ArrQueueItem,
+        source: ArrServiceType,
+        linkedTorrent: Torrent? = nil,
+        linkedSABJob: SABnzbdJob? = nil
+    ) {
+        // The download client is the live source of truth while a grab is in
+        // flight. Arr's cached size-left value can lag well behind it, especially
+        // for SABnzbd jobs, so only fall back to Arr when no client job is linked.
+        let sabJob = linkedTorrent == nil ? linkedSABJob : nil
+        let progress = linkedTorrent?.progress ?? sabJob?.progress ?? item.progress
+        let primaryStatus = linkedTorrent?.state.displayName
+            ?? sabJob?.normalizedStatus.displayName
+            ?? item.trackedDownloadState
+            ?? item.status
+            ?? "queued"
 
         self.init(
             icon: Self.queueIcon(for: source),
@@ -315,7 +328,12 @@ struct ArrInfoRowView: View {
             subtitleLeading: Self.displayStatus(primaryStatus),
             subtitleLeadingColor: Self.queueStatusColor(for: item),
             subtitleTrailing: Self.nonBlank(item.downloadClient),
-            chips: Self.queueChips(for: item, linkedTorrent: linkedTorrent, progress: progress),
+            chips: Self.queueChips(
+                for: item,
+                linkedTorrent: linkedTorrent,
+                linkedSABJob: sabJob,
+                progress: progress
+            ),
             message: item.primaryStatusMessage.map { ($0, Self.queueStatusColor(for: item)) }
         )
     }
@@ -456,12 +474,23 @@ struct ArrInfoRowView: View {
             .capitalized
     }
 
-    private static func queueETA(for item: ArrQueueItem, linkedTorrent: Torrent?) -> String? {
+    private static func queueETA(
+        for item: ArrQueueItem,
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?
+    ) -> String? {
         if let linkedTorrent,
            !linkedTorrent.state.isCompleted,
            linkedTorrent.eta > 0,
            linkedTorrent.eta < 8_640_000 {
             return ByteFormatter.formatETA(seconds: linkedTorrent.eta)
+        }
+
+        if let linkedSABJob,
+           let timeRemaining = linkedSABJob.timeRemaining?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !timeRemaining.isEmpty,
+           !timeRemaining.split(separator: ":").allSatisfy({ Int($0) == 0 }) {
+            return timeRemaining
         }
 
         guard let timeleft = item.timeleft, !timeleft.isEmpty, timeleft != "00:00:00" else { return nil }
@@ -476,7 +505,12 @@ struct ArrInfoRowView: View {
         return "\(seconds)s"
     }
 
-    private static func queueChips(for item: ArrQueueItem, linkedTorrent: Torrent?, progress: Double) -> [ArrReleaseInfoChip] {
+    private static func queueChips(
+        for item: ArrQueueItem,
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?,
+        progress: Double
+    ) -> [ArrReleaseInfoChip] {
         var chips: [ArrReleaseInfoChip] = [
             ArrReleaseInfoChip(
                 "\(Int(progress * 100))%",
@@ -493,11 +527,19 @@ struct ArrInfoRowView: View {
             ))
         }
 
-        if let eta = queueETA(for: item, linkedTorrent: linkedTorrent) {
+        if let eta = queueETA(
+            for: item,
+            linkedTorrent: linkedTorrent,
+            linkedSABJob: linkedSABJob
+        ) {
             chips.append(ArrReleaseInfoChip("ETA \(eta)", color: .secondary))
         }
 
-        if let sizeChip = queueSizeChip(for: item, linkedTorrent: linkedTorrent) {
+        if let sizeChip = queueSizeChip(
+            for: item,
+            linkedTorrent: linkedTorrent,
+            linkedSABJob: linkedSABJob
+        ) {
             chips.append(ArrReleaseInfoChip(sizeChip, color: .secondary))
         }
 
@@ -513,10 +555,18 @@ struct ArrInfoRowView: View {
         return trimmed?.isEmpty == false ? trimmed : nil
     }
 
-    private static func queueSizeChip(for item: ArrQueueItem, linkedTorrent: Torrent?) -> String? {
+    private static func queueSizeChip(
+        for item: ArrQueueItem,
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?
+    ) -> String? {
         if let linkedTorrent, linkedTorrent.totalSize > 0 {
             let downloaded = max(0, linkedTorrent.totalSize - linkedTorrent.amountLeft)
             return "\(ByteFormatter.format(bytes: downloaded)) / \(ByteFormatter.format(bytes: linkedTorrent.totalSize))"
+        }
+
+        if let linkedSABJob {
+            return linkedSABJob.downloadedSizeSummary
         }
 
         guard let size = item.size, size > 0 else { return nil }

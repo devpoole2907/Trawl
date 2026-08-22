@@ -9,7 +9,8 @@ enum TrawlModelSchema {
             ArrServiceProfile.self,
             SeerrServiceProfile.self,
             JellyfinServiceProfile.self,
-            SABnzbdServiceProfile.self
+            SABnzbdServiceProfile.self,
+            CleanuparrServiceProfile.self
         ])
     }
 }

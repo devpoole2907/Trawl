@@ -127,6 +127,14 @@ struct RadarrMovieDetailView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
+        .task(id: sabnzbdServiceManager?.activeProfileID) {
+            #if DEBUG
+            guard !disablesPreviewLoadingTasks else { return }
+            #endif
+            guard let sabnzbdServiceManager else { return }
+            await sabnzbdServiceManager.refresh()
+            sabnzbdServiceManager.startPolling()
+        }
         .task(id: movie?.id) {
             #if DEBUG
             guard !disablesPreviewLoadingTasks else { return }
@@ -149,6 +157,7 @@ struct RadarrMovieDetailView: View {
         }
         .refreshable {
             await refreshMovieDetailState()
+            await sabnzbdServiceManager?.refresh()
         }
         .toolbar { toolbarContent }
         .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
@@ -483,6 +492,16 @@ struct RadarrMovieDetailView: View {
             searchActionsCard(movie)
         }
 
+        if !activeQueueItems.isEmpty {
+            ArrDetailQueueCard(items: activeQueueItems) { item in
+                ArrDetailQueueItemRow(
+                    item: item,
+                    isRemoving: queueActionInFlightIDs.contains(item.id),
+                    onSetPendingAction: { pendingQueueAction = $0 }
+                )
+            }
+        }
+
         if let ratings = movie.ratings {
             ratingsCard(ratings)
         }
@@ -520,16 +539,6 @@ struct RadarrMovieDetailView: View {
                 embeddedSubtitles: movie.movieFile?.mediaInfo?.subtitles,
                 hasFile: movie.hasFile == true || movie.movieFile != nil
             ))
-        }
-
-        if !activeQueueItems.isEmpty {
-            ArrDetailQueueCard(items: activeQueueItems) { item in
-                ArrDetailQueueItemRow(
-                    item: item,
-                    isRemoving: queueActionInFlightIDs.contains(item.id),
-                    onSetPendingAction: { pendingQueueAction = $0 }
-                )
-            }
         }
 
         if !importIssueQueueItems.isEmpty {

@@ -49,7 +49,8 @@ struct SearchView: View {
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.isSearchPresented)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.scope)
             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.searchText.isEmpty)
-            .navigationTitle("")
+            .navigationTitle(viewModel.isSearchPresented ? "" : "Search")
+            .toolbarTitleDisplayMode(.inlineLarge)
             .arrMediaNavigationDestinations(
                 onLibraryChanged: { await refreshLibrary() },
                 zoomNamespace: trendingTransition
@@ -58,7 +59,7 @@ struct SearchView: View {
         .searchable(
             text: $viewModel.searchText,
             isPresented: $viewModel.isSearchPresented,
-            placement: .automatic,
+            placement: .navigationBarDrawer(displayMode: .always),
             prompt: searchPrompt
         )
         .onSubmit(of: .search) {

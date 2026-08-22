@@ -83,6 +83,130 @@ struct SABnzbdDecodingTests {
         #expect(slot.labels.isEmpty)
     }
 
+    @Test("Unified Arr Row Prefers Live SABnzbd Progress")
+    @MainActor
+    func unifiedArrRowPrefersLiveSABnzbdProgress() throws {
+        let arrJSON = """
+        {
+          "id": 42,
+          "title": "Example Movie",
+          "status": "downloading",
+          "trackedDownloadStatus": "ok",
+          "trackedDownloadState": "downloading",
+          "downloadId": "SABnzbd_nzo_movie",
+          "protocol": "usenet",
+          "downloadClient": "SABnzbd",
+          "size": 1000,
+          "sizeleft": 590,
+          "timeleft": "00:40:00",
+          "movieId": 7
+        }
+        """
+        let sabJSON = """
+        {
+          "nzo_id": "SABnzbd_nzo_movie",
+          "filename": "Example.Movie.2026",
+          "status": "Downloading",
+          "timeleft": "0:12:34",
+          "percentage": "67",
+          "size": "12 GB",
+          "sizeleft": "3 GB",
+          "mb": "12288",
+          "mbleft": "3072"
+        }
+        """
+        let queueItem = try Self.decoder.decode(ArrQueueItem.self, from: Data(arrJSON.utf8))
+        let slot = try Self.decoder.decode(SABnzbdQueueSlot.self, from: Data(sabJSON.utf8))
+        let row = ArrInfoRowView(
+            queueItem: queueItem,
+            source: .radarr,
+            linkedSABJob: SABnzbdJob(queueSlot: slot)
+        )
+        let chipLabels = row.chips.map { $0.label }
+
+        #expect(queueItem.progress == 0.41)
+        #expect(chipLabels.contains("67%"))
+        #expect(!chipLabels.contains("41%"))
+        #expect(chipLabels.contains("ETA 0:12:34"))
+        #expect(chipLabels.contains("9 GB / 12 GB"))
+    }
+
+    @Test("Completed Downloads Include Successful SABnzbd History Jobs")
+    @MainActor
+    func completedDownloadsIncludeSuccessfulSABnzbdHistoryJobs() throws {
+        let completedJSON = """
+        {
+          "nzo_id": "completed-job",
+          "name": "Completed.Movie",
+          "status": "Completed",
+          "size": "4 GB",
+          "completed": 1700000000
+        }
+        """
+        let failedJSON = """
+        {
+          "nzo_id": "failed-job",
+          "name": "Failed.Movie",
+          "status": "Failed",
+          "size": "4 GB",
+          "completed": 1700000100
+        }
+        """
+        let completedSlot = try Self.decoder.decode(SABnzbdHistorySlot.self, from: Data(completedJSON.utf8))
+        let failedSlot = try Self.decoder.decode(SABnzbdHistorySlot.self, from: Data(failedJSON.utf8))
+        let items = DownloadsViewModel().items(
+            for: .completed,
+            serviceManager: ArrServiceManager(),
+            torrents: [:],
+            sabActiveJobs: [],
+            sabHistoryJobs: [SABnzbdJob(historySlot: failedSlot), SABnzbdJob(historySlot: completedSlot)]
+        )
+        let sabJobs = items.compactMap { item -> SABnzbdJob? in
+            guard case .sab(let job) = item else { return nil }
+            return job
+        }
+
+        #expect(sabJobs.map(\.id) == ["completed-job"])
+    }
+
+    @Test("SABnzbd Completion Detection Skips Baseline And Announces Transitions")
+    func sabnzbdCompletionDetectionSkipsBaselineAndAnnouncesTransitions() throws {
+        let unpackingJSON = """
+        {
+          "nzo_id": "transitioning-job",
+          "name": "Transitioning.Movie",
+          "status": "Extracting",
+          "size": "4 GB"
+        }
+        """
+        let completedJSON = """
+        {
+          "nzo_id": "transitioning-job",
+          "name": "Transitioning.Movie",
+          "status": "Completed",
+          "size": "4 GB",
+          "completed": 1700000000
+        }
+        """
+        let unpacking = SABnzbdJob(historySlot: try Self.decoder.decode(
+            SABnzbdHistorySlot.self,
+            from: Data(unpackingJSON.utf8)
+        ))
+        let completed = SABnzbdJob(historySlot: try Self.decoder.decode(
+            SABnzbdHistorySlot.self,
+            from: Data(completedJSON.utf8)
+        ))
+
+        #expect(SABnzbdServiceManager.newlyCompletedJobs(previous: nil, current: [completed]).isEmpty)
+        #expect(
+            SABnzbdServiceManager.newlyCompletedJobs(previous: [unpacking], current: [completed]).map(\.id)
+                == ["transitioning-job"]
+        )
+        #expect(
+            SABnzbdServiceManager.newlyCompletedJobs(previous: [completed], current: [completed]).isEmpty
+        )
+    }
+
     // MARK: - History
 
     @Test("History Envelope Decodes Slots")

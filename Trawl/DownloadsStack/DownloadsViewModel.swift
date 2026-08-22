@@ -91,10 +91,19 @@ final class DownloadsViewModel {
             // Finished but not uploading — paused or stopped on the seeding side.
             // `isCompleted` alone means "fully downloaded", which is why these used
             // to sit in Seeding alongside torrents that were actually seeding.
-            result = unmatchedTorrents
+            let completedTorrents = unmatchedTorrents
                 .filter { $0.state.isCompleted && $0.state.filterCategory == .paused }
                 .sorted { $0.addedOn > $1.addedOn }
                 .map(DownloadListItem.torrent)
+            // Completed represents the download client's terminal state. Do not
+            // apply live Arr-queue reconciliation here: Sonarr/Radarr can retain
+            // the same download ID while importing, which otherwise consumes the
+            // completed SAB row and leaves this section unexpectedly empty.
+            let completedSAB = sabHistoryJobs
+                .filter { $0.normalizedStatus == .completed }
+                .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+                .map(DownloadListItem.sab)
+            result = completedTorrents + completedSAB
 
         case .seeding:
             // Actually uploading. Unmatched only: a completed-but-still-importing

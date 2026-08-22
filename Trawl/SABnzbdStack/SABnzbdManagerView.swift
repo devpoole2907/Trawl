@@ -2,11 +2,15 @@ import SwiftUI
 
 struct SABnzbdManagerView: View {
     @Environment(SABnzbdServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
     @State private var selectedFilter: SABnzbdManagerFilter = .queue
+    @State private var sortOrder: DownloadSortCriterion = .date
     @State private var searchText = ""
     @State private var isSearchExpanded = false
+    @State private var isAddDownloadPresented = false
     @State private var jobPendingDeletion: SABnzbdJob?
     /// Fetched once for the priority/category context menu rather than polled —
     /// same reasoning as `categoriesAndScripts()` itself.
@@ -42,21 +46,42 @@ struct SABnzbdManagerView: View {
                 )
             }
             .toolbar {
-                ToolbarItem(placement: .primaryAction) {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Button("Add NZB", systemImage: "plus") {
+                        isAddDownloadPresented = true
+                    }
+                    .labelStyle(.iconOnly)
+                }
+                ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
+
                     Menu {
                         if serviceManager.queue?.paused == true {
                             Button("Resume All", systemImage: "play.fill") {
-                                perform { try await serviceManager.resumeAll() }
+                                perform(
+                                    successTitle: "Resumed",
+                                    successMessage: "SABnzbd queue resumed."
+                                ) { try await serviceManager.resumeAll() }
                             }
                         } else {
                             Button("Pause All", systemImage: "pause.fill") {
-                                perform { try await serviceManager.pauseAll() }
+                                perform(
+                                    successTitle: "Paused",
+                                    successMessage: "SABnzbd queue paused."
+                                ) { try await serviceManager.pauseAll() }
                             }
                         }
                     } label: {
                         Label("SABnzbd Actions", systemImage: "ellipsis")
                     }
                 }
+            }
+            .sheet(isPresented: $isAddDownloadPresented) {
+                AddTorrentSheet()
+                    .environment(syncService)
+                    .environment(torrentService)
+                    .environment(serviceManager)
             }
             .task {
                 await serviceManager.refresh()
@@ -141,18 +166,24 @@ struct SABnzbdManagerView: View {
                         if job.source == .queue {
                             if job.normalizedStatus == .paused {
                                 Button("Resume", systemImage: "play.fill") {
-                                    perform { try await serviceManager.resume(job: job) }
+                                    perform(successTitle: "Resumed", successMessage: job.name) {
+                                        try await serviceManager.resume(job: job)
+                                    }
                                 }
                                 .tint(.green)
                             } else {
                                 Button("Pause", systemImage: "pause.fill") {
-                                    perform { try await serviceManager.pause(job: job) }
+                                    perform(successTitle: "Paused", successMessage: job.name) {
+                                        try await serviceManager.pause(job: job)
+                                    }
                                 }
                                 .tint(.orange)
                             }
                         } else if job.normalizedStatus == .failed {
                             Button("Retry", systemImage: "arrow.clockwise") {
-                                perform { try await serviceManager.retry(job: job) }
+                                perform(successTitle: "Retrying", successMessage: job.name) {
+                                    try await serviceManager.retry(job: job)
+                                }
                             }
                             .tint(.blue)
                         }
@@ -190,13 +221,27 @@ struct SABnzbdManagerView: View {
 
     private var filteredJobs: [SABnzbdJob] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return allJobs }
-        return allJobs.filter { job in
+        let filtered = query.isEmpty ? allJobs : allJobs.filter { job in
             [job.name, job.status, job.category, job.failureMessage]
                 .compactMap { $0 }
                 .joined(separator: " ")
                 .localizedStandardContains(query)
         }
+        return filtered.sorted {
+            sortOrder.areInIncreasingOrder(sortValues(for: $0), sortValues(for: $1))
+        }
+    }
+
+    private func sortValues(for job: SABnzbdJob) -> DownloadSortValues {
+        DownloadSortValues(
+            identifier: job.id,
+            name: job.name,
+            date: job.completedAt ?? job.addedAt,
+            size: job.totalBytes,
+            progress: job.progress,
+            eta: DownloadSortValues.etaSeconds(from: job.timeRemaining),
+            status: job.normalizedStatus.displayName
+        )
     }
 
     private func sabRow(for job: SABnzbdJob) -> some View {
@@ -214,7 +259,7 @@ struct SABnzbdManagerView: View {
     private func chips(for job: SABnzbdJob) -> [ArrReleaseInfoChip] {
         var chips = [
             ArrReleaseInfoChip("\(Int(job.progress * 100))%", color: job.normalizedStatus.color, isProminent: true),
-            ArrReleaseInfoChip(job.size, color: .secondary),
+            ArrReleaseInfoChip(job.downloadedSizeSummary, color: .secondary),
             ArrReleaseInfoChip("SABnzbd", color: .indigo)
         ]
         if let category = job.category, !category.isEmpty {
@@ -228,18 +273,25 @@ struct SABnzbdManagerView: View {
         if job.source == .queue {
             if job.normalizedStatus == .paused {
                 Button("Resume", systemImage: "play.fill") {
-                    perform { try await serviceManager.resume(job: job) }
+                    perform(successTitle: "Resumed", successMessage: job.name) {
+                        try await serviceManager.resume(job: job)
+                    }
                 }
             } else {
                 Button("Pause", systemImage: "pause.fill") {
-                    perform { try await serviceManager.pause(job: job) }
+                    perform(successTitle: "Paused", successMessage: job.name) {
+                        try await serviceManager.pause(job: job)
+                    }
                 }
             }
 
             Menu("Priority", systemImage: "arrow.up.arrow.down") {
                 ForEach(AddDownloadPriority.allCases.filter { $0 != .default }) { priority in
                     Button(priority.displayName) {
-                        perform { try await serviceManager.setPriority(job: job, priority: priority) }
+                        perform(
+                            successTitle: "Priority Changed",
+                            successMessage: "\(job.name) set to \(priority.displayName)."
+                        ) { try await serviceManager.setPriority(job: job, priority: priority) }
                     }
                 }
             }
@@ -248,7 +300,10 @@ struct SABnzbdManagerView: View {
                 Menu("Category", systemImage: "folder") {
                     ForEach(availableCategories, id: \.self) { category in
                         Button(category) {
-                            perform { try await serviceManager.setCategory(job: job, category: category) }
+                            perform(
+                                successTitle: "Category Changed",
+                                successMessage: "\(job.name) moved to \(category)."
+                            ) { try await serviceManager.setCategory(job: job, category: category) }
                         }
                     }
                 }
@@ -256,7 +311,9 @@ struct SABnzbdManagerView: View {
         }
         if job.normalizedStatus == .failed {
             Button("Retry", systemImage: "arrow.clockwise") {
-                perform { try await serviceManager.retry(job: job) }
+                perform(successTitle: "Retrying", successMessage: job.name) {
+                    try await serviceManager.retry(job: job)
+                }
             }
         }
         Divider()
@@ -275,7 +332,7 @@ struct SABnzbdManagerView: View {
     private func deletePendingJob(deleteFiles: Bool) {
         guard let job = jobPendingDeletion else { return }
         jobPendingDeletion = nil
-        perform {
+        perform(successTitle: "Removed", successMessage: job.name) {
             if job.source == .queue {
                 try await serviceManager.delete(job: job, deleteFiles: deleteFiles)
             } else {
@@ -284,10 +341,15 @@ struct SABnzbdManagerView: View {
         }
     }
 
-    private func perform(_ operation: @escaping @MainActor () async throws -> Void) {
+    private func perform(
+        successTitle: String,
+        successMessage: String,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
         Task {
             do {
                 try await operation()
+                notificationCenter.showSuccess(title: successTitle, message: successMessage)
             } catch {
                 notificationCenter.showError(title: "SABnzbd Action Failed", message: error.localizedDescription)
             }
@@ -581,9 +643,13 @@ struct SABnzbdJobDetailView: View {
                 }
                 Spacer()
                 if let eta = activeTimeRemaining(for: job) {
-                    Label(eta, systemImage: "clock")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock")
+                            .accessibilityHidden(true)
+                        Text(eta)
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 }
             }
 
@@ -607,17 +673,23 @@ struct SABnzbdJobDetailView: View {
             if job.source == .queue {
                 if job.normalizedStatus == .paused {
                     Button("Resume", systemImage: "play.fill") {
-                        perform { try await serviceManager.resume(job: job) }
+                        perform(successTitle: "Resumed", successMessage: job.name) {
+                            try await serviceManager.resume(job: job)
+                        }
                     }
                 } else {
                     Button("Pause", systemImage: "pause.fill") {
-                        perform { try await serviceManager.pause(job: job) }
+                        perform(successTitle: "Paused", successMessage: job.name) {
+                            try await serviceManager.pause(job: job)
+                        }
                     }
                 }
             }
             if job.normalizedStatus == .failed {
                 Button("Retry", systemImage: "arrow.clockwise") {
-                    perform { try await serviceManager.retry(job: job) }
+                    perform(successTitle: "Retrying", successMessage: job.name) {
+                        try await serviceManager.retry(job: job)
+                    }
                 }
             }
             Divider()
@@ -640,6 +712,7 @@ struct SABnzbdJobDetailView: View {
                 } else {
                     try await serviceManager.deleteHistory(job: job, permanently: true, deleteFiles: deleteFiles)
                 }
+                notificationCenter.showSuccess(title: "Removed", message: job.name)
                 dismiss()
             } catch {
                 notificationCenter.showError(title: "SABnzbd Action Failed", message: error.localizedDescription)
@@ -647,10 +720,15 @@ struct SABnzbdJobDetailView: View {
         }
     }
 
-    private func perform(_ operation: @escaping @MainActor () async throws -> Void) {
+    private func perform(
+        successTitle: String,
+        successMessage: String,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
         Task {
             do {
                 try await operation()
+                notificationCenter.showSuccess(title: successTitle, message: successMessage)
             } catch {
                 notificationCenter.showError(title: "SABnzbd Action Failed", message: error.localizedDescription)
             }
@@ -664,11 +742,8 @@ struct SABnzbdJobDetailView: View {
         return value.split(separator: ":").allSatisfy { Int($0) == 0 } ? nil : value
     }
 
-    /// Queue sizes arrive preformatted, so the summary reads "3.1 GB left of
-    /// 12.4 GB" rather than recomputing a byte pair.
     private func sizeSummary(for job: SABnzbdJob) -> String {
-        guard let remaining = job.sizeRemaining, !remaining.isEmpty else { return job.size }
-        return "\(remaining) left of \(job.size)"
+        job.downloadedSizeSummary
     }
 
     private func storagePath(for slot: SABnzbdHistorySlot) -> String? {

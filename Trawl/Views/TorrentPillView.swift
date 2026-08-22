@@ -191,7 +191,7 @@ private enum ArrServiceBadgeIdentity {
     var brandColor: Color {
         switch self {
         case .sonarr: .purple
-        case .radarr: .orange
+        case .radarr: .mint
         }
     }
 

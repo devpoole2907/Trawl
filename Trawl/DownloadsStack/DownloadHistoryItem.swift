@@ -104,12 +104,7 @@ struct HistoryRow: View {
     }
 
     private var serviceColor: Color {
-        switch item.source {
-        case .sonarr: .purple
-        case .radarr: .orange
-        case .prowlarr: .yellow
-        case .bazarr: .secondary
-        }
+        item.source.serviceIdentity.brandColor
     }
 
     private var serviceName: String {

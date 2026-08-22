@@ -33,6 +33,7 @@ struct SeerrRequestDetailView: View {
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
+    @State private var isDeleteConfirmationPresented = false
 
     private var media: SeerrRequestMedia? { request.media }
     private var isPending: Bool { request.requestStatus == .pending }
@@ -100,7 +101,7 @@ struct SeerrRequestDetailView: View {
 
         if let badge = request.badgeStatus {
             badges.append(ArrDetailBadge(
-                icon: badge == .pending ? "clock" : "checkmark.circle",
+                icon: badgeIcon(for: badge),
                 label: badge.title,
                 color: badge.statusColor
             ))
@@ -116,6 +117,21 @@ struct SeerrRequestDetailView: View {
         }
 
         return badges
+    }
+
+    private func badgeIcon(for status: SeerrRequestBadgeStatus) -> String {
+        switch status {
+        case .pending:
+            "clock"
+        case .declined, .failed:
+            "xmark.circle"
+        case .processing:
+            "arrow.trianglehead.2.clockwise.rotate.90"
+        case .partiallyAvailable:
+            "circle.lefthalf.filled"
+        case .approved, .available, .completed:
+            "checkmark.circle"
+        }
     }
 
     // MARK: - Cards
@@ -167,8 +183,7 @@ struct SeerrRequestDetailView: View {
 
         if let onDelete {
             Button(role: .destructive) {
-                onDelete()
-                dismiss()
+                isDeleteConfirmationPresented = true
             } label: {
                 Label("Delete Request", systemImage: "trash")
                     .font(.subheadline.weight(.semibold))
@@ -179,6 +194,19 @@ struct SeerrRequestDetailView: View {
             .buttonStyle(.plain)
             .foregroundStyle(.red)
             .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+            .confirmationDialog(
+                "Delete Request?",
+                isPresented: $isDeleteConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    onDelete()
+                    dismiss()
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("This removes the request from Seerr.")
+            }
         }
     }
 

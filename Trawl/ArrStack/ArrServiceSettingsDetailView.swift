@@ -53,12 +53,7 @@ struct ArrServiceSettingsView: View {
     }
 
     private var serviceColor: Color {
-        switch serviceType {
-        case .sonarr: .purple
-        case .radarr: .orange
-        case .prowlarr: .yellow
-        case .bazarr: .teal
-        }
+        serviceType.serviceIdentity.brandColor
     }
 
     private var supportsCommands: Bool {

@@ -20,6 +20,7 @@ enum ServiceIdentity: String, CaseIterable {
     case bazarr
     case seerr
     case jellyfin
+    case cleanuparr
 
     nonisolated var displayName: String {
         switch self {
@@ -31,6 +32,7 @@ enum ServiceIdentity: String, CaseIterable {
         case .bazarr: "Bazarr"
         case .seerr: "Seerr"
         case .jellyfin: "Jellyfin"
+        case .cleanuparr: "Cleanuparr"
         }
     }
 
@@ -39,11 +41,12 @@ enum ServiceIdentity: String, CaseIterable {
         case .qbittorrent: .blue
         case .sabnzbd: .orange
         case .sonarr: .purple
-        case .radarr: .orange
+        case .radarr: .mint
         case .prowlarr: .yellow
         case .bazarr: .teal
         case .seerr: .pink
         case .jellyfin: .indigo
+        case .cleanuparr: .green
         }
     }
 
@@ -58,6 +61,7 @@ enum ServiceIdentity: String, CaseIterable {
         case .bazarr: "captions.bubble.fill"
         case .seerr: "eye.fill"
         case .jellyfin: "server.rack"
+        case .cleanuparr: "sparkles.rectangle.stack.fill"
         }
     }
 
@@ -72,6 +76,7 @@ enum ServiceIdentity: String, CaseIterable {
         case .bazarr: "captions.bubble"
         case .seerr: "eye"
         case .jellyfin: "server.rack"
+        case .cleanuparr: "sparkles.rectangle.stack"
         }
     }
 }

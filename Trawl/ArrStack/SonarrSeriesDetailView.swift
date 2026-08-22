@@ -172,6 +172,11 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
+        .task(id: sabnzbdServiceManager?.activeProfileID) {
+            guard let sabnzbdServiceManager else { return }
+            await sabnzbdServiceManager.refresh()
+            sabnzbdServiceManager.startPolling()
+        }
         .task(id: series?.tvdbId) {
             castMembers = nil
             guard let series else { return }
@@ -192,6 +197,7 @@ struct SonarrSeriesDetailView: View {
         }
         .refreshable {
             await refreshSeriesDetailState()
+            await sabnzbdServiceManager?.refresh()
             if let bazarrClientForEpisodes, let id = resolvedSeriesId {
                 bazarrEpisodes = (try? await bazarrClientForEpisodes.getEpisodes(seriesIds: [id])) ?? []
             }
@@ -437,6 +443,16 @@ struct SonarrSeriesDetailView: View {
             seriesSearchCard(series)
         }
 
+        if !activeQueueItems.isEmpty {
+            ArrDetailQueueCard(items: activeQueueItems) { item in
+                ArrDetailQueueItemRow(
+                    item: item,
+                    isRemoving: queueActionInFlightIDs.contains(item.id),
+                    onSetPendingAction: { pendingQueueAction = $0 }
+                )
+            }
+        }
+
         if let ratings = series.ratings {
             ratingsCard(ratings)
         }
@@ -454,16 +470,6 @@ struct SonarrSeriesDetailView: View {
 
         if isInLibrary {
             statsCard(series)
-        }
-
-        if !activeQueueItems.isEmpty {
-            ArrDetailQueueCard(items: activeQueueItems) { item in
-                ArrDetailQueueItemRow(
-                    item: item,
-                    isRemoving: queueActionInFlightIDs.contains(item.id),
-                    onSetPendingAction: { pendingQueueAction = $0 }
-                )
-            }
         }
 
         if !importIssueQueueItems.isEmpty {

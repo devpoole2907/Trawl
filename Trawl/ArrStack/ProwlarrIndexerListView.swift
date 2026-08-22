@@ -644,12 +644,7 @@ struct ProwlarrIndexerListView: View {
     }
 
     private func color(for serviceType: ArrServiceType) -> Color {
-        switch serviceType {
-        case .prowlarr: .yellow
-        case .sonarr: .blue
-        case .radarr: .orange
-        case .bazarr: .secondary
-        }
+        serviceType.serviceIdentity.brandColor
     }
 
     private func section(for protocolValue: String?) -> IndexerListSection {

@@ -367,21 +367,13 @@ struct TorrentListView: View {
             ToolbarSpacer(.flexible, placement: torrentTrailingToolbarPlacement)
             ToolbarItemGroup(placement: torrentTrailingToolbarPlacement) {
                 if let vm = viewModel {
-                    Menu {
-                        ForEach(TorrentSortOrder.allCases) { order in
-                            Button {
-                                withAnimation { vm.sortOrder = order }
-                            } label: {
-                                if vm.sortOrder == order {
-                                    Label(order.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Text(order.rawValue)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: vm.sortOrder != .addedDate ? "arrow.up.arrow.down.circle.fill" : "arrow.up.arrow.down")
-                    }
+                    DownloadSortMenu(
+                        selection: Binding(
+                            get: { vm.sortOrder },
+                            set: { vm.sortOrder = $0 }
+                        ),
+                        defaultSelection: .addedDate
+                    )
 
                     Menu {
                         Toggle(isOn: Binding(

@@ -50,6 +50,7 @@ struct DownloadsView: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
+    @Environment(InAppNotificationCenter.self) private var notificationCenter
     /// Optional so previews and any host that doesn't inject a navigator still work.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
     @Query private var qbittorrentServers: [ServerProfile]
@@ -57,6 +58,7 @@ struct DownloadsView: View {
 
     @State private var viewModel = DownloadsViewModel()
     @State private var selectedSection: DownloadSection
+    @State private var sortOrder: DownloadSortCriterion = .date
     @State private var isSearchExpanded = false
     @State private var showAddTorrent = false
     @State private var torrentPendingDeletion: Torrent?
@@ -141,11 +143,22 @@ struct DownloadsView: View {
                 }
             }
             .toolbar {
-                ToolbarItemGroup(placement: .primaryAction) {
+                if hasQBittorrentServer || hasSABnzbdServer {
+                    ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                        Button("Add Download", systemImage: "plus") {
+                            showAddTorrent = true
+                        }
+                        .labelStyle(.iconOnly)
+                    }
+                    ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+                }
+
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
+
                     // Client Management and the Blocklist are both "look at the
                     // plumbing" destinations rather than per-download actions, so
-                    // they share one overflow menu and leave Add Download as the
-                    // only bare button.
+                    // they share one overflow menu.
                     Menu {
                         Button("Client Management", systemImage: "server.rack") {
                             managementRoute = .clients
@@ -156,15 +169,6 @@ struct DownloadsView: View {
                         }
                     } label: {
                         Label("Downloads Options", systemImage: "ellipsis")
-                    }
-
-                    // SABnzbd-only setups get an Add button too; the sheet routes
-                    // the torrent/NZB/URL source itself.
-                    if hasQBittorrentServer || hasSABnzbdServer {
-                        Button("Add Download", systemImage: "plus") {
-                            showAddTorrent = true
-                        }
-                        .labelStyle(.iconOnly)
                     }
                 }
             }
@@ -281,6 +285,9 @@ struct DownloadsView: View {
             sabActiveJobs: sabnzbdServiceManager.activeJobs,
             sabHistoryJobs: sabnzbdServiceManager.historyJobs
         )
+        .sorted {
+            sortOrder.areInIncreasingOrder($0.sortValues, $1.sortValues)
+        }
     }
 
     @ViewBuilder
@@ -347,14 +354,18 @@ struct DownloadsView: View {
             }
             .contextMenu { torrentActions(for: torrent) }
             .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                if isPaused(torrent) {
-                    Button("Resume", systemImage: "play.fill") {
-                        performTorrentAction { try await torrentService.resumeTorrents(hashes: [torrent.hash]) }
-                    }
+                    if isPaused(torrent) {
+                        Button("Resume", systemImage: "play.fill") {
+                            performTorrentAction(successTitle: "Resumed", successMessage: torrent.name) {
+                                try await torrentService.resumeTorrents(hashes: [torrent.hash])
+                            }
+                        }
                     .tint(.green)
-                } else {
-                    Button("Pause", systemImage: "pause.fill") {
-                        performTorrentAction { try await torrentService.pauseTorrents(hashes: [torrent.hash]) }
+                    } else {
+                        Button("Pause", systemImage: "pause.fill") {
+                            performTorrentAction(successTitle: "Paused", successMessage: torrent.name) {
+                                try await torrentService.pauseTorrents(hashes: [torrent.hash])
+                            }
                     }
                     .tint(.orange)
                 }
@@ -364,7 +375,9 @@ struct DownloadsView: View {
                     torrentPendingDeletion = torrent
                 }
                 Button("Recheck", systemImage: "arrow.clockwise") {
-                    performTorrentAction { try await torrentService.recheckTorrents(hashes: [torrent.hash]) }
+                    performTorrentAction(successTitle: "Rechecking", successMessage: torrent.name) {
+                        try await torrentService.recheckTorrents(hashes: [torrent.hash])
+                    }
                 }
                 .tint(.blue)
             }
@@ -395,18 +408,24 @@ struct DownloadsView: View {
                     if job.source == .queue {
                         if job.normalizedStatus == .paused {
                             Button("Resume", systemImage: "play.fill") {
-                                performSABAction { try await sabnzbdServiceManager.resume(job: job) }
+                                performSABAction(successTitle: "Resumed", successMessage: job.name) {
+                                    try await sabnzbdServiceManager.resume(job: job)
+                                }
                             }
                             .tint(.green)
                         } else {
                             Button("Pause", systemImage: "pause.fill") {
-                                performSABAction { try await sabnzbdServiceManager.pause(job: job) }
+                                performSABAction(successTitle: "Paused", successMessage: job.name) {
+                                    try await sabnzbdServiceManager.pause(job: job)
+                                }
                             }
                             .tint(.orange)
                         }
                     } else if job.normalizedStatus == .failed {
                         Button("Retry", systemImage: "arrow.clockwise") {
-                            performSABAction { try await sabnzbdServiceManager.retry(job: job) }
+                            performSABAction(successTitle: "Retrying", successMessage: job.name) {
+                                try await sabnzbdServiceManager.retry(job: job)
+                            }
                         }
                         .tint(.blue)
                     }
@@ -459,7 +478,11 @@ struct DownloadsView: View {
                     SABnzbdJobDetailView(jobID: linkedSABJob.id, fallbackName: linkedSABJob.name)
                         .environment(sabnzbdServiceManager)
                 } label: {
-                    ArrInfoRowView(queueItem: item, source: source)
+                    ArrInfoRowView(
+                        queueItem: item,
+                        source: source,
+                        linkedSABJob: linkedSABJob
+                    )
                 }
             } else {
                 Button {
@@ -542,7 +565,7 @@ struct DownloadsView: View {
     private func sabChips(for job: SABnzbdJob) -> [ArrReleaseInfoChip] {
         var chips = [
             ArrReleaseInfoChip("\(Int(job.progress * 100))%", color: job.normalizedStatus.color, isProminent: true),
-            ArrReleaseInfoChip(job.size, color: .secondary),
+            ArrReleaseInfoChip(job.downloadedSizeSummary, color: .secondary),
             ArrReleaseInfoChip("SABnzbd", color: .indigo)
         ]
         if let category = job.category, !category.isEmpty {
@@ -559,15 +582,21 @@ struct DownloadsView: View {
     private func torrentActions(for torrent: Torrent, includesSeparators: Bool = true) -> some View {
         if isPaused(torrent) {
             Button("Resume", systemImage: "play.fill") {
-                performTorrentAction { try await torrentService.resumeTorrents(hashes: [torrent.hash]) }
+                performTorrentAction(successTitle: "Resumed", successMessage: torrent.name) {
+                    try await torrentService.resumeTorrents(hashes: [torrent.hash])
+                }
             }
         } else {
             Button("Pause", systemImage: "pause.fill") {
-                performTorrentAction { try await torrentService.pauseTorrents(hashes: [torrent.hash]) }
+                performTorrentAction(successTitle: "Paused", successMessage: torrent.name) {
+                    try await torrentService.pauseTorrents(hashes: [torrent.hash])
+                }
             }
         }
         Button("Recheck", systemImage: "arrow.clockwise") {
-            performTorrentAction { try await torrentService.recheckTorrents(hashes: [torrent.hash]) }
+            performTorrentAction(successTitle: "Rechecking", successMessage: torrent.name) {
+                try await torrentService.recheckTorrents(hashes: [torrent.hash])
+            }
         }
         if includesSeparators { Divider() }
         Button("Delete", systemImage: "trash", role: .destructive) {
@@ -580,17 +609,23 @@ struct DownloadsView: View {
         if job.source == .queue {
             if job.normalizedStatus == .paused {
                 Button("Resume", systemImage: "play.fill") {
-                    performSABAction { try await sabnzbdServiceManager.resume(job: job) }
+                    performSABAction(successTitle: "Resumed", successMessage: job.name) {
+                        try await sabnzbdServiceManager.resume(job: job)
+                    }
                 }
             } else {
                 Button("Pause", systemImage: "pause.fill") {
-                    performSABAction { try await sabnzbdServiceManager.pause(job: job) }
+                    performSABAction(successTitle: "Paused", successMessage: job.name) {
+                        try await sabnzbdServiceManager.pause(job: job)
+                    }
                 }
             }
         }
         if job.normalizedStatus == .failed {
             Button("Retry", systemImage: "arrow.clockwise") {
-                performSABAction { try await sabnzbdServiceManager.retry(job: job) }
+                performSABAction(successTitle: "Retrying", successMessage: job.name) {
+                    try await sabnzbdServiceManager.retry(job: job)
+                }
             }
         }
         if includesSeparators { Divider() }
@@ -658,19 +693,19 @@ struct DownloadsView: View {
                 serviceManager: arrServiceManager
             )
             if let failure {
-                InAppNotificationCenter.shared.showError(title: "Queue Action Failed", message: failure)
+                notificationCenter.showError(title: "Queue Action Failed", message: failure)
             } else if searchAgain {
-                InAppNotificationCenter.shared.showSuccess(
+                notificationCenter.showSuccess(
                     title: "Searching Again",
                     message: "The release was blocklisted and a new search was started."
                 )
             } else if blocklist {
-                InAppNotificationCenter.shared.showSuccess(
+                notificationCenter.showSuccess(
                     title: "Blocked",
                     message: "The queue item was removed and blocklisted."
                 )
             } else {
-                InAppNotificationCenter.shared.showSuccess(
+                notificationCenter.showSuccess(
                     title: "Removed",
                     message: "The queue item was removed from \(source.displayName)."
                 )
@@ -681,7 +716,7 @@ struct DownloadsView: View {
     private func deletePendingTorrent(deleteFiles: Bool) {
         guard let torrent = torrentPendingDeletion else { return }
         torrentPendingDeletion = nil
-        performTorrentAction {
+        performTorrentAction(successTitle: "Deleted", successMessage: torrent.name) {
             try await torrentService.deleteTorrents(hashes: [torrent.hash], deleteFiles: deleteFiles)
         }
     }
@@ -689,7 +724,7 @@ struct DownloadsView: View {
     private func deletePendingSABJob(deleteFiles: Bool) {
         guard let job = sabJobPendingDeletion else { return }
         sabJobPendingDeletion = nil
-        performSABAction {
+        performSABAction(successTitle: "Removed", successMessage: job.name) {
             if job.source == .queue {
                 try await sabnzbdServiceManager.delete(job: job, deleteFiles: deleteFiles)
             } else {
@@ -700,13 +735,18 @@ struct DownloadsView: View {
 
     /// qBittorrent commands don't push, so pull a fresh sync rather than waiting
     /// out the poll interval.
-    private func performTorrentAction(_ operation: @escaping @MainActor () async throws -> Void) {
+    private func performTorrentAction(
+        successTitle: String,
+        successMessage: String,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
         Task { @MainActor in
             do {
                 try await operation()
                 await syncService.refreshNow()
+                notificationCenter.showSuccess(title: successTitle, message: successMessage)
             } catch {
-                InAppNotificationCenter.shared.showError(
+                notificationCenter.showError(
                     title: "Torrent Action Failed",
                     message: error.localizedDescription
                 )
@@ -715,12 +755,17 @@ struct DownloadsView: View {
     }
 
     /// `SABnzbdServiceManager` refreshes itself after each job action.
-    private func performSABAction(_ operation: @escaping @MainActor () async throws -> Void) {
+    private func performSABAction(
+        successTitle: String,
+        successMessage: String,
+        _ operation: @escaping @MainActor () async throws -> Void
+    ) {
         Task { @MainActor in
             do {
                 try await operation()
+                notificationCenter.showSuccess(title: successTitle, message: successMessage)
             } catch {
-                InAppNotificationCenter.shared.showError(
+                notificationCenter.showError(
                     title: "SABnzbd Action Failed",
                     message: error.localizedDescription
                 )
@@ -777,7 +822,7 @@ struct DownloadsView: View {
         switch selectedSection {
         case .active: "Downloads, repairs, unpacking, and imports in progress will appear here."
         case .queue: "Downloads waiting for a client or import will appear here."
-        case .completed: "Finished torrents that are paused or stopped will appear here."
+        case .completed: "Finished downloads will appear here."
         case .seeding: "Finished torrents that are still uploading will appear here."
         case .history: "Completed grabs and imports will appear here."
         case .issues: "Client failures and imports requiring attention will appear here."
@@ -800,9 +845,9 @@ struct DownloadsView: View {
         return count == 1 ? "1 item" : "\(count) items"
     }
 
-    /// Seeding and Completed are torrent-only concepts — a Usenet job never seeds —
-    /// so both are dropped when no torrent client is configured, and each is dropped
-    /// again when it has nothing in it rather than sitting there permanently empty.
+    /// Seeding is torrent-only, while Completed can contain stopped torrents and
+    /// completed SABnzbd jobs. Each is dropped when its relevant client is absent,
+    /// and again when it has nothing in it rather than sitting permanently empty.
     ///
     /// The segment the user is currently *on* always stays, even once it empties.
     /// Pausing the last seeding torrent while sitting on Seeding would otherwise
@@ -810,14 +855,15 @@ struct DownloadsView: View {
     /// its empty state and only disappears — animated, with the selection change —
     /// once they move somewhere else.
     ///
-    /// The counts are taken straight off the torrent dictionary rather than through
-    /// the view model: this runs on every body pass, and the full match/sort pipeline
-    /// is far too expensive to drive a segment bar with.
+    /// The counts are taken straight from the client caches rather than through the
+    /// view model: this runs on every body pass, and the full match/sort pipeline is
+    /// far too expensive to drive a segment bar with.
     private var visibleSections: [DownloadSection] {
         DownloadSection.allCases.filter { section in
             switch section {
             case .completed:
-                hasQBittorrentServer && (hasCompletedTorrents || selectedSection == .completed)
+                (hasQBittorrentServer || hasSABnzbdServer)
+                    && (hasCompletedDownloads || selectedSection == .completed)
             case .seeding:
                 hasQBittorrentServer && (hasSeedingTorrents || selectedSection == .seeding)
             case .active, .queue, .history, .issues:
@@ -832,6 +878,11 @@ struct DownloadsView: View {
 
     private var hasCompletedTorrents: Bool {
         syncService.torrents.values.contains { $0.state.isCompleted && $0.state.filterCategory == .paused }
+    }
+
+    private var hasCompletedDownloads: Bool {
+        hasCompletedTorrents
+            || sabnzbdServiceManager.historyJobs.contains { $0.normalizedStatus == .completed }
     }
 
     private var hasQBittorrentServer: Bool {

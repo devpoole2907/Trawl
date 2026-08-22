@@ -20,10 +20,10 @@ enum ArrServiceFilter: CaseIterable, Hashable {
     var serviceColor: Color {
         switch self {
         case .all:      .secondary
-        case .sonarr:   .purple
-        case .radarr:   .orange
-        case .prowlarr: .yellow
-        case .bazarr:   .teal
+        case .sonarr:   ServiceIdentity.sonarr.brandColor
+        case .radarr:   ServiceIdentity.radarr.brandColor
+        case .prowlarr: ServiceIdentity.prowlarr.brandColor
+        case .bazarr:   ServiceIdentity.bazarr.brandColor
         }
     }
 
@@ -346,12 +346,7 @@ private struct HealthCheckRow: View {
     }
 
     private var serviceColor: Color {
-        switch item.source {
-        case .sonarr: .purple
-        case .radarr: .orange
-        case .prowlarr: .yellow
-        case .bazarr: .secondary
-        }
+        item.source.serviceIdentity.brandColor
     }
 }
 

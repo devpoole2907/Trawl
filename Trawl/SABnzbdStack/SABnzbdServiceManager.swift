@@ -100,6 +100,7 @@ final class SABnzbdServiceManager {
     func refresh() async {
         guard let client = activeClient, !isRefreshing else { return }
         isRefreshing = true
+        let previousHistoryJobs = history?.jobs
         defer {
             isRefreshing = false
             hasRefreshedOnce = true
@@ -118,6 +119,12 @@ final class SABnzbdServiceManager {
             // response — history hasn't changed since `lastHistoryUpdate`, so keep it.
             if let fetchedHistory {
                 history = fetchedHistory
+                announceCompletions(
+                    Self.newlyCompletedJobs(
+                        previous: previousHistoryJobs,
+                        current: fetchedHistory.jobs
+                    )
+                )
             }
             connectionError = nil
         } catch SABnzbdAPIError.unauthorized {
@@ -125,6 +132,37 @@ final class SABnzbdServiceManager {
             isConnected = false
         } catch {
             connectionError = error.localizedDescription
+        }
+    }
+
+    /// The first history response establishes a baseline. Later responses only
+    /// announce jobs that newly entered Completed, including jobs that were
+    /// already present in history while repairing or unpacking.
+    nonisolated static func newlyCompletedJobs(
+        previous: [SABnzbdJob]?,
+        current: [SABnzbdJob]
+    ) -> [SABnzbdJob] {
+        guard let previous else { return [] }
+        let previouslyCompletedIDs = Set(
+            previous
+                .filter { $0.normalizedStatus == .completed }
+                .map { $0.id.lowercased() }
+        )
+        return current.filter {
+            $0.normalizedStatus == .completed
+                && !previouslyCompletedIDs.contains($0.id.lowercased())
+        }
+    }
+
+    private func announceCompletions(_ jobs: [SABnzbdJob]) {
+        guard !jobs.isEmpty else { return }
+        if jobs.count == 1, let job = jobs.first {
+            InAppNotificationCenter.shared.showDownloadCompleted(name: job.name)
+        } else {
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Downloads Complete",
+                message: "\(jobs.count) SABnzbd downloads completed."
+            )
         }
     }
 
@@ -148,13 +186,13 @@ final class SABnzbdServiceManager {
     // MARK: - Global actions
 
     func pauseAll() async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.pauseQueue()
         await refresh()
     }
 
     func resumeAll() async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.resumeQueue()
         await refresh()
     }
@@ -162,31 +200,31 @@ final class SABnzbdServiceManager {
     // MARK: - Job actions
 
     func pause(job: SABnzbdJob) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.pauseJobs(ids: [job.id])
         await refresh()
     }
 
     func resume(job: SABnzbdJob) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.resumeJobs(ids: [job.id])
         await refresh()
     }
 
     func retry(job: SABnzbdJob) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         _ = try await client.retryHistoryJob(id: job.id)
         await refresh()
     }
 
     func delete(job: SABnzbdJob, deleteFiles: Bool = false) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.deleteQueueJobs(ids: [job.id], deleteFiles: deleteFiles)
         await refresh()
     }
 
     func deleteHistory(job: SABnzbdJob, permanently: Bool = false, deleteFiles: Bool = false) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.deleteHistoryJobs(ids: [job.id], permanently: permanently, deleteFiles: deleteFiles)
         await refresh()
     }
@@ -195,13 +233,14 @@ final class SABnzbdServiceManager {
     /// add time (it means "use the category default"). Callers should exclude
     /// it from post-add priority pickers.
     func setPriority(job: SABnzbdJob, priority: AddDownloadPriority) async throws {
-        guard let client = activeClient, let value = priority.apiValue else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
+        guard let value = priority.apiValue else { return }
         try await client.setPriority(id: job.id, priority: value)
         await refresh()
     }
 
     func setCategory(job: SABnzbdJob, category: String) async throws {
-        guard let client = activeClient else { return }
+        guard let client = activeClient else { throw SABnzbdAPIError.invalidResponse }
         try await client.setCategory(id: job.id, category: category)
         await refresh()
     }

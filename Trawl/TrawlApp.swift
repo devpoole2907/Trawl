@@ -18,6 +18,7 @@ struct TrawlApp: App {
     @State private var seerrServiceManager = SeerrServiceManager()
     @State private var jellyfinServiceManager = JellyfinServiceManager()
     @State private var sabnzbdServiceManager = SABnzbdServiceManager()
+    @State private var cleanuparrServiceManager = CleanuparrServiceManager()
     @State private var inAppNotificationCenter = InAppNotificationCenter.shared
     @State private var appLockController = AppLockController()
 
@@ -72,6 +73,7 @@ struct TrawlApp: App {
                 .environment(seerrServiceManager)
                 .environment(jellyfinServiceManager)
                 .environment(sabnzbdServiceManager)
+                .environment(cleanuparrServiceManager)
                 .environment(inAppNotificationCenter)
                 .environment(appLockController)
                 .task {
@@ -142,6 +144,9 @@ struct TrawlApp: App {
             var sabnzbdProfileDescriptor = FetchDescriptor<SABnzbdServiceProfile>()
             sabnzbdProfileDescriptor.fetchLimit = 1
 
+            var cleanuparrProfileDescriptor = FetchDescriptor<CleanuparrServiceProfile>()
+            cleanuparrProfileDescriptor.fetchLimit = 1
+
             return
                 try !context.fetch(serverDescriptor).isEmpty ||
                 !context.fetch(cachedStateDescriptor).isEmpty ||
@@ -149,7 +154,8 @@ struct TrawlApp: App {
                 !context.fetch(arrProfileDescriptor).isEmpty ||
                 !context.fetch(seerrProfileDescriptor).isEmpty ||
                 !context.fetch(jellyfinProfileDescriptor).isEmpty ||
-                !context.fetch(sabnzbdProfileDescriptor).isEmpty
+                !context.fetch(sabnzbdProfileDescriptor).isEmpty ||
+                !context.fetch(cleanuparrProfileDescriptor).isEmpty
         } catch {
             logger.error("SwiftData migration probe failed: \(error.localizedDescription, privacy: .public)")
             return false
@@ -263,6 +269,21 @@ struct TrawlApp: App {
                 copy.dateAdded = sabnzbdProfile.dateAdded
                 copy.lastSynced = sabnzbdProfile.lastSynced
                 copy.serverVersion = sabnzbdProfile.serverVersion
+                destinationContext.insert(copy)
+            }
+
+            let existingCleanuparrIDs = Set(try destinationContext.fetch(FetchDescriptor<CleanuparrServiceProfile>()).map(\.id))
+            for cleanuparrProfile in try sourceContext.fetch(FetchDescriptor<CleanuparrServiceProfile>()) {
+                guard !existingCleanuparrIDs.contains(cleanuparrProfile.id) else { continue }
+                let copy = CleanuparrServiceProfile(
+                    displayName: cleanuparrProfile.displayName,
+                    hostURL: cleanuparrProfile.hostURL,
+                    allowsUntrustedTLS: cleanuparrProfile.allowsUntrustedTLS
+                )
+                copy.id = cleanuparrProfile.id
+                copy.isEnabled = cleanuparrProfile.isEnabled
+                copy.dateAdded = cleanuparrProfile.dateAdded
+                copy.lastSynced = cleanuparrProfile.lastSynced
                 destinationContext.insert(copy)
             }
         } catch {
