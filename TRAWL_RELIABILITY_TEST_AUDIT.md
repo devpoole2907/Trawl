@@ -233,6 +233,22 @@ Two Sonarr fixture servers are seeded as two real profiles. The journey asserts 
 
 The DEBUG seed hook now takes an optional second Sonarr base URL. Both profiles are seeded synchronously with fixed, distinct UUIDs, for the reasons documented at the seed site.
 
+## N-02 — opening the SABnzbd queue crashed the app (found and fixed)
+
+**Severity: high — a hard crash, not a degradation.** Found 23 August 2026 by the SABnzbd unauthorized UI journey, on its very first run.
+
+**Symptom.** Navigating Downloads → Downloads Options → Client Management → SABnzbd → Queue terminated the app. The crash report showed only a SwiftUI `EnvironmentValues` assertion inside a `DynamicViewList` update, with no app frames symbolicated. The actual message came from the simulator's own log:
+
+> `SwiftUICore/Environment+Objects.swift:34: Fatal error: No Observable object of type SyncService found.`
+
+**Root cause.** `SABnzbdManagerView` reads `@Environment(SyncService.self)` and `@Environment(TorrentService.self)`, both non-optional and therefore fatal when absent. The qBittorrent branch of `DownloadClientManagementView` hands both to its hub explicitly; the SABnzbd branch handed over only `SABnzbdServiceManager`, and `SABnzbdClientHubView` likewise forwarded only that to `SABnzbdManagerView`. The fix mirrors the qBittorrent branch.
+
+**Severity was measured, not assumed.** The obvious hypothesis was that this only affected users with no qBittorrent configured — a "services are optional" failure. That was tested by reverting the fix and re-running with a second service (Sonarr) also configured: **it still crashed.** So the defect is in the navigation chain itself and does not depend on SABnzbd being the only service. The one configuration not yet exercised is with a qBittorrent server present, so the blast radius may be the entire SABnzbd queue screen for every user.
+
+**Why nothing caught this earlier.** No test had ever opened that screen. It is reachable only four navigations deep, and the SABnzbd client hub is recent. Unit tests cannot see it at all: the defect is a missing SwiftUI environment injection, which only exists once views are actually rendered and navigated.
+
+**Regression cover.** `SABnzbdUnauthorizedJourneyUITests` walks that exact path, so any future regression crashes the test rather than a user.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).

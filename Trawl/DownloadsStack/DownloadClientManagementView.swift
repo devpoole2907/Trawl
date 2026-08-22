@@ -39,6 +39,13 @@ struct DownloadClientManagementView: View {
                         NavigationLink {
                             SABnzbdClientHubView()
                                 .environment(sabnzbdServiceManager)
+                                // Handed over explicitly, exactly as the qBittorrent
+                                // branch above does: `SABnzbdManagerView` further down
+                                // this stack reads both, and without them it traps with
+                                // "No Observable object of type SyncService found" —
+                                // which crashed the app for anyone using SABnzbd.
+                                .environment(syncService)
+                                .environment(torrentService)
                         } label: {
                             NavigationMenuRow(
                                 icon: ServiceIdentity.sabnzbd.systemImage,
@@ -214,6 +221,8 @@ struct DownloadClientManagementView: View {
 /// app settings.
 struct SABnzbdClientHubView: View {
     @Environment(SABnzbdServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
+    @Environment(TorrentService.self) private var torrentService
 
     var body: some View {
         List {
@@ -221,6 +230,8 @@ struct SABnzbdClientHubView: View {
                 NavigationLink {
                     SABnzbdManagerView()
                         .environment(serviceManager)
+                        .environment(syncService)
+                        .environment(torrentService)
                 } label: {
                     NavigationMenuRow(
                         icon: ServiceIdentity.sabnzbd.systemImage,

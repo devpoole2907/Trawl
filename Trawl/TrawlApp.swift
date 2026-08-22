@@ -44,6 +44,7 @@ struct TrawlApp: App {
             }
 
             Self.seedUITestArrServiceIfRequested(into: modelContainer)
+            Self.seedUITestSABnzbdServiceIfRequested(into: modelContainer)
 
             #if os(macOS)
             LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
@@ -196,6 +197,47 @@ struct TrawlApp: App {
             } catch {
                 fatalError("Failed to seed second UI test Sonarr profile: \(error)")
             }
+        }
+    }
+
+    /// Same treatment as `seedUITestArrServiceIfRequested(into:)`, for the UI journey
+    /// in `SABnzbdUnauthorizedJourneyUITests` that needs a real SABnzbd connection
+    /// (`Trawl/SABnzbdStack/SABnzbdServiceManager.swift`) rather than a stubbed one.
+    /// `TRAWL_UITEST_SABNZBD_BASE_URL` points at `SABnzbdFixtureServer`, a real
+    /// loopback HTTP server the test process hosts; from there `SABnzbdServiceManager
+    /// .initialize(from:)`, `connectService(_:)`, and the real `SABnzbdAPIClient` run
+    /// unmodified against it.
+    ///
+    /// Entirely additive alongside the Sonarr seeding above — this reads its own
+    /// environment variable, seeds its own profile type with its own fixed UUID, and
+    /// leaves the Sonarr seeding path untouched whether or not this variable is set.
+    private static func seedUITestSABnzbdServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let sabnzbdBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_SABNZBD_BASE_URL"],
+              !sabnzbdBaseURL.isEmpty else {
+            return
+        }
+
+        let profile = SABnzbdServiceProfile(
+            displayName: "Fixture SABnzbd",
+            hostURL: sabnzbdBaseURL
+        )
+        // Fixed, hardcoded UUID distinct from the Sonarr fixtures' — see the comment
+        // on that seeding above for why a random UUID would orphan a Keychain entry
+        // on every run.
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000003")!
+
+        // Same synchronous-write requirement as the Sonarr seeding above: both the
+        // Keychain write and the SwiftData insert+save must complete before `init()`
+        // returns, or ContentView latches onto the welcome screen and/or
+        // `connectService` races an empty Keychain read.
+        seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
+
+        let context = ModelContext(modelContainer)
+        context.insert(profile)
+        do {
+            try context.save()
+        } catch {
+            fatalError("Failed to seed UI test SABnzbd profile: \(error)")
         }
     }
 
