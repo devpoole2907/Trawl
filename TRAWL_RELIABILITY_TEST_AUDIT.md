@@ -207,6 +207,35 @@ Both writes are therefore synchronous, which removes both races. A comment at th
 | Full six-way CI build matrix run locally as CI runs it | **All passed**, including **Release** for iOS and macOS, which had never previously been built |
 | `git diff --check` | **Passed** |
 
+## New defect found — N-01: repointing an Arr profile leaves the library list empty
+
+**Severity: high.** Found on 23 August 2026 by the UI journey described below, *after* H-01/H-02 were fixed and unit-covered. This is a second-order bug the unit tests structurally could not catch, because they drive the view model directly and never exercise the view that owns the load.
+
+**Reproduction (observed, not theorised):** with a Sonarr profile connected to server A, edit that profile in Settings to point at server B and save. The save succeeds and the sheet dismisses. Return to the Series tab: it shows **"No Series" / "0 series"**, even though the app is correctly connected to B and B's library was already fetched.
+
+**Evidence captured from a real simulator run.** After the edit:
+
+- server A received **zero** further requests — 17 before the save, 17 after. H-01/H-02 are genuinely fixed; the stale client really is silenced.
+- server B received the full connect sequence **and** `GET /api/v3/series`, so the new library was fetched and is in the shared cache.
+- the screen nonetheless rendered the empty state.
+
+**Where to look.** [`ArrMediaListView.swift:120`](Trawl/ArrStack/ArrMediaListView.swift#L120) keys its initial-load task on `serviceManager.activeInstanceID(serviceType)` — the profile ID, which is *exactly what stays the same* across a same-ID repoint. Meanwhile [`SonarrSeriesListView`](Trawl/ArrStack/SonarrSeriesListView.swift) correctly recreates its view model when `activeSonarrClientRevision` rotates. The result is a freshly recreated, empty view model that nothing ever asks to load.
+
+**Attempted fix that did NOT work.** Adding a client-revision component to that task's id (via a new `activeInstanceLoadKey(_:)` on the manager) changed nothing observable: server B still received exactly one series request and the list stayed empty. That change was reverted rather than committed, because an unverified production change is worse than a documented defect. The mechanism is therefore **not yet fully understood** — the remaining suspects are the interaction between `SonarrSeriesListView`'s view-model-creating `.task(id:)` and `ArrMediaListView`'s load `.task(id:)`, and whether `adoptCachedLibraryItems()` / `loadLibraryItems(maxAge:)` see the invalidated-then-refilled cache entry.
+
+**Do not close this from unit tests.** Any fix needs the UI journey to prove it, because the defect lives in view lifecycle, not in the manager or the client.
+
+## Two UI journeys written but not landed
+
+Both are preserved on the branch `wip/ui-journeys` rather than committed to the working branch, because neither is reliably green and a red or flaky test in the suite is worse than none.
+
+- **`ArrRepointJourneyUITests`** — drives the full repoint through the real Settings UI. It reaches every step correctly and its server-A-silence assertion passes; it fails on the N-01 defect above. It is a correct test of behavior the app does not currently have, so landing it means fixing N-01 first.
+- **`QBittorrentOnboardingJourneyUITests`** plus `QBittorrentFixtureServer` — the audit's journey #1 (failed login, then successful login, then the torrent list). It drives the real onboarding UI with no production hooks at all and asserts the real `QBError.authFailed` copy. **It passed once and then failed on three consecutive runs**, always on the final assertion that the fixture's torrent appears in the Downloads tab, and always after burning its timeout. That is timing sensitivity, not a stable regression test. The login half is sound; the sync-then-render half needs a deterministic signal before it can be trusted.
+
+Both carry a scrolling helper (`XCUIElement+Scrolling.swift`) that exists because SwiftUI renders `Form`/`List` rows lazily — a control merely below the fold is absent from the accessibility tree entirely, so a plain `waitForExistence` fails for a control the user could reach.
+
+Also worth recording for whoever picks these up: the More/Settings rows are `Button`s whose accessibility label merges title and subtitle (`"Settings, App and server configuration"`), and `ArrSetupSheet` overrides `ServerURLField`'s title with an example URL, so its host field must be matched by `placeholderValue`, not by a fixed label.
+
 ### Still open
 
 - **Extension behavioral tests.** `ShareViewController` remains unreachable from `TrawlTests`; only its extracted decision logic is covered. Reaching the controller needs a `project.pbxproj` membership change, deliberately not made — see the note in the third tranche.
