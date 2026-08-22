@@ -263,6 +263,29 @@ The fix adds a compact warning above the unified list. It deliberately does **no
 
 `TMDbClient`'s base URL now honours a DEBUG-only override, and the journeys point it at a closed loopback port so the lookup fails immediately. The cast lookup is `try?` fire-and-forget, so nothing under test depends on it. That journey now runs in **20.8 seconds**, and the whole UI suite is hermetic.
 
+## Fixtures validated against live services — 23 August 2026
+
+A disposable test environment was made available (qBittorrent, two Sonarr, two Radarr, SABnzbd, Jellyfin, Seerr, Prowlarr, Cleanuparr). Every fixture in this repo had until now been written from a reading of Trawl's own code, which by construction cannot catch *"we modelled the API wrong in the first place"*. Real shapes were captured and frozen into `TrawlTests/LiveCapturedShapeContractTests.swift`.
+
+**Verdict: production was right in every case, and the fixtures were wrong.** No production defect was found — but two live behaviors had no coverage at all, because the hand-written fixtures were reproducing an older generation of each API.
+
+| Captured from | Real behavior | What the fixtures had assumed |
+|---|---|---|
+| qBittorrent **v5.2.3** successful login | **204** with an empty body and a **`QBT_SID_8080`** cookie — the name carries the server's port, and the value contained `/` and `+` | `200` with an `"Ok."` body and a plain `SID` cookie |
+| qBittorrent v5.2.3 rejected login | **401** with a plain-text `Unauthorized` body | `200` with a `"Fails."` body |
+| qBittorrent `sync/maindata` on an idle server | The **`torrents` key is absent entirely**, not an empty object | An always-present `torrents` object |
+| SABnzbd (CherryPy 18.10.0) bad API key | **403** with plain-text `API Key Incorrect` | `401`, or a `200` carrying a JSON error envelope |
+
+`AuthService.performLogin` already accepts 204 *or* 200-with-`"Ok."`, and `extractSessionCookie` already handles both `QBT_SID_*` and legacy `SID`. `SABnzbdAPIClient` already maps both 401 and 403 to `unauthorized`, and `SyncMainData.torrents` is already optional. So Trawl handles all of this correctly — but the modern paths were only ever exercised by accident, and a regression in any of them would have been caught by nothing.
+
+Two operational notes for anyone re-running this: qBittorrent v5 validates the `Host` header, so calls from another machine need `-H "Host: localhost:8080"` naming the container's internal port. **SABnzbd does the same**, which is not in the environment's own notes — without that header every request returns a bare `403 Forbidden` HTML page, which is indistinguishable from a rejected key until the header is added. The SABnzbd API keys in the handoff notes were themselves rejected, so they appear to have drifted from the container's actual config.
+
+### Still worth doing against live services
+
+- Seed a real Sonarr/Radarr library and capture a genuine series/movie payload. The system-status response alone carries 30 fields; the fixtures use two.
+- Re-check the qBittorrent onboarding journey (on `wip/ui-journeys`) against a real server, since its flakiness is in the sync-then-render half and may well be a fixture-shape problem rather than a timing one.
+- Jellyfin's `AnyProviderIdEquals` quirk, which the `SearchTerm` fallback is built on, has still only been reproduced against a fixture.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
