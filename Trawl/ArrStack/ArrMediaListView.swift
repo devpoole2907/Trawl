@@ -117,7 +117,16 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                 detailDestination(id)
                     .environment(syncService)
             }
-            .task(id: serviceManager.activeInstanceID(serviceType)) { [viewModel] in
+            // Keyed by the view model's identity rather than the active instance ID.
+            // Repointing a profile at a different server keeps its ID, so the ID alone
+            // never changes and this task was not restarted. The list view recreates
+            // its view model for the new client, but on re-appear this task had
+            // already started against the *previous* one — leaving a freshly created,
+            // empty view model that nothing ever asked to load, and a library list
+            // stuck on "No Series" while the app was correctly connected to the new
+            // server. Identity changes exactly when the view model is swapped, and
+            // still covers an instance switch, which also builds a new view model.
+            .task(id: ObjectIdentifier(viewModel)) { [viewModel] in
                 await performInitialLoadAndStartPolling(viewModel: viewModel)
             }
             .onChange(of: scenePhase) { _, newPhase in
