@@ -233,6 +233,20 @@ Two Sonarr fixture servers are seeded as two real profiles. The journey asserts 
 
 The DEBUG seed hook now takes an optional second Sonarr base URL. Both profiles are seeded synchronously with fixed, distinct UUIDs, for the reasons documented at the seed site.
 
+### Note: multi-instance Arr is heading somewhere else
+
+Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
+
+That means journey #4 above pins **current** behavior only. When the unified model lands, that journey should be rewritten rather than extended, and its cost is deliberately low for that reason.
+
+Two things worth knowing before that work starts:
+
+- `ArrLibraryCache` is already **instance-keyed**, which is the right shape for a unified view: two instances' libraries stay separate in the cache and are merged for presentation. This will not need reworking.
+- The obstacle is the *singleton* "active instance" concept in `ArrServiceManager` — `activeSonarrEntry`, `sonarrClient`, `activeSonarrInstanceID` and friends. A unified view turns each of those into a collection, and every caller of `sonarrClient` has to answer "which one?". That is where the risk lives, and it is broad.
+- **N-01's lesson gets more important, not less.** With two live clients, any view-lifecycle key must track the identity of the thing being displayed rather than a profile ID. The same defect class re-appears immediately if a list keys work off "the active instance".
+
+The fixture harness generalizes to this without change: two loopback servers are already stood up per test, and the DEBUG seed hook already seeds two Sonarr profiles.
+
 ## One UI journey written but not landed
 
 `QBittorrentOnboardingJourneyUITests` plus `QBittorrentFixtureServer` are preserved on the branch `wip/ui-journeys` rather than committed, because the test is not reliably green and a flaky test is worse than none.
