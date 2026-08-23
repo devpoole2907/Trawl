@@ -326,6 +326,78 @@ struct LiveCapturedShapeContractTests {
         #expect(series.status == "continuing")
     }
 
+    // MARK: - SABnzbd key tiers
+
+    /// SABnzbd issues two API keys: a full one and an add-only "NZB key". Measured
+    /// against a real SABnzbd 5.1.1 with the NZB-only key:
+    ///
+    /// | mode      | status |
+    /// |-----------|--------|
+    /// | `version` | 200    |
+    /// | `queue`   | 403    |
+    /// | `history` | 403    |
+    ///
+    /// So the add-only key is not simply "rejected" — it is accepted for some modes
+    /// and refused for others, and that asymmetry is the only way to tell it apart
+    /// from a plain wrong key. Before this was handled, pasting the NZB key produced
+    /// "SABnzbd rejected the API key. Update it in Settings.", which sends the user
+    /// off to re-copy a key that was never wrong.
+    @Test("An add-only SABnzbd NZB key is reported as the wrong key tier, not as a rejected key")
+    @MainActor
+    func addOnlyNZBKeyIsReportedAsWrongTier() async throws {
+        CapturedShapeURLProtocol.reset()
+        CapturedShapeURLProtocol.sabnzbdModeResponses = [
+            "version": CapturedResponse(
+                statusCode: 200,
+                body: Data(#"{"version":"5.1.1"}"#.utf8),
+                headerFields: ["Content-Type": "application/json"]
+            ),
+            "queue": CapturedResponse(
+                statusCode: 403,
+                body: Data("API Key Incorrect".utf8),
+                headerFields: ["Content-Type": "text/html;charset=utf-8"]
+            )
+        ]
+
+        let manager = SABnzbdServiceManager(
+            sessionConfiguration: CapturedShapeURLProtocol.makeConfiguration()
+        )
+        let profile = SABnzbdServiceProfile(displayName: "Fixture SAB", hostURL: "http://captured.sabnzbd.test")
+        try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: "add-only-nzb-key")
+        defer { Task { try? await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey) } }
+
+        await manager.connectService(profile)
+
+        #expect(manager.isConnected == false)
+        #expect(manager.connectionError == "Trawl needs the full SABnzbd API key, not the add-only NZB key.")
+    }
+
+    /// The contrast case: a key that is wrong outright is refused for *every* mode,
+    /// including `version`, and must still read as a rejected key.
+    @Test("A wholly wrong SABnzbd key is still reported as a rejected key")
+    @MainActor
+    func whollyWrongSABnzbdKeyIsReportedAsRejected() async throws {
+        CapturedShapeURLProtocol.reset()
+        let refused = CapturedResponse(
+            statusCode: 403,
+            body: Data("API Key Incorrect".utf8),
+            headerFields: ["Content-Type": "text/html;charset=utf-8"]
+        )
+        CapturedShapeURLProtocol.sabnzbdModeResponses = ["version": refused, "queue": refused]
+
+        let manager = SABnzbdServiceManager(
+            sessionConfiguration: CapturedShapeURLProtocol.makeConfiguration()
+        )
+        let profile = SABnzbdServiceProfile(displayName: "Fixture SAB", hostURL: "http://captured.sabnzbd.test")
+        try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: "totally-wrong-key")
+        defer { Task { try? await KeychainHelper.shared.delete(key: profile.apiKeyKeychainKey) } }
+
+        await manager.connectService(profile)
+
+        #expect(manager.isConnected == false)
+        #expect(manager.connectionError == "SABnzbd rejected the API key. Update it in Settings.")
+    }
+
     // MARK: - SABnzbd rejected key
 
     @Test("A real SABnzbd rejects a bad API key with 403 and a plain-text body, which maps to unauthorized")
@@ -368,10 +440,14 @@ private nonisolated struct CapturedResponse: Sendable {
 private final class CapturedShapeURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var loginResponse: CapturedResponse?
     nonisolated(unsafe) static var apiResponse: CapturedResponse?
+    /// Keyed by SABnzbd's `mode` query parameter, because SABnzbd has one path and
+    /// distinguishes calls by `mode` rather than by endpoint.
+    nonisolated(unsafe) static var sabnzbdModeResponses: [String: CapturedResponse] = [:]
 
     static func reset() {
         loginResponse = nil
         apiResponse = nil
+        sabnzbdModeResponses = [:]
     }
 
     static func makeConfiguration() -> URLSessionConfiguration {
@@ -395,9 +471,19 @@ private final class CapturedShapeURLProtocol: URLProtocol, @unchecked Sendable {
             return
         }
 
-        let canned = url.path.contains("/auth/login")
-            ? Self.loginResponse
-            : Self.apiResponse
+        let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
+            .queryItems?
+            .first(where: { $0.name == "mode" })?
+            .value
+
+        let canned: CapturedResponse?
+        if url.path.contains("/auth/login") {
+            canned = Self.loginResponse
+        } else if let mode, let modeResponse = Self.sabnzbdModeResponses[mode] {
+            canned = modeResponse
+        } else {
+            canned = Self.apiResponse
+        }
 
         guard let canned else {
             client?.urlProtocol(self, didFailWithError: URLError(.unsupportedURL))

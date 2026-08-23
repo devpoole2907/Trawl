@@ -99,19 +99,27 @@ final class SABnzbdServiceManager {
 
             let version: String
             let fetchedQueue: SABnzbdQueue
+            // Both still run concurrently, but their outcomes are kept apart on
+            // purpose. SABnzbd issues two key tiers, and against a real 5.1.1 server
+            // the add-only "NZB key" is *accepted* by `mode=version` and *rejected*
+            // by `mode=queue`. Which of the two calls failed is therefore the only
+            // signal that separates a wrong key from the right key of the wrong tier,
+            // and `async let` with a combined `try await` throws away exactly that.
+            let versionTask = Task { try await client.getVersion() }
+            let queueTask = Task { try await client.getQueue(start: 0, limit: 200) }
+            let versionOutcome = await versionTask.result
+            let queueOutcome = await queueTask.result
+
             do {
-                async let versionResult = client.getVersion()
-                async let queueResult = client.getQueue(start: 0, limit: 200)
-                (version, fetchedQueue) = try await (versionResult, queueResult)
+                version = try versionOutcome.get()
+                fetchedQueue = try queueOutcome.get()
             } catch SABnzbdAPIError.unauthorized {
                 guard connectionGeneration == generation else { return }
                 clearActiveConnection()
-                connectionError = "SABnzbd rejected the API key. Update it in Settings."
-                return
-            } catch SABnzbdAPIError.insufficientAPIKey {
-                guard connectionGeneration == generation else { return }
-                clearActiveConnection()
-                connectionError = "Trawl needs the full SABnzbd API key, not the add-only NZB key."
+                let versionWasAccepted = (try? versionOutcome.get()) != nil
+                connectionError = versionWasAccepted
+                    ? "Trawl needs the full SABnzbd API key, not the add-only NZB key."
+                    : "SABnzbd rejected the API key. Update it in Settings."
                 return
             }
 

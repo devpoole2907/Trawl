@@ -352,6 +352,36 @@ Also covered: cancellation leaving no stuck spinner; library reconciliation by `
 
 **Not covered:** the real 300ms debounce, which needs a clock seam the view model does not have (the tests use its `immediate: true` path, exercising the same cancel/restart logic without the delay), and the `force:`/re-trigger dedup guard.
 
+## N-04 — pasting SABnzbd's add-only key gave the wrong explanation
+
+Found on 23 August 2026, once real SABnzbd credentials were available. This is the clearest example so far of something no fixture written from our own code could have caught.
+
+SABnzbd issues two API keys: a full one, and an add-only "NZB key". Measured against a real SABnzbd 5.1.1 with the NZB-only key:
+
+| mode | status |
+|---|---|
+| `version` | **200** |
+| `queue` | **403** |
+| `history` | **403** |
+
+So the add-only key is not simply rejected — it is *accepted* for some modes and refused for others.
+
+`SABnzbdServiceManager` already had the right message for this — *"Trawl needs the full SABnzbd API key, not the add-only NZB key."* — sitting in a `catch SABnzbdAPIError.insufficientAPIKey` arm. **But nothing in the codebase ever threw that error.** Grep confirms the case was declared, caught, and given an `errorDescription`, and never produced. An existing contract test had even noticed the arm was unreachable without acting on it.
+
+The result: a user who pasted the NZB key was told *"SABnzbd rejected the API key. Update it in Settings."* and sent off to re-copy a key that was never wrong.
+
+**Fix.** `connectService` ran `getVersion()` and `getQueue()` under a single `async let` + combined `try await`, which discards *which* of the two failed — the only signal that separates the two cases. They now run concurrently but with separate outcomes: a version call that succeeded alongside a rejected queue call is the signature of the right key from the wrong tier.
+
+Both branches are pinned in `LiveCapturedShapeContractTests` using the exact statuses measured above, so the add-only key reads as a tier problem and a wholly wrong key still reads as a rejected key.
+
+## Three swallowed taps, one pattern
+
+The UI suite hit the same failure three times in different places: the welcome flow's "Go", the Downloads overflow's "Blocklist", and the SABnzbd actions menu. In each case a tap was dispatched at an element that existed but was not yet hittable, the tap was silently dropped, and the test failed on the *next* assertion — which then blamed the destination screen for a tap that never landed.
+
+All three now wait for the target and retry within a bounded loop built only from `waitForExistence`. The SABnzbd journey was run three times consecutively to confirm, and the full plan twice.
+
+This is worth recording because the misleading part is not the flake, it is the *attribution*: every one of these failures pointed at the wrong screen.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).

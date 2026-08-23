@@ -208,11 +208,21 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             sabActionsButton.waitForExistence(in: app, timeout: 5),
             "SABnzbdManagerView should still offer its actions menu even while disconnected — the regression under test is that its actions must be inert, not that the menu itself disappears."
         )
-        sabActionsButton.tap()
-
+        // Opening the menu is retried rather than assumed. A tap dispatched while the
+        // toolbar is still settling is silently dropped, and the failure then lands on
+        // the *next* assertion, which blames the menu's contents for a menu that
+        // never opened. Bounded, and built only from `waitForExistence`.
         let pauseAllButton = app.buttons["Pause All"]
+        var menuOpenAttempts = 0
+        while !pauseAllButton.exists && menuOpenAttempts < 4 {
+            if sabActionsButton.exists && sabActionsButton.isHittable {
+                sabActionsButton.tap()
+            }
+            _ = pauseAllButton.waitForExistence(timeout: 5)
+            menuOpenAttempts += 1
+        }
         XCTAssertTrue(
-            pauseAllButton.waitForExistence(timeout: 5),
+            pauseAllButton.exists,
             "The actions menu should offer 'Pause All' — the queue is nil while disconnected, so the menu can't be showing 'Resume All' instead."
         )
         let requestCountBeforeMutation = server.requestCount

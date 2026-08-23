@@ -237,8 +237,18 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
 
         // Blocklist, the overflow menu's other route.
+        //
+        // Wait for the item before tapping. The menu is still presenting when
+        // `openDownloadsOptions` returns, and a tap dispatched at an element that is
+        // not there yet is silently dropped — the walk then fails on the *next*
+        // assertion, blaming the destination screen for a tap that never landed.
         openDownloadsOptions(app)
-        app.buttons["Blocklist"].tap()
+        let blocklistItem = app.buttons["Blocklist"]
+        XCTAssertTrue(
+            blocklistItem.waitForExistence(timeout: 10),
+            "Screen: the Downloads overflow menu should offer a 'Blocklist' route."
+        )
+        blocklistItem.tap()
         XCTAssertTrue(
             app.navigationBars["Blocked & Excluded"].waitForExistence(timeout: 10),
             "Screen: 'Blocklist' should push ArrBlocklistView titled 'Blocked & Excluded'."
