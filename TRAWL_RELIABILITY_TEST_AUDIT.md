@@ -306,6 +306,18 @@ Both are now injected at `ContentView`'s root using the same `appServices ?? dis
 
 **The fix was verified, not assumed.** The site-specific N-02 fix in `DownloadClientManagementView` was temporarily reverted and the SABnzbd journey re-run: it passed, proving the root injection alone prevents the crash. The site fix was then restored as defence in depth.
 
+## A navigation smoke walk, because untested screens are where the crashes were
+
+N-02 crashed on a screen four navigations deep that no test had ever opened. `NavigationSmokeWalkUITests` exists to make "nobody has opened this screen" untrue for as much of the app as can be reached with fixture-backed services.
+
+It is deliberately broad rather than deep — the other journeys assert business behavior; this one asserts that screens *render and pop back*. Five focused methods cover the tab bar, the More tab's destinations, Downloads' management routes and both client hubs, the Automation and System hubs' children, and the calendar sheet plus Settings' service rows. Each screen is asserted on real on-screen content, never on `app.exists`, which stays true even when the app under test has died and therefore proves nothing.
+
+**It found no crashes on its first run**, which is itself the result worth recording: it ran against the root-injection fix above, which had already closed the class N-02 belonged to.
+
+It did surface one genuine ambiguity. `SABnzbdClientHubView` and `SABnzbdSettingsView` both use `.navigationTitle("SABnzbd")`, so popping back from settings lands on a screen with the same title. That is not a defect, but it is worth knowing: any test — or any breadcrumb-based reasoning about where the user is — cannot distinguish those two screens by title alone.
+
+The walk costs roughly five minutes of simulator time, which is the bulk of the UI suite's runtime. If that becomes a problem on CI, split it out of the pull-request plan rather than thinning the assertions.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
