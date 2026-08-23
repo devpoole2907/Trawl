@@ -318,6 +318,28 @@ It did surface one genuine ambiguity. `SABnzbdClientHubView` and `SABnzbdSetting
 
 The walk costs roughly five minutes of simulator time, which is the bulk of the UI suite's runtime. If that becomes a problem on CI, split it out of the pull-request plan rather than thinning the assertions.
 
+## Onboarding — from 0% to covered
+
+`OnboardingViewModel` was at **0%**, and it is the first thing every new user touches. Fifteen tests now drive the real view model against a loopback qBittorrent, using the response shapes captured from a live v5.2.3 server.
+
+Covered: pre-flight validation (empty and whitespace hosts, missing credentials, unsupported schemes, URLs carrying a path) with the assertion that **no request is made**; a rejected 401 login and a 5xx login persisting nothing; a successful connection persisting exactly the entered values, with the display name defaulting to the normalized host; a new active server deactivating the previous one; editing a server in place; and the legacy `200`/`"Ok."`/`SID` login still working alongside the modern `204`/`QBT_SID_<port>` one.
+
+**M-03 is pinned at the integration level**: a 500 carrying an HTML body, and a non-UTF8 body, are both rejected rather than being turned into a version string that passes onboarding.
+
+### What is still not covered, and why
+
+Rollback on a persistence failure — the audit's named concern — is **deliberately not covered**. The attempt relied on `ServerProfile.id`'s `@Attribute(.unique)` making `modelContext.save()` throw for a colliding pending insert. Against an in-memory store it does not throw, so the test ran straight through the success path while asserting it had exercised rollback. It was removed rather than reshaped into something that merely goes green, and the reasoning is recorded at the site.
+
+Covering it properly needs an injectable persistence or Keychain seam in `OnboardingViewModel`. Worth knowing meanwhile: **the rollback runs as an unstructured, unawaited `Task` inside a `defer`**, so `validateAndSave` returns `false` before the undo has necessarily completed. A caller inspecting the profile or Keychain immediately after a `false` result can observe half-rolled-back state. That is a real latent defect, found by reading rather than by a failing test.
+
+Also pinned as current behavior rather than fixed: a 5xx during **login** is indistinguishable from a bad password to the user, because `AuthService.performLogin` treats anything that is not `204` or `200`+`"Ok."` as `.authFailed`.
+
+### The qBittorrent onboarding journey remains parked
+
+Its fixture now sends the real v5 shapes rather than v4 ones, which is progress, but the journey still cannot reliably leave the welcome flow: the "Go" button exists and reports enabled, yet never becomes *hittable*, so the tap never lands. That is a UI-automation problem rather than a product one — the button's action is a plain `isInWelcomeFlow = false`.
+
+It stays on `wip/ui-journeys`. The onboarding logic it was meant to cover is now covered far more thoroughly, and deterministically, by the fifteen unit tests above.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
