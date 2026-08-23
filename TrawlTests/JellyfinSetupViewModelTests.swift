@@ -95,29 +95,36 @@ struct JellyfinSetupViewModelTests {
         #expect(viewModel.apiKey.isEmpty)
     }
 
-    @Test("Seeding nil after a profile clears the error and re-arms seeding, but leaves the form's field values in place")
-    func seedWithNilLeavesFieldValuesUntouched() {
+    @Test("Seeding nil after a profile clears the form back to its defaults")
+    func seedWithNilResetsTheForm() {
         let profile = Self.makeProfile(hostURL: "http://jf.local:8096", authMode: .userPass)
         profile.displayName = "Basement"
+        profile.allowsUntrustedTLS = true
 
         let viewModel = JellyfinSetupViewModel()
         viewModel.seed(from: profile)
+        viewModel.username = "ada"
+        viewModel.password = "hunter2"
         viewModel.error = "stale error"
 
         viewModel.seed(from: nil)
 
-        // Pinning current behaviour: the nil branch returns before resetting the
-        // form, so an "add a new server" pass after editing an existing one
-        // still shows the previous server's host and display name.
-        #expect(viewModel.hostURL == "http://jf.local:8096")
-        #expect(viewModel.displayName == "Basement")
-        #expect(viewModel.authMode == .userPass)
+        // Seeding nil is the "add a new server" pass. It must not leave the
+        // previously seeded server's identity on screen, where it could be
+        // re-saved by accident.
+        #expect(viewModel.hostURL.isEmpty)
+        #expect(viewModel.displayName == "Jellyfin")
+        #expect(viewModel.authMode == .apiKey)
+        #expect(viewModel.allowsUntrustedTLS == false)
+        #expect(viewModel.username.isEmpty)
+        #expect(viewModel.password.isEmpty)
+        #expect(viewModel.apiKey.isEmpty)
         #expect(viewModel.error == nil)
 
         // ...and the profile can be seeded again, because seededProfileID moved to nil.
-        viewModel.hostURL = "edited"
         viewModel.seed(from: profile)
         #expect(viewModel.hostURL == "http://jf.local:8096")
+        #expect(viewModel.displayName == "Basement")
     }
 
     // MARK: - Field validation (no request is ever made)

@@ -434,3 +434,25 @@ func jellyfinSettledEpisodeState(
     }
     throw JellyfinFixtureFailure.neverSettled
 }
+
+
+/// A hand-driven clock for `JellyfinAvailabilityResolver`'s TTLs.
+///
+/// The resolver's expiry windows are 60 and 300 seconds. Waiting them out is not
+/// an option, and shortening them for tests would mean the shipped values were
+/// never the ones exercised — so the resolver takes an injectable `now` and this
+/// drives it directly. Time only moves when a test says so, which also means the
+/// expiry assertions cannot flake under load.
+@MainActor
+final class JellyfinManualClock {
+    private var current = Date(timeIntervalSince1970: 1_700_000_000)
+
+    /// Pass to `JellyfinAvailabilityResolver(now:)`.
+    var reader: () -> Date {
+        { [self] in current }
+    }
+
+    func advance(by interval: TimeInterval) {
+        current += interval
+    }
+}

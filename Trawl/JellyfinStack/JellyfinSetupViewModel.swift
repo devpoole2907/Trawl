@@ -37,7 +37,20 @@ final class JellyfinSetupViewModel {
         seededProfileID = profileID
         error = nil
 
-        guard let profile else { return }
+        // Seeding nil means "add a new server". Reset the form rather than
+        // returning early, which would leave the previously seeded server's host
+        // and display name on screen for the user to accidentally re-save.
+        guard let profile else {
+            displayName = "Jellyfin"
+            hostURL = ""
+            authMode = .apiKey
+            allowsUntrustedTLS = false
+            username = ""
+            password = ""
+            apiKey = ""
+            return
+        }
+
         displayName = profile.displayName
         hostURL = profile.hostURL
         authMode = profile.authMode

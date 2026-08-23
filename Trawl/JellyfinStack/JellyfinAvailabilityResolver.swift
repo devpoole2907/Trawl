@@ -26,9 +26,33 @@ final class JellyfinAvailabilityResolver {
         var timestamp: Date
     }
 
+    /// `.loading` never expires — an in-flight task owns that entry and will
+    /// overwrite it. `.idle` is never stored.
+    private func expired(_ entry: Entry) -> Bool {
+        let age = now().timeIntervalSince(entry.timestamp)
+        switch entry.state {
+        case .resolved: return age > Self.ttl
+        case .failed: return age > Self.failureTTL
+        case .loading, .idle: return false
+        }
+    }
+
     private static let ttl: TimeInterval = 300
+    /// Failures expire far sooner than successes. A resolved answer stays valid
+    /// for as long as the library is unlikely to have changed, but a failure is
+    /// usually transient — a dropped connection or a server restart — and must
+    /// not pin the card in an error state for the life of the resolver.
+    private static let failureTTL: TimeInterval = 60
     private static let maxEntries = 64
     private static let maxEpisodeEntries = 32
+
+    /// Injectable clock. Production uses the real one; tests drive expiry
+    /// directly rather than waiting out a 60- or 300-second TTL.
+    private let now: () -> Date
+
+    init(now: @escaping () -> Date = Date.init) {
+        self.now = now
+    }
 
     private var entries: [Key: Entry] = [:]
     private var insertionOrder: [Key] = []
@@ -40,10 +64,7 @@ final class JellyfinAvailabilityResolver {
 
     func state(for key: Key) -> State {
         guard let entry = entries[key] else { return .idle }
-        if case .resolved = entry.state, Date().timeIntervalSince(entry.timestamp) > Self.ttl {
-            return .idle
-        }
-        return entry.state
+        return expired(entry) ? .idle : entry.state
     }
 
     func ensureLoaded(_ key: Key, media: JellyfinMediaAvailabilityCard.Media, client: JellyfinAPIClient) {
@@ -84,10 +105,7 @@ final class JellyfinAvailabilityResolver {
 
     func episodesState(for key: EpisodesKey) -> State {
         guard let entry = episodeEntries[key] else { return .idle }
-        if case .resolved = entry.state, Date().timeIntervalSince(entry.timestamp) > Self.ttl {
-            return .idle
-        }
-        return entry.state
+        return expired(entry) ? .idle : entry.state
     }
 
     func ensureEpisodesLoaded(_ key: EpisodesKey, client: JellyfinAPIClient) {
@@ -183,7 +201,7 @@ final class JellyfinAvailabilityResolver {
                 entries.removeValue(forKey: oldest)
             }
         }
-        entries[key] = Entry(state: state, timestamp: Date())
+        entries[key] = Entry(state: state, timestamp: now())
     }
 
     private func setEpisodeEntry(key: EpisodesKey, state: State) {
@@ -194,7 +212,7 @@ final class JellyfinAvailabilityResolver {
                 episodeEntries.removeValue(forKey: oldest)
             }
         }
-        episodeEntries[key] = Entry(state: state, timestamp: Date())
+        episodeEntries[key] = Entry(state: state, timestamp: now())
     }
 
     private func localMatches(_ item: JellyfinLibraryItem, media: JellyfinMediaAvailabilityCard.Media) -> Bool {

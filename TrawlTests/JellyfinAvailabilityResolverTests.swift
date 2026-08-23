@@ -205,7 +205,7 @@ struct JellyfinAvailabilityResolverTests {
         #expect(server.requests.count == 2)
     }
 
-    @Test("A failed lookup is cached and never retried by ensureLoaded")
+    @Test("A failed lookup is cached and not retried by ensureLoaded while it is still fresh")
     func failedLookupIsStickyAndNotRetried() async throws {
         let server = try await JellyfinFixtureServer(label: "failure") { _ in
             JellyfinFixtureResponse.json(#"{"Message":"Boom."}"#, status: 500)
@@ -227,14 +227,146 @@ struct JellyfinAvailabilityResolverTests {
         }
         #expect(message == JellyfinAPIError.http(status: 500, body: #"{"Message":"Boom."}"#).localizedDescription)
 
-        // `.failed` is not TTL-expired by state(for:) and ensureLoaded returns
-        // early on it, so nothing short of an explicit invalidate can retry.
+        // ensureLoaded returns early on `.failed`, so a repeat call inside the
+        // failure TTL issues no second request. (Expiry past that TTL is covered
+        // by the clock-driven tests below.)
         resolver.ensureLoaded(key, media: media, client: client)
         #expect(server.requests.count == 1)
         guard case .failed = resolver.state(for: key) else {
             Issue.record("Expected the key to stay .failed.")
             return
         }
+    }
+
+    // MARK: - TTL expiry (driven by an injected clock, never by waiting)
+
+    @Test("A resolved entry expires after the 300s TTL and the next ensureLoaded fetches again")
+    func resolvedEntryExpiresAfterTTL() async throws {
+        let server = try await JellyfinFixtureServer(label: "ttl-resolved") { _ in
+            JellyfinFixtureResponse.json(
+                #"{"Items":[{"Id":"i1","Name":"Broken","ProviderIds":{"Tmdb":"5"}}],"TotalRecordCount":1}"#
+            )
+        }
+        defer { server.stop() }
+
+        let clock = JellyfinManualClock()
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+        let resolver = JellyfinAvailabilityResolver(now: clock.reader)
+        let media = JellyfinMediaAvailabilityCard.Media.movie(title: "Broken", year: nil, tmdbId: 5, imdbId: nil)
+        let key = JellyfinAvailabilityResolver.Key(profileID: UUID(), mediaTaskKey: media.taskKey)
+
+        resolver.ensureLoaded(key, media: media, client: client)
+        await server.waitForServedResponses(1)
+        _ = try await jellyfinSettledState(resolver, key: key)
+
+        // One second short of the TTL the answer is still served from cache.
+        clock.advance(by: 299)
+        guard case .resolved = resolver.state(for: key) else {
+            Issue.record("Expected the entry to still be resolved at 299s.")
+            return
+        }
+        resolver.ensureLoaded(key, media: media, client: client)
+        #expect(server.requests.count == 1)
+
+        // Past it, the entry reads as idle and ensureLoaded refetches.
+        clock.advance(by: 2)
+        guard case .idle = resolver.state(for: key) else {
+            Issue.record("Expected the entry to expire past the 300s TTL.")
+            return
+        }
+        resolver.ensureLoaded(key, media: media, client: client)
+        await server.waitForServedResponses(2)
+        #expect(server.requests.count == 2)
+    }
+
+    @Test("A failed entry expires after the shorter 60s failure TTL, so a transient error self-heals")
+    func failedEntryExpiresAfterFailureTTL() async throws {
+        let server = try await JellyfinFixtureServer(label: "ttl-failed") { _ in
+            JellyfinFixtureResponse.json(#"{"Message":"Boom."}"#, status: 500)
+        }
+        defer { server.stop() }
+
+        let clock = JellyfinManualClock()
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+        let resolver = JellyfinAvailabilityResolver(now: clock.reader)
+        let media = JellyfinMediaAvailabilityCard.Media.movie(title: "Broken", year: nil, tmdbId: 5, imdbId: nil)
+        let key = JellyfinAvailabilityResolver.Key(profileID: UUID(), mediaTaskKey: media.taskKey)
+
+        resolver.ensureLoaded(key, media: media, client: client)
+        await server.waitForServedResponses(1)
+        _ = try await jellyfinSettledState(resolver, key: key)
+
+        clock.advance(by: 59)
+        guard case .failed = resolver.state(for: key) else {
+            Issue.record("Expected the failure to still be cached at 59s.")
+            return
+        }
+        resolver.ensureLoaded(key, media: media, client: client)
+        #expect(server.requests.count == 1)
+
+        // A failure must not outlive its own TTL — the whole point of the shorter
+        // window is that a dropped connection stops pinning the card in an error.
+        clock.advance(by: 2)
+        guard case .idle = resolver.state(for: key) else {
+            Issue.record("Expected the failure to expire past the 60s failure TTL.")
+            return
+        }
+        resolver.ensureLoaded(key, media: media, client: client)
+        await server.waitForServedResponses(2)
+        #expect(server.requests.count == 2)
+    }
+
+    @Test("A failure is still cached at the point a success would have been, proving the two TTLs differ")
+    func failureTTLIsShorterThanResolvedTTL() async throws {
+        let server = try await JellyfinFixtureServer(label: "ttl-asymmetry") { _ in
+            JellyfinFixtureResponse.json(#"{"Message":"Boom."}"#, status: 500)
+        }
+        defer { server.stop() }
+
+        let clock = JellyfinManualClock()
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+        let resolver = JellyfinAvailabilityResolver(now: clock.reader)
+        let media = JellyfinMediaAvailabilityCard.Media.movie(title: "Broken", year: nil, tmdbId: 5, imdbId: nil)
+        let key = JellyfinAvailabilityResolver.Key(profileID: UUID(), mediaTaskKey: media.taskKey)
+
+        resolver.ensureLoaded(key, media: media, client: client)
+        await server.waitForServedResponses(1)
+        _ = try await jellyfinSettledState(resolver, key: key)
+
+        // 120s: past the failure TTL, well short of the resolved TTL.
+        clock.advance(by: 120)
+        guard case .idle = resolver.state(for: key) else {
+            Issue.record("A failure at 120s should have expired even though a success would not have.")
+            return
+        }
+    }
+
+    @Test("An episode failure expires on the same shorter failure TTL")
+    func episodeFailureExpiresAfterFailureTTL() async throws {
+        let server = try await JellyfinFixtureServer(label: "ttl-episodes") { request in
+            request.path.hasSuffix("/Episodes")
+                ? JellyfinFixtureResponse.json(#"{"Message":"No."}"#, status: 404)
+                : JellyfinFixtureResponse.json(#"{"Items":[],"TotalRecordCount":0}"#)
+        }
+        defer { server.stop() }
+
+        let clock = JellyfinManualClock()
+        let client = JellyfinAPIClient(baseURL: server.baseURL, accessToken: "jf-token")
+        let resolver = JellyfinAvailabilityResolver(now: clock.reader)
+        let key = JellyfinAvailabilityResolver.EpisodesKey(profileID: UUID(), seriesItemID: "series-1")
+
+        resolver.ensureEpisodesLoaded(key, client: client)
+        await server.waitForServedResponses(1)
+        _ = try await jellyfinSettledEpisodeState(resolver, key: key)
+
+        clock.advance(by: 61)
+        guard case .idle = resolver.episodesState(for: key) else {
+            Issue.record("Expected the episode failure to expire past the 60s failure TTL.")
+            return
+        }
+        resolver.ensureEpisodesLoaded(key, client: client)
+        await server.waitForServedResponses(2)
+        #expect(server.requests.count == 2)
     }
 
     @Test("invalidate returns the key to idle and lets the next ensureLoaded fetch again")
