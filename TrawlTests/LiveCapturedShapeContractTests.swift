@@ -326,6 +326,83 @@ struct LiveCapturedShapeContractTests {
         #expect(series.status == "continuing")
     }
 
+    // MARK: - Jellyfin ignores the provider-id filter
+
+    /// Verbatim `GET /Items?...&AnyProviderIdEquals=...` from a real **Jellyfin
+    /// 10.11.11**.
+    ///
+    /// The server **ignores `AnyProviderIdEquals` completely**. This was confirmed
+    /// with a provider id that matches nothing at all: it still returned every item
+    /// in the library, exactly as a query for a real id does. A client that trusted
+    /// the server to filter would therefore mark *everything* as available.
+    ///
+    /// Note the real key casing — `Tmdb`, `Imdb`, `Tvdb` — alongside `TmdbCollection`
+    /// and `TvRage`, which are decoys that must not be mistaken for the ids we match
+    /// on.
+    private static let capturedJellyfinItems = """
+        {
+            "Items": [
+                {
+                    "Id": "71d4615022cef14e86f79f4b8a72eda2",
+                    "Name": "Happy Feet",
+                    "ProductionYear": 2006,
+                    "ProviderIds": {
+                        "Imdb": "tt0366548",
+                        "Tmdb": "9836",
+                        "TmdbCollection": "92012"
+                    },
+                    "Type": "Movie"
+                },
+                {
+                    "Id": "a7e46e6eab7981d1832601a8575645cf",
+                    "IndexNumber": 1,
+                    "Name": "Gay Witch Hunt",
+                    "ParentIndexNumber": 3,
+                    "ProductionYear": 2006,
+                    "ProviderIds": {
+                        "Imdb": "tt0859444",
+                        "TvRage": "377063",
+                        "Tvdb": "307725"
+                    },
+                    "SeriesName": "The Office",
+                    "Type": "Episode"
+                }
+            ],
+            "StartIndex": 0,
+            "TotalRecordCount": 2
+        }
+    """
+
+    @Test("Jellyfin ignores AnyProviderIdEquals, so a provider id that is absent must not report as available")
+    @MainActor
+    func ignoredProviderFilterDoesNotProduceFalseAvailability() throws {
+        let page = try JSONDecoder().decode(
+            JellyfinItemsResponse.self,
+            from: Data(Self.capturedJellyfinItems.utf8)
+        )
+        let items = page.items
+        #expect(items.count == 2)
+
+        // The two ids that really are in this library, in the server's own casing.
+        let happyFeet = try #require(items.first { $0.name == "Happy Feet" })
+        #expect(happyFeet.providerID(for: ["Tmdb", "TMDb"]) == "9836")
+        #expect(happyFeet.providerID(for: ["Imdb", "IMDb", "IMDB"]) == "tt0366548")
+
+        let officeEpisode = try #require(items.first { $0.name == "Gay Witch Hunt" })
+        #expect(officeEpisode.providerID(for: ["Tvdb", "TVDB"]) == "307725")
+
+        // The false-positive guard. This library contains no TMDb 999999999, but the
+        // server returns both items for that query anyway, so the only thing standing
+        // between the user and a wrong "available" badge is matching locally.
+        let absent = items.filter { $0.providerID(for: ["Tmdb", "TMDb"]) == "999999999" }
+        #expect(absent.isEmpty)
+
+        // `TmdbCollection` must not be read as a Tmdb id: Happy Feet's collection is
+        // 92012, and matching it would make an unrelated title look available.
+        let collectionMisread = items.filter { $0.providerID(for: ["Tmdb", "TMDb"]) == "92012" }
+        #expect(collectionMisread.isEmpty)
+    }
+
     // MARK: - SABnzbd key tiers
 
     /// SABnzbd issues two API keys: a full one and an add-only "NZB key". Measured

@@ -382,6 +382,26 @@ All three now wait for the target and retry within a bounded loop built only fro
 
 This is worth recording because the misleading part is not the flake, it is the *attribution*: every one of these failures pointed at the wrong screen.
 
+## The Jellyfin provider-id quirk, finally confirmed against a real server
+
+The project's working assumption has been that Jellyfin ignores `AnyProviderIdEquals`, and the `SearchTerm` fallback in `JellyfinAvailabilityResolver` is built entirely on that. It had never been reproduced against anything but our own fixture.
+
+Confirmed against **Jellyfin 10.11.11** with a two-item library. The filter is not merely unreliable — it is **ignored outright**:
+
+| query | result |
+|---|---|
+| `AnyProviderIdEquals=Tmdb.9836` (really present) | both items |
+| `AnyProviderIdEquals=Imdb.tt0859444` (really present) | both items |
+| `AnyProviderIdEquals=Tmdb.999999999` (**matches nothing**) | **both items** |
+
+The last row is the decisive one. A query that should match nothing returns the entire library, so a client that trusted the server to filter would mark **everything** as available.
+
+Trawl does not: `JellyfinAvailabilityResolver` re-filters every candidate locally via `localMatches`, and `providerID(for:)` matches the key both exactly and case-insensitively. Real Jellyfin returns `Tmdb`, `Imdb` and `Tvdb`, which the production key lists already cover.
+
+The captured payload is pinned in `LiveCapturedShapeContractTests`, with the false-positive guard asserted directly: an absent id must match nothing, and `TmdbCollection` (Happy Feet's is `92012`) must never be read as a Tmdb id, since that would make an unrelated title look available.
+
+That makes **seven for seven**: every behavior captured from a live service has confirmed production was already correct. The value has consistently been that these paths were passing by accident, with nothing to catch a regression.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
