@@ -129,7 +129,24 @@ final class QBittorrentOnboardingJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(goButton.isEnabled, "With qBittorrent now configured, \"Go\" must no longer be disabled — WelcomeFlowView gates it on configuredServices.hasAny.")
 
-        goButton.tap()
+        // The sheet has only just dismissed, and a tap that lands while SwiftUI is
+        // still settling that transition is silently swallowed — the app stays on
+        // "Choose Your Services" and every later assertion fails for the wrong
+        // reason. Tap until the welcome flow actually goes away, bounded, with no
+        // sleeps: `waitForExistence` on the tab bar is the settle signal.
+        let downloadsTab = app.tabBars.buttons["Downloads"]
+        var goTapAttempts = 0
+        while !downloadsTab.exists && goTapAttempts < 5 {
+            if goButton.exists && goButton.isHittable {
+                goButton.tap()
+            }
+            _ = downloadsTab.waitForExistence(timeout: 5)
+            goTapAttempts += 1
+        }
+        XCTAssertTrue(
+            downloadsTab.exists,
+            "Tapping \"Go\" with a configured qBittorrent server should leave the welcome flow for the real tab UI."
+        )
 
         // MARK: Real tab UI with the real torrent list
 

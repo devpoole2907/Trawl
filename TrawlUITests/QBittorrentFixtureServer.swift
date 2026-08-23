@@ -177,24 +177,26 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         }
     }
 
-    /// Real qBittorrent always answers `/api/v2/auth/login` with HTTP 200; success vs.
-    /// failure is signalled by the *body* ("Ok." vs. "Fails.") and by whether a
-    /// session cookie is set. This is exactly what `AuthService.performLogin` checks
-    /// (`Trawl/Services/AuthService.swift`): `isValidResponse` requires status 200
-    /// with a body containing "Ok." (or status 204), and it throws `.authFailed`
-    /// whenever no `sid` was extracted from `Set-Cookie` — so a "Fails." body with no
-    /// cookie is rejected on both counts.
+    /// These are the shapes a **real qBittorrent v5.2.3** sends, captured from a live
+    /// server and frozen in `TrawlTests/LiveCapturedShapeContractTests.swift`.
+    ///
+    /// A successful login is `204` with an empty body and a **port-suffixed**
+    /// `QBT_SID_<port>` cookie. A rejected login is `401` with a plain-text
+    /// `Unauthorized` body. The older `200` + `"Ok."` + plain `SID` shapes this
+    /// fixture used to send are what qBittorrent **v4** did; `AuthService` still
+    /// accepts those, so the fixture was passing while exercising a legacy path no
+    /// current server takes.
     private static func loginSuccessResponse() -> Data {
         httpResponse(
-            status: "200 OK",
-            contentType: "text/plain",
-            body: "Ok.",
-            extraHeaders: ["Set-Cookie": "SID=\(sessionID); HttpOnly; path=/"]
+            status: "204 No Content",
+            contentType: nil,
+            body: "",
+            extraHeaders: ["Set-Cookie": "QBT_SID_8080=\(sessionID); HttpOnly; SameSite=Lax; path=/"]
         )
     }
 
     private static func loginFailureResponse() -> Data {
-        httpResponse(status: "200 OK", contentType: "text/plain", body: "Fails.")
+        httpResponse(status: "401 Unauthorized", contentType: "text/plain; charset=UTF-8", body: "Unauthorized")
     }
 
     /// One torrent, `"Fixture Torrent Alpha"`, in the `downloading` state — which
@@ -297,14 +299,20 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         return RecordedRequest(method: method, path: path, body: body)
     }
 
+    /// `contentType` is optional because a real `204 No Content` login response
+    /// carries no `Content-Type` header at all.
     private static func httpResponse(
         status: String,
-        contentType: String,
+        contentType: String?,
         body: String,
         extraHeaders: [String: String] = [:]
     ) -> Data {
         let bodyBytes = Data(body.utf8)
-        var headerText = "HTTP/1.1 \(status)\r\nContent-Type: \(contentType)\r\nContent-Length: \(bodyBytes.count)\r\nConnection: close\r\n"
+        var headerText = "HTTP/1.1 \(status)\r\n"
+        if let contentType {
+            headerText += "Content-Type: \(contentType)\r\n"
+        }
+        headerText += "Content-Length: \(bodyBytes.count)\r\nConnection: close\r\n"
         for (name, value) in extraHeaders {
             headerText += "\(name): \(value)\r\n"
         }
