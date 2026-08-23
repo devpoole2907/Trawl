@@ -340,6 +340,18 @@ Its fixture now sends the real v5 shapes rather than v4 ones, which is progress,
 
 It stays on `wip/ui-journeys`. The onboarding logic it was meant to cover is now covered far more thoroughly, and deterministically, by the fifteen unit tests above.
 
+## Search — from 0% to covered
+
+`SearchViewModel` was at **0%**: *"Search, library reconciliation, cancellation, and profile changes are unverified."* Fifteen tests now cover it, driving the real view model against loopback Arr servers with a continuation gate holding responses until the test releases them. No sleeps.
+
+The load-bearing one is **stale-result suppression**: two concurrent lookups where the newer completes first and the older is released afterwards. The older must not overwrite the newer. That is the M-05 defect class, which has already been found twice in this codebase, and search was the obvious next place for it.
+
+Also covered: cancellation leaving no stuck spinner; library reconciliation by `tmdbId` and by case-insensitive title, including a nil-`tmdbId` row that must not match against an unrelated arr-internal id that happens to share the same number; switching the active Sonarr instance discarding the previous instance's results; a failed reconnect clearing the lookup view model entirely; and empty, no-match, and 500-error searches each producing the real user-facing state rather than a silent empty list.
+
+**Two things found by reading, not changed.** In `ArrMediaLibraryViewModel.performLookup`, a `guard !Task.isCancelled else { return }` after the network await returns *without* resetting `isSearching`. It is currently unreachable, because `HTTPTransport` maps cancellation to a thrown `CancellationError` and the `catch` branch does reset the flag — but if that mapping ever regresses, the symptom is a spinner that never stops. And `resetArrLookup()` cancels its task without setting it to `nil`.
+
+**Not covered:** the real 300ms debounce, which needs a clock seam the view model does not have (the tests use its `immediate: true` path, exercising the same cancel/restart logic without the delay), and the `force:`/re-trigger dedup guard.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
