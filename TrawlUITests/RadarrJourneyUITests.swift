@@ -90,6 +90,11 @@
 //    dropped, surfacing as a failure on the *next* assertion instead. `tapWhenHittable`
 //    below never taps without first polling `isHittable` in a bounded loop, built
 //    only from `waitForExistence` — no `sleep()`/`Thread.sleep` anywhere in this file.
+//  - Even a confirmed-hittable `StaticText` inside a `List` row can fail
+//    `element.tap()` with "Timed out while synthesizing event" when the app never
+//    reaches quiescence — which happens under full-plan load but not in isolation,
+//    so it presents as a flaky test rather than a harness timing dependency.
+//    `tapCentre(of:)` delivers the already-verified tap by coordinate instead.
 //  - `TrawlUITests/XCUIElement+Scrolling.swift`'s `waitForExistence(in:timeout:)`
 //    scrolls a bounded number of times for content that's below the fold, which this
 //    suite uses for every on-screen assertion on the (scrollable) detail view.
@@ -325,14 +330,34 @@ final class RadarrJourneyUITests: XCTestCase {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
             if element.isHittable {
-                element.tap()
+                tapCentre(of: element)
                 return true
             }
             _ = element.waitForExistence(timeout: 0.25)
         }
         guard element.isHittable else { return false }
-        element.tap()
+        tapCentre(of: element)
         return true
+    }
+
+    /// Taps the centre of an element whose `isHittable` has *already* been
+    /// confirmed by `tapWhenHittable`.
+    ///
+    /// This is the file header's second established UI fact. `element.tap()` on a
+    /// `StaticText` inside a `List` row fails as
+    /// "Failed to tap … Timed out while synthesizing event" whenever the app does
+    /// not reach quiescence within XCTest's internal idle wait. The journey passes
+    /// in isolation and fails inside the full plan, because the shared simulator is
+    /// under load there and Trawl's polling never lets the run loop go idle — so
+    /// the symptom looks like flakiness in this test rather than a timing
+    /// dependency in the harness.
+    ///
+    /// A coordinate tap resolves the hit point directly and skips the element-frame
+    /// synthesis that stalls. It is not a blind tap: hittability is verified by the
+    /// caller immediately beforehand, so this only changes *how* the confirmed tap
+    /// is delivered, never *whether* the element was ready to receive one.
+    private func tapCentre(of element: XCUIElement) {
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
     }
 
     /// Polls `element.exists` until it goes false or `timeout` elapses. XCTest has
