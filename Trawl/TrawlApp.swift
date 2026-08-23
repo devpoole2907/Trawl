@@ -44,6 +44,7 @@ struct TrawlApp: App {
             }
 
             Self.seedUITestArrServiceIfRequested(into: modelContainer)
+            Self.seedUITestRadarrServiceIfRequested(into: modelContainer)
             Self.seedUITestSABnzbdServiceIfRequested(into: modelContainer)
             Self.seedUITestQBittorrentServiceIfRequested(into: modelContainer)
 
@@ -198,6 +199,51 @@ struct TrawlApp: App {
             } catch {
                 fatalError("Failed to seed second UI test Sonarr profile: \(error)")
             }
+        }
+    }
+
+    /// Same treatment as `seedUITestArrServiceIfRequested(into:)`, for UI journeys
+    /// (`RadarrJourneyUITests`) that need a real Radarr connection rather than a
+    /// stubbed one. Sonarr has several journeys already; Radarr — specifically
+    /// `RadarrMovieDetailView`, the largest untested view in the project — had none,
+    /// which is what this hook exists to fix. `TRAWL_UITEST_RADARR_BASE_URL` points
+    /// at `RadarrFixtureServer`, a real loopback HTTP server the test process hosts;
+    /// from there `ArrServiceManager.connectService(_:)` and the real
+    /// `RadarrAPIClient` run entirely unmodified against it, exactly like the Sonarr
+    /// seeding above.
+    ///
+    /// Entirely additive alongside the Sonarr seeding above — this reads its own
+    /// environment variable, seeds its own profile type (`serviceType: .radarr`)
+    /// with its own fixed UUID, and leaves the Sonarr seeding path untouched whether
+    /// or not this variable is set.
+    private static func seedUITestRadarrServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let radarrBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_RADARR_BASE_URL"],
+              !radarrBaseURL.isEmpty else {
+            return
+        }
+
+        let profile = ArrServiceProfile(
+            displayName: "Fixture Radarr",
+            hostURL: radarrBaseURL,
+            serviceType: .radarr
+        )
+        // Fixed, hardcoded UUID distinct from the four already in use (Sonarr x2,
+        // SABnzbd, qBittorrent) — see the comment on the Sonarr seeding above for why
+        // a random UUID would orphan a Keychain entry on every run.
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000005")!
+
+        // Same synchronous-write requirement as the Sonarr seeding above: both the
+        // Keychain write and the SwiftData insert+save must complete before `init()`
+        // returns, or ContentView latches onto the welcome screen and/or
+        // `connectService` races an empty Keychain read.
+        seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
+
+        let context = ModelContext(modelContainer)
+        context.insert(profile)
+        do {
+            try context.save()
+        } catch {
+            fatalError("Failed to seed UI test Radarr profile: \(error)")
         }
     }
 

@@ -2,6 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Trawl uses only standard, exempt cryptography: HTTPS/TLS to reach the
+	     user's own servers, and the system Keychain for credentials. No
+	     proprietary or non-exempt encryption is shipped. Declaring this here
+	     pre-answers App Store Connect's export-compliance question instead of
+	     being prompted on every upload. Revisit if Trawl ever ships its own
+	     encryption beyond TLS and the Keychain. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CFBundleDisplayName</key>
 	<string>Trawl</string>
 	<key>CFBundleDocumentTypes</key>

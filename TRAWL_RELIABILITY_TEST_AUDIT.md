@@ -432,6 +432,34 @@ Also worth knowing: an app-wide `app.buttons` match for the torrent's name match
 
 Ran three consecutive times before landing, plus the full plan.
 
+## Radarr — the symmetric gap, now covered
+
+Sonarr had several journeys; Radarr had none, and `RadarrMovieDetailView.swift` was **1,952 executable lines at 0%** — the largest untested file in the project. That matters more under the planned 4K + HD model, where Radarr stops being a mirror of Sonarr.
+
+`RadarrJourneyUITests` seeds a Radarr profile, renders the Movies tab from a fixture, opens the movie detail screen and asserts real payload content (studio, and the overview verbatim — neither of which appears on the list row, so they cannot be satisfied by a row still mounted underneath during the push). It then toggles **Monitored** off from the detail toolbar and asserts both halves: the badge disappears, and the fixture received exactly one `GET /api/v3/movie/{id}` followed by one `PUT` whose body carries `"monitored": false`. A wrong value there would make the toggle a silent no-op against real Radarr.
+
+The fixture's movie fills every field the detail screen renders, because a two-field stub renders an empty screen and asserts nothing.
+
+### A crash trap in XCUITest worth knowing
+
+Two element queries **crashed the test runner outright** rather than failing:
+
+```
+*** Assertion failure in -[XCUIElementQuery _predicateWithType:identifier:]
+```
+
+Both were subscript lookups by a long or punctuated string — `app.navigationBars["Fixture Movie: Trawl Signal"]` and `app.staticTexts[<a ~160-character overview>]`. The runner dies, the whole journey is lost, and the log names no assertion, so the failure looks like an infrastructure problem rather than a test bug. Match long or punctuated text with a `CONTAINS` predicate on a distinctive fragment instead of subscripting by the whole string.
+
+Also: the system back button's title is dropped when it does not fit, and the remaining chevron is not reliably reachable by label or by position when the toolbar also carries a trailing item. The interactive pop gesture is what a user does anyway and depends on neither.
+
+## A flaky assertion removed rather than retried
+
+The SABnzbd journey's final step drove the actions menu to prove a mutation is inert once disconnected. It passed consistently alone and failed intermittently in full-suite runs, where load delays the menu's presentation.
+
+Retrying the tap made it **worse**: tapping a `Menu` toggles it, so a retry can close a menu that had in fact opened, and an even number of attempts leaves it shut. The step was removed rather than tuned into apparent stability.
+
+The property is not lost. `SABnzbdServiceManagerConcurrencyTests` already proves it deterministically at the manager level — after an unauthorized response clears the active client, a mutation issues no network request. What is no longer covered is only the UI affordance being reachable while disconnected, which is not worth an intermittently red suite.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
