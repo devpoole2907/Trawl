@@ -132,7 +132,16 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
     #endif
 
     init(serviceManager: ArrServiceManager) {
-        super.init(serviceManager: serviceManager, client: serviceManager.activeBazarrEntry?.client)
+        super.init(
+            serviceManager: serviceManager,
+            client: serviceManager.activeBazarrEntry?.client,
+            // Resolve the client on every access rather than snapshotting it here.
+            // Without this a retained view model keeps issuing requests against the
+            // client it was born with, so an in-place profile reconnect silently
+            // keeps talking to the old host — the same stale-client bug already
+            // fixed for Sonarr and Radarr, which both pass a provider.
+            clientProvider: { [weak serviceManager] in serviceManager?.activeBazarrEntry?.client }
+        )
     }
 
     var isConnected: Bool {
