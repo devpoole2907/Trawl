@@ -74,6 +74,20 @@ struct ContentView: View {
             }
         }
         .environment(connectionRetryScheduler)
+        // `SyncService` and `TorrentService` are the only two service dependencies
+        // not injected at the app root, because they come from `AppServices`, which
+        // only exists once a qBittorrent server is configured. Every one of the 43
+        // `@Environment(SyncService.self)` / `@Environment(TorrentService.self)`
+        // reads in the app is non-optional, and a missing one is a *fatal* SwiftUI
+        // assertion, not a degraded view — that is exactly what crashed the app in
+        // N-02, four navigations deep, on a screen no test had ever opened.
+        //
+        // Injecting them here, with the same disconnected fallback `tabContent`
+        // already uses, means no navigation path below this point can lose them.
+        // The per-screen injections further down still win for their own subtrees;
+        // this is the floor, not a replacement for them.
+        .environment((appServices ?? disconnectedServices).syncService)
+        .environment((appServices ?? disconnectedServices).torrentService)
         .preferredColorScheme(themeOverride.colorScheme)
         .background(
             GeometryReader { geometry in

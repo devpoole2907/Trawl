@@ -294,6 +294,18 @@ That makes five for five: every shape captured from a live service confirmed pro
 - Re-check the qBittorrent onboarding journey (on `wip/ui-journeys`) against a real server, since its flakiness is in the sync-then-render half and may well be a fixture-shape problem rather than a timing one.
 - Jellyfin's `AnyProviderIdEquals` quirk, which the `SearchTerm` fallback is built on, has still only been reproduced against a fixture.
 
+## N-02's whole class closed at the root
+
+N-02 was one screen crashing on a missing `@Environment` value. The question worth asking before a store release was how many *other* screens could do the same, so the environment graph was enumerated rather than guessed at.
+
+There are **211 non-optional `@Environment(Type.self)` reads across 11 types**. SwiftUI traps at runtime when one is missing — a missing value is a hard crash, not a degraded view. `TrawlApp` injects 7 of those types at the app root, so they can never be missing.
+
+The two that are not root-injected are **`SyncService` (28 required reads)** and **`TorrentService` (15)**, because both come from `AppServices`, which only exists once a qBittorrent server is configured. Those 43 reads were the exposed surface, and they are exactly the two types N-02 crashed on.
+
+Both are now injected at `ContentView`'s root using the same `appServices ?? disconnectedServices` fallback `tabContent` already used, so no navigation path below it can lose them. Per-screen injections further down still win for their own subtrees; this is a floor, not a replacement.
+
+**The fix was verified, not assumed.** The site-specific N-02 fix in `DownloadClientManagementView` was temporarily reverted and the SABnzbd journey re-run: it passed, proving the root injection alone prevents the crash. The site fix was then restored as defence in depth.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
