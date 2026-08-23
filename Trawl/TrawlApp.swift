@@ -45,6 +45,7 @@ struct TrawlApp: App {
 
             Self.seedUITestArrServiceIfRequested(into: modelContainer)
             Self.seedUITestSABnzbdServiceIfRequested(into: modelContainer)
+            Self.seedUITestQBittorrentServiceIfRequested(into: modelContainer)
 
             #if os(macOS)
             LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
@@ -238,6 +239,59 @@ struct TrawlApp: App {
             try context.save()
         } catch {
             fatalError("Failed to seed UI test SABnzbd profile: \(error)")
+        }
+    }
+
+    /// Same treatment as `seedUITestArrServiceIfRequested(into:)` and
+    /// `seedUITestSABnzbdServiceIfRequested(into:)`, for UI journeys
+    /// (`DownloadsJourneyUITests`) that need a real qBittorrent connection
+    /// (`Trawl/Services/QBittorrentAPIClient.swift`, `Trawl/Services/AuthService.swift`)
+    /// rather than a stubbed one. `TRAWL_UITEST_QBITTORRENT_BASE_URL` points at
+    /// `QBittorrentFixtureServer`, a real loopback HTTP server the test process hosts;
+    /// from there `ContentView.initializeServices()`, `QBittorrentClientFactory
+    /// .makeAndLogin`, and the real `AuthService`/`QBittorrentAPIClient` run
+    /// unmodified against it.
+    ///
+    /// Unlike the Sonarr/SABnzbd profiles above, `ContentView.initializeServices()`
+    /// does not read credentials off the profile itself — it reads them from the
+    /// Keychain via `server.usernameKey`/`server.passwordKey` (see
+    /// `ContentView.swift`'s `initializeServices()`), which is exactly what gets
+    /// seeded here. `ServerProfile.init(displayName:hostURL:allowsUntrustedTLS:)` sets
+    /// `isActive = true` itself, so this profile becomes `ContentView.activeServer`
+    /// (`servers.first(where: { $0.isActive })`) as soon as it's inserted.
+    ///
+    /// Entirely additive alongside the Sonarr and SABnzbd seeding above — this reads
+    /// its own environment variable, seeds its own profile type with its own fixed
+    /// UUID, and leaves the other two seeding paths untouched whether or not this
+    /// variable is set.
+    private static func seedUITestQBittorrentServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let qbittorrentBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_QBITTORRENT_BASE_URL"],
+              !qbittorrentBaseURL.isEmpty else {
+            return
+        }
+
+        let profile = ServerProfile(
+            displayName: "Fixture qBittorrent",
+            hostURL: qbittorrentBaseURL
+        )
+        // Fixed, hardcoded UUID distinct from the Sonarr and SABnzbd fixtures' — see
+        // the comment on the Sonarr seeding above for why a random UUID would orphan
+        // a Keychain entry on every run.
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000004")!
+
+        // Same synchronous-write requirement as the seeding above: both Keychain
+        // writes and the SwiftData insert+save must complete before `init()` returns,
+        // or ContentView latches onto the welcome screen and/or `initializeServices`
+        // races an empty Keychain read.
+        seedUITestKeychainValue("uitest-username", forKey: profile.usernameKey)
+        seedUITestKeychainValue("uitest-password", forKey: profile.passwordKey)
+
+        let context = ModelContext(modelContainer)
+        context.insert(profile)
+        do {
+            try context.save()
+        } catch {
+            fatalError("Failed to seed UI test qBittorrent profile: \(error)")
         }
     }
 

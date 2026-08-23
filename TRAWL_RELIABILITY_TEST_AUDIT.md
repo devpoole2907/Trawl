@@ -402,6 +402,36 @@ The captured payload is pinned in `LiveCapturedShapeContractTests`, with the fal
 
 That makes **seven for seven**: every behavior captured from a live service has confirmed production was already correct. The value has consistently been that these paths were passing by accident, with nothing to catch a regression.
 
+## UI journey #2 — pause, resume, delete, with the server mutation asserted
+
+`TorrentListView` and the Downloads surface were **1,145 executable lines at 0%** — the app's core, and completely untested.
+
+The earlier attempt to reach it by driving the real onboarding UI was abandoned. qBittorrent is now seeded the same way Sonarr and SABnzbd already are, so the app launches already connected and lands in Downloads. The fixture is **stateful**, unlike the read-only ones: pausing, resuming and deleting change what the next sync poll reports, so the on-screen result is driven by the server rather than by a local flag.
+
+Each action is asserted twice — the user-visible change, and the **recorded server request**:
+
+| action | asserted request |
+|---|---|
+| Pause | `POST /api/v2/torrents/stop` with the torrent's hash |
+| Resume | `POST /api/v2/torrents/start` with the hash |
+| Delete | `POST /api/v2/torrents/delete` with the hash **and `deleteFiles=false`**, proving the right confirmation button wired the right value |
+
+Note the v5 path names: `stop`/`start`, not v4's `pause`/`resume`.
+
+### Absence is not assertable in this view, and that took four attempts to learn
+
+`DownloadsView` deliberately keeps its `List` mounted even when the current segment filters down to nothing, so the segment-bar search field does not lose keyboard focus. A row filtered out of the visible segment therefore stays in the accessibility tree indefinitely. Every obvious way to assert it is gone fails, each differently:
+
+- `exists` — stays `true`; the element is mounted, just invisible.
+- `count` on a scoped query — still counts it (observed as `2`).
+- `isHittable` — **throws** rather than returning false, because the frame has collapsed to zero: *"Activation point invalid and no suggested hit points based on element frame"*.
+
+The assertions are therefore written as the **positive empty state** the user actually sees. That is also the more honest test: the load-bearing proof that a mutation happened is the recorded server request, not the absence of a row from a tree that deliberately retains it.
+
+Also worth knowing: an app-wide `app.buttons` match for the torrent's name matches the success banner raised after a delete, which names the torrent — so an "is it gone anywhere" assertion fails on the confirmation of the very thing being asserted. Scope such queries to the list.
+
+Ran three consecutive times before landing, plus the full plan.
+
 ### Note: multi-instance Arr is heading somewhere else
 
 Confirmed by the project owner on 23 August 2026: multi-instance Sonarr/Radarr is intended to become a **4K + HD pair that are both active at once**, presented unified the way the Downloads view is — not the switch-between-one-active model the app has today (which is the shape Seerr uses).
