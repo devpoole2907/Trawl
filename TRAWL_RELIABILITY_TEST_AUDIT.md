@@ -491,6 +491,110 @@ Two UI-query facts worth keeping for whoever picks this up: the More/Settings ro
 - An `LSSupportsOpeningDocumentsInPlace` / `UISupportsDocumentBrowser` Info.plist decision. Trawl reads a shared file's bytes and uploads them without editing it, so opening a copy is the correct semantic — but declaring that explicitly is a product call.
 - The optional scheduled real-service contract lab.
 
+## Sixth tranche — 24 August 2026
+
+Four commits (`4924a8f`, `6001d6e`, `5fa4016`, `0869b5e`) taking the plan from **383 executions to 614**, and finding four more defects. Every surface in this tranche was chosen the same way: the largest files with no coverage at all.
+
+### Jellyfin and Seerr — the state machines above the wire contracts
+
+Both stacks already had contract tests for their API clients. Nothing above them was covered. 93 tests now drive the real production paths — a loopback `NWListener` for Jellyfin, whose `JellyfinAPIClient.init` has no session seam, and a recording `URLProtocol` for Seerr, whose `SeerrAPIClient` takes a `sessionConfiguration`.
+
+`JellyfinAvailabilityResolver` was the load-bearing target. Its three-tier lookup — provider-ID `findItems`, then a dash-normalised title search, then the most distinctive word — exists because real Jellyfin servers ignore `AnyProviderIdEquals`. The tests pin that a tier-1 hit means **tiers 2 and 3 are never requested** (asserted by request count against an item whose name and year match nothing), and that a junk tier-1 response still resolves through the fallback. Both cache caps are pinned by eviction: 64 availability entries, 32 episode entries. Note the eviction is FIFO by *first insertion*, not LRU — `insertionOrder.append` only runs when the key is new, so re-resolving a hot key never refreshes its position. The tests assert the actual behaviour; the name is the only thing misleading.
+
+Seerr's issue list got the pagination arithmetic at its boundaries, the `requestVersion` guard that rejects stale in-flight responses, and the search loop's break-on-empty-page protection against a server that over-reports its total.
+
+### Single-instance, pinned as a contract in both stacks
+
+`JellyfinSetupViewModel.persist` and `SeerrSetupViewModel.login` both resolve their save target as `first(where: \.isEnabled) ?? first`. Signing in against a *different* server therefore **repoints the existing profile** rather than adding a second one. This surfaced as a test failure — the test had assumed a second profile would appear — and was resolved by pinning the real behaviour across three tests: empty-store creation, the repoint, and exclusive-enable collapsing a two-enabled store back to one.
+
+This is the single-instance model the rest of both stacks depend on. It is recorded here because multi-instance Radarr/Sonarr (4K vs HD) is planned; if Jellyfin or Seerr ever need the same, these tests fail loudly instead of silently overwriting a configured server.
+
+### N-05 — Jellyfin cached availability failures forever (found and fixed)
+
+`state(for:)` TTL-expired only `.resolved`. A `.failed` entry fell straight through, and `ensureLoaded` returns early on `.failed` — so one dropped connection or 500 pinned that card in an error state for the life of the resolver. Nothing retried it except `invalidate`/`invalidateAll`, which in practice only happen on `connectService`/`disconnect`.
+
+The failure row does render a **Retry** button, so this was never a silent hang. But the asymmetry was real: navigating away and back would not re-attempt. Failures now expire on their own 60-second window while successes keep the 300-second one — a transient error self-heals on next appearance, a good answer is not re-fetched on every glance. The 60s figure is a judgement call, not a measured one.
+
+**Latent, not fixed:** `.loading` is also never TTL-expired, and both `guard !Task.isCancelled else { return }` gates in `performLookup` exit without writing state. Today the only canceller is `invalidate`, which removes the entry first, so a stuck spinner is unreachable — but it is one new cancellation call site away from a permanent `.loading` that `ensureLoaded` will also refuse to retry.
+
+### N-06 — the Jellyfin setup form leaked the previous server (found and fixed)
+
+`seed(from: nil)` means "add a new server". It set `hasSeededInitialState`/`seededProfileID`/`error` and then returned **before** resetting the form, leaving the previously seeded server's host, display name, auth mode and TLS setting on screen. One careless save from repointing the server just edited — which matters more given the single-instance behaviour above, since `persist` would have overwritten it rather than adding a second. The nil branch now clears to defaults.
+
+### A clock seam, because the TTL branches were unreachable
+
+Timestamps came from a bare `Date()` with no seam, so neither expiry branch could be tested at all. `JellyfinAvailabilityResolver` now takes `init(now: @escaping () -> Date = Date.init)`; production is unchanged. `JellyfinManualClock` drives expiry directly. The shipped 60/300s values are the ones exercised — the tests move the clock rather than shortening the windows, so expiry is asserted exactly and cannot flake under load.
+
+### N-07 — Bazarr went on talking to the old host (found and fixed)
+
+`SonarrViewModel` and `RadarrViewModel` both hand their base `ArrLibraryViewModel` a `clientProvider` closure, so a retained view model resolves the client on every access — exactly what `ArrClientLifecycleTests` proves for both. `BazarrViewModel.init` passed only `client: serviceManager.activeBazarrEntry?.client`, a snapshot taken once. A retained `BazarrViewModel` therefore kept issuing requests against the host it was born with: editing a Bazarr profile's URL and reconnecting left the screen silently reading from the **old server**.
+
+This is the same stale-client class as N-01 and the H-01/H-02 work. Bazarr was simply the sibling that got missed.
+
+**Worth recording about how it was nearly cemented rather than fixed.** The test written for it originally asserted the *broken* behaviour as though it were the contract — named "keeps using its original client", with a careful comment explaining why Bazarr "differs" from Sonarr and Radarr. Taken at face value it would have locked the bug in permanently and made the eventual fix present as the regression. Reading the assertions rather than the pass count is what caught it. Subsequent agent briefs now carry an explicit instruction: never pin a bug as the contract, and if current behaviour must be recorded, make that unmistakable in the test name.
+
+### Prowlarr, and the seam that invites worthless tests
+
+`ProwlarrViewModel` is written against a protocol seam, which makes "conform a fake, assert the fake was called" trivially easy and completely without value. None of the 32 tests do that: every one drives the real `ProwlarrAPIClient` → `ArrAPIClient` → `HTTPTransport` → `URLSession` against a socket, resolved through a real `ArrServiceManager` via the production `connectService` path. Mutation bodies are asserted as parsed JSON, never encoder bytes.
+
+This suite needed **no `Task.yield` loops at all** — every search is awaited directly and every ordering barrier is a `CheckedContinuation` resumed from the fixture server's own connection callback. It is the cleanest synchronisation story in the plan and the model to copy.
+
+One assumption in the brief was wrong and was corrected rather than fabricated around: there is no per-indexer partial-failure path inside the view model, because Prowlarr fans out server-side — `performSearch` makes exactly one `GET /api/v1/search` for all indexers.
+
+### The import grouping engine
+
+`LibraryImportScanViewModel` decides which bucket every scanned file lands in: new, in-library, identified-pending-add, unidentified, or blocked. Getting it wrong shows the user the wrong section and can import the same file twice. 54 tests across four suites cover bucket membership, selection state — including that ready and blocked selections stay independent — the pure path/poster/summary helpers, and the identification transitions.
+
+### Multi-instance indexer routing, and a gap that would have passed under its own bug
+
+`ArrIndexerManagementViewModel` operates on two Arr instances at once. Every operation must reach the instance it was addressed to; misrouting edits the wrong server's indexers with no visible sign. The tests stand up two independently-ported Sonarr/Radarr instances on one `ArrServiceManager` and assert each operation's socket saw it and the other's did not.
+
+As first written, the `addIndexer` and `updateIndexer` routing tests addressed only the **first-connected** profile — which is also the manager's active instance. A profile-blind client lookup would have routed those correctly, so they would have passed under precisely the bug they exist to catch. The non-active-profile variants were added for both, these being the destructive cases: creating or renaming an indexer on the wrong server. The negative control now fails **6 of 11** tests instead of 4.
+
+### Negative controls as the standard of evidence
+
+Every behavioural claim in this tranche was verified by breaking the production behaviour, watching the right tests fail for the right reason, and restoring from a plain file copy — never `git stash` or `git checkout`, and diffed afterwards to prove an exact restore.
+
+| Control injected | Result |
+|---|---|
+| Revert Bazarr's `clientProvider` | Exactly the retained-client test fails, on both assertions; other 20 pass |
+| `StreamingSearchTracker.isCurrent` → `true` | Exactly the 2 token-identity search tests fail; other 5 pass |
+| Drop `toggleIndexer`'s server-record write-back | Exactly the 1 test distinguishing canonical from optimistic fails |
+| `sonarrClient(for:)`/`radarrClient(for:)` → profile-blind | 6 of 11 indexer-management tests fail, all on the non-active profile |
+| Drop `!isIdentifiedPendingAdd` from the unidentified bucket | 5 grouping/selection tests fail, incl. "exactly one bucket" |
+| Revert the Jellyfin seed fix and the failure TTL | Exactly the 4 intended tests fail; the resolved-TTL test correctly stays green |
+
+### Two harness traps that manufacture false confidence
+
+Both produced a *green* result rather than a visible failure, which is what makes them dangerous. Both are now recorded outside this document as well.
+
+- **`xcodebuild -quiet` prints `error:` lines on builds that succeeded** — `error: the following command failed with exit code 0 but produced no further output`, emitted for tasks that print nothing. Grepping that output for `error:` reported TrawlMac and TrawlWidgets as broken when both were fine. Verification runs no longer use `-quiet`.
+- **`-only-testing:` with a name matching no suite runs zero tests and still prints `** TEST SUCCEEDED **`.** Swift Testing suite names frequently do not match their filename: `LibraryImportScanViewModelTests.swift` declares four suites, none named after the file. A guessed name produced a passing run that proved nothing. Every validation now goes through `-resultBundlePath` and `Scripts/assert-test-results.py`, which fails an empty run explicitly.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Full `Trawl.xctestplan`, after each commit | **Passed:** 476 → 480 → 533 → **614 executions**, 0 failed, 0 skipped |
+| Every new suite, run twice in isolation | Identical results both runs |
+| Six negative controls | Each failed exactly the intended tests, nothing else |
+| `Trawl`, `TrawlMac`, `TrawlShare`, `TrawlWidgets` | **All build** |
+
+### Still uncovered, stated plainly
+
+- **The import screen's network paths** (`loadFiles`, `loadInLibraryStatus`, `searchCatalog`) and its **auto-identify loop**. The agent covering this surface was interrupted before filing a report, so the gap is inferred from the suite names rather than from its own account — treat the import coverage as "grouping and selection verified", not "screen covered". It also left an injected negative-control edit in the production file, which was reversed by hand.
+- **UI coverage is roughly 12–15% of screens.** 18 UI test functions against ~138 `.navigationTitle` call sites across 89 files and 118 sheet presentations. Of those 18, only 9 are real journeys; 5 are the render-without-crashing smoke walk, 3 onboarding, 1 a launch screenshot.
+- **Five stacks have no UI coverage at all** — Jellyfin, Seerr, Bazarr, Prowlarr, Cleanuparr appear in the UI test target only in a comment recording their exclusion.
+- **`MoreView` (4,134 lines), `SettingsView` (1,037) and `NotificationTabBarAccessory` (1,811)** are effectively untested at both tiers.
+- **TrawlMac still has no UI tests.**
+- **Parked with the maintainer's agreement:** the unawaited rollback `Task` in `OnboardingViewModel.validateAndSave`, and the widget/share-extension provider shells, which need a `project.pbxproj` membership change.
+
+### On the two tiers, since this tranche is evidence for both
+
+Of the four defects found *before* this tranche, three — N-01, N-02, N-03 — were view-layer faults that no view-model test could structurally have caught: a `.task(id:)` identity bug, a missing `.environment()` injection that crashed on open, and conditional rendering that blanked a list. All four defects found *in* this tranche were logic-level and were caught by view-model tests.
+
+The two tiers are not ranked; they catch disjoint classes. View-model tests catch wrong answers. UI tests catch the app being assembled wrong — crash on open, blank screen, dead navigation — which the view model cannot see because the view model is fine. The recommended split is the bulk of effort on view models and services, cheap render-and-navigate coverage across all screens to catch the crash class, and full journeys reserved for destructive paths.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
