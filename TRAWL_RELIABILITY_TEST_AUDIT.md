@@ -630,6 +630,45 @@ Authoritative results: `/tmp/trawl-tier1-ui-2.xcresult` for the five-stack UI ga
 - **Widget and ShareViewController process shells remain parked** with the maintainer's agreement. Their pure decision logic and target builds are covered; installed-extension behavior needs deliberate test-host and target-membership work.
 - UI coverage is meaningfully broader but is not “every screen”: 26 UI test functions now exist, including smoke, onboarding and 17 real journeys. The remaining work should continue to prioritize assembly risk and user mutations rather than raw screen-count inflation.
 
+## Eighth tranche — 24 August 2026
+
+Five commits (`83e0fd0`, `7b1427f`, `93f2bd8`, `804ed2e`, `f6c0fd9`) took the next highest-risk iPhone surface: More/Settings assembly and the destructive management flows reachable from it. Nine journeys use the public UI and real production clients against per-test loopback servers. They do not install final view-model state or substitute method mocks.
+
+### More and Settings breadth
+
+- Settings opens configured Sonarr and Radarr profile management after their real connection handshakes.
+- More → Library Management → Subtitles reaches Bazarr Language Profiles and renders authenticated fixture data.
+- More → Automation & Clients → Remote Path Mappings loads the Sonarr/Radarr fan-out destination.
+- More → System → Health aggregates real multi-client health responses and renders the all-clear state.
+- Removing a configured service uses the real Settings confirmation flow and verifies the profile disappears rather than merely checking that an alert exists.
+
+### Destructive management journeys
+
+- **Remote path mappings:** the journey loads server state, adds with the exact production POST body, edits with the exact PUT body, and deletes only after the confirmation dialog. Every mutation is asserted at the receiving socket and followed by visible list reconciliation.
+- **Jellyfin libraries:** an authenticated GET renders the server library; swipe Remove presents the destructive confirmation, sends the exact DELETE, refetches, and ends in the server-backed `No Libraries` state.
+- **Library import:** one Sonarr journey scans a real fixture root, verifies manual-import query shape, separates one owned episode from one ready file, selects the importable group, and reaches Review Selection without prematurely posting a command. A second journey expands a blocked group, opens Identify File, performs a real catalog lookup, and proves no import command is sent before explicit confirmation.
+
+The import journey exposed a real accessibility defect in the collapsed Blocked section. SwiftUI exposed only static header text and an unreliable implicit hit region, so VoiceOver and UI automation had no dependable disclosure control. The header is now an explicit button with an identifier, expanded/collapsed value, hint, and visible chevron; the journey exercises that production affordance.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Five Settings/management UI classes together | **Passed:** **9 executions**, 0 failed, 0 skipped |
+| Full `Trawl.xctestplan` | **Passed:** **631 executions**, 0 failed, 0 skipped |
+| Zero/incomplete-result guard | Both result bundles accepted by `Scripts/assert-test-results.py` |
+| `Trawl`, `TrawlMac`, `TrawlShare`, `TrawlWidgets` | **All build** |
+
+Authoritative results: `/tmp/trawl-settings-management-integrated.xcresult` for the nine-journey gate and `/tmp/trawl-full-plan-settings-management.xcresult` for the complete plan.
+
+### Still uncovered, stated plainly
+
+- **Notification settings and the remaining setup/edit forms** are the next iPhone UI tranche. Prioritize user-visible persistence, validation failures and destructive confirmation over open-and-close screenshots.
+- **More iPhone destructive journeys** remain useful where a view owns mutation wiring that view-model tests cannot observe.
+- **TrawlMac UI remains deferred at the maintainer's request.** Its target still passes the compile gate and shares the tested service/view-model logic.
+- **Widget and ShareViewController installed-process shells remain parked** by agreement; their pure decision logic and build membership are covered.
+- The suite now contains approximately 35 UI test functions. This is broad, meaningful coverage, but not literal every-screen coverage; continue using cheap navigation checks for assembly risk and full journeys for mutations.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
