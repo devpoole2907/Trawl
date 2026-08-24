@@ -480,30 +480,46 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var blockedSection: some View {
         if !blockedGroups.isEmpty {
-            Section(isExpanded: $blockedExpanded) {
-                ForEach(blockedGroups) { group in
-                    LibraryImportGroupRow(
-                        group: group, style: .blocked,
-                        selectionState: blockedGroupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
-                            } else { reviewingBlockedGroup = group }
+            Section {
+                if blockedExpanded {
+                    ForEach(blockedGroups) { group in
+                        LibraryImportGroupRow(
+                            group: group, style: .blocked,
+                            selectionState: blockedGroupSelectionState(group),
+                            isSelectingMode: isSelectingMode,
+                            onToggle: {
+                                if isSelectingMode {
+                                    withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
+                                } else { reviewingBlockedGroup = group }
+                            }
+                        )
+                        .contextMenu {
+                            Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
+                            if !group.isIdentified {
+                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }
+                            }
                         }
-                    )
-                    .contextMenu {
-                        Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
-                        if !group.isIdentified {
-                            Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            Button { reviewingBlockedGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
                         }
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button { reviewingBlockedGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
                     }
                 }
             } header: {
-                Text("Blocked (\(blockedGroups.count))")
+                Button {
+                    withAnimation(.snappy) { blockedExpanded.toggle() }
+                } label: {
+                    HStack {
+                        Text("Blocked (\(blockedGroups.count))")
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .rotationEffect(.degrees(blockedExpanded ? 90 : 0))
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("library-import-blocked-disclosure")
+                .accessibilityValue(blockedExpanded ? "Expanded" : "Collapsed")
+                .accessibilityHint(blockedExpanded ? "Collapses blocked files" : "Expands blocked files")
             }
         }
     }
