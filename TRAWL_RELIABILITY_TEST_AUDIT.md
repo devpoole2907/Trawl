@@ -669,6 +669,43 @@ Authoritative results: `/tmp/trawl-settings-management-integrated.xcresult` for 
 - **Widget and ShareViewController installed-process shells remain parked** by agreement; their pure decision logic and build membership are covered.
 - The suite now contains approximately 35 UI test functions. This is broad, meaningful coverage, but not literal every-screen coverage; continue using cheap navigation checks for assembly risk and full journeys for mutations.
 
+## Ninth tranche — 24 August 2026
+
+Four commits (`f199589`, `6739201`, `2785041`, `d9146f6`) closed the next iPhone Settings slice: Arr notification-webhook management, notification configuration and history, and qBittorrent/SABnzbd server edits. Five UI journeys drive the public app against deterministic loopback services; seven manager tests exercise real Arr clients and exact webhook requests.
+
+### Notification reliability
+
+- **Arr webhook manager:** matching webhooks are reused rather than duplicated; creation and update preserve Sonarr/Radarr event flags and tag filters; test requests use the production endpoint; 401 and 500 failures retain their public error categories. Request method, path, authentication and JSON bodies are asserted at the fixture socket.
+- **Notification Settings:** a DEBUG-only launch hook seeds only an APNs token, not final screen state. The journey opens the real Settings hierarchy, loads an existing Sonarr webhook and tag, changes an event toggle, removes the tag, saves through the real manager, and verifies an exact authenticated PUT with no duplicate POST.
+- **Visible failure:** a real notification-list HTTP 500 is shown to the user and leaves the configuration flow open; it cannot silently dismiss as success or send a mutation.
+- **Recent Notifications:** removing a Jellyfin library through the real UI produces the in-app notification. The Notifications screen then verifies Clear → Cancel preserves history and Clear → Confirm reaches `No Notifications Yet`.
+
+### Download-client setup and edit reliability
+
+- **qBittorrent:** the journey opens the active server editor, verifies prefilled values, changes host and credentials, observes a rejected real login without dismissal, retries successfully, verifies the form-encoded login plus version request, and confirms the replacement host persists after dismissal.
+- **SABnzbd:** the corresponding journey verifies prefill, exact `mode=auth` validation with API key parameters, visible 401 handling without dismissal, successful retry through auth/version/queue/history, and persisted replacement host.
+- The setup journeys hardened real accessibility behavior discovered during validation: direction-aware form scrolling handles restored scroll positions, lazy fields are searched through the scroll container, and secure fields receive explicit focus before typing.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Four new coverage stacks together | **Passed:** **12 executions**, 0 failed, 0 skipped |
+| Full `Trawl.xctestplan` | **Passed:** **643 executions**, 0 failed, 0 skipped |
+| Zero/incomplete-result guard | Both result bundles accepted by `Scripts/assert-test-results.py` |
+| `Trawl`, `TrawlMac`, `TrawlShare`, `TrawlWidgets` | **All build** |
+
+Authoritative results: `/tmp/trawl-notification-setup-integrated.xcresult` for the twelve-test gate and `/tmp/trawl-full-plan-notification-settings.xcresult` for the complete plan.
+
+### Still uncovered, stated plainly
+
+- **Remaining setup/edit journeys:** Jellyfin, Seerr and the Arr-family forms still benefit from the same validation-failure, successful persistence and reconnect coverage now protecting qBittorrent and SABnzbd.
+- **Remaining high-value destructive/admin flows:** indexer/application/proxy/tag management, Bazarr profile/provider actions, Jellyfin user/password/policy changes, and queue/blocklist/wanted confirmations should be selected by mutation risk rather than screen count.
+- **Search/detail action breadth** remains uneven where the view itself wires commands or confirmations that lower-level contract tests cannot observe.
+- **TrawlMac UI remains deferred at the maintainer's request.** Its product still passes the compile gate and shares the tested state/request layers.
+- **Widget and ShareViewController installed-process shells remain parked** by agreement; pure decision logic, target membership and product compilation are covered.
+- The suite now contains approximately 40 UI test functions. It is a strong regression net, not a literal every-screen proof; future work should keep pairing cheap assembly smoke checks with full socket-asserted journeys for state-changing actions.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
