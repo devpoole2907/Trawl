@@ -35,6 +35,17 @@ final class CleanuparrJourneyUITests: XCTestCase {
         let app = launchApp(using: server)
         openCleanuparrDashboard(in: app)
 
+        let eventTotal = app.descendants(matching: .any)
+            .matching(NSPredicate(
+                format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
+                "Events",
+                "7"
+            ))
+            .firstMatch
+        XCTAssertTrue(
+            eventTotal.waitForExistence(in: app, timeout: 10),
+            "The Activity section should render the fixture's seven events, proving a decoded Stats value reached the user rather than only a successful navigation title."
+        )
         XCTAssertTrue(
             app.staticTexts["Fixture qBittorrent"].waitForExistence(in: app, timeout: 15),
             "The dashboard should render the download-client health name decoded from Cleanuparr's real Stats response — regression: the configured profile did not connect, the stats request failed, or the Health section stopped rendering."
@@ -42,10 +53,6 @@ final class CleanuparrJourneyUITests: XCTestCase {
         XCTAssertTrue(
             app.staticTexts["Fixture Radarr is unavailable"].waitForExistence(in: app, timeout: 10),
             "The dashboard should render Cleanuparr's unhealthy Arr service error, not merely a generic connected state — regression: Health.Service.errorMessage stopped reaching healthRow(_:)."
-        )
-        XCTAssertTrue(
-            app.staticTexts["7"].waitForExistence(in: app, timeout: 10),
-            "The Activity section should render the fixture's seven events, proving a decoded Stats value reached the user rather than only a successful navigation title."
         )
         let readiness = app.descendants(matching: .any)
             .matching(NSPredicate(
