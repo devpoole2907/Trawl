@@ -47,6 +47,10 @@ struct TrawlApp: App {
             Self.seedUITestRadarrServiceIfRequested(into: modelContainer)
             Self.seedUITestSABnzbdServiceIfRequested(into: modelContainer)
             Self.seedUITestQBittorrentServiceIfRequested(into: modelContainer)
+            Self.seedUITestJellyfinServiceIfRequested(into: modelContainer)
+            Self.seedUITestSeerrServiceIfRequested(into: modelContainer)
+            Self.seedUITestArrAdminServicesIfRequested(into: modelContainer)
+            Self.seedUITestCleanuparrServiceIfRequested(into: modelContainer)
 
             #if os(macOS)
             LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
@@ -338,6 +342,82 @@ struct TrawlApp: App {
             try context.save()
         } catch {
             fatalError("Failed to seed UI test qBittorrent profile: \(error)")
+        }
+    }
+
+    /// Seeds the real Jellyfin profile/token inputs before ContentView evaluates its
+    /// welcome gate. The server itself remains a loopback fixture owned by the UI test;
+    /// startup still runs through JellyfinServiceManager and JellyfinAPIClient.
+    private static func seedUITestJellyfinServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let baseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_JELLYFIN_BASE_URL"],
+              !baseURL.isEmpty else { return }
+
+        let profile = JellyfinServiceProfile(
+            displayName: "Fixture Jellyfin",
+            hostURL: baseURL,
+            authMode: .apiKey
+        )
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000006")!
+        seedUITestKeychainValue("uitest-api-key", forKey: profile.accessTokenKey)
+        insertUITestProfile(profile, into: modelContainer, serviceName: "Jellyfin")
+    }
+
+    /// Seeds Seerr's persisted session cookie so its normal authenticated startup can
+    /// be exercised without driving the login sheet in every unrelated journey.
+    private static func seedUITestSeerrServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let baseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_SEERR_BASE_URL"],
+              !baseURL.isEmpty else { return }
+
+        let profile = SeerrServiceProfile(displayName: "Fixture Seerr", hostURL: baseURL)
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000007")!
+        seedUITestKeychainValue("uitest-session", forKey: profile.sessionCookieKey)
+        insertUITestProfile(profile, into: modelContainer, serviceName: "Seerr")
+    }
+
+    /// Prowlarr and Bazarr share ArrServiceProfile and ArrServiceManager, so one helper
+    /// handles their independent optional fixture URLs while preserving real routing.
+    private static func seedUITestArrAdminServicesIfRequested(into modelContainer: ModelContainer) {
+        let fixtures: [(environment: String, name: String, type: ArrServiceType, id: String)] = [
+            ("TRAWL_UITEST_PROWLARR_BASE_URL", "Fixture Prowlarr", .prowlarr, "9C6F1B4A-0000-4000-8000-000000000008"),
+            ("TRAWL_UITEST_BAZARR_BASE_URL", "Fixture Bazarr", .bazarr, "9C6F1B4A-0000-4000-8000-000000000009")
+        ]
+
+        for fixture in fixtures {
+            guard let baseURL = ProcessInfo.processInfo.environment[fixture.environment],
+                  !baseURL.isEmpty else { continue }
+            let profile = ArrServiceProfile(
+                displayName: fixture.name,
+                hostURL: baseURL,
+                serviceType: fixture.type
+            )
+            profile.id = UUID(uuidString: fixture.id)!
+            seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
+            insertUITestProfile(profile, into: modelContainer, serviceName: fixture.type.displayName)
+        }
+    }
+
+    /// Seeds Cleanuparr's profile and Keychain key for a real manager-to-client launch.
+    private static func seedUITestCleanuparrServiceIfRequested(into modelContainer: ModelContainer) {
+        guard let baseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_CLEANUPARR_BASE_URL"],
+              !baseURL.isEmpty else { return }
+
+        let profile = CleanuparrServiceProfile(displayName: "Fixture Cleanuparr", hostURL: baseURL)
+        profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000010")!
+        seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
+        insertUITestProfile(profile, into: modelContainer, serviceName: "Cleanuparr")
+    }
+
+    private static func insertUITestProfile<Model: PersistentModel>(
+        _ profile: Model,
+        into modelContainer: ModelContainer,
+        serviceName: String
+    ) {
+        let context = ModelContext(modelContainer)
+        context.insert(profile)
+        do {
+            try context.save()
+        } catch {
+            fatalError("Failed to seed UI test \(serviceName) profile: \(error)")
         }
     }
 
