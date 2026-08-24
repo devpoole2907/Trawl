@@ -51,6 +51,7 @@ struct TrawlApp: App {
             Self.seedUITestSeerrServiceIfRequested(into: modelContainer)
             Self.seedUITestArrAdminServicesIfRequested(into: modelContainer)
             Self.seedUITestCleanuparrServiceIfRequested(into: modelContainer)
+            Self.seedUITestAPNSDeviceTokenIfRequested()
 
             #if os(macOS)
             LSRegisterURL(Bundle.main.bundleURL as CFURL, false)
@@ -405,6 +406,23 @@ struct TrawlApp: App {
         profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000010")!
         seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
         insertUITestProfile(profile, into: modelContainer, serviceName: "Cleanuparr")
+    }
+
+    /// Notification configuration normally depends on APNs completing registration,
+    /// which is unavailable to the simulator test runner. An explicit UI-test launch
+    /// environment marker seeds one fixed, non-production token into the same
+    /// Keychain key that `NotificationService.deviceToken` reads. This stays entirely
+    /// inside DEBUG, runs before ContentView evaluates, and deliberately does nothing
+    /// unless a notification journey asks for it.
+    private static func seedUITestAPNSDeviceTokenIfRequested() {
+        guard ProcessInfo.processInfo.environment["TRAWL_UITEST_APNS_TOKEN"] == "1" else {
+            return
+        }
+
+        seedUITestKeychainValue(
+            "trawl-ui-test-apns-token-v1",
+            forKey: NotificationConstants.apnsTokenKey
+        )
     }
 
     private static func insertUITestProfile<Model: PersistentModel>(
