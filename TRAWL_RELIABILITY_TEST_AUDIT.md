@@ -595,6 +595,41 @@ Of the four defects found *before* this tranche, three — N-01, N-02, N-03 — 
 
 The two tiers are not ranked; they catch disjoint classes. View-model tests catch wrong answers. UI tests catch the app being assembled wrong — crash on open, blank screen, dead navigation — which the view model cannot see because the view model is fine. The recommended split is the bulk of effort on view models and services, cheap render-and-navigate coverage across all screens to catch the crash class, and full journeys reserved for destructive paths.
 
+## Seventh tranche — 24 August 2026
+
+Six commits (`a80fa74`, `be42867`, `a84865e`, `6d15e04`, `e77c463`, `25ee6bd`) closed the five service stacks that had no UI coverage at all. Eight new journeys launch the real app against per-test loopback servers; no production client, manager, decoder, navigation route, mutation method, or final view state is mocked.
+
+The shared harness is DEBUG-only and synchronous. `TrawlApp` creates a fresh in-memory store, writes the fixture credential to the same Keychain key production reads, inserts the real profile model, and completes all of that before `ContentView` evaluates the welcome gate. Fixed test-only UUIDs keep repeated launches from leaking orphaned credentials. Release behavior is unchanged.
+
+### The five stacks now covered through their real UI
+
+- **Seerr:** More → Requests & Access → Issues → issue detail. The fixture proves authenticated list/detail requests, detail-only comment rendering, the Resolve mutation, and the resulting Reopen state.
+- **Jellyfin:** More → Media Server → Sessions. A decoded user and episode are rendered; Stop Playback drives the confirmation, sends exactly one authenticated production POST, reloads, and ends in the server-backed empty state.
+- **Bazarr:** Movies → a real Radarr movie detail → Subtitles. The journey combines real Radarr and Bazarr profiles, renders the assigned profile and missing language, and proves the authenticated `radarrid[]=501` request reached Bazarr.
+- **Prowlarr:** three journeys cover Indexers/detail/Test Indexer, Linked Applications, and Proxies plus Tags/create. Every displayed row comes from documented `/api/v1` response shapes and every mutation is asserted at the receiving socket.
+- **Cleanuparr:** the healthy dashboard renders decoded activity, service-health errors and readiness; Include Dry Runs changes the real query and remains visibly enabled. A separate launch returns a real 503 and asserts the user-facing unavailable state and exact service message.
+
+The Cleanuparr journey also exposed two reusable UI-test lessons. A SwiftUI `LabeledContent` row may be one combined accessibility element rather than separate label/value texts, and a test that walks down a long `List` cannot then use a down-only discovery helper to find content above it. The final journey follows screen order and queries the combined row. The toggle itself needed a tap on the switch control's trailing region; a center tap hit its label without changing the value. These were harness defects, not product defects, and were fixed without weakening the HTTP or rendered-state assertions.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Five new UI classes together | **Passed:** 8 executions, 0 failed, 0 skipped |
+| Full `Trawl.xctestplan` | **Passed:** **622 executions**, 0 failed, 0 skipped |
+| Zero/incomplete-result guard | Both result bundles accepted by `Scripts/assert-test-results.py` |
+| `Trawl`, `TrawlMac`, `TrawlShare`, `TrawlWidgets` | **All build** |
+
+Authoritative results: `/tmp/trawl-tier1-ui-2.xcresult` for the five-stack UI gate and `/tmp/trawl-full-after-tier1-ui.xcresult` for the complete plan.
+
+### Still uncovered, stated plainly
+
+- **More/Settings breadth is now the best next UI target.** These screens own most service-admin navigation and remain much larger than their journey coverage. Cheap open/render/back checks can catch missing environment injection, dead destinations and blank assembly without turning every screen into a slow end-to-end test.
+- **High-value sheets and destructive flows** remain uneven: setup/edit forms, delete confirmations, path mappings, import scanning and notification settings should follow.
+- **TrawlMac still has no UI-test target.** It is protected by compilation and shared logic tests, not platform-specific navigation journeys.
+- **Widget and ShareViewController process shells remain parked** with the maintainer's agreement. Their pure decision logic and target builds are covered; installed-extension behavior needs deliberate test-host and target-membership work.
+- UI coverage is meaningfully broader but is not “every screen”: 26 UI test functions now exist, including smoke, onboarding and 17 real journeys. The remaining work should continue to prioritize assembly risk and user mutations rather than raw screen-count inflation.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
