@@ -70,6 +70,8 @@ Whenever the user's instructions or the code you're working with reference an iO
 
 Reliability coverage must stay meaningful without repeatedly rediscovering the whole repository.
 
+Before editing production behavior, consult `TRAWL_TEST_COVERAGE_MAP.md`. Read and run the focused suites mapped to the touched surface; add or update the map whenever test ownership changes or a new behavior remains intentionally uncovered.
+
 - Work one bounded coverage stack at a time. Define the exact production path, fixture, scenarios, and allowed files before delegating.
 - Prefer one small subagent at a time. Give it a narrow file allow-list and require only: changed files, focused result, negative-control evidence, and unresolved risks. Do not request broad repository audits or long narrative reports.
 - Reuse existing fixture servers, launch hooks, scrolling helpers, and golden contract-test patterns. Do not create a new server implementation when an existing one can be safely extended.

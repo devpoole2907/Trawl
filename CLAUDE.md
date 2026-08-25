@@ -57,3 +57,11 @@ JellyfinStack/JellyfinLibrariesView.swift,
 ## SourceKit diagnostics
 
 SourceKit (the LSP) fires "cannot find type in scope" errors in `system-reminder` whenever a file references types defined in other files. These are **indexing noise** — they do not reflect real build errors. Ignore them entirely; use an actual `xcodebuild` run to validate.
+
+---
+
+## Test ownership and usage discipline
+
+Before editing production behavior, consult `TRAWL_TEST_COVERAGE_MAP.md`. Read and run the focused suites mapped to every touched surface. If behavior is added or test ownership changes, update that map in the same commit.
+
+Work one bounded coverage stack at a time, reuse existing fixtures and helpers, and prefer focused tests during development. Run the complete test plan only at the final tranche/release checkpoint. Do not use timing sleeps, skipped tests, method-mock tautologies, or direct installation of final UI state; exercise production request/state paths with deterministic fixtures or explicit barriers.

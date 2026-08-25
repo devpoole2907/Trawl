@@ -139,6 +139,13 @@ struct ContentView: View {
                 .environment(downloadsNavigator)
                 .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
                 .navigationTransition(.zoom(sourceID: notificationSheetTransitionID, in: notificationTransitionNamespace))
+                // The zoom transition's vertical swipe competes with the sheet's
+                // native pull-down dismissal. Keep the other zoom gestures.
+                .navigationAllowDismissalGestures([
+                    .swipeToGoBack,
+                    .zoomEdgePanToDismiss,
+                    .zoomPinchToDismiss,
+                ])
             #else
             RecentNotificationsSheet()
                 .environment(inAppNotificationCenter)
