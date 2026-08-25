@@ -63,3 +63,20 @@ SourceKit (the LSP) fires "cannot find type in scope" errors in `system-reminder
 ## Unfamiliar iOS APIs
 
 Whenever the user's instructions or the code you're working with reference an iOS API (SwiftUI, UIKit, Foundation, etc.) that you are not fully confident about, use the `xcrun_DocumentationSearch` tool to look it up before writing or modifying code. If the search results are unclear or multiple interpretations are possible, ask the user for clarification before proceeding.
+
+---
+
+## Usage-efficient reliability work
+
+Reliability coverage must stay meaningful without repeatedly rediscovering the whole repository.
+
+- Work one bounded coverage stack at a time. Define the exact production path, fixture, scenarios, and allowed files before delegating.
+- Prefer one small subagent at a time. Give it a narrow file allow-list and require only: changed files, focused result, negative-control evidence, and unresolved risks. Do not request broad repository audits or long narrative reports.
+- Reuse existing fixture servers, launch hooks, scrolling helpers, and golden contract-test patterns. Do not create a new server implementation when an existing one can be safely extended.
+- Use focused tests while developing. Run a combined tranche once, and run the complete test plan only at the final checkpoint for that tranche.
+- After two unsuccessful UI-test correction loops, stop guessing at selectors and inspect the accessibility hierarchy or production navigation directly.
+- Reserve full all-target build gates for production/project-file changes and final release checkpoints. Test-only changes still need the directly affected target compiled by their focused test run.
+- Prefer lower-level deterministic coverage when it proves the contract. Use XCUITest where the risk lives in navigation, environment injection, accessibility, presentation, persistence wiring, confirmation dialogs, or other view-owned behavior.
+- Keep batches reviewable: normally 2–5 meaningful tests or one end-to-end journey per commit. Do not expand into adjacent surfaces merely because they are nearby.
+- Do not use `Task.sleep`, timing guesses, skipped tests, method-mock tautologies, or direct installation of final UI state. Exercise production request/state paths with loopback servers, recording `URLProtocol`, manual clocks, or checked-continuation barriers.
+- Treat usage as a budget: preserve contingency for debugging and validation, and stop at a clean committed/pushed checkpoint before exhausting the available allowance.
