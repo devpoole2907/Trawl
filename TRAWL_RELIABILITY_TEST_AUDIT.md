@@ -706,6 +706,48 @@ Authoritative results: `/tmp/trawl-notification-setup-integrated.xcresult` for t
 - **Widget and ShareViewController installed-process shells remain parked** by agreement; pure decision logic, target membership and product compilation are covered.
 - The suite now contains approximately 40 UI test functions. It is a strong regression net, not a literal every-screen proof; future work should keep pairing cheap assembly smoke checks with full socket-asserted journeys for state-changing actions.
 
+## Tenth tranche — 26 August 2026
+
+Six commits (`109c43f`, `62f1ac3`, `2676fa1`, `2edf29a`, `f442f53`, `5a90128`) closed the core content-acquisition stream and the last two service families without setup/edit coverage. Two streams ran in parallel — acquisition in the main worktree, Jellyfin/Seerr setup/edit in an isolated worktree — with simulator builds serialized on one device throughout.
+
+### Release acquisition through the real UI
+
+- **Sonarr and Radarr release search:** `TrawlUITests/ArrReleaseAcquisitionJourneyUITests.swift` drives automatic command routing, interactive-search query parameters, release rendering, the exact grab bodies and visible success feedback against loopback fixtures. **2 executed, 0 failed, 0 skipped.**
+- **Adding a brand-new Radarr movie from Search:** `TrawlUITests/RadarrSearchAddJourneyUITests.swift` covers success, duplicate suppression and server-failure behavior, closing the last open item on that coverage-map row. **1 executed, 0 failed, 0 skipped.**
+
+### Jellyfin and Seerr setup/edit
+
+- `TrawlUITests/JellyfinSeerrSetupEditJourneyUITests.swift` and its 435-line fixture server verify prefill, a rejected authentication whose exact user-visible error appears without dismissing the editor, a corrected retry, the exact production method/path/headers/body at the fixture socket, persistence of the replacement host, and the service manager reconnecting to the replacement rather than the old server. **2 executed, 0 failed, 0 skipped.**
+- Every service family except the Arr forms now has this shape: qBittorrent and SABnzbd (ninth tranche), Jellyfin and Seerr (here).
+
+### Negative controls, including one that did not prove what it looked like
+
+- **Radarr add-new:** removing the production post-add `loadMovies()` refresh did *not* fail the journey, because the detail screen's completion callback independently refreshes Search's library state. That control was discarded rather than counted: it shows the journey survives that internal refactor, but it did not exercise the network seam. Breaking the production add endpoint instead failed the journey exactly at sheet dismissal, and the restored build returned green.
+- **Seerr setup/edit:** reverting the detent fix below failed the journey exactly at the Sign In tap.
+
+### A real defect the Seerr journey caught
+
+Both Seerr editor presentations declared `detents: [.medium, .large]` and opened at medium. At that height the form is too short to scroll while **Sign In** sits below the bottom of an iPhone 17 Pro screen — `isEnabled == true`, `isHittable == false`, and unreachable by any swipe. A user adding or editing a Seerr server could not submit the form without knowing to drag the sheet up first. `5a90128` presents both at `.large`, matching the existing sheets whose primary action must always be on screen (`SABnzbdNewsServerEditorSheet`, the library import scan sheet). The journey guards it: it reaches Sign In with no expand step, and `tapInEditor` requires `isHittable` without scrolling, so restoring the medium detent fails the test.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Release acquisition journeys | **Passed:** **2 executions**, 0 failed, 0 skipped |
+| Radarr add-new journey | **Passed:** **1 execution**, 0 failed, 0 skipped |
+| Jellyfin/Seerr setup-edit journeys | **Passed:** **2 executions**, 0 failed, 0 skipped |
+| Integrated checkpoint (add-new + both setup/edit) | **Passed:** **3 executions**, 0 failed, 0 skipped |
+| Seerr detent fix, focused re-run | **Passed:** **2 executions**, 0 failed, 0 skipped |
+
+**The full `Trawl.xctestplan` has not been run since the ninth tranche.** These are focused-suite results only. A complete-plan checkpoint is owed before the next release gate.
+
+### Still uncovered, stated plainly
+
+- **Arr-family setup/edit forms are the last family without validation-failure coverage.** Sonarr, Radarr, Bazarr and Prowlarr connection forms have no journey proving a rejected key keeps the editor open with the exact production error and then persists a corrected retry. `ArrRepointJourneyUITests` covers the reconnect half for Sonarr's host only. This is the top open item.
+- **Remaining destructive/admin flows:** indexer/application/proxy/tag management, Bazarr profile/provider actions, Jellyfin user/password/policy changes, and queue/blocklist/wanted confirmations, still to be selected by mutation risk rather than screen count.
+- **M-03 remains partially fixed:** a deterministic qBittorrent 403 reauthentication contract still needs an injectable credential/reauthentication seam.
+- **TrawlMac UI remains deferred** at the maintainer's request; **widget and `ShareViewController` installed-process shells remain parked** by agreement.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
