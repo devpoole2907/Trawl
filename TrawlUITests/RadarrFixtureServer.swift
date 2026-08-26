@@ -16,6 +16,9 @@
 //    `SharedArrClient`'s default implementations (`Trawl/ArrStack/ArrAPIClient.swift`).
 //  - `GET /api/v3/movie` — the movie library (`ArrServiceManager.loadMovieLibrary`,
 //    `RadarrAPIClient.getMovies`, `Trawl/ArrStack/RadarrAPIClient.swift:15`).
+//  - `GET /api/v3/movie/lookup` and `POST /api/v3/movie` — the add-new movie
+//    journey. When configured with an added-movie payload, a successful POST folds
+//    it into subsequent library responses so the production refetch changes the UI.
 //  - `GET /api/v3/movie/{id}` — the canonical single-movie fetch
 //    (`RadarrAPIClient.getMovie(id:)`, `RadarrAPIClient.swift:20`), called by
 //    `RadarrViewModel.toggleMovieMonitored(_:)`
@@ -66,7 +69,7 @@ import Foundation
 import Network
 
 /// Loopback fixture standing in for a real Radarr server, purpose-built for
-/// `RadarrJourneyUITests`. Distinct type names from `SonarrFixtureServer` /
+/// the Radarr UI journeys. Distinct type names from `SonarrFixtureServer` /
 /// `ArrSearchAddFixtureServer` even though the shape rhymes, since this fixture is
 /// mutable (it remembers the `monitored` flag a `PUT` changes) in a way neither of
 /// those needs to be for their own journeys.
@@ -101,6 +104,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
     private let rootFoldersJSON: String
     private let releaseResponseJSON: String
     private let commandResponseJSON: String
+    private let lookupResponseJSON: String
+    private let addedMovieJSON: String?
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -108,6 +113,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
     /// these requests: whether the fixture movie is currently monitored. Mutated by
     /// a `PUT /api/v3/movie/{id}` and read back by every subsequent `GET`.
     private var monitored: Bool
+    private var hasAddedMovie = false
 
     /// - Parameters:
     ///   - initiallyMonitored: starting value of the fixture movie's `monitored`
@@ -123,7 +129,9 @@ final class RadarrFixtureServer: @unchecked Sendable {
         qualityProfilesJSON: String = #"[{"id":4,"name":"HD-1080p"}]"#,
         rootFoldersJSON: String = #"[{"id":1,"path":"/movies"}]"#,
         releaseResponseJSON: String = "[]",
-        commandResponseJSON: String = #"{"id":77,"name":"MoviesSearch","status":"queued"}"#
+        commandResponseJSON: String = #"{"id":77,"name":"MoviesSearch","status":"queued"}"#,
+        lookupResponseJSON: String = "[]",
+        addedMovieJSON: String? = nil
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -132,6 +140,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
         self.rootFoldersJSON = rootFoldersJSON
         self.releaseResponseJSON = releaseResponseJSON
         self.commandResponseJSON = commandResponseJSON
+        self.lookupResponseJSON = lookupResponseJSON
+        self.addedMovieJSON = addedMovieJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -253,9 +263,19 @@ final class RadarrFixtureServer: @unchecked Sendable {
         }
         if request.method == "GET" && request.path == "/api/v3/movie" {
             lock.lock()
-            let json = "[\(movieJSON())]"
+            let added = hasAddedMovie ? addedMovieJSON : nil
+            let json = added.map { "[\(movieJSON()),\($0)]" } ?? "[\(movieJSON())]"
             lock.unlock()
             return json
+        }
+        if request.method == "GET" && request.path == "/api/v3/movie/lookup" {
+            return lookupResponseJSON
+        }
+        if request.method == "POST" && request.path == "/api/v3/movie", let addedMovieJSON {
+            lock.lock()
+            hasAddedMovie = true
+            lock.unlock()
+            return addedMovieJSON
         }
         if request.method == "GET" && request.path == movieDetailPath {
             lock.lock()
