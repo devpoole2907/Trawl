@@ -748,6 +748,46 @@ Both Seerr editor presentations declared `detents: [.medium, .large]` and opened
 - **M-03 remains partially fixed:** a deterministic qBittorrent 403 reauthentication contract still needs an injectable credential/reauthentication seam.
 - **TrawlMac UI remains deferred** at the maintainer's request; **widget and `ShareViewController` installed-process shells remain parked** by agreement.
 
+## Eleventh tranche — 26 August 2026
+
+Two commits (`17f93d2`, `f93af96`) closed the top open item from the tenth tranche and repaid the full-plan debt it recorded.
+
+### The full-plan checkpoint that was owed
+
+The complete `Trawl.xctestplan` ran for the first time since the ninth tranche: **648 executions, 0 failed, 0 skipped**, accepted by `Scripts/assert-test-results.py`. That is the ninth tranche's 643 plus the five journeys added on 26 August, and it validates the Seerr detent fix alongside everything else already landed.
+
+### Arr setup/edit — the last family without validation-failure coverage
+
+`TrawlUITests/ArrSetupEditJourneyUITests.swift` drives the seeded Sonarr profile's real editor against a second loopback server that accepts exactly one key: a wrong key shows the exact production `ArrError.invalidAPIKey` description with the editor still open, server B sees that exact key at the socket, and server A is left untouched — a failed validation must not repoint anything, which the ordering inside `validateAndSave` (the connection test precedes every write) is what actually guarantees. The corrected key then dismisses, persists the host visibly, and reconnects the manager to B.
+
+One Sonarr journey covers all four Arr services: they share `ArrSetupSheet` and `validateAndSave`, and the service type only selects which client `testConnection` builds, below the failure handling under test.
+
+`SonarrFixtureServer` gained an optional `acceptedAPIKey:` that answers a mismatched `X-Api-Key` with a real 401. It defaults to nil, so the five existing consumers are unaffected.
+
+**Negative control:** breaking the production dismissal guard so a failed save dismisses anyway failed the journey at the error-visibility assertion; the restored build returned green.
+
+### A flake that blamed the product, and a harness trap worth remembering
+
+`ArrInstanceSwitchJourneyUITests` failed once during the integrated run and passed in isolation 21 seconds later. The failure was `Failed to tap Button: Timed out while synthesizing event` after 167 seconds — the *tap* failing, not an assertion, because a toolbar menu and its popover items exist in the tree before they can accept an event. Left alone this reads as a product hang. The four menu taps now wait for hittability first. `ArrRepointJourneyUITests` also still carried debug prints from an earlier session; they are gone.
+
+This is the third distinct way this suite has manufactured a misleading failure — after the swallowed taps of the sixth tranche and the below-the-fold controls of the tenth. The pattern is constant: **an element that exists is not an element that can be used**, and every new journey should assume it.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| Full `Trawl.xctestplan` | **Passed:** **648 executions**, 0 failed, 0 skipped |
+| New Arr setup/edit journey | **Passed:** **1 execution**, 0 failed, 0 skipped |
+| Every suite sharing `SonarrFixtureServer` | **Passed:** **8 executions**, 0 failed, 0 skipped |
+| Zero/incomplete-result guard | All bundles accepted by `Scripts/assert-test-results.py` |
+
+### Still uncovered, stated plainly
+
+- **Remaining destructive/admin flows** are now the top open item: indexer/application/proxy/tag management, Bazarr profile/provider actions, Jellyfin user/password/policy changes, and queue/blocklist/wanted confirmations, selected by mutation risk rather than screen count.
+- **M-03 remains partially fixed:** a deterministic qBittorrent 403 reauthentication contract still needs an injectable credential/reauthentication seam.
+- **The Arr *add-new-service* path is still uncovered.** Every setup journey in the suite, across all six services, starts from a seeded profile and edits it, because the pre-seed welcome gate is unreachable from a UI test driving the UI alone. First-run onboarding remains covered only at the view-model level.
+- **TrawlMac UI remains deferred**; **widget and `ShareViewController` installed-process shells remain parked** by agreement.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
