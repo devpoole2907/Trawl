@@ -23,20 +23,32 @@ final class SonarrFixtureServer: @unchecked Sendable {
     struct RecordedRequest: Sendable, Equatable {
         let method: String
         let path: String
+        /// The `X-Api-Key` header this request carried, so a journey can assert *which*
+        /// key reached the socket rather than only that some request arrived.
+        let apiKey: String?
     }
 
     private let listener: NWListener
     private let queue: DispatchQueue
     private let seriesResponseBody: String
+    private let acceptedAPIKey: String?
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
 
-    /// - Parameter seriesJSON: raw JSON array body returned for `GET /api/v3/series`.
-    init(seriesJSON: String) async throws {
+    /// - Parameters:
+    ///   - seriesJSON: raw JSON array body returned for `GET /api/v3/series`.
+    ///   - acceptedAPIKey: when non-nil, any request whose `X-Api-Key` header does not
+    ///     match is answered `401`, exactly as a real Sonarr rejects a bad key. The
+    ///     production client maps 401 to `ArrError.invalidAPIKey`
+    ///     (`ArrAPIClient.swift`'s `unauthorizedStatusCodes: [401]`), which is what the
+    ///     setup sheet surfaces. Defaults to nil — accept every key — so the journeys
+    ///     that only need a reachable server are unaffected.
+    init(seriesJSON: String, acceptedAPIKey: String? = nil) async throws {
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.seriesResponseBody = seriesJSON
+        self.acceptedAPIKey = acceptedAPIKey
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
@@ -73,7 +85,13 @@ final class SonarrFixtureServer: @unchecked Sendable {
     }
 
     func hasReceivedRequest(method: String, path: String) -> Bool {
-        requests.contains(RecordedRequest(method: method, path: path))
+        requests.contains { $0.method == method && $0.path == path }
+    }
+
+    /// Whether a request arrived at this endpoint carrying exactly `apiKey`. Used to
+    /// prove the key the user typed is the key the production client actually sent.
+    func hasReceivedRequest(method: String, path: String, apiKey: String) -> Bool {
+        requests.contains { $0.method == method && $0.path == path && $0.apiKey == apiKey }
     }
 
     func stop() {
@@ -102,9 +120,11 @@ final class SonarrFixtureServer: @unchecked Sendable {
             self.recordedRequests.append(request)
             self.lock.unlock()
 
-            let body = self.responseBody(for: request)
+            let isAuthorized = self.acceptedAPIKey.map { $0 == request.apiKey } ?? true
+            let status = isAuthorized ? 200 : 401
+            let body = isAuthorized ? self.responseBody(for: request) : "{}"
             connection.send(
-                content: Self.httpResponse(body: body),
+                content: Self.httpResponse(body: body, status: status),
                 contentContext: .finalMessage,
                 isComplete: true,
                 completion: .contentProcessed { _ in connection.cancel() }
@@ -137,18 +157,31 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private static func parseRequest(from data: Data) -> RecordedRequest {
         guard let text = String(data: data, encoding: .utf8),
               let firstLine = text.split(separator: "\r\n", maxSplits: 1).first else {
-            return RecordedRequest(method: "", path: "")
+            return RecordedRequest(method: "", path: "", apiKey: nil)
         }
         let parts = firstLine.split(separator: " ", omittingEmptySubsequences: true)
         let method = parts.first.map(String.init) ?? ""
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
         let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
-        return RecordedRequest(method: method, path: path)
+        return RecordedRequest(method: method, path: path, apiKey: apiKeyHeader(in: text))
     }
 
-    private static func httpResponse(body: String) -> Data {
+    /// Header names are case-insensitive per RFC 9110, and the value is everything
+    /// after the first colon with surrounding whitespace removed.
+    private static func apiKeyHeader(in text: String) -> String? {
+        for line in text.split(separator: "\r\n") {
+            guard let colon = line.firstIndex(of: ":") else { continue }
+            let name = line[line.startIndex..<colon].trimmingCharacters(in: .whitespaces)
+            guard name.caseInsensitiveCompare("X-Api-Key") == .orderedSame else { continue }
+            return line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
+        }
+        return nil
+    }
+
+    private static func httpResponse(body: String, status: Int = 200) -> Data {
         let bytes = Data(body.utf8)
-        let headers = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
+        let reason = status == 200 ? "OK" : "Unauthorized"
+        let headers = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         return Data(headers.utf8) + bytes
     }
 }
