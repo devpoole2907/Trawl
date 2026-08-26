@@ -87,7 +87,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // which only exists once the real manager has completed GET /System/Info. Seeing
         // the original server's name here is the baseline the repoint is measured against.
         XCTAssertTrue(
-            staticText("Fixture Jellyfin Server", in: app).waitForExistence(in: app, timeout: 15),
+            staticText("Server, Fixture Jellyfin Server", in: app).waitForExistence(in: app, timeout: 15),
             "Jellyfin Settings should show the originally connected server's name before any edit — if this fails, the baseline connect is broken, not the repoint."
         )
 
@@ -97,27 +97,31 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             editTitle.waitForExistence(timeout: 10),
             "Edit Server should present the real JellyfinSetupSheet in edit mode rather than an Add flow."
         )
+        expandSheet(titled: "Edit Jellyfin", in: app)
 
         // MARK: Pre-fill
 
-        let displayName = app.textFields["Display Name"]
-        let host = app.textFields["Jellyfin URL (e.g. http://192.168.1.50:8096)"]
-        XCTAssertTrue(displayName.waitForExistence(in: app, timeout: 10), "The Jellyfin editor should expose its Display Name field.")
-        XCTAssertTrue(host.waitForExistence(in: app, timeout: 10), "The Jellyfin editor should expose its host field.")
+        let displayName = textField(placeholder: "Display Name", in: app)
+        let host = textField(placeholder: "Jellyfin URL (e.g. http://192.168.1.50:8096)", in: app)
+        XCTAssertTrue(displayName.waitForExistence(timeout: 10), "The Jellyfin editor should expose its Display Name field.")
+        XCTAssertTrue(host.waitForExistence(timeout: 10), "The Jellyfin editor should expose its host field.")
         waitForValue(displayName, expected: "Fixture Jellyfin", timeout: 10)
         waitForValue(host, expected: original.baseURL, timeout: 10)
 
         // MARK: Repoint at the replacement with a wrong key
 
         replace(replacement.baseURL, into: host, in: app, deleting: original.baseURL.count)
-        let apiKey = app.secureTextFields["API Key"]
-        XCTAssertTrue(apiKey.waitForExistence(in: app, timeout: 10), "API-key mode should expose the API Key field.")
+        let apiKey = secureField(placeholder: "API Key", in: app)
+        XCTAssertTrue(apiKey.waitForExistence(timeout: 10), "API-key mode should expose the API Key field.")
         // `seed(from:)` deliberately leaves the key blank on edit — the stored token is
         // never read back into the form — so there is nothing to delete first.
         replace("wrong-api-key", into: apiKey, in: app, deleting: 0)
 
         let save = app.buttons["Save Connection"]
-        XCTAssertTrue(tap(save, in: app, timeout: 10), "A populated Jellyfin edit form should enable its submit button.")
+        XCTAssertTrue(
+            tapInEditor(save, in: app, timeout: 15),
+            "A populated Jellyfin edit form should enable its submit button."
+        )
 
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 15) {
@@ -137,7 +141,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         let rejectedCopy = staticText("Your Jellyfin credentials are no longer valid. Please sign in again.", in: app)
         XCTAssertTrue(
-            rejectedCopy.waitForExistence(in: app, timeout: 15),
+            rejectedCopy.waitForExistence(timeout: 15),
             "A 401 from Jellyfin must surface JellyfinAPIError.unauthorized's copy in the editor's ValidationErrorSection."
         )
         XCTAssertTrue(editTitle.exists, "A rejected API key must keep the Jellyfin editor open for correction.")
@@ -145,7 +149,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // section can move it, and a row SwiftUI has unloaded reports no value at all,
         // which would fail for a reason unrelated to the behavior under test.
         XCTAssertTrue(
-            waitForHittability(of: host, in: app, timeout: 10),
+            waitUntilHittable(host, timeout: 10),
             "The host field must still be present and editable after a rejected validation."
         )
         XCTAssertEqual(
@@ -161,7 +165,10 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // MARK: Correct the key
 
         replace(replacementKey, into: apiKey, in: app, deleting: "wrong-api-key".count)
-        XCTAssertTrue(tap(save, in: app, timeout: 10), "Correcting the API key should allow a second real validation attempt.")
+        XCTAssertTrue(
+            tapInEditor(save, in: app, timeout: 15),
+            "Correcting the API key should allow a second real validation attempt."
+        )
 
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 20) {
@@ -181,7 +188,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             "Jellyfin Settings should repaint from SwiftData with the persisted replacement host."
         )
         XCTAssertTrue(
-            staticText("Replacement Jellyfin Server", in: app).waitForExistence(in: app, timeout: 20),
+            staticText("Server, Replacement Jellyfin Server", in: app).waitForExistence(in: app, timeout: 20),
             "The System Info section should show the replacement server's name, which only reaches the screen through JellyfinServiceManager's cachedSystemInfo after a real reconnect."
         )
 
@@ -245,7 +252,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // runs against SeerrServiceManager's active client. Seeing the original
         // instance's title proves the baseline connection before the repoint.
         XCTAssertTrue(
-            staticText("Fixture Seerr Instance", in: app).waitForExistence(in: app, timeout: 15),
+            staticText("Instance, Fixture Seerr Instance", in: app).waitForExistence(in: app, timeout: 15),
             "Seerr Settings should show the originally connected instance's title before any edit."
         )
 
@@ -255,28 +262,32 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             editTitle.waitForExistence(timeout: 10),
             "Edit Server should present the real SeerrSetupSheet in edit mode rather than an Add flow."
         )
+        expandSheet(titled: "Edit Seerr", in: app)
 
         // MARK: Pre-fill
 
-        let host = app.textFields["Seerr URL (e.g. http://192.168.1.50:5055)"]
-        XCTAssertTrue(host.waitForExistence(in: app, timeout: 10), "The Seerr editor should expose its host field.")
+        let host = textField(placeholder: "Seerr URL (e.g. http://192.168.1.50:5055)", in: app)
+        XCTAssertTrue(host.waitForExistence(timeout: 10), "The Seerr editor should expose its host field.")
         waitForValue(host, expected: original.baseURL, timeout: 10)
 
         // MARK: Repoint at the replacement with a wrong password
 
         replace(replacement.baseURL, into: host, in: app, deleting: original.baseURL.count)
 
-        let usernameField = app.textFields["Jellyfin Username"]
-        let passwordField = app.secureTextFields["Jellyfin Password"]
-        XCTAssertTrue(usernameField.waitForExistence(in: app, timeout: 10), "The Seerr editor should expose its username field.")
-        XCTAssertTrue(passwordField.waitForExistence(in: app, timeout: 10), "The Seerr editor should expose its password field.")
+        let usernameField = textField(placeholder: "Jellyfin Username", in: app)
+        let passwordField = secureField(placeholder: "Jellyfin Password", in: app)
+        XCTAssertTrue(usernameField.waitForExistence(timeout: 10), "The Seerr editor should expose its username field.")
+        XCTAssertTrue(passwordField.waitForExistence(timeout: 10), "The Seerr editor should expose its password field.")
         // Seerr exchanges these credentials for a session cookie and never stores them,
         // so an edit legitimately starts with both fields empty.
         replace(username, into: usernameField, in: app, deleting: 0)
         replace("wrong-password", into: passwordField, in: app, deleting: 0)
 
         let signIn = app.buttons["Sign In"]
-        XCTAssertTrue(tap(signIn, in: app, timeout: 10), "A fully populated Seerr edit form should enable Sign In.")
+        XCTAssertTrue(
+            tapInEditor(signIn, in: app, timeout: 15),
+            "A fully populated Seerr edit form should enable Sign In."
+        )
 
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 15) {
@@ -289,14 +300,14 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         let rejectedCopy = staticText("Your Seerr session has expired. Please sign in again.", in: app)
         XCTAssertTrue(
-            rejectedCopy.waitForExistence(in: app, timeout: 15),
+            rejectedCopy.waitForExistence(timeout: 15),
             "A 401 from Seerr's sign-in must surface SeerrAPIError.unauthorized's copy inside the editor."
         )
         XCTAssertTrue(editTitle.exists, "A rejected Seerr sign-in must keep the editor open for correction.")
         // Same reason as the Jellyfin journey: read the field only once it is back on
         // screen, so an unloaded row can't be mistaken for a discarded edit.
         XCTAssertTrue(
-            waitForHittability(of: host, in: app, timeout: 10),
+            waitUntilHittable(host, timeout: 10),
             "The host field must still be present and editable after a rejected sign-in."
         )
         XCTAssertEqual(
@@ -312,7 +323,10 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // MARK: Correct the password
 
         replace(password, into: passwordField, in: app, deleting: "wrong-password".count)
-        XCTAssertTrue(tap(signIn, in: app, timeout: 10), "Correcting the password should allow a second real sign-in attempt.")
+        XCTAssertTrue(
+            tapInEditor(signIn, in: app, timeout: 15),
+            "Correcting the password should allow a second real sign-in attempt."
+        )
 
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 20) {
@@ -331,7 +345,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             "Seerr Settings should repaint from SwiftData with the persisted replacement host."
         )
         XCTAssertTrue(
-            staticText("Replacement Seerr Instance", in: app).waitForExistence(in: app, timeout: 20),
+            staticText("Instance, Replacement Seerr Instance", in: app).waitForExistence(in: app, timeout: 20),
             "System Status should show the replacement instance's title, which only arrives via GET /api/v1/settings/public through the manager's reconnected client."
         )
 
@@ -409,14 +423,146 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
-    /// Matched by exact label and reduced to `firstMatch`: `SeerrSettingsView` renders
-    /// the instance title in both its Server and System Status sections, and a
+    /// Matched by exact label and reduced to `firstMatch`. Two things make this the
+    /// right query: `LabeledContent` publishes one merged element whose label is
+    /// `"<label>, <value>"` (so asserting `"Server, Replacement Jellyfin Server"` pins
+    /// the row *and* its value, not a loose string anywhere on screen), and
+    /// `SeerrSettingsView` renders the instance title in two sections, where a
     /// multiple-match query would fail on access rather than on the behavior.
     @MainActor
     private func staticText(_ label: String, in app: XCUIApplication) -> XCUIElement {
         app.staticTexts.matching(NSPredicate(format: "label == %@", label)).firstMatch
     }
 
+    /// SwiftUI `TextField`/`SecureField` inside a `Form` publish their title as the
+    /// element's *placeholder*, not its accessibility label — a probe of the real
+    /// hierarchy shows `label` empty on every field in both editors. Matching on
+    /// `placeholderValue` is therefore the identity that actually exists, and it stays
+    /// stable once the field holds a value.
+    @MainActor
+    private func textField(placeholder: String, in app: XCUIApplication) -> XCUIElement {
+        app.textFields.matching(NSPredicate(format: "placeholderValue == %@", placeholder)).firstMatch
+    }
+
+    @MainActor
+    private func secureField(placeholder: String, in app: XCUIApplication) -> XCUIElement {
+        app.secureTextFields.matching(NSPredicate(format: "placeholderValue == %@", placeholder)).firstMatch
+    }
+
+    // MARK: Working inside a presented editor
+    //
+    // Everything below exists to keep the editor's layout *static* while the journey
+    // drives it, which is what makes these forms addressable at all. Probing the real
+    // hierarchy showed two ways the naive approach fails:
+    //
+    // * Both editors declare `detents: [.medium, .large]`, so they open at medium. The
+    //   Seerr editor's form is then too short to scroll while its "Sign In" button sits
+    //   at frame y=860 on an 874pt screen — `isEnabled == true`, `isHittable == false`,
+    //   and unreachable by any swipe.
+    // * Scrolling a presented sheet is not addressable: the sheet's Form and the
+    //   settings list behind it are both in the tree, so `collectionViews.firstMatch`
+    //   resolves to either, and scrolling far enough unloads the very lazily-rendered
+    //   row being reached for.
+    //
+    // Expanding the sheet once, and dropping the keyboard after every entry, removes
+    // both problems: at the large detent with no keyboard, each editor's whole form is
+    // on screen, so no in-sheet scrolling is needed at any point.
+
+    /// Drags the presented editor up to its large detent — what a user does with a
+    /// cramped sheet. A no-op once the sheet is already large.
+    @MainActor
+    private func expandSheet(titled title: String, in app: XCUIApplication) {
+        let bar = app.navigationBars[title]
+        guard bar.waitForExistence(timeout: 10) else { return }
+        bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            .press(
+                forDuration: 0.1,
+                thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
+            )
+        _ = app.staticTexts["__jellyfin_seerr_setup_edit_tick__"].waitForExistence(timeout: 1)
+    }
+
+    /// Types into a field of the presented editor, then drops the keyboard so the next
+    /// element is looked at against a settled layout.
+    @MainActor
+    private func replace(
+        _ value: String,
+        into field: XCUIElement,
+        in app: XCUIApplication,
+        deleting characterCount: Int,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            waitUntilHittable(field, timeout: 10),
+            "The field should be on screen and interactable before typing into it.",
+            file: file,
+            line: line
+        )
+        if field.elementType == .secureTextField {
+            // SecureField exposes a compact text-input element; tapping it directly is
+            // what gives it keyboard focus.
+            field.tap()
+        } else {
+            // SwiftUI aligns URL fields toward their trailing edge, so tapping there
+            // puts the caret after the existing text rather than in front of it.
+            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        }
+        if characterCount > 0 {
+            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
+        }
+        field.typeText(value)
+        resignKeyboard(in: app)
+    }
+
+    /// Taps a control inside the presented editor. No scrolling: the sheet has been
+    /// expanded and the keyboard dropped, so the control is either on screen or the
+    /// journey has found a real problem.
+    @discardableResult
+    @MainActor
+    private func tapInEditor(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
+        guard element.waitForExistence(timeout: timeout) else { return false }
+        resignKeyboard(in: app)
+        guard waitUntilHittable(element, timeout: timeout) else { return false }
+        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        return true
+    }
+
+    /// Dismisses the software keyboard by pressing its submit key. The label differs by
+    /// keyboard type (the host fields use `.URL`), so the known variants are tried in
+    /// turn.
+    @MainActor
+    private func resignKeyboard(in app: XCUIApplication) {
+        guard app.keyboards.element.exists else { return }
+        for label in ["return", "Return", "Go", "go", "Done", "done"] {
+            let key = app.keyboards.buttons[label]
+            guard key.exists, key.isHittable else { continue }
+            key.tap()
+            break
+        }
+        let deadline = Date.now.addingTimeInterval(5)
+        while app.keyboards.element.exists && Date.now < deadline {
+            _ = app.staticTexts["__jellyfin_seerr_setup_edit_tick__"].waitForExistence(timeout: 0.25)
+        }
+    }
+
+    /// Bounded poll on `isHittable`, built only from `waitForExistence`, so it never
+    /// sleeps and never manufactures a result.
+    @MainActor
+    private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if element.exists && element.isHittable { return true }
+            _ = element.waitForExistence(timeout: 0.25)
+        }
+        return element.exists && element.isHittable
+    }
+
+    // MARK: Working in the pushed settings lists
+
+    /// Taps a row in a normal pushed list, scrolling toward it when SwiftUI has not
+    /// rendered it yet. Only used where no sheet is presented, so the scroll container
+    /// is unambiguous.
     @discardableResult
     @MainActor
     private func tap(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -442,62 +588,6 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false
-    }
-
-    /// Brings `field` into view and waits for it to report itself hittable before
-    /// typing. A tap on a not-yet-hittable element is silently dropped, which would
-    /// send the characters to whatever had focus and blame the wrong screen.
-    @MainActor
-    private func replace(
-        _ value: String,
-        into field: XCUIElement,
-        in app: XCUIApplication,
-        deleting characterCount: Int,
-        file: StaticString = #filePath,
-        line: UInt = #line
-    ) {
-        XCTAssertTrue(
-            waitForHittability(of: field, in: app, timeout: 10),
-            "The field should be on screen and interactable before typing into it.",
-            file: file,
-            line: line
-        )
-        if field.elementType == .secureTextField {
-            // SecureField exposes a compact text-input element; tapping it directly is
-            // what gives it keyboard focus.
-            field.tap()
-        } else {
-            // SwiftUI aligns URL fields toward their trailing edge, so tapping there
-            // puts the caret after the existing text rather than in front of it.
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
-        if characterCount > 0 {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
-        }
-        field.typeText(value)
-    }
-
-    /// Scrolls the presented form until `element` reports itself hittable. Bounded, and
-    /// built only from `waitForExistence`, so it never sleeps.
-    @MainActor
-    private func waitForHittability(of element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        guard element.waitForExistence(in: app, timeout: timeout) else { return false }
-        let deadline = Date.now.addingTimeInterval(timeout)
-        while Date.now < deadline {
-            if element.isHittable { return true }
-            let scroller = app.collectionViews.firstMatch.exists
-                ? app.collectionViews.firstMatch
-                : app.scrollViews.firstMatch
-            if scroller.exists {
-                if element.frame.midY < app.frame.midY {
-                    scroller.swipeDown()
-                } else {
-                    scroller.swipeUp()
-                }
-            }
-            _ = element.waitForExistence(timeout: 0.25)
-        }
-        return element.isHittable
     }
 
     @MainActor
