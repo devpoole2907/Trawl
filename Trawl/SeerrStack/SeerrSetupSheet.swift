@@ -8,7 +8,7 @@ struct SeerrSetupSheet: View {
     var body: some View {
         AppSheetShell(
             title: existingProfile == nil ? "Add Seerr" : "Edit Seerr",
-            detents: [.medium, .large],
+            detents: [.large],
             dragIndicator: .visible
         ) {
             SeerrConnectionFormView(existingProfile: existingProfile, onComplete: onComplete)
@@ -242,7 +242,7 @@ struct SeerrSettingsView: View {
         .sheet(isPresented: $showingConnectionSheet) {
             AppSheetShell(
                 title: profile == nil ? "Add Seerr" : "Edit Seerr",
-                detents: [.medium, .large],
+                detents: [.large],
                 dragIndicator: .visible
             ) {
                 SeerrConnectionFormView(

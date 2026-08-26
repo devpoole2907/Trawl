@@ -262,7 +262,6 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             editTitle.waitForExistence(timeout: 10),
             "Edit Server should present the real SeerrSetupSheet in edit mode rather than an Add flow."
         )
-        expandSheet(titled: "Edit Seerr", in: app)
 
         // MARK: Pre-fill
 
@@ -286,7 +285,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         let signIn = app.buttons["Sign In"]
         XCTAssertTrue(
             tapInEditor(signIn, in: app, timeout: 15),
-            "A fully populated Seerr edit form should enable Sign In."
+            "A fully populated Seerr edit form should enable Sign In and keep it reachable: the editor presents at .large precisely so this button is on screen without scrolling."
         )
 
         XCTAssertTrue(
@@ -455,18 +454,16 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     // drives it, which is what makes these forms addressable at all. Probing the real
     // hierarchy showed two ways the naive approach fails:
     //
-    // * Both editors declare `detents: [.medium, .large]`, so they open at medium. The
-    //   Seerr editor's form is then too short to scroll while its "Sign In" button sits
-    //   at frame y=860 on an 874pt screen — `isEnabled == true`, `isHittable == false`,
-    //   and unreachable by any swipe.
+    // * Jellyfin supports a medium detent, so the test expands it before interaction.
+    //   Seerr deliberately presents at `.large`: at medium its form is too short to
+    //   scroll while "Sign In" sits below an iPhone 17 Pro screen.
     // * Scrolling a presented sheet is not addressable: the sheet's Form and the
     //   settings list behind it are both in the tree, so `collectionViews.firstMatch`
     //   resolves to either, and scrolling far enough unloads the very lazily-rendered
     //   row being reached for.
     //
-    // Expanding the sheet once, and dropping the keyboard after every entry, removes
-    // both problems: at the large detent with no keyboard, each editor's whole form is
-    // on screen, so no in-sheet scrolling is needed at any point.
+    // Keeping each editor at the large detent, and dropping the keyboard after every
+    // entry, removes both problems without in-sheet scrolling.
 
     /// Drags the presented editor up to its large detent — what a user does with a
     /// cramped sheet. A no-op once the sheet is already large.
