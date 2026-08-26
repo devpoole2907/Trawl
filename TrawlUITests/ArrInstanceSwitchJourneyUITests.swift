@@ -134,7 +134,7 @@ final class ArrInstanceSwitchJourneyUITests: XCTestCase {
             instanceMenuButton.waitForExistence(in: app, timeout: 10),
             "ArrMediaListView should show an 'Instance' toolbar menu once more than one Sonarr profile is configured — regression: the switcher disappeared or instanceProfiles.count > 1 stopped gating it."
         )
-        instanceMenuButton.tap()
+        tapWhenHittable(instanceMenuButton, timeout: 10)
 
         let switchToTwoButton = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "Alternate Sonarr"))
@@ -147,7 +147,7 @@ final class ArrInstanceSwitchJourneyUITests: XCTestCase {
             waitForEnabled(switchToTwoButton, timeout: 10),
             "The second instance's menu row should become enabled once ArrServiceManager finishes connecting it — regression: the second profile never connected, so isConnected(serviceType, profileID:) stayed false."
         )
-        switchToTwoButton.tap()
+        tapWhenHittable(switchToTwoButton, timeout: 10)
 
         // MARK: Series tab should now show the second instance, and never the first.
 
@@ -167,7 +167,7 @@ final class ArrInstanceSwitchJourneyUITests: XCTestCase {
 
         // MARK: Switch back to the first instance — proves the fix isn't one-way.
 
-        instanceMenuButton.tap()
+        tapWhenHittable(instanceMenuButton, timeout: 10)
 
         let switchBackToOneButton = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@ AND NOT (label CONTAINS[c] %@)", "Fixture Sonarr", "Alternate"))
@@ -180,7 +180,7 @@ final class ArrInstanceSwitchJourneyUITests: XCTestCase {
             waitForEnabled(switchBackToOneButton, timeout: 10),
             "The first instance's menu row should remain enabled — it was connected before the switch and nothing about selecting the second instance should disconnect it."
         )
-        switchBackToOneButton.tap()
+        tapWhenHittable(switchBackToOneButton, timeout: 10)
 
         XCTAssertTrue(
             seriesFromOne.waitForExistence(timeout: 15),
@@ -193,6 +193,26 @@ final class ArrInstanceSwitchJourneyUITests: XCTestCase {
     }
 
     // MARK: - Helpers
+
+    /// Taps only once the element will actually accept an event.
+    ///
+    /// A toolbar menu and the items inside its popover exist in the tree before they
+    /// are hittable, and XCUITest does not wait: tapping too early fails the *tap*
+    /// with "Timed out while synthesizing event" after ~2 minutes, which reads as a
+    /// hang rather than as the swallowed tap it is. Observed here on the instance-menu
+    /// tap during a long serialized run, passing in isolation moments later — the
+    /// signature of an unsettled element, not of a product regression.
+    private func tapWhenHittable(_ element: XCUIElement, timeout: TimeInterval) {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !element.isHittable && Date() < deadline {
+            _ = element.waitForExistence(timeout: 0.25)
+        }
+        XCTAssertTrue(
+            element.isHittable,
+            "Expected the element to become hittable within \(timeout)s before tapping it."
+        )
+        element.tap()
+    }
 
     /// Polls `element.isEnabled` until it goes true or `timeout` elapses. Built
     /// entirely from `waitForExistence(timeout:)` calls (never `sleep()` /

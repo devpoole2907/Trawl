@@ -210,12 +210,6 @@ final class ArrRepointJourneyUITests: XCTestCase {
         seriesTab.tap()
 
         let seriesFromB = app.staticTexts["Series From Server B"]
-        _ = seriesFromB.waitForExistence(timeout: 20)
-        print("=====AFTER_TAB_SWITCH=====")
-        for t in app.staticTexts.allElementsBoundByIndex { print("TEXT:", t.label) }
-        print("=====B_SERIES_REQUESTS:", b.requests.filter { $0.path == "/api/v3/series" }.count)
-        print("=====B_ALL:", b.requests.map { $0.path }.joined(separator: ","))
-        print("=====END=====")
         XCTAssertTrue(
             seriesFromB.waitForExistence(timeout: 15),
             "H-01 regression: after a same-ID host edit, the Series tab should repoint to server B instead of staying on the old client, showing nothing, or hanging on stale cached data past ArrLibraryCache's invalidation."
