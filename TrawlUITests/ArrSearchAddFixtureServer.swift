@@ -39,6 +39,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     struct RecordedRequest: Sendable, Equatable {
         let method: String
         let path: String
+        let rawQuery: String?
         let body: String
     }
 
@@ -67,6 +68,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     private let rootFoldersJSON: String
     private let lookupResponseJSON: String
     private let addedSeriesJSON: String
+    private let releaseResponseJSON: String
+    private let commandResponseJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -91,6 +94,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         addedSeriesJSON: String,
         qualityProfilesJSON: String = #"[{"id":1,"name":"HD-1080p"}]"#,
         rootFoldersJSON: String = #"[{"id":1,"path":"/tv"}]"#,
+        releaseResponseJSON: String = "[]",
+        commandResponseJSON: String = #"{"id":901,"name":"SeriesSearch","status":"queued"}"#,
         addOutcome: AddOutcome = .success
     ) async throws {
         self.queue = DispatchQueue(label: "ArrSearchAddFixtureServer")
@@ -100,6 +105,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         self.addedSeriesJSON = addedSeriesJSON
         self.qualityProfilesJSON = qualityProfilesJSON
         self.rootFoldersJSON = rootFoldersJSON
+        self.releaseResponseJSON = releaseResponseJSON
+        self.commandResponseJSON = commandResponseJSON
         self.addOutcome = addOutcome
 
         listener.newConnectionHandler = { [weak self] connection in
@@ -245,6 +252,19 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
             case .failure(let status, let body):
                 return (status, body)
             }
+        case ("POST", "/api/v3/command"):
+            return (201, commandResponseJSON)
+        case ("GET", "/api/v3/release"):
+            return (200, releaseResponseJSON)
+        case ("POST", "/api/v3/release"):
+            return (201, "{}")
+        case ("GET", "/api/v3/queue"),
+             ("GET", "/api/v3/history"),
+             ("GET", "/api/v3/blocklist"):
+            return (200, "{}")
+        case ("GET", "/api/v3/episode"),
+             ("GET", "/api/v3/episodefile"):
+            return (200, "[]")
         default:
             return (200, "[]")
         }
@@ -280,7 +300,9 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         let parts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
         let method = parts.first.map(String.init) ?? ""
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
-        let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
+        let pathAndQuery = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pathAndQuery.first.map(String.init) ?? ""
+        let rawQuery = pathAndQuery.count == 2 ? String(pathAndQuery[1]) : nil
 
         var contentLength = 0
         for line in lines.dropFirst() {
@@ -302,7 +324,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         let bodyData = data[bodyStart..<bodyEnd]
         let body = String(data: bodyData, encoding: .utf8) ?? ""
 
-        return RecordedRequest(method: method, path: path, body: body)
+        return RecordedRequest(method: method, path: path, rawQuery: rawQuery, body: body)
     }
 
     /// Reason phrase is cosmetic — `URLSession`/`HTTPURLResponse` parse only the

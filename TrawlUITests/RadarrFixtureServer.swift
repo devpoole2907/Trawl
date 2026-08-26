@@ -74,6 +74,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
     struct RecordedRequest: Sendable, Equatable {
         let method: String
         let path: String
+        let rawQuery: String?
         let body: String
     }
 
@@ -98,6 +99,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
 
     private let qualityProfilesJSON: String
     private let rootFoldersJSON: String
+    private let releaseResponseJSON: String
+    private let commandResponseJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -118,13 +121,17 @@ final class RadarrFixtureServer: @unchecked Sendable {
     init(
         initiallyMonitored: Bool = true,
         qualityProfilesJSON: String = #"[{"id":4,"name":"HD-1080p"}]"#,
-        rootFoldersJSON: String = #"[{"id":1,"path":"/movies"}]"#
+        rootFoldersJSON: String = #"[{"id":1,"path":"/movies"}]"#,
+        releaseResponseJSON: String = "[]",
+        commandResponseJSON: String = #"{"id":77,"name":"MoviesSearch","status":"queued"}"#
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.monitored = initiallyMonitored
         self.qualityProfilesJSON = qualityProfilesJSON
         self.rootFoldersJSON = rootFoldersJSON
+        self.releaseResponseJSON = releaseResponseJSON
+        self.commandResponseJSON = commandResponseJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -274,6 +281,15 @@ final class RadarrFixtureServer: @unchecked Sendable {
             lock.unlock()
             return json
         }
+        if request.method == "POST" && request.path == "/api/v3/command" {
+            return commandResponseJSON
+        }
+        if request.method == "GET" && request.path == "/api/v3/release" {
+            return releaseResponseJSON
+        }
+        if request.method == "POST" && request.path == "/api/v3/release" {
+            return "{}"
+        }
         // ArrQueuePage / ArrHistoryPage / ArrBlocklistPage all decode as paged
         // *objects*, not bare arrays — every field on each is optional, so an empty
         // object decodes to an empty page rather than throwing.
@@ -409,7 +425,9 @@ final class RadarrFixtureServer: @unchecked Sendable {
         let parts = requestLine.split(separator: " ", omittingEmptySubsequences: true)
         let method = parts.first.map(String.init) ?? ""
         let rawPath = parts.dropFirst().first.map(String.init) ?? ""
-        let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
+        let pathAndQuery = rawPath.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let path = pathAndQuery.first.map(String.init) ?? ""
+        let rawQuery = pathAndQuery.count == 2 ? String(pathAndQuery[1]) : nil
 
         var contentLength = 0
         for line in lines.dropFirst() {
@@ -431,7 +449,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
         let bodyData = data[bodyStart..<bodyEnd]
         let body = String(data: bodyData, encoding: .utf8) ?? ""
 
-        return RecordedRequest(method: method, path: path, body: body)
+        return RecordedRequest(method: method, path: path, rawQuery: rawQuery, body: body)
     }
 
     private static func httpResponse(body: String) -> Data {
