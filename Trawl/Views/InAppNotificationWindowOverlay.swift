@@ -85,12 +85,7 @@ struct InAppNotificationWindowOverlay: View {
                         InAppNotificationBanner(item: banner) {
                             notificationCenter.dismissCurrentBanner()
                         } onTap: {
-                            if notificationCenter.currentBannerHasAction {
-                                notificationCenter.fireCurrentBannerAction()
-                            } else {
-                                notificationCenter.showRecentNotifications()
-                                notificationCenter.dismissCurrentBanner()
-                            }
+                            notificationCenter.activateCurrentBanner()
                         }
                         .withActionAffordance(notificationCenter.currentBannerHasAction)
                         // Fresh view per banner so SwiftUI doesn't carry dragOffset

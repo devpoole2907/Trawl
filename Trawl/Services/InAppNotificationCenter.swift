@@ -269,6 +269,23 @@ final class InAppNotificationCenter {
         isPresentingRecentNotifications = true
     }
 
+    /// What tapping a banner does, wherever it is presented.
+    ///
+    /// The Dynamic Island toast and the legacy top banner both route their tap
+    /// here so the two presentations cannot drift apart: a banner carrying an
+    /// action performs it, and a banner without one opens the notification
+    /// history. Tapping when nothing is showing does nothing.
+    func activateCurrentBanner() {
+        guard currentBanner != nil else { return }
+
+        if currentBannerHasAction {
+            fireCurrentBannerAction()
+        } else {
+            showRecentNotifications()
+            dismissCurrentBanner()
+        }
+    }
+
     // MARK: - Active Import Jobs
 
     /// Register a live import job for visibility in the notifications sheet.

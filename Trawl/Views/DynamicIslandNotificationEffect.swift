@@ -17,7 +17,22 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
         let bottomRow = Array(repeating: Color.black.opacity(0.3), count: 3)
         let shape = Capsule(style: .continuous)
 
+        // Order matters: the glass goes down first and the mesh sits over it.
+        // `glassEffect` paints a specular highlight along the shape's edge, and
+        // with the mesh underneath that highlight lands on top as a light hairline
+        // — invisible in light mode against white content, but an obvious white
+        // line along the top of the Dynamic Island in dark mode. Measured at the
+        // top edge: grey 61 with the mesh underneath, 0 with it on top. Layering
+        // the mesh above lets its opaque top row cover the highlight while its
+        // translucent lower rows still show the glass, which is the intended
+        // "black fading to glass".
         ZStack {
+            Color.clear
+                .glassEffect(
+                    .clear.tint(.black.opacity(1 - (0.95 * fadeProgress))),
+                    in: shape
+                )
+
             MeshGradient(
                 width: 3,
                 height: 3,
@@ -28,22 +43,16 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
                 ],
                 colors: topRow + middleRow + bottomRow
             )
+            .clipShape(shape)
 
             content
                 .compositingGroup()
                 .blur(radius: reduceMotion ? 0 : 10 - (10 * fadeProgress))
                 .opacity(reduceMotion && cappedProgress > 0 ? 1 : fadeProgress)
         }
-        // Size the render surface before clipping and applying glass. Applying
-        // the frame outside glass leaves the material at its expanded size
-        // during dismissal, which appears as a frozen full-width capsule.
         .frame(width: width, height: height)
-        .clipShape(shape)
-        .glassEffect(
-            .clear.tint(.black.opacity(1 - (0.95 * fadeProgress))),
-            in: shape
-        )
         .environment(\.colorScheme, .dark)
     }
 }
+
 #endif

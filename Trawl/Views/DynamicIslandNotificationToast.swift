@@ -121,13 +121,7 @@ struct DynamicIslandNotificationToast: View {
     }
 
     private func activateNotification() {
-        guard notificationCenter.currentBanner != nil else { return }
-        if notificationCenter.currentBannerHasAction {
-            notificationCenter.fireCurrentBannerAction()
-        } else {
-            notificationCenter.showRecentNotifications()
-            notificationCenter.dismissCurrentBanner()
-        }
+        notificationCenter.activateCurrentBanner()
     }
 }
 #endif
