@@ -206,6 +206,9 @@ struct ArrSetupViewModelTests {
 
         try await cleaningUpKeychain(for: profiles) {
             #expect(saved == true)
+            // Pin the count before reaching for `first`: a fetch is unordered, so
+            // `first` only names a specific profile while there is exactly one.
+            #expect(profiles.count == 1)
             let profile = try #require(profiles.first)
             #expect(profile.displayName == "User Chosen Name")
             #expect(profile.resolvedServiceType == .radarr)

@@ -871,6 +871,24 @@ responsive needs waiter reference counting so the login is dropped only when the
 interested caller leaves. Worth doing only if that path proves to be a problem on its
 own; it is not one today.
 
+## Eleventh-tranche follow-up: the full plan, run against every fix
+
+Three production changes had landed against focused suites only — the Seerr detent
+(`5a90128`), the Arr cancelled-attempt error (`5990b79`) and the `AuthService`
+cancellation opt-in (`7a69aec`). The last is the one that most needed a wider opinion:
+it sits under every qBittorrent path, and although its default is unchanged, only two
+focused suites had exercised it.
+
+| Check | Result |
+|---|---:|
+| Full `Trawl.xctestplan` | **Passed:** **658 executions**, 0 failed, 0 skipped |
+| Zero/incomplete-result guard | Accepted by `Scripts/assert-test-results.py` |
+
+The count reconciles exactly against the previous full run: 648, plus one Arr setup/edit
+journey, plus eight `ArrSetupViewModelTests`, plus the onboarding cancellation test.
+Worth doing that arithmetic rather than reading "Passed" — a suite silently dropping out
+of the plan also reports success.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
