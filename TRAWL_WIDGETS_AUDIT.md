@@ -168,12 +168,28 @@ project has hit repeatedly with invented fixtures.
 `/api/v1/request` and `/api/v1/issue` payloads, and reconcile the fixtures. This is a
 mutation and needs an explicit decision. **Status:** open.
 
-### W-06 — Calendar widget shapes unvalidated
+### W-06 — Calendar widget shapes — CLOSED 28 August 2026
 
-All four Arr instances hold 0 series and 0 movies, so `/api/v3/calendar` returns `[]`.
-The Upcoming Releases widget's payload decoding has not been checked against a live
-server. Requires adding media to an instance. **Status:** open, lower priority than W-05
-because the calendar path shares Arr models that are covered elsewhere.
+**Closed.** Validated against a live Sonarr and Radarr by temporarily adding media, then
+removing it. One movie was added to Radarr and one series to Sonarr, both with search
+disabled so nothing was downloaded; both were deleted afterwards and both instances
+verified back to zero series, zero movies and an empty calendar.
+
+Every field the widget reads is present and correctly shaped:
+
+| Path | Confirmed |
+|---|---|
+| Sonarr episode | `airDateUtc`, `airDate`, `seasonNumber`, `episodeNumber`, `hasFile`, `id`, and a nested `series` carrying `title` and `images` |
+| Sonarr poster | `series.images` includes `coverType: "poster"` with a `remoteUrl`, which is what `posterURL` resolves |
+| Sonarr `includeSeries` | The nested `series` object only appears when `includeSeries=true` — the widget passes it |
+| Radarr movie | `inCinemas`, `digitalRelease`, `physicalRelease` (genuinely null when absent), `title`, `year`, `hasFile`, `id` |
+| Radarr multi-release | One movie with a cinema date and a digital date but no physical date correctly produces exactly two events, matching the provider's `flatMap` over the three release kinds |
+
+**One thing worth knowing:** live Arr timestamps carry **no fractional seconds**
+(`2026-07-25T00:00:00Z`, `2025-01-14T02:00:00Z`). `parseISO` tries
+`[.withInternetDateTime, .withFractionalSeconds]` first and only parses these on its
+second, non-fractional attempt. The fallback is not defensive padding — it is the branch
+that actually does the work against a real server. Do not remove it.
 
 ## Test coverage
 
@@ -184,6 +200,7 @@ See `TRAWL_TEST_COVERAGE_MAP.md` for the authoritative row. Current state:
 | Refresh policy, all six widgets | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green, with a valid negative control |
 | Calendar day-sequencing | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
 | Calendar scope filtering | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
+| Calendar payload shapes (Sonarr + Radarr) | Validated live 28 Aug 2026 | Green — see W-06 |
 | Calendar failure headlines | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
 | Seerr decoding and display fallbacks | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green, but fixtures are hand-authored and **never checked against a live Seerr payload** — see W-05 |
 | WidgetKit extension registration | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
