@@ -66,7 +66,7 @@ struct SpeedProvider: AppIntentTimelineProvider {
     func timeline(for configuration: SelectServerIntent, in context: Context) async -> Timeline<SpeedEntry> {
         let entry = await fetchEntry(serverID: configuration.server?.id)
         // Refresh more frequently while transfers are active.
-        let nextInterval: TimeInterval = entry.isActive ? 5 * 60 : 30 * 60
+        let nextInterval = WidgetTimelinePolicy.speedRefreshInterval(isActive: entry.isActive)
         let nextUpdate = Date(timeIntervalSinceNow: nextInterval)
         return Timeline(entries: [entry], policy: .after(nextUpdate))
     }

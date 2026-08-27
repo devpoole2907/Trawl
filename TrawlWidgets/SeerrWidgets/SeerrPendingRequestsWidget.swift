@@ -33,7 +33,9 @@ struct SeerrPendingRequestsProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectSeerrServerIntent, in context: Context) async -> Timeline<SeerrPendingRequestsEntry> {
         let entry = await fetchEntry(serverID: configuration.server?.id)
-        let interval: TimeInterval = entry.snapshot.totalPending > 0 ? 10 * 60 : 30 * 60
+        let interval = WidgetTimelinePolicy.pendingRequestsRefreshInterval(
+            pendingCount: entry.snapshot.totalPending
+        )
         return Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval)))
     }
 

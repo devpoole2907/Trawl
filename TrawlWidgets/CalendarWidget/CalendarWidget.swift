@@ -67,14 +67,7 @@ struct CalendarEntry: TimelineEntry {
 
 /// Maps a fetch error to a short, honest widget message.
 private func calendarUnavailableMessage(for error: Error) -> String {
-    if let widgetError = error as? WidgetDataFetcher.WidgetError {
-        switch widgetError {
-        case .noArrServicesConfigured: return "No Sonarr or Radarr"
-        case .missingCredentials: return "Sign-In Needed"
-        default: return "Unavailable"
-        }
-    }
-    return "Unavailable"
+    WidgetTimelinePolicy.calendarUnavailableMessage(for: error)
 }
 
 // MARK: - Provider
@@ -99,15 +92,16 @@ struct CalendarProvider: AppIntentTimelineProvider {
                 includeUnmonitored: configuration.scope.includeUnmonitored
             )
             let entries = buildEntries(from: allEvents)
-            let nextUpdate: Date
-            if entries.isEmpty {
-                nextUpdate = Calendar.current.date(byAdding: .hour, value: 6, to: .now) ?? .now
-            } else {
-                nextUpdate = Calendar.current.date(byAdding: .hour, value: 5, to: .now) ?? .now
-            }
+            let interval = WidgetTimelinePolicy.calendarRefreshInterval(
+                hasEntries: !entries.isEmpty,
+                isFailure: false
+            )
+            let nextUpdate = Date.now.addingTimeInterval(interval)
             return Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate))
         } catch {
-            let nextUpdate = Calendar.current.date(byAdding: .hour, value: 12, to: .now) ?? .now
+            let nextUpdate = Date.now.addingTimeInterval(
+                WidgetTimelinePolicy.calendarRefreshInterval(hasEntries: false, isFailure: true)
+            )
             return Timeline(entries: [.unavailable(calendarUnavailableMessage(for: error))], policy: .after(nextUpdate))
         }
     }
@@ -127,22 +121,9 @@ struct CalendarProvider: AppIntentTimelineProvider {
     /// Creates one entry per unique calendar day. Each entry carries events from
     /// that day forward so the widget advances automatically without re-fetching.
     private func buildEntries(from events: [WidgetCalendarEvent]) -> [CalendarEntry] {
-        guard !events.isEmpty else { return [] }
-        let cal = Calendar.current
-        let now = Date.now
-        let dayStarts = Set(events.map { cal.startOfDay(for: $0.date) }).sorted()
-
-        let perDayEntries = dayStarts.map { dayStart in
-            let remaining = events.filter { $0.date >= dayStart }
-            return CalendarEntry(date: dayStart, events: remaining)
+        WidgetTimelinePolicy.calendarSlices(from: events).map {
+            CalendarEntry(date: $0.date, events: $0.events)
         }
-
-        if dayStarts.isEmpty || dayStarts.first! > cal.startOfDay(for: now) {
-            let nowEntry = CalendarEntry(date: now, events: events.filter { $0.date >= now })
-            return [nowEntry] + perDayEntries
-        }
-
-        return perDayEntries
     }
 }
 

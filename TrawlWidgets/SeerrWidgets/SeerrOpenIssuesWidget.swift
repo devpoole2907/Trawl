@@ -36,7 +36,9 @@ struct SeerrOpenIssuesProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<SeerrOpenIssuesEntry>) -> Void) {
         Task {
             let entry = await fetchEntry()
-            let interval: TimeInterval = entry.snapshot.totalOpen > 0 ? 15 * 60 : 45 * 60
+            let interval = WidgetTimelinePolicy.openIssuesRefreshInterval(
+                openCount: entry.snapshot.totalOpen
+            )
             completion(Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval))))
         }
     }

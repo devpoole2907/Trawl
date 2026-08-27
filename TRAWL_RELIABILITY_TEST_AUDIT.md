@@ -989,6 +989,97 @@ through `saveEnabledProviders`; treat reset as status/throttling state unless a 
 live response proves otherwise. Do not test or document it as deleting provider
 configuration.
 
+## Widget tranche — 28 August 2026
+
+Widgets are a hard release-candidate requirement, so the extension needed evidence
+rather than a compile check.
+
+### Refresh policy centralisation
+
+All six widgets had their refresh interval inlined in their own timeline provider.
+The intervals are now declared once in `TrawlWidgets/Shared/WidgetTimelinePolicy.swift`
+and each provider calls into it, so the policy is a pure function the test target can
+compile directly instead of a value duplicated in six files. Calendar entry
+construction moved there too, as `calendarSlices(from:now:calendar:)`.
+
+Two further extractions were needed to make stated coverage reachable rather than
+asserted against a copy:
+
+- `WidgetFetchError` moved out of `WidgetDataFetcher` into its own file.
+  `WidgetDataFetcher.WidgetError` remains valid as a typealias, so no call site
+  changed. The fetcher imports SwiftData, UIKit and the Keychain; the error mapping
+  does not, and now compiles into the test target on its own.
+- The Seerr widget DTOs moved out of `WidgetSeerrClient.swift` into
+  `WidgetSeerrModels.swift`. The client depends on `HTTPTransport`, which the test
+  target does not link; the DTOs depend only on Foundation. This is what makes the
+  decoding and display-fallback chains testable at all.
+- `calendarUnavailableMessage(for:)` moved from a private free function in
+  `CalendarWidget.swift` into `WidgetTimelinePolicy`.
+
+### Negative control on the refresh policy
+
+The earlier attempt at this control hung and was stopped, and a hang is not evidence,
+so it was rerun. `libraryHealthRefreshInterval` was deliberately changed from
+`15 * 60` to `30 * 60`. The suite executed all 9 tests and failed with exactly one
+issue, on the intended assertion:
+
+> Expectation failed: `WidgetTimelinePolicy.libraryHealthRefreshInterval(issueCount: 1) == 15 * 60`
+
+The production value was then restored and the suite returns 9 passed. The result
+bundle for the broken run was not finalised because `xcodebuild` hangs after a failed
+run and the process had to be stopped; the executed-and-failed counts above come from
+the run log, not from a result bundle, and are recorded that way deliberately.
+
+### The installed-widget UI test, and what it can honestly assert
+
+The first three attempts at the installed-process test failed at the same point: after
+successfully installing the widget, every query for the widget's rendered text timed
+out. The cause was not selector spelling. Throughout each polling window XCTest logged
+
+> Ignoring failure to get hierarchy for remote element in process 58822
+> (Error getting main window kAXErrorServerNotFound)
+
+A Home Screen widget is rendered by `com.apple.chrono.WidgetRenderer`, a separate
+process, and XCTest cannot read into it from the SpringBoard element. No label string
+would ever have matched, so further guessing was stopped and SpringBoard's own
+accessibility hierarchy was dumped instead. That dump shows what SpringBoard does own:
+
+```
+Icon, identifier: 'Trawl', label: 'Trawl', value: Widget    ← the installed widget
+Icon, identifier: 'Trawl', label: 'Trawl'                   ← the app icon
+```
+
+The widget is an `SBWidgetIcon` exposed as an icon carrying `value: Widget`; the app
+icon carries no value. The test now identifies the widget by that attribute, counts
+Trawl widget icons before and after the gallery flow so it proves *this* run installed
+one, waits for hittability before every tap, and taps the widget to prove the deep
+link. It passes: 1 test, 0 failures, 0 skipped.
+
+What this test proves: the embedded extension is registered and discoverable, the
+gallery renders an installable preview, the widget installs and lays out with a real
+frame, and tapping it opens Trawl through `trawl://downloads`. What it does not and
+cannot prove from XCTest: the pixels or text inside the widget. That belongs to
+physical-device smoke testing. A screenshot taken during this work does show the
+widget rendering its `No Client / Open Trawl to set up` state correctly, but a
+screenshot is not a regression test and is not counted as coverage.
+
+### Widget product findings
+
+Recorded in full in `TRAWL_WIDGETS_AUDIT.md`. The load-bearing one: both download
+widgets already aggregate qBittorrent **and** every enabled SABnzbd profile, but the
+configuration intent is titled "qBittorrent Server" and enumerates only `ServerProfile`,
+and `upSpeed`/`dlLimit`/`upLimit` are read from qBittorrent alone. A SABnzbd-only user
+therefore sees a live download figure beside a permanent `0 B/s` upload, and a server
+picker that lists nothing.
+
+### Validation
+
+| Check | Result |
+|---|---:|
+| `TrawlTests/WidgetTimelineAndDataTests` | **Passed:** 9 tests, 0 failed, 0 skipped |
+| Refresh-policy negative control | **Failed as intended:** 9 executed, 1 issue, on the target assertion |
+| `TrawlUITests/WidgetInstalledProcessUITests` | **Passed:** 1 test, 0 failed, 0 skipped |
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.

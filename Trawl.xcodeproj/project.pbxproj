@@ -378,6 +378,24 @@
 			);
 			target = FF000003FF000003FF000003 /* TrawlWidgets */;
 		};
+		FF000016FF000016FF000016 /* Exceptions for "TrawlWidgets" folder in "TrawlTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ActiveTorrentsWidget/ActiveTorrentsWidget.swift,
+				CalendarWidget/CalendarWidget.swift,
+				Info.plist,
+				LibraryHealthWidget/LibraryHealthWidget.swift,
+				SeerrWidgets/SeerrOpenIssuesWidget.swift,
+				SeerrWidgets/SeerrPendingRequestsWidget.swift,
+				SeerrWidgets/SelectSeerrServerIntent.swift,
+				Shared/WidgetDataFetcher.swift,
+				Shared/WidgetSeerrClient.swift,
+				SpeedWidget/SelectServerIntent.swift,
+				SpeedWidget/SpeedWidget.swift,
+				TrawlWidgetsBundle.swift,
+			);
+			target = 7C724A282F81D5940073A650 /* TrawlTests */;
+		};
 		FFB00000FFB00000FFB00000 /* Exceptions for "Trawl" folder in "TrawlWidgets" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -694,6 +712,7 @@
 		FF000014FF000014FF000014 /* TrawlWidgets */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
+				FF000016FF000016FF000016 /* Exceptions for "TrawlWidgets" folder in "TrawlTests" target */,
 				FF000015FF000015FF000015 /* Exceptions for "TrawlWidgets" folder in "TrawlWidgets" target */,
 			);
 			path = TrawlWidgets;
@@ -825,6 +844,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7C724A2C2F81D5940073A650 /* TrawlTests */,
+				FF000014FF000014FF000014 /* TrawlWidgets */,
 			);
 			name = TrawlTests;
 			packageProductDependencies = (

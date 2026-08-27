@@ -9,21 +9,9 @@ import UIKit
 enum WidgetDataFetcher {
     private static let logger = Logger(subsystem: "com.poole.james.Trawl", category: "WidgetDataFetcher")
 
-    enum WidgetError: LocalizedError {
-        case noServerConfigured
-        case noArrServicesConfigured
-        case noSeerrServicesConfigured
-        case missingCredentials
-
-        var errorDescription: String? {
-            switch self {
-            case .noServerConfigured: "No qBittorrent server configured."
-            case .noArrServicesConfigured: "No Sonarr or Radarr services configured."
-            case .noSeerrServicesConfigured: "No Seerr server configured."
-            case .missingCredentials: "Server credentials not found in keychain."
-            }
-        }
-    }
+    /// Declared in `WidgetFetchError.swift` so the failure-to-message mapping stays
+    /// testable without this file's SwiftData/UIKit dependencies.
+    typealias WidgetError = WidgetFetchError
 
     // MARK: - Sendable snapshots (safe to cross actor boundaries)
 

@@ -36,7 +36,9 @@ struct LibraryHealthProvider: TimelineProvider {
     func getTimeline(in context: Context, completion: @escaping (Timeline<LibraryHealthEntry>) -> Void) {
         Task {
             let entry = await fetchEntry()
-            let interval: TimeInterval = entry.snapshot.totalIssueCount > 0 ? 15 * 60 : 60 * 60
+            let interval = WidgetTimelinePolicy.libraryHealthRefreshInterval(
+                issueCount: entry.snapshot.totalIssueCount
+            )
             completion(Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval))))
         }
     }

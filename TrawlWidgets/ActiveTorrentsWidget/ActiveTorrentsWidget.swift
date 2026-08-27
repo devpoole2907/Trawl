@@ -33,7 +33,9 @@ struct ActiveTorrentsProvider: AppIntentTimelineProvider {
 
     func timeline(for configuration: SelectServerIntent, in context: Context) async -> Timeline<ActiveTorrentsEntry> {
         let entry = await fetchEntry(serverID: configuration.server?.id)
-        let interval: TimeInterval = entry.snapshot.activeCount > 0 ? 5 * 60 : 30 * 60
+        let interval = WidgetTimelinePolicy.activeDownloadsRefreshInterval(
+            activeCount: entry.snapshot.activeCount
+        )
         return Timeline(entries: [entry], policy: .after(Date(timeIntervalSinceNow: interval)))
     }
 
