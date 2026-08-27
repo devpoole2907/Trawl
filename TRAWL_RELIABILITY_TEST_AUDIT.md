@@ -840,6 +840,32 @@ assertion; removing the `Task.isCancelled` guard puts "Connection failed: cancel
 front of the user and fails the error assertion. With both in place the cancelled
 attempt returns in **0.006 s** reporting nothing.
 
+### The rest of the codebase was swept for this bug class
+
+N-05 is two instances of one mistake — state written, or an error shown, on a path the
+caller had already cancelled. Rather than assume it was confined to those two, every
+site that cancels a stored `Task`, and every use of the "unstructured task awaited by
+its callers" shape, was read. No further instances:
+
+- `ArrLibraryCache.load` uses the same unstructured-task coalescing as `AuthService`,
+  but deliberately and with its reasoning written down: a view disappearing mid-fetch
+  must not cancel a request another caller is still awaiting, and the late-return
+  hazard is handled by `lastStoredSequence`, so an older fetch cannot overwrite a
+  newer answer.
+- `ArrLibraryViewModel.performLookup` — reached by every Sonarr/Radarr search — is the
+  reference implementation for this: an `isCancelled` guard before it starts, a
+  `searchTracker` request token so only the current request may write, and an explicit
+  `catch is CancellationError`. Anything new in this area should copy it.
+- The debounce-and-cancel sites (`SearchViewModel`, `SonarrSeriesSearchViews` and
+  `RadarrMovieSearchViews`' automatic-search monitors, `ArrEventsView`, `SeerrLogsView`,
+  `LibraryImportScanViews`, `AddImportLocationAndScanViewModel`) all guard on
+  `Task.isCancelled` immediately after their sleep, before touching state.
+
+The two that were wrong were wrong in the same way: they had no cancellation guard at
+all, because both were written as straight-line "validate, then save" methods where
+cancellation had not been considered a case. Setup and edit forms are where to look
+first if this class shows up again.
+
 Still open, deliberately: the shared re-auth path remains uncancellable. Making it
 responsive needs waiter reference counting so the login is dropped only when the last
 interested caller leaves. Worth doing only if that path proves to be a problem on its
