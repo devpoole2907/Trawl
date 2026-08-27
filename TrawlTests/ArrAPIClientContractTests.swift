@@ -238,6 +238,87 @@ struct SonarrAPIClientContractTests {
         #expect(body == expected)
     }
 
+    // MARK: - Series deletion
+    //
+    // The only call in the app that can delete a user's media files. `deleteFiles`
+    // decides whether the library entry alone goes or the episodes on disk go with it,
+    // and `addImportListExclusion` decides whether the series can ever come back
+    // automatically. Both are carried as query flags, and the two are expressed
+    // differently: `deleteFiles` is always sent, while `addImportListExclusion` says
+    // "false" by being absent. That asymmetry is exactly the kind of thing a tidying
+    // refactor unifies without noticing.
+
+    @Test("Deleting a series keeps the files by default and omits the exclusion flag")
+    func deleteSeriesDefaultsToKeepingFiles() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-series-delete",
+            routes: ["/api/v3/series/11": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteSeries(id: 11)
+
+        let request = try #require(server.requests.first)
+        #expect(request.method == "DELETE")
+        #expect(request.path == "/api/v3/series/11")
+        let pairs = queryPairs(request.rawQuery)
+        #expect(
+            pairs["deleteFiles"] == "false",
+            "The destructive flag must be sent explicitly as false rather than left to the server's default."
+        )
+        #expect(
+            pairs["addImportListExclusion"] == nil,
+            "Not excluding is expressed by omitting the parameter — sending it as \"false\" is a different request."
+        )
+    }
+
+    @Test("Deleting a series with its files sends deleteFiles=true")
+    func deleteSeriesCanDeleteFiles() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-series-delete-files",
+            routes: ["/api/v3/series/11": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteSeries(id: 11, deleteFiles: true)
+
+        let request = try #require(server.requests.first)
+        #expect(request.path == "/api/v3/series/11")
+        #expect(queryPairs(request.rawQuery)["deleteFiles"] == "true")
+    }
+
+    @Test("Excluding a series from import lists adds that flag alongside deleteFiles")
+    func deleteSeriesCanAddImportListExclusion() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-series-delete-exclude",
+            routes: ["/api/v3/series/11": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteSeries(id: 11, deleteFiles: false, addImportListExclusion: true)
+
+        let pairs = queryPairs(try #require(server.requests.first).rawQuery)
+        #expect(pairs["deleteFiles"] == "false")
+        #expect(pairs["addImportListExclusion"] == "true")
+    }
+
+    @Test("A rejected series deletion surfaces as an ArrError rather than reporting success")
+    func deleteSeriesPropagatesRejection() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-series-delete-reject",
+            routes: ["/api/v3/series/11": .json(#"{"message":"nope"}"#, status: 500)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        await #expect(throws: ArrError.self) {
+            try await client.deleteSeries(id: 11)
+        }
+    }
+
     // MARK: - Queue deletion
     //
     // The most destructive call the app makes: it removes the download from the
