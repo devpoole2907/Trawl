@@ -32,6 +32,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private let queue: DispatchQueue
     private let seriesResponseBody: String
     private let acceptedAPIKey: String?
+    private let statusResponseBody: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -44,11 +45,15 @@ final class SonarrFixtureServer: @unchecked Sendable {
     ///     (`ArrAPIClient.swift`'s `unauthorizedStatusCodes: [401]`), which is what the
     ///     setup sheet surfaces. Defaults to nil — accept every key — so the journeys
     ///     that only need a reachable server are unaffected.
-    init(seriesJSON: String, acceptedAPIKey: String? = nil) async throws {
+    ///   - statusJSON: body for `GET /api/v3/system/status`. Defaults to `{}`; give it
+    ///     an `instanceName` when a journey needs to tell two instances apart in the UI,
+    ///     since that is what `ArrSetupViewModel` uses as the profile's display name.
+    init(seriesJSON: String, acceptedAPIKey: String? = nil, statusJSON: String = "{}") async throws {
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.seriesResponseBody = seriesJSON
         self.acceptedAPIKey = acceptedAPIKey
+        self.statusResponseBody = statusJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
@@ -140,7 +145,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private func responseBody(for request: RecordedRequest) -> String {
         switch (request.method, request.path) {
         case ("GET", "/api/v3/system/status"):
-            return "{}"
+            return statusResponseBody
         case ("GET", "/api/v3/qualityprofile"):
             return "[]"
         case ("GET", "/api/v3/rootfolder"):

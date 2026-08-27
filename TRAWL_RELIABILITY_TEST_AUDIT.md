@@ -889,6 +889,56 @@ journey, plus eight `ArrSetupViewModelTests`, plus the onboarding cancellation t
 Worth doing that arithmetic rather than reading "Passed" — a suite silently dropping out
 of the plan also reports success.
 
+## N-06 — the Arr services screen was never wired up, and the add paths inherited the gap
+
+Writing the add-through-the-UI journey surfaced this, which is the value of driving a
+path rather than reasoning about it. Three related facts, each verified by reading every
+call site rather than inferred from one:
+
+- **`ArrServicesSettingsView` is dead code.** Nothing outside its own SwiftUI previews
+  references it — not `ContentView`, not `SettingsView`, not any `navigationDestination`.
+  It is ~165 lines including a "Connected Services" list, an "Add Service" button and a
+  per-service status section, none of it reachable from the running app.
+- **The service-type picker in `ArrSetupSheet` is therefore unreachable.** It renders
+  only when `initialServiceType == nil && existingProfile == nil`.
+  `ArrServiceEditorContext.create` carries a *non-optional* `ArrServiceType`, so every
+  create passes one and every edit passes a profile. The single call site that passes
+  neither is `ArrServicesSettingsView.swift:55`. The `availableServiceTypes` and
+  `canCreateProwlarr` logic that feeds the picker is dead with it.
+- **There is no way to go from one instance of a service to two from its settings
+  screen.** "Add Another <Service> Server" sits inside a section gated on
+  `serviceType != .prowlarr, serviceProfiles.count > 1`
+  (`ArrServiceSettingsDetailView.swift:116`), so the button that would create a second
+  instance only appears once a second instance exists. The detail screen's other add
+  button is in the `else` branch of `if let profile`, so it shows only when *none* is
+  configured.
+
+The only reachable ways to create a second Sonarr or Radarr are "Link Sonarr" / "Link
+Radarr" in Seerr's Linked Applications and Prowlarr's Applications screens, both of
+which require Seerr or Prowlarr to be configured first and neither of which is where a
+user would look for it. Multi-instance support is otherwise complete: the manager keeps
+`sonarrInstances` as a list, switching is covered by `ArrInstanceSwitchJourneyUITests`,
+and the UI tests that exercise two instances all seed the second profile directly rather
+than creating it.
+
+Nothing was changed for this. Whether `ArrServicesSettingsView` should be deleted or
+wired into Settings is a product decision — the same evidence supports either, and
+wiring it up would also make the picker reachable and close the multi-instance gap in
+one move.
+
+### What was covered instead
+
+`TrawlUITests/ArrAddInstanceJourneyUITests.swift` drives the reachable add path, from
+the two-instance seed where "Add Another" renders: the sheet must arrive in add mode
+with an empty host (a prefilled one would mean the create was routed as an edit), Save
+must be disabled until both fields are filled, the typed key must reach the new server's
+socket, and the added instance must *join* the list rather than replace an entry.
+Negative control: disabling `modelContext.insert` in the add branch fails the journey at
+the "newly added server is listed" assertion.
+
+The service-type picker is deliberately left uncovered. A journey against a control no
+user can reach would read as proof that the control works.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
