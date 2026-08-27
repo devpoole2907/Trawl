@@ -46,6 +46,7 @@ Use this map before changing production behavior. It identifies the focused suit
 | `Trawl/JellyfinStack/JellyfinAPIClient.swift` | `TrawlTests/JellyfinContractTests.swift` |
 | Jellyfin manager/setup/availability | `TrawlTests/JellyfinServiceManagerTests.swift`; `TrawlTests/JellyfinSetupViewModelTests.swift`; `TrawlTests/JellyfinAvailabilityResolverTests.swift` |
 | Jellyfin and Seerr setup/edit sheets, their detents and primary-action reachability, validation, persistence and reconnect | `TrawlUITests/JellyfinSeerrSetupEditJourneyUITests.swift` |
+| Jellyfin user administration — `JellyfinUserEditorViewModel`, `updateUserPolicy`, `deleteUser` | `TrawlTests/JellyfinUserPolicyTests.swift` |
 | Jellyfin library administration | `TrawlUITests/JellyfinLibrariesJourneyUITests.swift`; `TrawlUITests/RecentNotificationsJourneyUITests.swift` |
 | `Trawl/SeerrStack/SeerrAPIClient.swift` and Seerr view models | `TrawlTests/SeerrContractTests.swift`; the matching `TrawlTests/Seerr*ViewModelTests.swift` suites |
 | `Trawl/ArrStack/BazarrViewModel.swift` | `TrawlTests/BazarrViewModelTests.swift` |
