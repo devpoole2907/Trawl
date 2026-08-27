@@ -939,6 +939,37 @@ the "newly added server is listed" assertion.
 The service-type picker is deliberately left uncovered. A journey against a control no
 user can reach would read as proof that the control works.
 
+## A recurring shape: endpoints that replace a whole collection
+
+Four surfaces covered in this pass turned out to be the same hazard wearing different
+clothes, which is worth naming so it is recognised rather than rediscovered.
+
+| Surface | What one edit actually sends |
+|---|---|
+| `POST /Users/{id}/Policy` (Jellyfin) | the user's entire permission set |
+| `settings-general-enabled_providers` (Bazarr) | every enabled provider, one field each |
+| `languages-profiles` (Bazarr) | every language profile, JSON-encoded in one field |
+| `languages-enabled` (Bazarr) | every enabled language, one field each |
+
+In each case the destructive effect is invisible twice over. It is invisible at the call
+site, because the code reads as "save this one thing". And it is invisible afterwards,
+because every one of these screens reloads from the server after saving — so a request
+that quietly dropped half the collection produces a screen that agrees with it. The user
+sees a smaller list and no error.
+
+All four were **correct**; none was pinned. The negative controls are what make that
+statement worth anything: constructing a blank Jellyfin policy strips six permissions in
+one line; comma-joining the provider keys disables every provider but the last; dropping
+two fields from the language-profile payload resets the cutoff and must-contain rules of
+profiles the user never opened.
+
+The tell is a method that takes a collection, or a whole model object, and posts it to a
+settings-shaped endpoint. When adding one, assume the server does not merge until proven
+otherwise, and pin the untouched members rather than the edited one.
+
+Still unpinned in this family: `BazarrAPIClient.resetProviders`, which wipes provider
+configuration in a single call.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.

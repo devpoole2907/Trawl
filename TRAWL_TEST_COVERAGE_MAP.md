@@ -51,6 +51,7 @@ Use this map before changing production behavior. It identifies the focused suit
 | `Trawl/SeerrStack/SeerrAPIClient.swift` and Seerr view models | `TrawlTests/SeerrContractTests.swift`; the matching `TrawlTests/Seerr*ViewModelTests.swift` suites |
 | `Trawl/ArrStack/BazarrViewModel.swift` | `TrawlTests/BazarrViewModelTests.swift` |
 | `BazarrAPIClient.saveEnabledProviders` — the enabled subtitle-provider set | `TrawlTests/BazarrProviderSaveTests.swift` |
+| `BazarrAPIClient.saveLanguageProfiles` and `saveEnabledLanguages` — whole-collection replaces | `TrawlTests/BazarrLanguageProfileSaveTests.swift` |
 | Prowlarr management/search state | `TrawlTests/Prowlarr*StateTests.swift`; `TrawlTests/ArrIndexerManagementViewModelTests.swift` |
 
 ## App assembly, settings and notifications
