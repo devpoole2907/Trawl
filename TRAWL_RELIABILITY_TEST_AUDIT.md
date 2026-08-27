@@ -1120,6 +1120,54 @@ The suite also pins the exact authenticated `DELETE /api/v3/episodefile/71` and
 text is preserved in `viewModel.error` on rejection, so the control cannot pass by
 deleting the mutation instead of the duplicate banner.
 
+## Live-stack validation — 28 August 2026
+
+Run against the disposable `trawl-test` stack. Credentials are deliberately absent from
+this repository and must stay that way. Everything below was a read-only `GET`; no
+mutation was performed on any instance.
+
+### Confirmed against live services
+
+| Surface | Result |
+|---|---|
+| qBittorrent v5 login | `204`, empty body, port-suffixed `QBT_SID_<port>` cookie — matches the August capture exactly. |
+| qBittorrent `transfer/info` | `dl_info_speed`, `up_info_speed`, `dl_rate_limit`, `up_rate_limit` all present and correctly named. The Speed widget decodes the real shape. |
+| SABnzbd two-tier keys | Reads succeed with either key; `mode=pause` with the add-only key returns `403 API Key Incorrect`. The N-04 / H-05 discriminator still holds. |
+| Arr health, all four instances | Each returns 3 checks with `type`/`source`/`message`/`wikiUrl`, types `error` and `warning`. All pass `isRelevantHealthCheck`; `healthSeverity` maps `error`→`.error` and `warning`→`.warning`. |
+| Arr queue envelope | Paged: `page`, `pageSize`, `records`, `sortDirection`, `sortKey`, `totalRecords`. The widget's `queue.records` access matches. |
+
+The Library Health widget is therefore validated end-to-end against live payloads for
+both halves of its data — health checks and the queue envelope.
+
+### A fixture that does not match the live shape
+
+SABnzbd returns `kbpersec` as a **string** (`"0.00"`). The in-repo sample payload in
+`SABnzbdModels.swift` uses the number `8600.0`. Production is safe today only because
+`lossyDouble` falls through `Double` → `Int64` → `String`; nothing breaks, and this is
+**not** a defect. It is, though, exactly the pattern this audit keeps finding: if
+`kilobytesPerSecond` were ever simplified to a plain `Double` decode, every fixture in
+the repository would still pass while the download widgets silently reported zero speed
+against a real server. Worth a captured-shape test in
+`LiveCapturedShapeContractTests`; not yet written.
+
+### Deliberately not validated, and why — do not redo this blindly
+
+Two widget surfaces could not be validated because the test stack has no data. Recording
+this so the attempt is not repeated:
+
+- **Calendar widget shapes.** All four Arr instances hold 0 series and 0 movies, so
+  `/api/v3/calendar` returns `[]`. Sonarr/Radarr calendar payload shapes remain
+  unvalidated against a live server. Requires adding media to an instance — a mutation.
+- **Seerr widget decoding.** The Seerr instance reports `"initialized": false`; setup was
+  never completed, so local auth returns `403 Access denied` and there are no requests or
+  issues to read. **The Seerr decoding and display-fallback tests added in the widget
+  tranche are hand-authored JSON and have never been checked against a real payload.**
+  They may be passing against a shape Seerr does not produce. Requires completing Seerr's
+  setup wizard — a mutation, and an explicit product decision.
+
+Neither mutation was performed. Both are the correct next step if Seerr or the calendar
+widget need release-grade confidence.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.

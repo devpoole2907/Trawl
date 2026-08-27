@@ -129,13 +129,51 @@ release date moves.
 
 ## Empty-state risk
 
-**Unverified — needs checking before release.** Library Health and Seerr Open
-Issues both use `StaticConfiguration` with no picker. A user with no Arr or no
-Seerr service configured therefore gets a tile with no configuration affordance.
-The project rule is that features degrade gracefully when an integrated service
-is absent, so both must render an explicit "not configured" state rather than a
-bare zero. This has not yet been confirmed by an executed test or a device
-screenshot.
+**Partially verified, 28 August 2026.** A simulator screenshot taken during the widget
+UI work shows the Download Speed widget rendering `No Client` / `Open Trawl to set up`
+correctly with nothing configured, so that widget degrades gracefully.
+
+Still **unverified**: Library Health and Seerr Open Issues both use `StaticConfiguration`
+with no picker, so a user with no Arr or no Seerr configured gets a tile with no
+configuration affordance. The project rule is that features degrade gracefully when an
+integrated service is absent, so both must render an explicit "not configured" state
+rather than a bare zero. Not yet confirmed by an executed test or a device screenshot.
+
+## Live-stack validation — 28 August 2026
+
+Read-only against the disposable `trawl-test` stack. No credentials are recorded in this
+repository and none should be added.
+
+**Library Health is validated end-to-end against live data.** Every Arr instance returns
+3 health checks (`type` `error` or `warning`, plus `source`/`message`/`wikiUrl`); all pass
+`isRelevantHealthCheck`, and `healthSeverity` maps them correctly. The queue endpoint
+returns the paged envelope the widget expects, so `queue.records` is correct. Against
+this stack the widget would show 3 issues, 1 of them an error, per instance.
+
+**Download Speed's decoding is validated.** qBittorrent `transfer/info` returns
+`dl_info_speed`, `up_info_speed`, `dl_rate_limit` and `up_rate_limit` exactly as the
+widget reads them, and qB v5 login returns `204` with a port-suffixed `QBT_SID_<port>`
+cookie as expected.
+
+### W-05 — Seerr widget fixtures have never been validated against a real payload
+
+The Seerr test instance reports `"initialized": false`; its setup wizard was never
+completed, so it holds no requests or issues and its credentials cannot authenticate.
+The Seerr decoding and display-fallback tests added in the widget tranche are therefore
+**hand-authored JSON that has never been compared to a live Seerr response.** They pass,
+but they may be pinning a shape Seerr does not produce — the precise failure mode this
+project has hit repeatedly with invented fixtures.
+
+**Resolution:** complete Seerr setup against the Jellyfin instance, capture real
+`/api/v1/request` and `/api/v1/issue` payloads, and reconcile the fixtures. This is a
+mutation and needs an explicit decision. **Status:** open.
+
+### W-06 — Calendar widget shapes unvalidated
+
+All four Arr instances hold 0 series and 0 movies, so `/api/v3/calendar` returns `[]`.
+The Upcoming Releases widget's payload decoding has not been checked against a live
+server. Requires adding media to an instance. **Status:** open, lower priority than W-05
+because the calendar path shares Arr models that are covered elsewhere.
 
 ## Test coverage
 
@@ -147,7 +185,7 @@ See `TRAWL_TEST_COVERAGE_MAP.md` for the authoritative row. Current state:
 | Calendar day-sequencing | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
 | Calendar scope filtering | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
 | Calendar failure headlines | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
-| Seerr decoding and display fallbacks | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
+| Seerr decoding and display fallbacks | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green, but fixtures are hand-authored and **never checked against a live Seerr payload** — see W-05 |
 | WidgetKit extension registration | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | Installed widget presence and layout | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | `trawl://downloads` deep link from widget | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
