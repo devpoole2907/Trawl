@@ -216,6 +216,17 @@ final class ArrSetupViewModel {
 
             isValidating = false
             return true
+        } catch is CancellationError {
+            // Cancellation is not a failure the user caused or needs told about: the
+            // sheet cancels this task in `onDisappear`, and again on every Save tap
+            // while one is in flight. `HTTPTransport` converts a cancelled request
+            // into `CancellationError`, which would otherwise fall to the general
+            // `catch` below and put the raw description of a Swift error — literally
+            // "(Swift.CancellationError error 1.)" — into the editor's error section.
+            // `isValidating` is still cleared so a cancelled attempt cannot leave the
+            // form stuck showing "Testing connection...".
+            isValidating = false
+            return false
         } catch let error as ArrError {
             validationError = error.errorDescription
             isValidating = false

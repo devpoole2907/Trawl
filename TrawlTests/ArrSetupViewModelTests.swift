@@ -262,15 +262,67 @@ struct ArrSetupViewModelTests {
             // and "adding" another silently repoints the existing one.
             #expect(profiles.count == 2)
 
-            let adopted = try #require(profiles.first { $0.id == firstEnabled.id })
-            #expect(adopted.hostURL == server.baseURL)
-            #expect(adopted.isEnabled == true)
+            // Which of the two enabled profiles is adopted is deliberately not
+            // asserted. Production picks `first(where: { $0.isEnabled })` over an
+            // unordered `modelContext.fetch`, so the choice is an accident of fetch
+            // order, not a contract — pinning it makes this test pass alone and fail
+            // when another suite runs first. What *is* the contract is asserted here:
+            // exactly one Prowlarr stays enabled, it points at the new host, and the
+            // other is left disabled on its original host.
+            let prowlarrProfiles = profiles.filter { $0.resolvedServiceType == .prowlarr }
+            let enabled = prowlarrProfiles.filter(\.isEnabled)
+            #expect(enabled.count == 1, "Trawl supports a single Prowlarr: adding one must leave exactly one enabled.")
 
-            // Every other Prowlarr profile is disabled, so exactly one stays active.
-            let other = try #require(profiles.first { $0.id == secondEnabled.id })
-            #expect(other.isEnabled == false)
-            #expect(profiles.filter { $0.resolvedServiceType == .prowlarr && $0.isEnabled }.count == 1)
+            let adopted = try #require(enabled.first)
+            #expect(adopted.hostURL == server.baseURL)
+
+            let others = prowlarrProfiles.filter { $0.id != adopted.id }
+            #expect(others.allSatisfy { $0.isEnabled == false })
+            #expect(others.allSatisfy { $0.hostURL != server.baseURL })
+            #expect(others.map(\.id).sorted() == [firstEnabled.id, secondEnabled.id].filter { $0 != adopted.id }.sorted())
         }
+    }
+
+    // MARK: - Cancellation
+
+    /// A cancelled attempt must not leave an error in front of the user.
+    ///
+    /// `ArrSetupSheet` cancels the in-flight `saveTask` in two ordinary situations:
+    /// `onDisappear`, and every time Save is tapped again while one is running
+    /// (`saveTask?.cancel()` immediately precedes the new task). `HTTPTransport`
+    /// converts a cancelled request into `CancellationError`
+    /// (`HTTPTransport.swift:152-157`), which is not an `ArrError`, so it lands in
+    /// `validateAndSave`'s general `catch` alongside genuine connection failures.
+    ///
+    /// The user did not experience a failure — they dismissed the sheet, or asked for
+    /// a fresh attempt — so nothing should be reported, and the newer attempt's state
+    /// must not be overwritten by the older one unwinding.
+    @Test("A cancelled attempt reports no error to the user")
+    func cancelledAttemptReportsNoError() async throws {
+        // A listener that accepts the connection and never answers, so the request is
+        // genuinely in flight when it is cancelled. Nothing here waits on the clock:
+        // the test proceeds only once the socket has actually received the request.
+        let blackHole = try await UnansweringServer(label: "arr-setup-cancel")
+        defer { blackHole.stop() }
+
+        let viewModel = ArrSetupViewModel(serviceManager: ArrServiceManager())
+        viewModel.hostURL = blackHole.baseURL
+        viewModel.apiKey = "any-key"
+        viewModel.serviceType = .sonarr
+
+        let context = try makeInMemoryContext()
+
+        let attempt = Task { await viewModel.validateAndSave(modelContext: context) }
+        await blackHole.waitForFirstRequest()
+        attempt.cancel()
+        let saved = await attempt.value
+
+        #expect(saved == false)
+        #expect(
+            viewModel.validationError == nil,
+            "A cancelled attempt must not surface an error: the user dismissed the sheet or asked for a new attempt, and the raw description of a Swift CancellationError is not something to show them."
+        )
+        #expect(try context.fetch(FetchDescriptor<ArrServiceProfile>()).isEmpty)
     }
 
     // MARK: - Helpers

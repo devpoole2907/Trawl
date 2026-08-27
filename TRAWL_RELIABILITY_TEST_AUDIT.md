@@ -790,6 +790,43 @@ This is the third distinct way this suite has manufactured a misleading failure 
 - **Correction to an earlier claim in this document:** the add path is *not* unreachable from a UI test. `hasConfiguredAnyService` counts any Arr profile, so seeding one service clears the welcome flow, and `ArrServicesSettingsView`'s "Add Service" sheet then presents `ArrSetupSheet` with no existing profile — the real add form, reachable through ordinary navigation. The welcome screen itself is also reachable and is asserted by `TrawlUITestsLaunchTests.testLaunchShowsWelcomeContent`. What is genuinely awkward is only the *first-run* qBittorrent onboarding sheet, whose form is covered at view-model level by `OnboardingViewModelTests`. Earlier tranches recorded this whole area as blocked; that was too broad and should not be used to justify skipping it again.
 - **TrawlMac UI remains deferred**; **widget and `ShareViewController` installed-process shells remain parked** by agreement.
 
+## N-05 — a cancelled attempt showed the user a raw Swift error (found and fixed)
+
+`ArrSetupSheet` cancels its in-flight `saveTask` in two ordinary situations:
+`onDisappear`, and on every Save tap while one is running. `HTTPTransport` converts a
+cancelled request into `CancellationError` (`HTTPTransport.swift:152-157`), which is not
+an `ArrError`, so it fell through to `validateAndSave`'s general `catch` and was
+rendered in the editor's `ValidationErrorSection` as:
+
+> Connection failed: The operation couldn't be completed. (Swift.CancellationError error 1.)
+
+Dismissing the sheet or double-tapping Save was enough to put that in front of a user.
+`ArrSetupViewModel` now catches `CancellationError` explicitly and reports nothing,
+still clearing `isValidating` so a cancelled attempt cannot leave the form stuck on
+"Testing connection...". The regression test drives a real cancellation against a
+loopback server that never answers, so the request is genuinely in flight when the task
+is cancelled; it fails on the unfixed code with the exact string above.
+
+### The same probe found a second, deeper problem — not fixed, needs a decision
+
+`OnboardingSheet` cancels its `saveTask` the same way, so the same test was written for
+`OnboardingViewModel`. It does not fail the same way: it takes **60 seconds** and
+reports "Connection failed: The request timed out."
+
+The cause is `AuthService.login` (`Trawl/Services/AuthService.swift:44-52`), which
+deduplicates concurrent logins by storing an **unstructured** `Task` and awaiting its
+`value`. Unstructured tasks do not inherit cancellation, and `await task.value` does not
+forward it, so cancelling the caller leaves the login request running to its full
+timeout. Cancelling qBittorrent onboarding does not stop the network call.
+
+This is shared authentication code on every qBittorrent path, not just onboarding, and
+the unstructured task is load-bearing: it is what lets several callers share one
+in-flight login. Making it cancellable (for example `withTaskCancellationHandler`
+cancelling the shared task) changes what happens to the *other* waiters when any one
+caller goes away. That is a semantics decision rather than a bug fix, so it is recorded
+here rather than changed unilaterally. No test for it was landed: any honest one costs
+60 seconds per run.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
