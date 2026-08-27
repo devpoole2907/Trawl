@@ -381,12 +381,13 @@
 		FF000016FF000016FF000016 /* Exceptions for "TrawlWidgets" folder in "TrawlTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				ActiveTorrentsWidget/ActiveTorrentsWidget.swift,
+				ActiveDownloadsWidget/ActiveDownloadsWidget.swift,
 				CalendarWidget/CalendarWidget.swift,
+				DownloadControl/DownloadsPauseControl.swift,
+				DownloadControl/ToggleDownloadsIntent.swift,
 				Info.plist,
 				LibraryHealthWidget/LibraryHealthWidget.swift,
-				SeerrWidgets/SeerrOpenIssuesWidget.swift,
-				SeerrWidgets/SeerrPendingRequestsWidget.swift,
+				SeerrWidgets/SeerrInboxWidget.swift,
 				SeerrWidgets/SelectSeerrServerIntent.swift,
 				Shared/WidgetDataFetcher.swift,
 				Shared/WidgetSeerrClient.swift,

@@ -5,10 +5,10 @@ import SwiftUI
 struct TrawlWidgetsBundle: WidgetBundle {
     var body: some Widget {
         SpeedWidget()
-        ActiveTorrentsWidget()
+        ActiveDownloadsWidget()
         CalendarWidget()
         LibraryHealthWidget()
-        SeerrPendingRequestsWidget()
-        SeerrOpenIssuesWidget()
+        SeerrInboxWidget()
+        DownloadsPauseControl()
     }
 }

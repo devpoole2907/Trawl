@@ -92,10 +92,19 @@ struct CalendarProvider: AppIntentTimelineProvider {
                 includeUnmonitored: configuration.scope.includeUnmonitored
             )
             let entries = buildEntries(from: allEvents)
-            let interval = WidgetTimelinePolicy.calendarRefreshInterval(
-                hasEntries: !entries.isEmpty,
-                isFailure: false
-            )
+            // The small tile prints a countdown rather than a list, so it needs a
+            // tighter cadence than the list families as the next release nears.
+            let interval: TimeInterval
+            if context.family == .systemSmall {
+                interval = WidgetTimelinePolicy.calendarCountdownRefreshInterval(
+                    secondsUntilNextRelease: allEvents.first?.date.timeIntervalSinceNow
+                )
+            } else {
+                interval = WidgetTimelinePolicy.calendarRefreshInterval(
+                    hasEntries: !entries.isEmpty,
+                    isFailure: false
+                )
+            }
             let nextUpdate = Date.now.addingTimeInterval(interval)
             return Timeline(entries: entries.isEmpty ? [.empty] : entries, policy: .after(nextUpdate))
         } catch {
@@ -142,8 +151,71 @@ struct CalendarWidgetEntryView: View {
             unavailableView
         } else if entry.events.isEmpty {
             emptyView
+        } else if family == .systemSmall {
+            nextReleaseView
         } else {
             eventList
+        }
+    }
+
+    /// Small family: the single next release plus how long until it lands. Reuses
+    /// the snapshot the provider already fetched — no extra networking.
+    @ViewBuilder
+    private var nextReleaseView: some View {
+        if let next = entry.events.first {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 6) {
+                    Image(systemName: "calendar")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.tint)
+                    Text("Next Up")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Spacer(minLength: 0)
+                    if next.isDownloaded {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.green)
+                    }
+                }
+                .padding(.bottom, 8)
+
+                HStack(alignment: .top, spacing: 8) {
+                    posterThumbnail(next)
+
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(next.title)
+                            .font(.caption.weight(.semibold))
+                            .lineLimit(2)
+                            .minimumScaleFactor(0.8)
+                        if let subtitle = next.subtitle {
+                            Text(subtitle)
+                                .font(.system(size: 10))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 6)
+
+                Text(WidgetGlanceFormatter.releaseCountdown(to: next.date))
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(accentColor(for: next.accentColorName))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
+
+                Text(next.date, style: .date)
+                    .font(.system(size: 10))
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .containerBackground(.regularMaterial, for: .widget)
+            .widgetURL(CalendarWidget.trawlCalendarURL)
+        } else {
+            emptyView
         }
     }
 
@@ -309,7 +381,7 @@ struct CalendarWidget: Widget {
         }
         .configurationDisplayName("Upcoming Releases")
         .description("Upcoming Sonarr episodes and Radarr movie releases.")
-        .supportedFamilies([.systemMedium, .systemLarge])
+        .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
         .contentMarginsDisabled()
     }
 }
@@ -328,4 +400,12 @@ struct CalendarWidget: Widget {
     CalendarWidget()
 } timeline: {
     CalendarEntry.placeholder
+}
+
+#Preview(as: .systemSmall) {
+    CalendarWidget()
+} timeline: {
+    CalendarEntry.placeholder
+    CalendarEntry.empty
+    CalendarEntry.unavailable("No Sonarr or Radarr")
 }

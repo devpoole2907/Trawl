@@ -72,6 +72,25 @@ enum WidgetDataFetcher {
         let errorMessage: String?
     }
 
+    /// The merged Seerr Inbox tile: pending requests and open issues from the same
+    /// server selection, fetched together so one tile makes one pass per server.
+    struct WidgetSeerrInboxSnapshot: Sendable {
+        let totalPending: Int
+        let totalOpenIssues: Int
+        let topRequest: WidgetSeerrItemSnapshot?
+        let topIssue: WidgetSeerrItemSnapshot?
+        let serverLabel: String
+        let checkedServerCount: Int
+        let errorMessage: String?
+    }
+
+    private struct SeerrInboxProfileResult: Sendable {
+        let pending: WidgetSeerrPendingSnapshot?
+        let issues: WidgetSeerrIssuesSnapshot?
+
+        var answered: Bool { pending != nil || issues != nil }
+    }
+
     struct WidgetActiveDownloadSnapshot: Sendable {
         let name: String
         let progress: Double
@@ -82,7 +101,7 @@ enum WidgetDataFetcher {
 
     struct WidgetActiveDownloadsSnapshot: Sendable {
         let activeCount: Int
-        let topTorrent: WidgetActiveDownloadSnapshot?
+        let topDownload: WidgetActiveDownloadSnapshot?
         let serverName: String
         let errorMessage: String?
     }
@@ -205,7 +224,7 @@ enum WidgetDataFetcher {
 
         guard qbSnapshot != nil || !sabProfiles.isEmpty else {
             return WidgetActiveDownloadsSnapshot(
-                activeCount: 0, topTorrent: nil,
+                activeCount: 0, topDownload: nil,
                 serverName: "No Client",
                 errorMessage: "No Client"
             )
@@ -223,7 +242,7 @@ enum WidgetDataFetcher {
 
         guard !names.isEmpty else {
             return WidgetActiveDownloadsSnapshot(
-                activeCount: 0, topTorrent: nil,
+                activeCount: 0, topDownload: nil,
                 serverName: "Unreachable",
                 errorMessage: "Unreachable"
             )
@@ -238,7 +257,7 @@ enum WidgetDataFetcher {
 
         return WidgetActiveDownloadsSnapshot(
             activeCount: active.count,
-            topTorrent: active.first,
+            topDownload: active.first,
             serverName: clientLabel(names),
             errorMessage: nil
         )
@@ -392,66 +411,35 @@ enum WidgetDataFetcher {
 
     // MARK: - Seerr
 
-    static func fetchSeerrPendingRequests(profileID: String? = nil) async throws -> WidgetSeerrPendingSnapshot {
+    /// Pending requests and open issues for the selected Seerr server (or every
+    /// enabled server when none is chosen). Both are fetched per profile in the same
+    /// task so the merged tile costs one round of connections, not two.
+    static func fetchSeerrInbox(profileID: String? = nil) async throws -> WidgetSeerrInboxSnapshot {
         let profiles = try await fetchSeerrProfiles(profileID: profileID)
-        var snapshots: [WidgetSeerrPendingSnapshot] = []
+        var results: [SeerrInboxProfileResult] = []
 
-        await withTaskGroup(of: WidgetSeerrPendingSnapshot?.self) { group in
+        await withTaskGroup(of: SeerrInboxProfileResult.self) { group in
             for profile in profiles {
-                group.addTask { await fetchSeerrPendingRequests(for: profile) }
+                group.addTask {
+                    async let pending = fetchSeerrPendingRequests(for: profile)
+                    async let issues = fetchSeerrOpenIssues(for: profile)
+                    return SeerrInboxProfileResult(pending: await pending, issues: await issues)
+                }
             }
 
-            for await snapshot in group {
-                if let snapshot {
-                    snapshots.append(snapshot)
-                }
+            for await result in group {
+                results.append(result)
             }
         }
 
         let serverLabel = profiles.count == 1 ? profiles[0].displayName : "\(profiles.count) Servers"
-        guard !snapshots.isEmpty else {
-            return WidgetSeerrPendingSnapshot(
+        let answered = results.filter(\.answered)
+
+        guard !answered.isEmpty else {
+            return WidgetSeerrInboxSnapshot(
                 totalPending: 0,
+                totalOpenIssues: 0,
                 topRequest: nil,
-                serverLabel: serverLabel,
-                checkedServerCount: 0,
-                errorMessage: "Unavailable"
-            )
-        }
-
-        let topRequest = snapshots
-            .compactMap(\.topRequest)
-            .max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
-
-        return WidgetSeerrPendingSnapshot(
-            totalPending: snapshots.reduce(0) { $0 + $1.totalPending },
-            topRequest: topRequest,
-            serverLabel: serverLabel,
-            checkedServerCount: snapshots.count,
-            errorMessage: nil
-        )
-    }
-
-    static func fetchSeerrOpenIssues() async throws -> WidgetSeerrIssuesSnapshot {
-        let profiles = try await fetchSeerrProfiles(profileID: nil)
-        var snapshots: [WidgetSeerrIssuesSnapshot] = []
-
-        await withTaskGroup(of: WidgetSeerrIssuesSnapshot?.self) { group in
-            for profile in profiles {
-                group.addTask { await fetchSeerrOpenIssues(for: profile) }
-            }
-
-            for await snapshot in group {
-                if let snapshot {
-                    snapshots.append(snapshot)
-                }
-            }
-        }
-
-        let serverLabel = profiles.count == 1 ? profiles[0].displayName : "\(profiles.count) Servers"
-        guard !snapshots.isEmpty else {
-            return WidgetSeerrIssuesSnapshot(
-                totalOpen: 0,
                 topIssue: nil,
                 serverLabel: serverLabel,
                 checkedServerCount: 0,
@@ -459,17 +447,116 @@ enum WidgetDataFetcher {
             )
         }
 
-        let topIssue = snapshots
-            .compactMap(\.topIssue)
+        let topRequest = answered
+            .compactMap { $0.pending?.topRequest }
+            .max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
+        let topIssue = answered
+            .compactMap { $0.issues?.topIssue }
             .max { ($0.createdAt ?? .distantPast) < ($1.createdAt ?? .distantPast) }
 
-        return WidgetSeerrIssuesSnapshot(
-            totalOpen: snapshots.reduce(0) { $0 + $1.totalOpen },
+        return WidgetSeerrInboxSnapshot(
+            totalPending: answered.reduce(0) { $0 + ($1.pending?.totalPending ?? 0) },
+            totalOpenIssues: answered.reduce(0) { $0 + ($1.issues?.totalOpen ?? 0) },
+            topRequest: topRequest,
             topIssue: topIssue,
             serverLabel: serverLabel,
-            checkedServerCount: snapshots.count,
+            checkedServerCount: answered.count,
             errorMessage: nil
         )
+    }
+
+    // MARK: - Download control (Control Center)
+
+    /// The blended pause state the Control Center control renders. Never throws: an
+    /// unreachable client simply does not count toward `reachableClientCount`.
+    static func fetchDownloadControlState(serverID: String? = nil) async -> DownloadControlState {
+        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
+        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+
+        guard qbSnapshot != nil || !sabProfiles.isEmpty else { return .unavailable }
+
+        async let qbCounts = fetchQBittorrentTorrentStateCounts(qbSnapshot)
+        async let sabQueues = fetchSABnzbdQueues(sabProfiles)
+
+        let qb = await qbCounts
+        let sab = await sabQueues
+
+        return DownloadControlState(
+            runningTorrentCount: qb?.running ?? 0,
+            stoppedTorrentCount: qb?.stopped ?? 0,
+            sabQueuePausedFlags: sab.map { $0.queue.paused || $0.queue.pausedAll },
+            reachableClientCount: (qb == nil ? 0 : 1) + sab.count
+        )
+    }
+
+    /// Pauses or resumes every configured download client.
+    ///
+    /// One client failing does not abandon the others — a user with qBittorrent up
+    /// and SABnzbd down still wants qBittorrent paused. The error is only rethrown
+    /// when nothing at all succeeded, so the control never reports a no-op as done.
+    static func setDownloadsPaused(_ paused: Bool, serverID: String? = nil) async throws {
+        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
+        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+
+        guard qbSnapshot != nil || !sabProfiles.isEmpty else {
+            throw WidgetError.noServerConfigured
+        }
+
+        let attempted = (qbSnapshot == nil ? 0 : 1) + sabProfiles.count
+        var failures: [Error] = []
+
+        if let qbSnapshot {
+            do {
+                let client = try await makeQBittorrentClient(from: qbSnapshot)
+                // qBittorrent has no global pause; `all` is its documented wildcard
+                // for every torrent, and the client handles the v4/v5 endpoint split.
+                if paused {
+                    try await client.pauseTorrents(hashes: ["all"])
+                } else {
+                    try await client.resumeTorrents(hashes: ["all"])
+                }
+            } catch {
+                logger.error("qBittorrent pause toggle failed: \(String(describing: error), privacy: .public)")
+                failures.append(error)
+            }
+        }
+
+        for profile in sabProfiles {
+            do {
+                let client = try await makeSABnzbdClient(from: profile)
+                if paused {
+                    try await client.pauseQueue()
+                } else {
+                    try await client.resumeQueue()
+                }
+            } catch {
+                logger.error("SABnzbd pause toggle failed for host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
+                failures.append(error)
+            }
+        }
+
+        if failures.count == attempted, let first = failures.first {
+            throw first
+        }
+    }
+
+    private static func fetchQBittorrentTorrentStateCounts(
+        _ snapshot: ServerSnapshot?
+    ) async -> (running: Int, stopped: Int)? {
+        guard let snapshot else { return nil }
+        return await withWidgetTimeout {
+            let client = try await makeQBittorrentClient(from: snapshot)
+            let torrents = try await client.getTorrentSummaries()
+            // `TorrentState` is main-actor isolated, so the raw values are read there
+            // and only the two counts cross back out.
+            let rawStates = await MainActor.run {
+                torrents.map { ($0.state ?? .unknown).rawValue }
+            }
+            return (
+                running: rawStates.filter(DownloadControlState.isRunningTorrentState).count,
+                stopped: rawStates.filter(DownloadControlState.isStoppedTorrentState).count
+            )
+        }
     }
 
     // MARK: - Library health

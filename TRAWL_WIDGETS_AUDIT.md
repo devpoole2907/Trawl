@@ -11,19 +11,31 @@ source or proven by an executed test. Anything else is marked **proposed** or
 
 ## Shipped inventory
 
-All six register in a single bundle, `TrawlWidgets/TrawlWidgetsBundle.swift`.
+All register in a single bundle, `TrawlWidgets/TrawlWidgetsBundle.swift`.
 
 | Widget | Kind source | Families | Configuration | Backing data |
 |---|---|---|---|---|
-| Download Speed | `SpeedWidget/SpeedWidget.swift` | small, medium | `SelectServerIntent` | qBittorrent transfer info + all enabled SABnzbd queues |
-| Active Downloads | `ActiveTorrentsWidget/ActiveTorrentsWidget.swift` | small, medium | `SelectServerIntent` | qBittorrent torrents + all enabled SABnzbd queue slots |
-| Upcoming Releases | `CalendarWidget/CalendarWidget.swift` | medium, large | `SelectCalendarScopeIntent` | Sonarr/Radarr calendar, cached poster thumbnails |
-| Library Health | `LibraryHealthWidget/LibraryHealthWidget.swift` | small, medium | static | Arr health checks + stuck queue items |
-| Seerr Pending Requests | `SeerrWidgets/SeerrPendingRequestsWidget.swift` | small, medium, accessoryCircular, accessoryInline | `SelectSeerrServerIntent` | Seerr request list/count |
-| Seerr Open Issues | `SeerrWidgets/SeerrOpenIssuesWidget.swift` | small, accessoryCircular | static | Seerr issue list |
+| Download Speed | `SpeedWidget/SpeedWidget.swift` | small, medium, **accessoryInline**, **accessoryCircular** | `SelectServerIntent` | qBittorrent transfer info + all enabled SABnzbd queues |
+| Active Downloads | `ActiveDownloadsWidget/ActiveDownloadsWidget.swift` | small, medium, **accessoryCircular** | `SelectServerIntent` | qBittorrent torrents + all enabled SABnzbd queue slots |
+| Upcoming Releases | `CalendarWidget/CalendarWidget.swift` | **small**, medium, large | `SelectCalendarScopeIntent` | Sonarr/Radarr calendar, cached poster thumbnails |
+| Library Health | `LibraryHealthWidget/LibraryHealthWidget.swift` | small, medium, **accessoryCircular** | static | Arr health checks + stuck queue items |
+| **Seerr Inbox** | `SeerrWidgets/SeerrInboxWidget.swift` | small, medium, accessoryCircular, accessoryInline | `SelectSeerrServerIntent` | Seerr pending requests **and** open issues |
+| **Downloads Pause** (Control Center) | `DownloadControl/DownloadsPauseControl.swift` | Control Center control | — | Blended qBittorrent + SABnzbd running state |
 
-Every widget sets a `widgetURL` deep link. Refresh intervals for all six now come
-from one place, `TrawlWidgets/Shared/WidgetTimelinePolicy.swift`.
+Every widget sets a `widgetURL` deep link. Refresh intervals for all of them come
+from one place, `TrawlWidgets/Shared/WidgetTimelinePolicy.swift`; no interval is
+inlined in a provider.
+
+### Widget kinds orphaned on update
+
+Three kinds were removed or renamed, so any already-installed instance disappears
+from the Home Screen when a user updates:
+
+- `com.poole.james.Trawl.ActiveTorrentsWidget` → `…ActiveDownloadsWidget`
+- `SeerrPendingRequestsWidget` and `SeerrOpenIssuesWidget` → merged into Seerr Inbox
+
+Accepted deliberately: pre-1.0 is the cheapest possible moment for this, and doing
+it after release would strand users' widgets with no recourse.
 
 ## Are the download widgets qBittorrent-only?
 
@@ -58,7 +70,7 @@ In `fetchDownloadSpeed`, `upSpeed`, `dlLimit` and `upLimit` are all taken as
 user sees a permanent `↑ 0 B/s` and empty limits next to a live download figure.
 The asymmetry is invisible and reads as a bug to the user.
 
-**Severity:** release-blocking for a SAB-only install. **Status:** open.
+**Severity:** release-blocking for a SAB-only install. **Status:** open. The Control Center toggle added on 28 August deliberately acts on the blended set, so the download widgets' upload figure is now the only qBittorrent-only surface left.
 
 ### W-03 — SABnzbd per-job speed is synthesised, undocumented to the user
 
@@ -70,54 +82,47 @@ torrents with real per-torrent speeds, with no cue that the units differ.
 
 **Severity:** cosmetic/explanatory. **Status:** accepted, document only.
 
-## Family coverage gaps
+## Family coverage gaps — CLOSED 28 August 2026
 
-**Proposed, agreed 28 August 2026.** No implementation yet.
+All implemented. Each reuses a snapshot the provider already fetched; none added
+networking.
 
-| Gap | Widget | Proposed |
+| Gap | Widget | Result |
 |---|---|---|
-| No lock-screen presence | Download Speed | add `accessoryInline` and `accessoryCircular` |
-| No lock-screen presence | Active Downloads | add `accessoryCircular` |
-| No lock-screen presence | Library Health | add `accessoryCircular` (issue count is already a single number) |
-| No small family | Upcoming Releases | add `systemSmall` showing next release plus countdown |
+| No lock-screen presence | Download Speed | `accessoryInline` rate text + `accessoryCircular` gauge. Accessory families are routed **before** the unavailable branch, because the full "open Trawl to set up" card does not fit a lock-screen slot |
+| No lock-screen presence | Active Downloads | `accessoryCircular` |
+| No lock-screen presence | Library Health | `accessoryCircular` |
+| No small family | Upcoming Releases | `systemSmall` next release plus countdown; the provider picks its countdown cadence from `context.family` |
 
-None of these need new networking; each reuses a snapshot the provider already
-fetches. Lock-screen accessories are the highest-value addition because the two
-most glanceable widgets currently have none while the two Seerr widgets do.
+## Seerr Inbox — CLOSED 28 August 2026
 
-## Seerr Inbox consolidation
+Seerr Pending Requests and Seerr Open Issues are merged into one **Seerr Inbox**
+widget carrying both counts and the `SelectSeerrServerIntent` picker, which also
+resolves the static-configuration inconsistency: Open Issues previously had no
+server picker while its sibling did. Both counts are fetched per profile in one
+task. The two old widgets are deleted.
 
-**Proposed, agreed 28 August 2026.**
+The open question in the previous revision — replace both kinds or keep Pending
+separately — was settled as **replace both**. See the orphaned-kinds note above.
 
-Seerr Open Issues is the weakest widget of the six: small + circular only, static
-configuration with no server picker (unlike its sibling, which has one), and an
-open-issue count that is zero for most users most of the time. A widget that is
-usually empty trains users to remove it.
+## Control widgets — CLOSED 28 August 2026
 
-Merge Pending Requests and Open Issues into one **Seerr Inbox** widget presenting
-both counts, carrying the `SelectSeerrServerIntent` picker so multi-server users
-are served, and deep-linking to the appropriate Seerr surface. This removes the
-static-configuration inconsistency at the same time.
+`DownloadControl/DownloadsPauseControl.swift` is a `ControlWidget` with a
+`ControlValueProvider`, driven by `ToggleDownloadsIntent` (a `SetValueIntent`
+whose error type follows `ArrIntentError`). `Shared/DownloadControlState.swift`
+is the single Foundation-only answer to "are downloads running?" across
+qBittorrent **and** SABnzbd, which is the same blended set the download widgets
+use — the consistent choice given W-01/W-02.
 
-Open question to settle before implementing: whether the merged widget replaces
-both kinds or whether Pending Requests survives separately. Replacing a shipped
-widget kind removes it from users' home screens on update, which is acceptable
-pre-1.0 but must be a deliberate decision.
+`WidgetDataFetcher.setDownloadsPaused` uses qBittorrent's `hashes=all` plus
+SABnzbd `pause`/`resume` per profile, and only rethrows when *every* client
+failed, so one dead client cannot make the control appear broken.
 
-## Control widgets
+⚠️ **`setDownloadsPaused` has never been exercised against a live qBittorrent or
+SABnzbd.** The `hashes=all` wildcard is documented behaviour, not verified here.
+Live-fire this before release.
 
-**Proposed, agreed 28 August 2026.** Nothing exists today — no `ControlWidget`
-and no `ActivityAttributes` anywhere in the repo (verified by search).
-
-A Control Center control for pause/resume-all is a natural fit: the app already
-has an AppIntents layer under `Trawl/ArrStack/AppIntents/`, so the intent
-plumbing and entity types are precedented. Sizing this properly needs a decision
-on whether the control targets qBittorrent only or the same blended qB+SAB set
-the download widgets use — given W-01/W-02, blended is the consistent answer.
-
-Live Activities for a single large download are the other obvious iOS-26-era
-absence, and are the more expensive of the two. Both are post-1.0 unless the
-release date moves.
+Live Activities remain post-1.0.
 
 ## Deferred
 
@@ -206,6 +211,9 @@ See `TRAWL_TEST_COVERAGE_MAP.md` for the authoritative row. Current state:
 | WidgetKit extension registration | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | Installed widget presence and layout | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | `trawl://downloads` deep link from widget | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
+| Glance formatting (gauges, rate labels, inline text, countdown) | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
+| Download-control blended running state | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green — a negative control exposed that the original SAB case survived mutation; a `soleLiveSAB` case now covers "control silently reverted to qBittorrent-only" |
+| `setDownloadsPaused` against a live client | — | **Gap — never run against a real qBittorrent or SABnzbd** |
 | Widget pixel/text content | — | Not reachable from XCTest; device smoke test. See W-04 |
 | Per-widget-kind data fetch on device | — | Release smoke-test work |
 

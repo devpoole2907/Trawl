@@ -64,11 +64,32 @@ struct LibraryHealthWidgetEntryView: View {
 
     var body: some View {
         switch family {
+        case .accessoryCircular:
+            accessoryCircularLayout
         case .systemMedium:
             mediumLayout
         default:
             smallLayout
         }
+    }
+
+    /// Lock-screen dial. The issue count is already a single number, so the only
+    /// decision is how full it reads; see `libraryIssuesGaugeCeiling`.
+    private var accessoryCircularLayout: some View {
+        Gauge(
+            value: WidgetGlanceFormatter.countGaugeFraction(
+                count: count,
+                ceiling: WidgetGlanceFormatter.libraryIssuesGaugeCeiling
+            )
+        ) {
+            Image(systemName: isUnavailable ? "wifi.exclamationmark" : "cross.case")
+        } currentValueLabel: {
+            Text(isUnavailable ? "--" : "\(count)")
+                .monospacedDigit()
+                .minimumScaleFactor(0.6)
+        }
+        .gaugeStyle(.accessoryCircular)
+        .widgetURL(LibraryHealthWidget.trawlHealthURL)
     }
 
     private var smallLayout: some View {
@@ -241,7 +262,7 @@ struct LibraryHealthWidget: Widget {
         }
         .configurationDisplayName("Library Health")
         .description("Sonarr and Radarr warnings with stuck queue items.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
         .contentMarginsDisabled()
     }
 }
@@ -314,4 +335,11 @@ private extension WidgetDataFetcher.WidgetLibraryHealthSnapshot {
     LibraryHealthWidget()
 } timeline: {
     LibraryHealthEntry.placeholder
+}
+
+#Preview(as: .accessoryCircular) {
+    LibraryHealthWidget()
+} timeline: {
+    LibraryHealthEntry.placeholder
+    LibraryHealthEntry(date: .now, snapshot: .healthUnavailable("Unavailable"))
 }

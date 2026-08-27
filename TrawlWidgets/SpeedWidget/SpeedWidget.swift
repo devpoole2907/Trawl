@@ -95,16 +95,58 @@ struct SpeedWidgetEntryView: View {
     @Environment(\.widgetFamily) private var family
 
     var body: some View {
-        if entry.isUnavailable {
-            unavailableLayout
-        } else {
-            switch family {
-            case .systemSmall:
+        // Accessory families are checked before the unavailable branch: a
+        // lock-screen slot has no room for the full "open Trawl to set up" card,
+        // so an unreachable client is folded into the accessory's own layout.
+        switch family {
+        case .accessoryInline:
+            accessoryInlineLayout
+        case .accessoryCircular:
+            accessoryCircularLayout
+        default:
+            if entry.isUnavailable {
+                unavailableLayout
+            } else if family == .systemSmall {
                 smallLayout
-            default:
+            } else {
                 mediumLayout
             }
         }
+    }
+
+    // MARK: Lock screen
+
+    private var accessoryInlineLayout: some View {
+        Text(
+            WidgetGlanceFormatter.inlineSpeedText(
+                formattedDownloadRate: ByteFormatter.formatSpeed(bytesPerSecond: entry.dlSpeed),
+                isActive: entry.isActive,
+                isUnavailable: entry.isUnavailable
+            )
+        )
+        .widgetURL(URL(string: "trawl://downloads"))
+    }
+
+    private var accessoryCircularLayout: some View {
+        Gauge(
+            value: WidgetGlanceFormatter.speedGaugeFraction(
+                bytesPerSecond: entry.dlSpeed,
+                limitBytesPerSecond: entry.dlLimit
+            )
+        ) {
+            Image(systemName: entry.isUnavailable ? "wifi.exclamationmark" : "arrow.down")
+        } currentValueLabel: {
+            Text(
+                WidgetGlanceFormatter.compactRateLabel(
+                    bytesPerSecond: entry.dlSpeed,
+                    isUnavailable: entry.isUnavailable
+                )
+            )
+            .monospacedDigit()
+            .minimumScaleFactor(0.6)
+        }
+        .gaugeStyle(.accessoryCircular)
+        .widgetURL(URL(string: "trawl://downloads"))
     }
 
     private var unavailableLayout: some View {
@@ -270,7 +312,7 @@ struct SpeedWidget: Widget {
         }
         .configurationDisplayName("Download Speed")
         .description("Current global download and upload speeds across qBittorrent and SABnzbd.")
-        .supportedFamilies([.systemSmall, .systemMedium])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryInline])
         .contentMarginsDisabled()
     }
 }
@@ -288,4 +330,17 @@ struct SpeedWidget: Widget {
     SpeedWidget()
 } timeline: {
     SpeedEntry.placeholder
+}
+
+#Preview(as: .accessoryCircular) {
+    SpeedWidget()
+} timeline: {
+    SpeedEntry.placeholder
+}
+
+#Preview(as: .accessoryInline) {
+    SpeedWidget()
+} timeline: {
+    SpeedEntry.placeholder
+    SpeedEntry.unavailable("No Client")
 }
