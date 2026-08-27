@@ -238,6 +238,84 @@ struct SonarrAPIClientContractTests {
         #expect(body == expected)
     }
 
+    // MARK: - Queue deletion
+    //
+    // The most destructive call the app makes: it removes the download from the
+    // client's disk and can blocklist the release so it is never grabbed again.
+    // Both effects are carried entirely by query flags, so a wrong default or a
+    // dropped parameter silently changes what a tap destroys. Nothing covered this
+    // at any level before.
+
+    @Test("Removing a queue item DELETEs that item, removing it from the download client and not blocklisting")
+    func deleteQueueItemDefaultsToRemoveFromClientWithoutBlocklisting() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-queue-delete",
+            routes: ["/api/v3/queue/42": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteQueueItem(id: 42)
+
+        let request = try #require(server.requests.first)
+        #expect(server.requests.count == 1)
+        #expect(request.method == "DELETE")
+        #expect(request.path == "/api/v3/queue/42")
+        #expect(request.header("X-Api-Key") == "sonarr-contract-key")
+        // Parsed rather than string-compared: query item order is an implementation
+        // detail, and pinning it would fail on a reorder that changes nothing.
+        #expect(queryPairs(request.rawQuery) == ["removeFromClient": "true", "blocklist": "false"])
+    }
+
+    @Test("Blocklisting a queue item sends blocklist=true and still removes it from the client")
+    func deleteQueueItemBlocklistsWhenAsked() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-queue-blocklist",
+            routes: ["/api/v3/queue/42": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteQueueItem(id: 42, blocklist: true)
+
+        let request = try #require(server.requests.first)
+        #expect(request.method == "DELETE")
+        #expect(request.path == "/api/v3/queue/42")
+        #expect(queryPairs(request.rawQuery) == ["removeFromClient": "true", "blocklist": "true"])
+    }
+
+    @Test("Keeping the download sends removeFromClient=false rather than omitting it")
+    func deleteQueueItemCanKeepTheDownload() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-queue-keep",
+            routes: ["/api/v3/queue/7": .empty(status: 200)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        try await client.deleteQueueItem(id: 7, removeFromClient: false, blocklist: false)
+
+        let request = try #require(server.requests.first)
+        #expect(queryPairs(request.rawQuery) == ["removeFromClient": "false", "blocklist": "false"])
+    }
+
+    @Test("A rejected queue deletion surfaces as an ArrError rather than reporting success")
+    func deleteQueueItemPropagatesServerRejection() async throws {
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-queue-reject",
+            routes: ["/api/v3/queue/42": .json(#"{"message":"nope"}"#, status: 500)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        await #expect(throws: ArrError.self) {
+            try await client.deleteQueueItem(id: 42)
+        }
+        // The request still went out — this is a server rejection, not a client-side
+        // refusal to send.
+        #expect(server.requests.contains { $0.method == "DELETE" && $0.path == "/api/v3/queue/42" })
+    }
+
     @Test("Sonarr keeps import list exclusions on the shared paged endpoint")
     func importListExclusionsUseSharedPath() async throws {
         let server = try await ArrContractTestServer.routed(
@@ -842,6 +920,20 @@ private final class ArrContractSignal: @unchecked Sendable {
 /// on the wire and replays a scripted response. Returning `nil` from the router
 /// holds the connection open without answering, which is how the cancellation
 /// contract is exercised.
+/// Parses a raw query string into its pairs, so a test can assert the parameters a
+/// request carried without pinning the order they were built in.
+private func queryPairs(_ rawQuery: String?) -> [String: String] {
+    guard let rawQuery, !rawQuery.isEmpty else { return [:] }
+    var pairs: [String: String] = [:]
+    for component in rawQuery.split(separator: "&") {
+        let parts = component.split(separator: "=", maxSplits: 1)
+        guard let name = parts.first else { continue }
+        let value = parts.count > 1 ? String(parts[1]) : ""
+        pairs[String(name).removingPercentEncoding ?? String(name)] = value.removingPercentEncoding ?? value
+    }
+    return pairs
+}
+
 private final class ArrContractTestServer: @unchecked Sendable {
     typealias Router = @Sendable (ArrContractRequest) -> ArrContractStubResponse?
 
