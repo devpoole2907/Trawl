@@ -891,6 +891,22 @@ of the plan also reports success.
 
 ## N-06 — the Arr services screen was never wired up, and the add paths inherited the gap
 
+### Product direction and 1.0 boundary — 28 August 2026
+
+Multi-instance configuration is deliberately **deferred from 1.0**, not rejected. The
+intended personal setup is two Sonarr instances (for example HD and 4K) and two Radarr
+instances, presented as one logical library. Server identity belongs as provenance and
+as an optional filter; it should not create four separate primary media surfaces. The
+eventual work is therefore larger than wiring the dead settings view: setup must make a
+second instance discoverable, while Series/Movies merge and de-duplicate entries from
+all configured instances and preserve enough identity to route commands back to the
+correct server.
+
+For 1.0, preserve the existing multi-instance manager/profile architecture and its
+switching/routing tests, but do not advertise multi-instance setup as a complete user
+feature. N-06 is not an App Store blocker under that scope. Do not delete or collapse
+the architecture merely because the configuration entry point is deferred.
+
 Writing the add-through-the-UI journey surfaced this, which is the value of driving a
 path rather than reasoning about it. Three related facts, each verified by reading every
 call site rather than inferred from one:
@@ -967,8 +983,11 @@ The tell is a method that takes a collection, or a whole model object, and posts
 settings-shaped endpoint. When adding one, assume the server does not merge until proven
 otherwise, and pin the untouched members rather than the edited one.
 
-Still unpinned in this family: `BazarrAPIClient.resetProviders`, which wipes provider
-configuration in a single call.
+`BazarrAPIClient.resetProviders` remains unpinned, but it is not a configuration wipe.
+The UI labels it **Reset Provider Status** and enabled-provider configuration is saved
+through `saveEnabledProviders`; treat reset as status/throttling state unless a captured
+live response proves otherwise. Do not test or document it as deleting provider
+configuration.
 
 ## Executive verdict
 
