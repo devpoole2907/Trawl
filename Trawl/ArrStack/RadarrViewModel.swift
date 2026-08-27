@@ -418,7 +418,6 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
 
         do {
             try await client.deleteMovieFile(id: id)
-            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Movie file removed.")
             if let movieId {
                 await refreshMovieInLibrary(id: movieId)
                 await loadMovieFiles(movieId: movieId)
@@ -427,7 +426,6 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             return true
         } catch {
             self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
             return false
         }
     }

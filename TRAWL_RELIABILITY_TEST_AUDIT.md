@@ -1080,6 +1080,46 @@ picker that lists nothing.
 | Refresh-policy negative control | **Failed as intended:** 9 executed, 1 issue, on the target assertion |
 | `TrawlUITests/WidgetInstalledProcessUITests` | **Passed:** 1 test, 0 failed, 0 skipped |
 
+## Arr duplicate media-file deletion feedback — 28 August 2026
+
+### The defect
+
+Deleting a Sonarr episode file or a Radarr movie file posted two banners. Both
+`SonarrViewModel.deleteEpisodeFile` and `RadarrViewModel.deleteMovieFile` announced
+the outcome through `InAppNotificationCenter`, and so did every presenting view:
+`SonarrSeriesDetailView`, `SonarrSeriesSearchViews` and `RadarrMovieDetailView` each
+already showed a success or failure banner based on the returned `Bool` and the view
+model's `error`. One confirmed deletion produced two "File Deleted" banners; one
+rejected deletion produced two "Delete Failed" banners.
+
+The fix removes the announcements from the two view models. The ownership rule it
+settles: **a view model owns the request, the resulting state and the error; the
+presenting view owns the user-facing feedback appropriate to its screen.** All three
+call sites were checked and all three still announce, so no feedback was lost.
+
+### Negative control
+
+An earlier attempt at this control is invalid and is not cited: widget files changed
+mid-build, the compile failed for unrelated Swift concurrency reasons, and zero tests
+executed. It was rerun cleanly after the widget tranche stabilised.
+
+Restoring the four original notification calls puts the two view models back to their
+committed state exactly — `git diff` against `HEAD` for both files was empty, which is
+what makes this a true old-behaviour run rather than an approximation of one.
+
+| Run | Result bundle | Verdict |
+|---|---|---|
+| Old behaviour restored | `/tmp/trawl-arr-old.xcresult` | **4 executed, 4 failed, 0 passed, 0 skipped.** Every failure is `Expectation failed: fileDeletionNotificationCount() == before`, on all four tests. |
+| Fix restored | `/tmp/trawl-arr-fixed.xcresult` | **4 passed, 0 failed, 0 skipped.** |
+
+Both bundles were checked with `Scripts/assert-test-results.py`, not by reading the
+`xcodebuild` exit code.
+
+The suite also pins the exact authenticated `DELETE /api/v3/episodefile/71` and
+`DELETE /api/v3/moviefile/81` against loopback fixture servers, and asserts the error
+text is preserved in `viewModel.error` on rejection, so the control cannot pass by
+deleting the mutation instead of the duplicate banner.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.

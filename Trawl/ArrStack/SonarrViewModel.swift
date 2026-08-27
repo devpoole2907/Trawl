@@ -605,7 +605,6 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         do {
             error = nil
             try await client.deleteEpisodeFile(id: id)
-            InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Episode file removed.")
 
             if let seriesId {
                 await loadEpisodeFiles(for: seriesId)
@@ -615,7 +614,6 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             return true
         } catch {
             self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
             return false
         }
     }
