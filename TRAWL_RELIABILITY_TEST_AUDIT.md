@@ -1168,6 +1168,41 @@ this so the attempt is not repeated:
 Neither mutation was performed. Both are the correct next step if Seerr or the calendar
 widget need release-grade confidence.
 
+## Full test-plan checkpoint — 28 August 2026
+
+Complete `Trawl.xctestplan` run on the iPhone 17 Pro simulator, parallel testing
+disabled, one concurrent destination.
+
+| Check | Result |
+|---|---:|
+| Entire `Trawl` test plan | **Passed: 701 tests, 0 failed, 0 skipped** |
+| Swift Testing portion | 653 tests across 79 suites, 0 issues |
+| XCTest/UI portion | 49 tests, 0 failures, 0 unexpected |
+| Generic iOS Simulator build (Trawl) | **Passed** |
+| Generic macOS build (TrawlMac) | **Passed** |
+| `git diff --check` | **Passed** |
+
+Counts were read from `/tmp/trawl-final-checkpoint.xcresult` with
+`Scripts/assert-test-results.py`, not from the `xcodebuild` exit code. The previous
+complete checkpoint was 658 passed; the increase is the widget tranche (9), the Arr
+media-file deletion suite (4), and the roughly 29 tests added between the two
+checkpoints.
+
+### Simulator note
+
+During the UI portion, the simulator's own `com.apple.PosterBoard` crash-looped — 25
+reports in about two minutes, all `EXC_BREAKPOINT` inside
+`-[PRPosterDescriptor _initWithPath:]`, an assert in Apple's PosterKit reached while
+building its poster data store. It is an iOS Simulator process, not Trawl, and no test
+failed because of it; `launchd_sim` eventually backed off. The likely trigger is the
+repeated Home Screen edit-mode and widget-installation churn from
+`WidgetInstalledProcessUITests`, which installs a widget on every run and never removes
+it. Erasing the device rebuilds the poster store.
+
+**Follow-up worth doing:** give that test a `tearDown` that removes the widget it
+installed. The before/after count assertion still works, and CI stops slowly corrupting
+its own simulator. Not yet implemented.
+
 ## Executive verdict
 
 Building a real safety net now is a good idea. Trawl's current tests are useful, but they are not broad enough to make iteration safe.
