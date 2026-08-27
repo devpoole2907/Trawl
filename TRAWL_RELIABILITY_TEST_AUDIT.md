@@ -807,7 +807,7 @@ still clearing `isValidating` so a cancelled attempt cannot leave the form stuck
 loopback server that never answers, so the request is genuinely in flight when the task
 is cancelled; it fails on the unfixed code with the exact string above.
 
-### The same probe found a second, deeper problem — not fixed, needs a decision
+### The same probe found a second, deeper problem — now fixed, narrowly
 
 `OnboardingSheet` cancels its `saveTask` the same way, so the same test was written for
 `OnboardingViewModel`. It does not fail the same way: it takes **60 seconds** and
@@ -819,13 +819,31 @@ deduplicates concurrent logins by storing an **unstructured** `Task` and awaitin
 forward it, so cancelling the caller leaves the login request running to its full
 timeout. Cancelling qBittorrent onboarding does not stop the network call.
 
-This is shared authentication code on every qBittorrent path, not just onboarding, and
-the unstructured task is load-bearing: it is what lets several callers share one
-in-flight login. Making it cancellable (for example `withTaskCancellationHandler`
-cancelling the shared task) changes what happens to the *other* waiters when any one
-caller goes away. That is a semantics decision rather than a bug fix, so it is recorded
-here rather than changed unilaterally. No test for it was landed: any honest one costs
-60 seconds per run.
+The unstructured task is load-bearing: it is what lets several callers share one
+in-flight login, which is what stops a burst of simultaneous re-auths when many polled
+requests hit 401 together. Cancelling the shared task whenever any one waiter goes away
+would fail the others and send them all back to retry — the storm the coalescing exists
+to prevent.
+
+The fix is therefore scoped by ownership rather than applied globally. `AuthService`
+gained `propagatesCancellation`, default false, so the shared instance behind
+`QBittorrentAPIClient.reauthenticate` keeps today's behavior exactly. Onboarding opts
+in, because it builds a throwaway `AuthService` with a freshly generated UUID purely to
+validate typed credentials — a single caller, with no one else ever waiting on its
+login. `OnboardingViewModel` additionally returns without reporting when its attempt was
+cancelled, keyed on `Task.isCancelled` rather than an error type, since the transport
+determines whether that arrives as `CancellationError` or `URLError.cancelled`.
+
+Both halves are covered by one test and each was negative-controlled separately:
+removing the opt-in takes the attempt back to **60.07 s** and fails its promptness
+assertion; removing the `Task.isCancelled` guard puts "Connection failed: cancelled" in
+front of the user and fails the error assertion. With both in place the cancelled
+attempt returns in **0.006 s** reporting nothing.
+
+Still open, deliberately: the shared re-auth path remains uncancellable. Making it
+responsive needs waiter reference counting so the login is dropped only when the last
+interested caller leaves. Worth doing only if that path proves to be a problem on its
+own; it is not one today.
 
 ## Executive verdict
 

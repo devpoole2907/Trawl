@@ -495,6 +495,55 @@ struct OnboardingViewModelTests {
     // observe half-rolled-back state.
 
 
+    // MARK: - Cancellation
+
+    /// `OnboardingSheet` cancels the in-flight `saveTask` in `onDisappear` and again on
+    /// every Connect tap while one is running. Two things have to hold for that to be
+    /// harmless, and this pins both.
+    ///
+    /// The attempt must **return promptly**. `AuthService` coalesces logins behind an
+    /// unstructured `Task`, which does not inherit cancellation, so before
+    /// `propagatesCancellation` this call sat until the request timed out sixty seconds
+    /// later. Onboarding's `AuthService` is a throwaway with a single caller, so it opts
+    /// in; the shared instance behind `QBittorrentAPIClient.reauthenticate` deliberately
+    /// does not, since a login there can have several waiters.
+    ///
+    /// And it must **report nothing**, rather than showing raw transport text to
+    /// someone still setting the app up for the first time.
+    @Test("A cancelled connection attempt returns promptly and reports no error")
+    func cancelledAttemptReportsNoError() async throws {
+        let blackHole = try await UnansweringServer(label: "onboarding-cancel")
+        defer { blackHole.stop() }
+
+        let viewModel = OnboardingViewModel()
+        viewModel.hostURL = blackHole.baseURL
+        viewModel.username = "ada"
+        viewModel.password = "hunter2"
+
+        let context = try makeInMemoryContext()
+
+        let started = Date()
+        let attempt = Task { await viewModel.validateAndSave(modelContext: context) }
+        await blackHole.waitForFirstRequest()
+        attempt.cancel()
+        let saved = await attempt.value
+        let elapsed = Date().timeIntervalSince(started)
+
+        #expect(saved == false)
+        #expect(
+            viewModel.validationError == nil,
+            "A cancelled attempt must not surface an error: the user dismissed the sheet or asked for a new attempt."
+        )
+        // The request's own timeout is 60s. This is not a timing assertion on the
+        // machine's speed — it is the difference between cancellation being honoured at
+        // all and the login running to completion regardless.
+        #expect(
+            elapsed < 20,
+            "Cancelling must cancel the login rather than waiting out its timeout; took \(elapsed)s."
+        )
+        #expect(try context.fetch(FetchDescriptor<ServerProfile>()).isEmpty)
+    }
+
     // MARK: - Helpers
 
     private func makeInMemoryContext() throws -> ModelContext {

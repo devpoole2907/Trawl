@@ -7,13 +7,28 @@ actor AuthService {
     private var sid: String?
     private var cookieName: String?
     private var authTask: Task<Void, Error>?
+    private let propagatesCancellation: Bool
     let serverProfileID: UUID
 
     /// - Parameter session: Transport used for the login round trip. Defaults to a
     ///   private cookie-less ephemeral session; inject one to drive login against a
     ///   stubbed transport.
-    init(serverProfileID: UUID, allowsUntrustedTLS: Bool = false, session: URLSession? = nil) {
+    /// - Parameter propagatesCancellation: whether cancelling a caller should cancel
+    ///   the shared login task. Safe **only** when this instance has a single caller,
+    ///   as in onboarding, which builds a throwaway `AuthService` purely to validate
+    ///   typed credentials. On the shared instance a login can have several waiters
+    ///   (`QBittorrentAPIClient.reauthenticate`), and letting any one of them abort it
+    ///   would fail the others and send them all back to retry — the login storm this
+    ///   coalescing exists to prevent. Defaults to false, so shared instances keep
+    ///   today's behavior.
+    init(
+        serverProfileID: UUID,
+        allowsUntrustedTLS: Bool = false,
+        session: URLSession? = nil,
+        propagatesCancellation: Bool = false
+    ) {
         self.serverProfileID = serverProfileID
+        self.propagatesCancellation = propagatesCancellation
         self.trustPolicy = ServerTrustPolicy(allowsUntrustedTLS: allowsUntrustedTLS)
         if let session {
             self.session = session
@@ -49,7 +64,17 @@ actor AuthService {
         let task = Task { try await self.performLogin(hostURL: hostURL, username: username, password: password) }
         authTask = task
         defer { authTask = nil }
-        try await task.value
+        guard propagatesCancellation else {
+            // An unstructured task does not inherit cancellation, and `value` does not
+            // forward it, so this waits for the login to finish either way.
+            try await task.value
+            return
+        }
+        try await withTaskCancellationHandler {
+            try await task.value
+        } onCancel: {
+            task.cancel()
+        }
     }
 
     private func performLogin(hostURL: String, username: String, password: String) async throws {

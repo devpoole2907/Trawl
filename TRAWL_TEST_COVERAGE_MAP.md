@@ -59,7 +59,7 @@ Use this map before changing production behavior. It identifies the focused suit
 | More/Settings destinations and service removal | `TrawlUITests/MoreSettingsBreadthUITests.swift`; `TrawlUITests/ServiceRemovalJourneyUITests.swift`; `TrawlUITests/NavigationSmokeWalkUITests.swift` |
 | Arr notification webhook management | `TrawlTests/ArrWebhookNotificationManagerTests.swift`; `TrawlUITests/NotificationSettingsJourneyUITests.swift` |
 | Recent notification history and clearing | `TrawlUITests/RecentNotificationsJourneyUITests.swift` |
-| Onboarding persistence and validation | `TrawlTests/OnboardingViewModelTests.swift`; the relevant setup/edit UI journey |
+| Onboarding persistence and validation, including cancellation (N-05): a cancelled attempt must return promptly and report nothing, and `AuthService.propagatesCancellation` stays opt-in so the shared re-auth instance keeps coalescing | `TrawlTests/OnboardingViewModelTests.swift`; the relevant setup/edit UI journey |
 | Share input classification and termination | `TrawlTests/ShareExtensionInputTests.swift` |
 
 ## Validation command shape

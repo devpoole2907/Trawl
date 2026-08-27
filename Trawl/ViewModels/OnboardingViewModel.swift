@@ -119,7 +119,13 @@ final class OnboardingViewModel {
                 return false
             }
             // Create a temporary API client to test the connection
-            let tempAuth = AuthService(serverProfileID: UUID(), allowsUntrustedTLS: allowsUntrustedTLS)
+            // A throwaway instance with exactly one caller, so cancelling this
+            // attempt can safely cancel its login — nothing else is waiting on it.
+            let tempAuth = AuthService(
+                serverProfileID: UUID(),
+                allowsUntrustedTLS: allowsUntrustedTLS,
+                propagatesCancellation: true
+            )
             let tempClient = QBittorrentAPIClient(
                 baseURL: trimmedURL,
                 authService: tempAuth,
@@ -189,6 +195,15 @@ final class OnboardingViewModel {
             isValidating = false
             return false
         } catch {
+            // A cancelled attempt is not a failure to report: the sheet was dismissed,
+            // or Connect was tapped again and a newer attempt now owns this state.
+            // The error type varies by transport — `CancellationError` through
+            // `HTTPTransport`, `URLError.cancelled` from `AuthService`'s own session —
+            // so the question asked here is simply whether this attempt was cancelled.
+            if Task.isCancelled {
+                isValidating = false
+                return false
+            }
             validationError = "Connection failed: \(error.localizedDescription)"
             isValidating = false
             return false
