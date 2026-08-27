@@ -23,6 +23,29 @@ nonisolated struct BazarrFixtureRequest: Sendable, Equatable {
     let method: String
     let path: String
     let rawQuery: String
+    /// The request body exactly as it arrived. Bazarr posts settings as a form body
+    /// rather than a query, so assertions about *what was saved* need this.
+    let body: String
+
+    /// The form body decoded into its pairs, in order and with repeats preserved —
+    /// `settings-general-enabled_providers` is sent once per enabled provider, so a
+    /// dictionary would silently collapse the very thing worth asserting.
+    var formPairs: [(name: String, value: String)] {
+        guard !body.isEmpty else { return [] }
+        return body.split(separator: "&").map { pair in
+            let parts = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            let name = String(parts.first ?? "")
+            let value = parts.count > 1 ? String(parts[1]) : ""
+            return (
+                name.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? name,
+                value.replacingOccurrences(of: "+", with: " ").removingPercentEncoding ?? value
+            )
+        }
+    }
+
+    func formValues(named name: String) -> [String] {
+        formPairs.filter { $0.name == name }.map(\.value)
+    }
 }
 
 nonisolated struct BazarrFixtureResponse: Sendable {
@@ -223,10 +246,12 @@ nonisolated final class BazarrFixtureServer: @unchecked Sendable {
 
         let target = String(parts[1])
         let targetParts = target.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        let body = String(data: bodyBytes.prefix(contentLength), encoding: .utf8) ?? ""
         return BazarrFixtureRequest(
             method: String(parts[0]),
             path: String(targetParts.first ?? ""),
-            rawQuery: targetParts.count > 1 ? String(targetParts[1]) : ""
+            rawQuery: targetParts.count > 1 ? String(targetParts[1]) : "",
+            body: body
         )
     }
 
