@@ -17,6 +17,11 @@ struct ArrDownloadClientListView: View {
     @State private var showSettings = false
     @State private var reachability: [Int: Bool] = [:]
     @State private var isCheckingIDs: Set<Int> = []
+    /// Which server's download clients are on screen. Download clients are
+    /// configured per server, and an HD/4K pair usually has different categories
+    /// pointed at different folders — so "the Sonarr download clients" is two
+    /// lists once a pair exists.
+    @State private var selectedInstanceID: UUID?
 
     init(serviceType: ArrServiceType) {
         self.serviceType = serviceType
@@ -44,6 +49,19 @@ struct ArrDownloadClientListView: View {
 
     private var isServiceConnecting: Bool {
         serviceManager.isInitializing || serviceManager.isConnecting(serviceType)
+    }
+
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.refs(for: serviceType).filter { serviceManager.isConnected(serviceType, profileID: $0.id) }
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
+    /// Every read and mutation on this screen goes through the selected server.
+    private var scopedClient: (any SharedArrClient)? {
+        selectedInstance.flatMap { serviceManager.sharedClient(for: $0) }
     }
 
     var body: some View {
@@ -160,7 +178,10 @@ struct ArrDownloadClientListView: View {
             }
             .environment(serviceManager)
         }
-        .task(id: "\(serviceManager.isConnected(serviceType))-\(serviceManager.activeInstanceID(serviceType)?.uuidString ?? "none")") {
+        .safeAreaInset(edge: .top) {
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+        }
+        .task(id: selectedInstance?.id) {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif
@@ -454,20 +475,13 @@ struct ArrDownloadClientListView: View {
         defer { isLoading = false }
 
         do {
-            switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                clients = try await client.getDownloadClients()
-                    .sorted { ($0.name ?? "") < ($1.name ?? "") }
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                clients = try await client.getDownloadClients()
-                    .sorted { ($0.name ?? "") < ($1.name ?? "") }
-            case .prowlarr:
+            guard supportsDownloadClients else {
                 clients = []
-            case .bazarr:
-                clients = []
+                return
             }
+            guard let client = scopedClient else { throw ArrError.noServiceConfigured }
+            clients = try await client.getDownloadClients()
+                .sorted { ($0.name ?? "") < ($1.name ?? "") }
         } catch {
             loadError = error.localizedDescription
         }
@@ -491,15 +505,8 @@ struct ArrDownloadClientListView: View {
         Task {
             do {
                 switch serviceType {
-                case .sonarr:
-                    guard let apiClient = serviceManager.sonarrClient else {
-                        reachability[client.id] = false
-                        isCheckingIDs.remove(client.id)
-                        return
-                    }
-                    try await apiClient.testDownloadClient(client)
-                case .radarr:
-                    guard let apiClient = serviceManager.radarrClient else {
+                case .sonarr, .radarr:
+                    guard let apiClient = scopedClient else {
                         reachability[client.id] = false
                         isCheckingIDs.remove(client.id)
                         return
@@ -535,18 +542,9 @@ struct ArrDownloadClientListView: View {
 
         do {
             let saved: ArrDownloadClient
-            switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                saved = try await client.updateDownloadClient(updated)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                saved = try await client.updateDownloadClient(updated)
-            case .prowlarr:
-                return
-            case .bazarr:
-                return
-            }
+            guard supportsDownloadClients else { return }
+            guard let client = scopedClient else { throw ArrError.noServiceConfigured }
+            saved = try await client.updateDownloadClient(updated)
             if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
                 clients[idx] = saved
             }
@@ -567,18 +565,9 @@ struct ArrDownloadClientListView: View {
         defer { isTestingID = nil }
 
         do {
-            switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                try await client.testDownloadClient(downloadClient)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                try await client.testDownloadClient(downloadClient)
-            case .prowlarr:
-                return
-            case .bazarr:
-                return
-            }
+            guard supportsDownloadClients else { return }
+            guard let client = scopedClient else { throw ArrError.noServiceConfigured }
+            try await client.testDownloadClient(downloadClient)
             reachability[downloadClient.id] = true
             inAppNotificationCenter.showSuccess(
                 title: "Test Passed",
@@ -593,18 +582,9 @@ struct ArrDownloadClientListView: View {
     private func deleteClient(_ downloadClient: ArrDownloadClient) async {
         guard supportsDownloadClients else { return }
         do {
-            switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                try await client.deleteDownloadClient(id: downloadClient.id)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
-                try await client.deleteDownloadClient(id: downloadClient.id)
-            case .prowlarr:
-                return
-            case .bazarr:
-                return
-            }
+            guard supportsDownloadClients else { return }
+            guard let client = scopedClient else { throw ArrError.noServiceConfigured }
+            try await client.deleteDownloadClient(id: downloadClient.id)
             clients.removeAll { $0.id == downloadClient.id }
             reachability.removeValue(forKey: downloadClient.id)
             inAppNotificationCenter.showSuccess(
