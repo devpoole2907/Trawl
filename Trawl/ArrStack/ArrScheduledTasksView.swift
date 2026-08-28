@@ -4,6 +4,10 @@ struct ArrScheduledTasksView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
     @State private var vm = ArrTasksViewModel()
+    /// Which server's task list is on screen. Scheduled tasks and the command
+    /// queue are per-server — a refresh running on the HD box says nothing about
+    /// the 4K one — so the selector picks a server, not a service.
+    @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showSettings = false
     @State private var taskSearchText = ""
@@ -58,24 +62,38 @@ struct ArrScheduledTasksView: View {
         availableServices.first { !serviceManager.isConnected($0) } ?? availableServices.first
     }
 
+    /// Every server that runs tasks: both halves of each Arr pair, plus Prowlarr
+    /// and Bazarr.
+    private var availableInstances: [ArrInstanceRef] {
+        availableServices.flatMap { serviceManager.refs(for: $0) }
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
     private var currentScheduledTasks: [ArrScheduledTask] {
-        selectedService == .bazarr ? [] : vm.scheduledTasks(for: selectedService)
+        guard let instance = selectedInstance, instance.serviceType != .bazarr else { return [] }
+        return vm.scheduledTasks(for: instance.id)
     }
 
     private var currentCommandQueue: [ArrCommand] {
-        selectedService == .bazarr ? [] : vm.commandQueue(for: selectedService)
+        guard let instance = selectedInstance, instance.serviceType != .bazarr else { return [] }
+        return vm.commandQueue(for: instance.id)
     }
 
     private var currentBazarrTasks: [BazarrTask] {
-        selectedService == .bazarr ? vm.bazarrTasks : []
+        selectedInstance?.serviceType == .bazarr ? vm.bazarrTasks : []
     }
 
     private var isCurrentLoading: Bool {
-        vm.isLoading(for: selectedService)
+        guard let instance = selectedInstance else { return false }
+        return instance.serviceType == .bazarr ? vm.isBazarrLoading : vm.isLoading(for: instance.id)
     }
 
     private var currentError: String? {
-        vm.errorMessage(for: selectedService)
+        guard let instance = selectedInstance else { return nil }
+        return instance.serviceType == .bazarr ? vm.bazarrErrorMessage : vm.errorMessage(for: instance.id)
     }
 
     private var taskSearchQuery: String {
@@ -108,17 +126,19 @@ struct ArrScheduledTasksView: View {
             }
         }
         .navigationTitle("Tasks")
-        .navigationSubtitle(availableServices.isEmpty ? "" : hasTaskSearch ? "Search" : selectedService.displayName)
+        .navigationSubtitle(hasTaskSearch ? "Search" : (selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? ""))
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
-            if !availableServices.isEmpty {
+            if !availableInstances.isEmpty {
                 TrawlSegmentBar(
-                    "Service",
+                    "Server",
                     selection: Binding(
-                        get: { selectedService },
-                        set: { newService in withAnimation { selectedService = newService } }
+                        get: { selectedInstance?.id },
+                        set: { newValue in withAnimation { selectedInstanceID = newValue } }
                     ),
-                    items: availableServices.map(\.segmentBarItem),
+                    items: availableInstances.map {
+                        TrawlSegmentBarItem(serviceManager.scopeLabel(for: $0), value: Optional($0.id))
+                    },
                     searchText: $taskSearchText,
                     searchHint: "Search tasks",
                     isSearchExpanded: $isSearchExpanded,
@@ -128,10 +148,10 @@ struct ArrScheduledTasksView: View {
             }
         }
         .loadServicesPeriodically(
-            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
-            keys: availableServices
-        ) { service in
-            await loadService(service)
+            id: availableInstances.map(\.id.uuidString).joined(separator: "|"),
+            keys: availableInstances
+        ) { instance in
+            await loadService(instance)
         }
         .sheet(isPresented: $showSettings) {
             if let service = primarySettingsService {
@@ -147,9 +167,12 @@ struct ArrScheduledTasksView: View {
             }
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
+            if selectedInstanceID == nil || !availableInstances.contains(where: { $0.id == selectedInstanceID }) {
+                selectedInstanceID = availableInstances.first?.id
             }
+        }
+        .onChange(of: selectedInstance?.serviceType) { _, newValue in
+            if let newValue { selectedService = newValue }
         }
     }
 
@@ -206,7 +229,7 @@ struct ArrScheduledTasksView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .refreshable { await loadService(selectedService) }
+        .refreshable { if let instance = selectedInstance { await loadService(instance) } }
         .animation(.default, value: currentScheduledTasks.map(\.id))
         .animation(.default, value: currentBazarrTasks.map(\.id))
     }
@@ -226,7 +249,9 @@ struct ArrScheduledTasksView: View {
                         switch item.kind {
                         case .scheduled(let task):
                             ArrScheduledTaskRow(task: task) {
-                                await triggerArrTask(task, service: item.service)
+                                if let instance = item.instance {
+                                    await triggerArrTask(task, on: instance)
+                                }
                             }
                         case .queue(let command):
                             ArrCommandQueueRow(command: command)
@@ -241,28 +266,33 @@ struct ArrScheduledTasksView: View {
         }
     }
 
+    /// Searches every server, not every service — with a pair configured the same
+    /// task name exists twice and each hit has to run on its own box.
     private func taskSearchSections(matching query: String) -> [TaskSearchSection] {
-        availableServices.flatMap { service -> [TaskSearchSection] in
+        availableInstances.flatMap { instance -> [TaskSearchSection] in
+            let service = instance.serviceType
+            let title = serviceManager.scopeLabel(for: instance)
+
             if service == .bazarr {
                 let items = vm.bazarrTasks
                     .filter { $0.matchesTaskSearch(query) }
-                    .map { TaskSearchItem(service: service, kind: .bazarr($0)) }
-                return items.isEmpty ? [] : [TaskSearchSection(title: "\(service.displayName) Scheduled", items: items)]
+                    .map { TaskSearchItem(service: service, instance: nil, kind: .bazarr($0)) }
+                return items.isEmpty ? [] : [TaskSearchSection(title: "\(title) Scheduled", items: items)]
             }
 
-            let scheduled = vm.scheduledTasks(for: service)
+            let scheduled = vm.scheduledTasks(for: instance.id)
                 .filter { $0.matchesTaskSearch(query) }
-                .map { TaskSearchItem(service: service, kind: .scheduled($0)) }
-            let queue = vm.commandQueue(for: service)
+                .map { TaskSearchItem(service: service, instance: instance, kind: .scheduled($0)) }
+            let queue = vm.commandQueue(for: instance.id)
                 .filter { $0.matchesTaskSearch(query) }
-                .map { TaskSearchItem(service: service, kind: .queue($0)) }
+                .map { TaskSearchItem(service: service, instance: instance, kind: .queue($0)) }
 
             var sections: [TaskSearchSection] = []
             if !scheduled.isEmpty {
-                sections.append(TaskSearchSection(title: "\(service.displayName) Scheduled", items: scheduled))
+                sections.append(TaskSearchSection(title: "\(title) Scheduled", items: scheduled))
             }
             if !queue.isEmpty {
-                sections.append(TaskSearchSection(title: "\(service.displayName) Queue", items: queue))
+                sections.append(TaskSearchSection(title: "\(title) Queue", items: queue))
             }
             return sections
         }
@@ -271,54 +301,43 @@ struct ArrScheduledTasksView: View {
     // MARK: - Load & Trigger
 
     @MainActor
-    private func loadService(_ service: ArrServiceType) async {
+    private func loadService(_ instance: ArrInstanceRef) async {
         #if DEBUG
         if ArrPreviewRuntime.isActive { return }
         #endif
-        switch service {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return }
-            await vm.load(service: .sonarr, client: client)
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { return }
-            await vm.load(service: .radarr, client: client)
-        case .prowlarr:
-            guard let client = serviceManager.prowlarrClient else { return }
-            await vm.load(service: .prowlarr, client: client)
-        case .bazarr:
+        if instance.serviceType == .bazarr {
             guard let client = serviceManager.activeBazarrEntry?.client else { return }
             await vm.loadBazarr(client: client)
+            return
         }
+        guard let client = serviceManager.sharedClient(for: instance) else { return }
+        await vm.load(instance: instance.id, client: client)
     }
 
     @MainActor
     private func triggerArrTask(_ task: ArrScheduledTask) async {
-        await triggerArrTask(task, service: selectedService)
+        guard let instance = selectedInstance else { return }
+        await triggerArrTask(task, on: instance)
     }
 
+    /// Runs the task on the server whose list it came from. "Refresh Series" on
+    /// the HD box does nothing for the 4K one, so sending it to the wrong server
+    /// looks like it worked and changes nothing the user was looking at.
     @MainActor
-    private func triggerArrTask(_ task: ArrScheduledTask, service: ArrServiceType) async {
-        switch service {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return }
-            await vm.triggerTask(task, service: .sonarr, client: client)
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { return }
-            await vm.triggerTask(task, service: .radarr, client: client)
-        case .prowlarr:
-            guard let client = serviceManager.prowlarrClient else { return }
-            await vm.triggerTask(task, service: .prowlarr, client: client)
-        case .bazarr:
-            break
-        }
-        await loadService(service)
+    private func triggerArrTask(_ task: ArrScheduledTask, on instance: ArrInstanceRef) async {
+        guard instance.serviceType != .bazarr,
+              let client = serviceManager.sharedClient(for: instance) else { return }
+        await vm.triggerTask(task, instance: instance.id, client: client)
+        await loadService(instance)
     }
 
     @MainActor
     private func triggerBazarrTask(_ task: BazarrTask) async {
         guard let client = serviceManager.activeBazarrEntry?.client else { return }
         await vm.triggerBazarrTask(task, client: client)
-        await loadService(.bazarr)
+        if let bazarr = serviceManager.refs(for: .bazarr).first {
+            await loadService(bazarr)
+        }
     }
 }
 
@@ -331,10 +350,13 @@ private struct TaskSearchSection: Identifiable {
 
 private struct TaskSearchItem: Identifiable {
     let service: ArrServiceType
+    /// The server the task belongs to, so a search hit can be run on the right
+    /// one. `nil` for Bazarr, which has no Arr pair.
+    let instance: ArrInstanceRef?
     let kind: TaskSearchItemKind
 
     var id: String {
-        "\(service.rawValue)-\(kind.id)"
+        "\(instance?.id.uuidString ?? service.rawValue)-\(kind.id)"
     }
 }
 
@@ -395,7 +417,7 @@ extension ArrTasksViewModel {
         bazarrTasks: [BazarrTask] = []
     ) {
         for service in [ArrServiceType.sonarr, .radarr, .prowlarr] {
-            mutate(service) {
+            mutate(ArrInstanceRef.preview(service).id) {
                 $0.scheduledTasks = tasks[service] ?? []
                 $0.commandQueue = commands[service] ?? []
                 $0.isLoading = false
@@ -409,7 +431,7 @@ extension ArrTasksViewModel {
 
     func setPreviewLoading(_ services: [ArrServiceType]) {
         for service in services where service != .bazarr {
-            mutate(service) { $0.isLoading = true; $0.errorMessage = nil }
+            mutate(ArrInstanceRef.preview(service).id) { $0.isLoading = true; $0.errorMessage = nil }
         }
         if services.contains(.bazarr) {
             bazarr.isLoading = true
@@ -419,7 +441,7 @@ extension ArrTasksViewModel {
 
     func setPreviewError(_ error: String, for services: [ArrServiceType]) {
         for service in services where service != .bazarr {
-            mutate(service) { $0.isLoading = false; $0.errorMessage = error }
+            mutate(ArrInstanceRef.preview(service).id) { $0.isLoading = false; $0.errorMessage = error }
         }
         if services.contains(.bazarr) {
             bazarr.isLoading = false
@@ -640,29 +662,33 @@ final class ArrTasksViewModel {
         var errorMessage: String?
     }
 
-    private var arrStates: [ArrServiceType: ArrState] = [:]
+    // Keyed by server: both halves of a pair run their own schedule and their own
+    // command queue, and a refresh in flight on one says nothing about the other.
+    private var arrStates: [UUID: ArrState] = [:]
     private var bazarr = BazarrState()
 
-    func scheduledTasks(for service: ArrServiceType) -> [ArrScheduledTask] {
-        arrStates[service]?.scheduledTasks ?? []
+    func scheduledTasks(for instance: UUID) -> [ArrScheduledTask] {
+        arrStates[instance]?.scheduledTasks ?? []
     }
 
-    func commandQueue(for service: ArrServiceType) -> [ArrCommand] {
-        arrStates[service]?.commandQueue ?? []
+    func commandQueue(for instance: UUID) -> [ArrCommand] {
+        arrStates[instance]?.commandQueue ?? []
     }
 
     var bazarrTasks: [BazarrTask] { bazarr.tasks }
+    var isBazarrLoading: Bool { bazarr.isLoading }
+    var bazarrErrorMessage: String? { bazarr.errorMessage }
 
-    func isLoading(for service: ArrServiceType) -> Bool {
-        service == .bazarr ? bazarr.isLoading : (arrStates[service]?.isLoading ?? false)
+    func isLoading(for instance: UUID) -> Bool {
+        arrStates[instance]?.isLoading ?? false
     }
 
-    func errorMessage(for service: ArrServiceType) -> String? {
-        service == .bazarr ? bazarr.errorMessage : arrStates[service]?.errorMessage
+    func errorMessage(for instance: UUID) -> String? {
+        arrStates[instance]?.errorMessage
     }
 
-    func load(service: ArrServiceType, client: any SharedArrClient) async {
-        mutate(service) { $0.isLoading = true; $0.errorMessage = nil }
+    func load(instance: UUID, client: any SharedArrClient) async {
+        mutate(instance) { $0.isLoading = true; $0.errorMessage = nil }
         do {
             async let tasks = client.getScheduledTasks()
             async let queue = client.getCommandQueue()
@@ -671,13 +697,13 @@ final class ArrTasksViewModel {
                 .sorted { ($0.queued ?? "") > ($1.queued ?? "") }
                 .prefix(20)
                 .map { $0 }
-            mutate(service) {
+            mutate(instance) {
                 $0.scheduledTasks = sorted
                 $0.commandQueue = trimmed
                 $0.isLoading = false
             }
         } catch {
-            mutate(service) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
+            mutate(instance) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
     }
 
@@ -692,13 +718,13 @@ final class ArrTasksViewModel {
         bazarr.isLoading = false
     }
 
-    func triggerTask(_ task: ArrScheduledTask, service: ArrServiceType, client: any SharedArrClient) async {
+    func triggerTask(_ task: ArrScheduledTask, instance: UUID, client: any SharedArrClient) async {
         guard let taskName = task.taskName else { return }
         do {
             _ = try await client.postCommand(name: taskName)
             try? await Task.sleep(for: .seconds(1))
         } catch {
-            mutate(service) { $0.errorMessage = error.localizedDescription }
+            mutate(instance) { $0.errorMessage = error.localizedDescription }
         }
     }
 
@@ -711,9 +737,9 @@ final class ArrTasksViewModel {
         }
     }
 
-    private func mutate(_ service: ArrServiceType, _ modify: (inout ArrState) -> Void) {
-        var state = arrStates[service] ?? ArrState()
+    private func mutate(_ instance: UUID, _ modify: (inout ArrState) -> Void) {
+        var state = arrStates[instance] ?? ArrState()
         modify(&state)
-        arrStates[service] = state
+        arrStates[instance] = state
     }
 }

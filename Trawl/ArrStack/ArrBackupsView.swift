@@ -7,52 +7,55 @@ import UniformTypeIdentifiers
 /// the view branches on this and hides unsupported actions — the same way Bazarr
 /// already hides the upload button.
 private enum BackupSource: Hashable, Sendable, Identifiable {
-    case arr(ArrServiceType)
+    /// One *server*, not one service. Each half of an HD/4K pair keeps its own
+    /// backups, and restoring the wrong one would overwrite a working library
+    /// with the other server's configuration.
+    case arr(ArrInstanceRef)
     case jellyfin
 
     var id: String {
         switch self {
-        case .arr(let service): "arr.\(service.rawValue)"
+        case .arr(let instance): "arr.\(instance.id.uuidString)"
         case .jellyfin: "jellyfin"
         }
     }
 
     var displayName: String {
         switch self {
-        case .arr(let service): service.displayName
+        case .arr(let instance): instance.serviceType.displayName
         case .jellyfin: "Jellyfin"
         }
     }
 
-    var arrService: ArrServiceType? {
-        if case .arr(let service) = self { return service }
+    var arrInstance: ArrInstanceRef? {
+        if case .arr(let instance) = self { return instance }
         return nil
     }
+
+    var arrService: ArrServiceType? { arrInstance?.serviceType }
 
     /// Sonarr/Radarr/Prowlarr accept uploaded archives; Bazarr and Jellyfin do not.
     var supportsUpload: Bool {
         switch self {
-        case .arr(let service): service != .bazarr
+        case .arr(let instance): instance.serviceType != .bazarr
         case .jellyfin: false
         }
     }
 
     /// Jellyfin's backup API exposes no delete or download endpoints.
-    var supportsDelete: Bool { arrService != nil }
-    var supportsShare: Bool { arrService != nil }
-
-    var segmentBarItem: TrawlSegmentBarItem<BackupSource> {
-        TrawlSegmentBarItem(displayName, value: self)
-    }
+    var supportsDelete: Bool { arrInstance != nil }
+    var supportsShare: Bool { arrInstance != nil }
 }
 
 struct ArrBackupsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
 
-    @State private var selectedSource: BackupSource = .arr(.sonarr)
-    @State private var states: [ArrServiceType: BackupViewState] = [:]
-    @State private var unavailable: Set<ArrServiceType> = []
+    /// Nil until the first appear picks the first configured server; there is no
+    /// sensible default before the manager knows what exists.
+    @State private var selectedSource: BackupSource?
+    @State private var states: [UUID: BackupViewState] = [:]
+    @State private var unavailable: Set<UUID> = []
     @State private var jellyfinState = JellyfinBackupState()
     @State private var sortOrder: BackupSortOrder = .newestFirst
     @State private var showSettings = false
@@ -72,10 +75,17 @@ struct ArrBackupsView: View {
         selectJellyfin: Bool = false,
         error: String? = nil
     ) {
-        _selectedSource = State(initialValue: selectJellyfin ? .jellyfin : .arr(selectedService))
-        _states = State(initialValue: previewStates.mapValues {
-            BackupViewState(backups: $0, isLoading: false, isCreating: false, isUploading: false, error: error)
-        })
+        _selectedSource = State(
+            initialValue: selectJellyfin ? .jellyfin : .arr(.preview(selectedService))
+        )
+        _states = State(initialValue: Dictionary(
+            uniqueKeysWithValues: previewStates.map { service, backups in
+                (
+                    ArrInstanceRef.preview(service).id,
+                    BackupViewState(backups: backups, isLoading: false, isCreating: false, isUploading: false, error: error)
+                )
+            }
+        ))
         if let jellyfinPreview {
             _jellyfinState = State(initialValue: JellyfinBackupState(backups: jellyfinPreview, isLoading: false, isCreating: false, error: error))
         }
@@ -104,9 +114,9 @@ struct ArrBackupsView: View {
 
     private struct PendingBackupDelete: Identifiable, Sendable {
         let backup: ArrBackup
-        let service: ArrServiceType
+        let instance: ArrInstanceRef
 
-        var id: String { "\(service.rawValue)-\(backup.id)" }
+        var id: String { "\(instance.id.uuidString)-\(backup.id)" }
     }
 
     private enum BackupSortOrder: String, CaseIterable, Identifiable {
@@ -133,12 +143,21 @@ struct ArrBackupsView: View {
 
     private var availableSources: [BackupSource] {
         var sources: [BackupSource] = []
-        if serviceManager.hasSonarrInstance { sources.append(.arr(.sonarr)) }
-        if serviceManager.hasRadarrInstance { sources.append(.arr(.radarr)) }
-        if serviceManager.hasProwlarrInstance { sources.append(.arr(.prowlarr)) }
-        if serviceManager.hasBazarrInstance { sources.append(.arr(.bazarr)) }
+        for serviceType in [ArrServiceType.sonarr, .radarr, .prowlarr, .bazarr] {
+            sources += serviceManager.refs(for: serviceType).map { BackupSource.arr($0) }
+        }
         if jellyfinSupportsBackups { sources.append(.jellyfin) }
         return sources
+    }
+
+    private var navigationSubtitleText: String {
+        guard let selectedSource else { return "" }
+        return sourceLabel(selectedSource)
+    }
+
+    private func sourceLabel(_ source: BackupSource) -> String {
+        guard let instance = source.arrInstance else { return source.displayName }
+        return serviceManager.scopeLabel(for: instance)
     }
 
     /// A Jellyfin server is configured if the manager has a profile in any state.
@@ -180,53 +199,19 @@ struct ArrBackupsView: View {
             }
         }
         .navigationTitle("Backups")
-        .navigationSubtitle(availableSources.isEmpty ? "" : selectedSource.displayName)
+        .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.backups)
-        .toolbar {
-            if !availableSources.isEmpty {
-                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    Menu {
-                        ForEach(BackupSortOrder.allCases) { order in
-                            Button {
-                                withAnimation {
-                                    sortOrder = order
-                                }
-                            } label: {
-                                if sortOrder == order {
-                                    Label(order.rawValue, systemImage: "checkmark")
-                                } else {
-                                    Label(order.rawValue, systemImage: order.systemImage)
-                                }
-                            }
-                        }
-                    } label: {
-                        Label("Sort", systemImage: sortOrder.systemImage)
-                    }
-                    .disabled(selectedBackupsIsEmpty)
+        .toolbar { backupsToolbar }
+        .alertsAndSheets(self)
+    }
 
-                    if selectedSource.supportsUpload {
-                        if selectedIsUploading {
-                            ProgressView().controlSize(.small)
-                        } else {
-                            Button("Upload Backup", systemImage: "arrow.up.doc") {
-                                showingFilePicker = true
-                            }
-                        }
-                    }
-
-                    if selectedIsCreating {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Button("Create Backup", systemImage: "externaldrive.badge.plus") {
-                            switch selectedSource {
-                            case .arr: sourcePendingBackupCreation = selectedSource
-                            case .jellyfin: showingJellyfinCreateSheet = true
-                            }
-                        }
-                    }
-                }
-            }
-        }
+    /// The alert and sheet chain, lifted out of `body`.
+    ///
+    /// Nine stacked modifiers in one expression pushed the type checker past its
+    /// budget once the backup payloads started carrying a server instead of a
+    /// service. Splitting it costs nothing at runtime.
+    fileprivate func alertsAndSheetsContent(_ content: some View) -> some View {
+        content
         .alert("Create Backup?", isPresented: Binding(
             get: { sourcePendingBackupCreation != nil },
             set: { if !$0 { sourcePendingBackupCreation = nil } }
@@ -240,8 +225,9 @@ struct ArrBackupsView: View {
                 sourcePendingBackupCreation = nil
             }
         } message: {
-            if let service = sourcePendingBackupCreation?.arrService {
-                Text("Create a manual backup for \(service.displayName)?")
+            if let source = sourcePendingBackupCreation {
+                let name = sourceLabel(source)
+                Text("Create a manual backup for \(name)?")
             }
         }
         .alert("Delete Backup?", isPresented: Binding(
@@ -258,7 +244,8 @@ struct ArrBackupsView: View {
             }
         } message: {
             if let backupPendingDelete {
-                Text("Delete \"\(backupPendingDelete.backup.name)\" from \(backupPendingDelete.service.displayName)?")
+                let name = serviceManager.scopeLabel(for: backupPendingDelete.instance)
+                Text("Delete \"\(backupPendingDelete.backup.name)\" from \(name)?")
             }
         }
         .alert("Restore Backup?", isPresented: Binding(
@@ -275,7 +262,9 @@ struct ArrBackupsView: View {
             }
         } message: {
             if let backupPendingRestore {
-                Text("Restore \"\(backupPendingRestore.backup.name)\" to \(backupPendingRestore.service.displayName)? The service may restart while the backup is applied.")
+                let name = serviceManager.scopeLabel(for: backupPendingRestore.instance)
+                let backupName = backupPendingRestore.backup.name
+                Text("Restore \"\(backupName)\" to \(name)? That server may restart while the backup is applied.")
             }
         }
         .alert("Restore Backup?", isPresented: Binding(
@@ -304,10 +293,10 @@ struct ArrBackupsView: View {
             isPresented: $showingFilePicker,
             allowedContentTypes: [.zip]
         ) { result in
-            guard let service = selectedSource.arrService else { return }
+            guard let instance = selectedSource?.arrInstance else { return }
             switch result {
             case .success(let url):
-                Task { await uploadBackup(url: url, for: service) }
+                Task { await uploadBackup(url: url, for: instance) }
             case .failure(let error):
                 InAppNotificationCenter.shared.showError(
                     title: "File Selection Failed",
@@ -323,7 +312,11 @@ struct ArrBackupsView: View {
                         get: { selectedSource },
                         set: { newSource in withAnimation { selectedSource = newSource } }
                     ),
-                    items: availableSources.map(\.segmentBarItem),
+                    // Labelled per server, so an HD/4K pair reads as two entries
+                    // rather than one ambiguous "Sonarr".
+                    items: availableSources.map {
+                        TrawlSegmentBarItem(sourceLabel($0), value: Optional($0))
+                    },
                     alignment: .leading
                 )
             }
@@ -331,7 +324,7 @@ struct ArrBackupsView: View {
         .loadServicesPeriodically(
             id: availableSources.map { source -> String in
                 switch source {
-                case .arr(let service): "\(service.rawValue):\(serviceManager.isConnected(service))"
+                case .arr(let instance): instance.id.uuidString
                 case .jellyfin: "jellyfin:\(jellyfinServiceManager.isConnected)"
                 }
             }.joined(),
@@ -340,9 +333,9 @@ struct ArrBackupsView: View {
             await load(source)
         }
         .sheet(isPresented: $showSettings) {
-            if let service = selectedSource.arrService {
+            if let instance = selectedSource?.arrInstance {
                 NavigationStack {
-                    ArrServiceSettingsView(serviceType: service)
+                    ArrServiceSettingsView(serviceType: instance.serviceType)
                         .environment(serviceManager)
                         .toolbar {
                             ToolbarItem(placement: .confirmationAction) {
@@ -353,8 +346,8 @@ struct ArrBackupsView: View {
             }
         }
         .onAppear {
-            if !availableSources.contains(selectedSource), let first = availableSources.first {
-                selectedSource = first
+            if selectedSource == nil || !availableSources.contains(selectedSource!) {
+                selectedSource = availableSources.first
             }
         }
     }
@@ -368,23 +361,75 @@ struct ArrBackupsView: View {
     /// the Upload button animates away on Arr→Jellyfin exactly as it does Arr→Bazarr.
     private var selectedContent: AnyView {
         switch selectedSource {
-        case .arr(let service): AnyView(arrContent(service: service))
+        case .arr(let instance): AnyView(arrContent(instance: instance))
         case .jellyfin: AnyView(jellyfinContent())
+        case nil: AnyView(EmptyView())
         }
+    }
+
+    @ToolbarContentBuilder
+    private var backupsToolbar: some ToolbarContent {
+            if !availableSources.isEmpty {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Menu {
+                        ForEach(BackupSortOrder.allCases) { order in
+                            Button {
+                                withAnimation {
+                                    sortOrder = order
+                                }
+                            } label: {
+                                if sortOrder == order {
+                                    Label(order.rawValue, systemImage: "checkmark")
+                                } else {
+                                    Label(order.rawValue, systemImage: order.systemImage)
+                                }
+                            }
+                        }
+                    } label: {
+                        Label("Sort", systemImage: sortOrder.systemImage)
+                    }
+                    .disabled(selectedBackupsIsEmpty)
+
+                    if selectedSource?.supportsUpload == true {
+                        if selectedIsUploading {
+                            ProgressView().controlSize(.small)
+                        } else {
+                            Button("Upload Backup", systemImage: "arrow.up.doc") {
+                                showingFilePicker = true
+                            }
+                        }
+                    }
+
+                    if selectedIsCreating {
+                        ProgressView().controlSize(.small)
+                    } else {
+                        Button("Create Backup", systemImage: "externaldrive.badge.plus") {
+                            switch selectedSource {
+                            case .arr: sourcePendingBackupCreation = selectedSource
+                            case .jellyfin: showingJellyfinCreateSheet = true
+                            case nil: break
+                            }
+                        }
+                    }
+                }
+            }
     }
 
     // MARK: - Arr Content
 
     @ViewBuilder
-    private func arrContent(service: ArrServiceType) -> some View {
-        if !serviceManager.isConnected(service) && (serviceManager.isInitializing || serviceManager.isConnecting(service) || unavailable.contains(service)) {
+    private func arrContent(instance: ArrInstanceRef) -> some View {
+        let service = instance.serviceType
+        let label = serviceManager.scopeLabel(for: instance)
+        if !serviceManager.isConnected(service, profileID: instance.id)
+            && (serviceManager.isInitializing || serviceManager.isConnecting(service) || unavailable.contains(instance.id)) {
             ArrServiceConnectionStatusView(
                 serviceType: service,
-                title: serviceManager.isConnecting(service) || serviceManager.isInitializing ? "Connecting to \(service.displayName)" : "\(service.displayName) Unreachable",
-                message: serviceManager.connectionError(service) ?? "\(service.displayName) is configured but currently unreachable."
+                title: serviceManager.isConnecting(service) || serviceManager.isInitializing ? "Connecting to \(label)" : "\(label) Unreachable",
+                message: serviceManager.connectionError(service) ?? "\(label) is configured but currently unreachable."
             )
-        } else if let state = states[service] {
-            backupList(state: state, service: service)
+        } else if let state = states[instance.id] {
+            backupList(state: state, instance: instance)
         } else {
             ProgressView()
                 .controlSize(.large)
@@ -393,7 +438,7 @@ struct ArrBackupsView: View {
     }
 
     @ViewBuilder
-    private func backupList(state: BackupViewState, service: ArrServiceType) -> some View {
+    private func backupList(state: BackupViewState, instance: ArrInstanceRef) -> some View {
         List {
             if let error = state.error, state.backups.isEmpty {
                 Section {
@@ -407,15 +452,15 @@ struct ArrBackupsView: View {
                 ContentUnavailableView(
                     "No Backups",
                     systemImage: "externaldrive",
-                    description: Text("No backups found for \(service.displayName).")
+                    description: Text("No backups found for \(serviceManager.scopeLabel(for: instance)).")
                 )
                 .listRowBackground(Color.clear)
             } else {
                 Section {
                     ForEach(sortedBackups(state.backups), id: \.id) { backup in
-                        if let client = client(for: service) {
-                            let shareID = sharePreparationID(for: backup, service: service)
-                            let shareItem = ArrBackupShareItem(backup: backup, service: service, client: client) { isPreparing in
+                        if let client = client(for: instance) {
+                            let shareID = sharePreparationID(for: backup, instance: instance)
+                            let shareItem = ArrBackupShareItem(backup: backup, instance: instance, client: client) { isPreparing in
                                 setSharePreparation(isPreparing, for: shareID)
                             }
                             ShareLink(
@@ -424,7 +469,7 @@ struct ArrBackupsView: View {
                             ) {
                                 ArrBackupRow(
                                     backup: backup,
-                                    service: service,
+                                    instance: instance,
                                     isPreparingShare: preparingShareID == shareID
                                 )
                             }
@@ -435,13 +480,13 @@ struct ArrBackupsView: View {
                             })
                             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                 Button(role: .destructive) {
-                                    backupPendingDelete = PendingBackupDelete(backup: backup, service: service)
+                                    backupPendingDelete = PendingBackupDelete(backup: backup, instance: instance)
                                 } label: {
                                     Label("Delete", systemImage: "trash")
                                 }
 
                                 Button {
-                                    backupPendingRestore = PendingBackupDelete(backup: backup, service: service)
+                                    backupPendingRestore = PendingBackupDelete(backup: backup, instance: instance)
                                 } label: {
                                     Label("Restore", systemImage: "arrow.counterclockwise")
                                 }
@@ -456,17 +501,17 @@ struct ArrBackupsView: View {
                                 }
 
                                 Button("Restore", systemImage: "arrow.counterclockwise") {
-                                    backupPendingRestore = PendingBackupDelete(backup: backup, service: service)
+                                    backupPendingRestore = PendingBackupDelete(backup: backup, instance: instance)
                                 }
 
                                 Divider()
 
                                 Button("Delete", systemImage: "trash", role: .destructive) {
-                                    backupPendingDelete = PendingBackupDelete(backup: backup, service: service)
+                                    backupPendingDelete = PendingBackupDelete(backup: backup, instance: instance)
                                 }
                             }
                         } else {
-                            ArrBackupRow(backup: backup, service: service)
+                            ArrBackupRow(backup: backup, instance: instance)
                                 .contentShape(Rectangle())
                         }
                     }
@@ -479,7 +524,7 @@ struct ArrBackupsView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .refreshable { await loadService(service) }
+        .refreshable { await loadService(instance) }
         .animation(.default, value: sortedBackups(state.backups).map(\.id))
     }
 
@@ -557,29 +602,29 @@ struct ArrBackupsView: View {
     @MainActor
     private func load(_ source: BackupSource) async {
         switch source {
-        case .arr(let service): await loadService(service)
+        case .arr(let instance): await loadService(instance)
         case .jellyfin: await loadJellyfin()
         }
     }
 
     @MainActor
-    private func loadService(_ service: ArrServiceType) async {
+    private func loadService(_ instance: ArrInstanceRef) async {
         #if DEBUG
         if ArrPreviewRuntime.isActive { return }
         #endif
-        guard let client = client(for: service) else { unavailable.insert(service); return }
-        unavailable.remove(service)
-        states[service, default: BackupViewState()].isLoading = true
-        states[service]?.error = nil
+        guard let client = client(for: instance) else { unavailable.insert(instance.id); return }
+        unavailable.remove(instance.id)
+        states[instance.id, default: BackupViewState()].isLoading = true
+        states[instance.id]?.error = nil
         do {
             let backups = try await client.getBackups()
             withAnimation {
-                states[service, default: BackupViewState()].backups = backups
-                states[service]?.isLoading = false
+                states[instance.id, default: BackupViewState()].backups = backups
+                states[instance.id]?.isLoading = false
             }
         } catch {
-            states[service]?.error = error.localizedDescription
-            states[service]?.isLoading = false
+            states[instance.id]?.error = error.localizedDescription
+            states[instance.id]?.isLoading = false
         }
     }
 
@@ -606,26 +651,26 @@ struct ArrBackupsView: View {
     @MainActor
     private func performCreate(for source: BackupSource) async {
         switch source {
-        case .arr(let service): await createBackup(for: service)
+        case .arr(let instance): await createBackup(for: instance)
         case .jellyfin: await createJellyfinBackup(options: JellyfinBackupOptions())
         }
     }
 
     @MainActor
-    private func createBackup(for service: ArrServiceType) async {
-        guard let client = client(for: service) else { return }
-        states[service]?.isCreating = true
+    private func createBackup(for instance: ArrInstanceRef) async {
+        guard let client = client(for: instance) else { return }
+        states[instance.id]?.isCreating = true
         do {
             try await client.createBackup()
             try? await Task.sleep(for: .seconds(3))
-            await loadService(service)
+            await loadService(instance)
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Backup Failed",
                 message: error.localizedDescription
             )
         }
-        states[service]?.isCreating = false
+        states[instance.id]?.isCreating = false
     }
 
     @MainActor
@@ -646,9 +691,9 @@ struct ArrBackupsView: View {
     }
 
     @MainActor
-    private func uploadBackup(url: URL, for service: ArrServiceType) async {
-        guard let client = client(for: service) else { return }
-        states[service]?.isUploading = true
+    private func uploadBackup(url: URL, for instance: ArrInstanceRef) async {
+        guard let client = client(for: instance) else { return }
+        states[instance.id]?.isUploading = true
         do {
             let filename = url.lastPathComponent
             let data = try await Task.detached(priority: .userInitiated) {
@@ -659,27 +704,27 @@ struct ArrBackupsView: View {
             try await client.uploadBackup(data: data, filename: filename)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Restore Started",
-                message: "\(service.displayName) is restoring from the uploaded backup."
+                message: "\(serviceManager.scopeLabel(for: instance)) is restoring from the uploaded backup."
             )
             try? await Task.sleep(for: .seconds(3))
-            await loadService(service)
+            await loadService(instance)
         } catch {
             InAppNotificationCenter.shared.showError(
                 title: "Upload Failed",
                 message: error.localizedDescription
             )
         }
-        states[service]?.isUploading = false
+        states[instance.id]?.isUploading = false
     }
 
     @MainActor
     private func restoreBackup(_ pendingRestore: PendingBackupDelete) async {
-        guard let client = client(for: pendingRestore.service) else { return }
+        guard let client = client(for: pendingRestore.instance) else { return }
         do {
             try await client.restoreBackup(pendingRestore.backup)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Restore Started",
-                message: "\(pendingRestore.service.displayName) is restoring \"\(pendingRestore.backup.name)\"."
+                message: "\(serviceManager.scopeLabel(for: pendingRestore.instance)) is restoring \"\(pendingRestore.backup.name)\"."
             )
         } catch {
             InAppNotificationCenter.shared.showError(
@@ -708,15 +753,15 @@ struct ArrBackupsView: View {
 
     @MainActor
     private func deleteBackup(_ pendingDelete: PendingBackupDelete) async {
-        guard let client = client(for: pendingDelete.service) else { return }
+        guard let client = client(for: pendingDelete.instance) else { return }
         do {
             try await client.deleteBackup(pendingDelete.backup)
             withAnimation {
-                states[pendingDelete.service]?.backups.removeAll { $0.id == pendingDelete.backup.id }
+                states[pendingDelete.instance.id]?.backups.removeAll { $0.id == pendingDelete.backup.id }
             }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Backup Deleted",
-                message: "\"\(pendingDelete.backup.name)\" was removed from \(pendingDelete.service.displayName)."
+                message: "\"\(pendingDelete.backup.name)\" was removed from \(serviceManager.scopeLabel(for: pendingDelete.instance))."
             )
         } catch {
             InAppNotificationCenter.shared.showError(
@@ -730,20 +775,22 @@ struct ArrBackupsView: View {
 
     private var selectedBackupsIsEmpty: Bool {
         switch selectedSource {
-        case .arr(let service): states[service]?.backups.isEmpty != false
+        case .arr(let instance): states[instance.id]?.backups.isEmpty != false
+        case nil: true
         case .jellyfin: jellyfinState.backups.isEmpty
         }
     }
 
     private var selectedIsCreating: Bool {
         switch selectedSource {
-        case .arr(let service): states[service]?.isCreating == true
+        case .arr(let instance): states[instance.id]?.isCreating == true
+        case nil: false
         case .jellyfin: jellyfinState.isCreating
         }
     }
 
     private var selectedIsUploading: Bool {
-        if case .arr(let service) = selectedSource { return states[service]?.isUploading == true }
+        if case .arr(let instance) = selectedSource { return states[instance.id]?.isUploading == true }
         return false
     }
 
@@ -841,17 +888,17 @@ struct ArrBackupsView: View {
         return iso.date(from: value)
     }
 
-    private func client(for service: ArrServiceType) -> (any SharedArrClient)? {
-        switch service {
-        case .sonarr: serviceManager.sonarrClient
-        case .radarr: serviceManager.radarrClient
-        case .prowlarr: serviceManager.prowlarrClient
+    /// The client for one specific server — every backup read, create, upload,
+    /// delete and restore on this screen goes through it.
+    private func client(for instance: ArrInstanceRef) -> (any SharedArrClient)? {
+        switch instance.serviceType {
+        case .sonarr, .radarr, .prowlarr: serviceManager.sharedClient(for: instance)
         case .bazarr: serviceManager.activeBazarrEntry?.client
         }
     }
 
-    private func sharePreparationID(for backup: ArrBackup, service: ArrServiceType) -> String {
-        "\(service.rawValue)-\(backup.id)"
+    private func sharePreparationID(for backup: ArrBackup, instance: ArrInstanceRef) -> String {
+        "\(instance.id.uuidString)-\(backup.id)"
     }
 
     @MainActor
@@ -868,7 +915,7 @@ struct ArrBackupsView: View {
 
 private struct ArrBackupShareItem: Transferable, Sendable {
     let backup: ArrBackup
-    let service: ArrServiceType
+    let instance: ArrInstanceRef
     let client: any SharedArrClient
     let onPreparationChanged: @MainActor @Sendable (Bool) -> Void
 
@@ -898,7 +945,7 @@ private struct ArrBackupShareItem: Transferable, Sendable {
             .components(separatedBy: invalidCharacters)
             .joined(separator: "-")
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let baseName = cleanedName.isEmpty ? "\(service.displayName)-Backup-\(backup.id)" : cleanedName
+        let baseName = cleanedName.isEmpty ? "\(instance.serviceType.displayName)-Backup-\(backup.id)" : cleanedName
         return baseName.lowercased().hasSuffix(".zip") ? baseName : "\(baseName).zip"
     }
 }
@@ -907,12 +954,12 @@ private struct ArrBackupShareItem: Transferable, Sendable {
 
 private struct ArrBackupRow: View {
     let backup: ArrBackup
-    let service: ArrServiceType
+    let instance: ArrInstanceRef
     let isPreparingShare: Bool
 
-    init(backup: ArrBackup, service: ArrServiceType, isPreparingShare: Bool = false) {
+    init(backup: ArrBackup, instance: ArrInstanceRef, isPreparingShare: Bool = false) {
         self.backup = backup
-        self.service = service
+        self.instance = instance
         self.isPreparingShare = isPreparingShare
     }
 
@@ -971,7 +1018,7 @@ private struct ArrBackupRow: View {
 
     private var typeColor: Color {
         switch backup.type.lowercased() {
-        case "manual": service.serviceIdentity.brandColor
+        case "manual": instance.serviceType.serviceIdentity.brandColor
         case "scheduled": .teal
         case "update": .green
         default: .secondary
@@ -1128,3 +1175,10 @@ private struct JellyfinBackupRow: View {
     }
 }
 #endif
+
+
+private extension View {
+    func alertsAndSheets(_ host: ArrBackupsView) -> some View {
+        host.alertsAndSheetsContent(self)
+    }
+}
