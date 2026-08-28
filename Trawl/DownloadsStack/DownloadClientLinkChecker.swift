@@ -110,20 +110,29 @@ enum DownloadClientLinkChecker {
         for service: ArrServiceType,
         serviceManager: ArrServiceManager
     ) async -> [ArrDownloadClient]? {
-        do {
-            switch service {
-            case .sonarr:
-                guard serviceManager.sonarrConnected, let client = serviceManager.sonarrClient else { return nil }
-                return try await client.getDownloadClients()
-            case .radarr:
-                guard serviceManager.radarrConnected, let client = serviceManager.radarrClient else { return nil }
-                return try await client.getDownloadClients()
-            case .prowlarr, .bazarr:
-                return nil
-            }
-        } catch {
+        switch service {
+        case .sonarr, .radarr:
+            break
+        case .prowlarr, .bazarr:
             return nil
         }
+
+        // Every server of this service, unioned. A download client attached only to
+        // the 4K server is still linked — asking the active server alone reports it
+        // as unlinked and sends the user looking for a problem that isn't there.
+        let instances = serviceManager.visibleArrInstances.filter { $0.ref.serviceType == service }
+        guard !instances.isEmpty else { return nil }
+
+        var clients: [ArrDownloadClient] = []
+        var reachedAny = false
+        for (_, client) in instances {
+            guard let fetched = try? await client.getDownloadClients() else { continue }
+            reachedAny = true
+            clients += fetched
+        }
+        // Nil means "could not tell", which suppresses the warning. An empty array
+        // means "asked, and there are none" — a real answer, and a different one.
+        return reachedAny ? clients : nil
     }
 
     /// Reduces a host to something comparable across the two ways it gets written.

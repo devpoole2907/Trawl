@@ -4,6 +4,12 @@ import Foundation
 /// or Sonarr series), and vice versa. Mirrors the lookup logic inlined in
 /// `SearchView` (trending card tap handling) so it can be reused by other features
 /// (e.g. cast/credits) without duplicating the tmdbId <-> tvdbId bridging.
+///
+/// Deliberately not fanned out across an HD/4K pair. These are *catalog* lookups
+/// used to open a cast member's other work, and both servers proxy the same TMDb
+/// metadata — asking the second one costs a round trip and returns the same
+/// answer. This is the one place an instance-scoped client is left alone on
+/// purpose rather than by omission.
 @MainActor
 struct ArrMediaLookupResolver {
     let serviceManager: ArrServiceManager

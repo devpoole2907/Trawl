@@ -152,8 +152,25 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
     var canLoadMoreHistory: Bool { history.count < historyTotalRecords }
 
-    func loadHistory(page: Int = 1) async {
-        guard let client else { return }
+    /// Every connected instance of this view model's service, in configured
+    /// order. Overridden by the Sonarr and Radarr view models; the base returns
+    /// nothing, so Bazarr and Prowlarr — which have no instance pair — keep
+    /// falling back to their single bound client.
+    var routedInstances: [(ref: ArrInstanceRef, client: Client)] { [] }
+
+    /// History for one server.
+    ///
+    /// Unlike the queue this is not merged, because its only caller wants the
+    /// history of one episode on one server. Both servers number their episodes
+    /// from the same sequence, so a union filtered by episode ID would attribute
+    /// the 4K server's grabs to the HD copy. `instanceID` names the server that
+    /// owns the item being shown; nil keeps the pre-pair behaviour of reading the
+    /// bound client.
+    func loadHistory(page: Int = 1, instanceID: UUID? = nil) async {
+        let scopedClient = instanceID.flatMap { id in
+            routedInstances.first { $0.ref.id == id }?.client
+        }
+        guard let client = scopedClient ?? client else { return }
         guard !isLoadingHistory else { return }
         isLoadingHistory = true
         defer { isLoadingHistory = false }
@@ -433,25 +450,86 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// Override hook
     func onLibraryLoaded() {}
 
+    /// Runs a library-wide command on every server behind this view model.
+    ///
+    /// "Refresh all", "check for new releases" and "search all missing" are claims
+    /// about *the library*, and the library is the union of the pair. Sending one
+    /// of them to the active client alone does half the job and then reports that
+    /// it did all of it — the silent half-failure this whole feature exists to
+    /// prevent. Servers are tried independently: one being down is a reason to
+    /// name it, not to abandon the command on the other.
+    ///
+    /// Returns the servers the command actually reached. Throws only when it
+    /// reached none, so the caller's error path still fires for a total failure.
+    @discardableResult
+    private func broadcast(_ work: (Client) async throws -> Void) async throws -> [ArrInstanceRef] {
+        let instances = routedInstances
+        guard !instances.isEmpty else {
+            // Unpaired service, or a preview view model: one client, no provenance.
+            guard let client else { throw ArrServiceError.clientNotAvailable }
+            try await work(client)
+            return []
+        }
+
+        var reached: [ArrInstanceRef] = []
+        var failures: [String] = []
+        var firstError: Error?
+        for (ref, client) in instances {
+            do {
+                try await work(client)
+                reached.append(ref)
+            } catch {
+                if firstError == nil { firstError = error }
+                failures.append("\(serviceManager.scopeLabel(for: ref)): \(error.localizedDescription)")
+            }
+        }
+
+        if reached.isEmpty, let firstError { throw firstError }
+        if !failures.isEmpty {
+            // Partial success still has to name the server that missed out,
+            // otherwise the command looks like it covered the whole library.
+            InAppNotificationCenter.shared.showError(
+                title: "Not Sent Everywhere",
+                message: failures.joined(separator: "\n")
+            )
+        }
+        return reached
+    }
+
+    /// Names the servers a command reached, for a confirmation that does not
+    /// overclaim: "sent to Sonarr 4K" when only one of the pair took it.
+    private func reachedSuffix(_ refs: [ArrInstanceRef]) -> String {
+        guard refs.count > 1 || (refs.count == 1 && serviceManager.showsInstanceProvenance(for: refs[0].serviceType)) else {
+            return ""
+        }
+        return " Sent to \(refs.map { serviceManager.scopeLabel(for: $0) }.formatted(.list(type: .and)))."
+    }
+
     func refreshLibrary() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.refreshLibrary()
-        InAppNotificationCenter.shared.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
+        let reached = try await broadcast { _ = try await $0.refreshLibrary() }
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Refresh Started",
+            message: "Library refresh command sent.\(reachedSuffix(reached))"
+        )
         // Re-fetch after a brief delay for the refresh command to process
         try? await Task.sleep(for: .seconds(2))
         await loadLibraryItems()
     }
 
     func rssSync() async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.rssSync()
-        InAppNotificationCenter.shared.showSuccess(title: "RSS Sync", message: "Sync command sent.")
+        let reached = try await broadcast { _ = try await $0.rssSync() }
+        InAppNotificationCenter.shared.showSuccess(
+            title: "RSS Sync",
+            message: "Sync command sent.\(reachedSuffix(reached))"
+        )
     }
 
     func searchAllMissing(noun: String) async throws {
-        guard let client else { throw ArrServiceError.clientNotAvailable }
-        _ = try await client.searchAllMissing()
-        InAppNotificationCenter.shared.showSuccess(title: "Search Started", message: "Searching for all missing \(noun).")
+        let reached = try await broadcast { _ = try await $0.searchAllMissing() }
+        InAppNotificationCenter.shared.showSuccess(
+            title: "Search Started",
+            message: "Searching for all missing \(noun).\(reachedSuffix(reached))"
+        )
     }
 
     func deleteItem(id: Int, deleteFiles: Bool, noun: String) async {
@@ -504,12 +582,6 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     }
 
     // MARK: - Queue
-
-    /// Every connected instance of this view model's service, in configured
-    /// order. Overridden by the Sonarr and Radarr view models; the base returns
-    /// nothing, so Bazarr and Prowlarr — which have no instance pair — keep
-    /// falling back to their single bound client.
-    var routedInstances: [(ref: ArrInstanceRef, client: Client)] { [] }
 
     func loadQueue() async {
         let instances = routedInstances

@@ -33,6 +33,19 @@ struct ArrServiceSettingsView: View {
     }
     #endif
 
+    /// System Status describes one server, not the pair — it is read from the
+    /// default server chosen in the Servers section above. With two configured,
+    /// the header has to say which one, or the version and OS on screen look like
+    /// facts about both.
+    private var systemStatusTitle: String {
+        guard let profile,
+              let instance = serviceManager.instanceRef(serviceType, id: profile.id),
+              serviceManager.showsInstanceProvenance(for: serviceType) else {
+            return "System Status"
+        }
+        return "System Status · \(serviceManager.scopeLabel(for: instance))"
+    }
+
     private var profile: ArrServiceProfile? {
         serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
     }
@@ -189,7 +202,7 @@ struct ArrServiceSettingsView: View {
                 }
 
                 if let systemStatus {
-                    Section("System Status") {
+                    Section(systemStatusTitle) {
                         if let instanceName = systemStatus.instanceName ?? systemStatus.appName {
                             serviceInfoRow(label: "Instance", value: instanceName)
                         }
@@ -209,7 +222,7 @@ struct ArrServiceSettingsView: View {
                         }
                     }
                 } else if isLoadingStatus {
-                    Section("System Status") {
+                    Section(systemStatusTitle) {
                         HStack {
                             ProgressView()
                             Text("Loading system status...")
@@ -217,7 +230,7 @@ struct ArrServiceSettingsView: View {
                         }
                     }
                 } else if let systemStatusError {
-                    Section("System Status") {
+                    Section(systemStatusTitle) {
                         Label(systemStatusError, systemImage: "exclamationmark.triangle.fill")
                             .font(.subheadline)
                             .foregroundStyle(.orange)

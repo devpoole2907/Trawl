@@ -1216,8 +1216,14 @@ struct SonarrEpisodeSearchView: View {
         return latestEpisode
     }
 
+    /// Matched on the episode's own server as well as its ID: with a pair
+    /// configured both servers hand out the same episode IDs, so an ID-only match
+    /// can show the 4K server's download against the HD episode.
     private var queueItem: ArrQueueItem? {
-        viewModel.queue.first { $0.episodeId == currentEpisode.id }
+        viewModel.queueRecords.first {
+            $0.value.episodeId == currentEpisode.id
+                && (currentEpisode.instanceID == nil || $0.instance.id == currentEpisode.instanceID)
+        }?.value
     }
 
     private var activeBazarrEpisode: BazarrEpisode? {
@@ -1388,7 +1394,7 @@ struct SonarrEpisodeSearchView: View {
             await viewModel.loadEpisodes(for: seriesId)
             await viewModel.loadEpisodeFiles(for: seriesId)
             await viewModel.loadQueue()
-            await viewModel.loadHistory()
+            await viewModel.loadHistory(instanceID: currentEpisode.instanceID)
             await refreshBazarrEpisode()
         }
         .background {
@@ -1761,7 +1767,7 @@ struct SonarrEpisodeSearchView: View {
             await viewModel.loadEpisodeFiles(for: seriesId)
             await viewModel.loadSeries()
         }
-        await viewModel.loadHistory(page: 1)
+        await viewModel.loadHistory(page: 1, instanceID: currentEpisode.instanceID)
     }
 
     private func monitorEpisodeState() async {
@@ -1788,7 +1794,7 @@ struct SonarrEpisodeSearchView: View {
                 if currentQueueID != knownQueueID || hasQueueItem || hadQueueItem {
                     await viewModel.loadSeries()
                     try Task.checkCancellation()
-                    await viewModel.loadHistory(page: 1)
+                    await viewModel.loadHistory(page: 1, instanceID: currentEpisode.instanceID)
                     try Task.checkCancellation()
                 }
 
