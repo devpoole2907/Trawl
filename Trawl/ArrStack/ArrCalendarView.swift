@@ -966,9 +966,16 @@ fileprivate enum CalendarEvent: Identifiable {
     /// the same day collide into one row.
     var id: String {
         switch self {
-        case .episode(let ep, _, _): "ep-\(ep.instanceID?.uuidString ?? "-")-\(ep.id)"
-        case .movie(let m, _, let k): "movie-\(m.instanceID?.uuidString ?? "-")-\(m.id)-\(k.label)"
+        case .episode(let ep, _, _): "ep-\(Self.instanceSegment(ep.instanceID))\(ep.id)"
+        case .movie(let m, _, let k): "movie-\(Self.instanceSegment(m.instanceID))\(m.id)-\(k.label)"
         }
+    }
+
+    /// The server segment only appears when there is a server to name, so an
+    /// unstamped event — a fixture, or a single-instance setup that never needed
+    /// disambiguating — keeps the plain "ep-101" form.
+    private static func instanceSegment(_ instanceID: UUID?) -> String {
+        instanceID.map { "\($0.uuidString)-" } ?? ""
     }
 
     /// The server tracking this airing.

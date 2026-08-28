@@ -873,10 +873,10 @@ struct ArrServiceManagerTests {
         #expect(manager.activeRadarrProfileID == radarrUuid)
     }
 
-    @Test("Clear Blocklist")
+    @Test("Clearing an empty blocklist selection is a no-op")
     func clearBlocklist() async {
         let manager = ArrServiceManager()
-        await manager.clearBlocklist(sonarrIDs: [], radarrIDs: [])
+        await manager.clearBlocklist([])
         #expect(manager.sonarrBlocklist.isEmpty)
         #expect(manager.radarrBlocklist.isEmpty)
     }

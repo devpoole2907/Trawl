@@ -29,6 +29,16 @@ protocol ArrLibraryAPIClient: SharedArrClient {
     @MainActor
     static func libraryCache(in manager: ArrServiceManager) -> ArrLibraryCache<LibraryItem>
 
+    /// Every visible instance's library, as one flat union stamped with the
+    /// server each item came from.
+    @MainActor
+    static func loadLibraryUnion(in manager: ArrServiceManager, maxAge: TimeInterval) async throws -> [LibraryItem]
+
+    /// What is already cached for every visible instance, without any network
+    /// access. Used to seed a list on appear.
+    @MainActor
+    static func cachedLibraryUnion(in manager: ArrServiceManager) -> [LibraryItem]
+
     func getLibraryItems() async throws -> [LibraryItem]
     func lookup(term: String) async throws -> [LibraryItem]
     func wantedMissingPage(page: Int, pageSize: Int) async throws -> WantedPage
@@ -388,27 +398,18 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// callers pass `ArrLibraryCachePolicy.appearMaxAge` so switching tabs or popping a
     /// detail view reuses what's already loaded instead of re-downloading the whole
     /// library. Concurrent callers share a single request either way.
+    /// Loads the blended library: every visible instance's items, as one union.
+    ///
+    /// This deliberately does not read "the active client". A list fed from one
+    /// instance is the behaviour the merged library replaces — it would show only
+    /// half of an HD/4K pair while claiming to be the whole library.
     func loadLibraryItems(maxAge: TimeInterval = 0) async {
-        guard let client else { return }
-        let cache = Client.libraryCache(in: serviceManager)
-        let instanceID = serviceManager.activeInstanceID(Client.serviceType)
-
-        // Adopt a fresh cache without touching `isLoading`, so a tab switch shows
-        // content immediately rather than flashing a spinner over data we have.
-        if cache.isFresh(instanceID, maxAge: maxAge), cache.hasItems(for: instanceID) {
-            setLibraryItems(cache.items(for: instanceID))
-            onLibraryLoaded()
-            return
-        }
-
         isLoading = true
         error = nil
         defer { isLoading = false }
 
         do {
-            let loadedItems = try await cache.load(instanceID: instanceID, maxAge: maxAge) {
-                try await client.getLibraryItems()
-            }
+            let loadedItems = try await Client.loadLibraryUnion(in: serviceManager, maxAge: maxAge)
             setLibraryItems(loadedItems)
             onLibraryLoaded()
         } catch is CancellationError {
@@ -422,10 +423,9 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// Returns false when nothing has been cached for the active instance yet.
     @discardableResult
     func adoptCachedLibraryItems() -> Bool {
-        let cache = Client.libraryCache(in: serviceManager)
-        let instanceID = serviceManager.activeInstanceID(Client.serviceType)
-        guard cache.hasItems(for: instanceID) else { return false }
-        setLibraryItems(cache.items(for: instanceID))
+        let cached = Client.cachedLibraryUnion(in: serviceManager)
+        guard !cached.isEmpty else { return false }
+        setLibraryItems(cached)
         onLibraryLoaded()
         return true
     }
@@ -952,6 +952,16 @@ extension SonarrAPIClient: ArrLibraryAPIClient {
         manager.seriesLibrary
     }
 
+    @MainActor
+    static func loadLibraryUnion(in manager: ArrServiceManager, maxAge: TimeInterval) async throws -> [SonarrSeries] {
+        try await manager.loadSeriesUnion(maxAge: maxAge)
+    }
+
+    @MainActor
+    static func cachedLibraryUnion(in manager: ArrServiceManager) -> [SonarrSeries] {
+        manager.cachedSeriesUnion
+    }
+
     func getLibraryItems() async throws -> [SonarrSeries] {
         try await getSeries()
     }
@@ -983,6 +993,16 @@ extension RadarrAPIClient: ArrLibraryAPIClient {
     @MainActor
     static func libraryCache(in manager: ArrServiceManager) -> ArrLibraryCache<RadarrMovie> {
         manager.movieLibrary
+    }
+
+    @MainActor
+    static func loadLibraryUnion(in manager: ArrServiceManager, maxAge: TimeInterval) async throws -> [RadarrMovie] {
+        try await manager.loadMovieUnion(maxAge: maxAge)
+    }
+
+    @MainActor
+    static func cachedLibraryUnion(in manager: ArrServiceManager) -> [RadarrMovie] {
+        manager.cachedMovieUnion
     }
 
     func getLibraryItems() async throws -> [RadarrMovie] {
