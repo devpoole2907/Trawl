@@ -19,6 +19,79 @@ import Testing
 @MainActor
 struct ArrAddIntentDuplicateCheckTests {
 
+    // MARK: - Conversational library checks
+
+    @Test("Library check reports a downloaded Radarr movie without mutating the server")
+    func libraryCheckReportsDownloadedMovie() async throws {
+        let server = try await DuplicateCheckArrTestServer(
+            label: "library-check-movie",
+            routes: [
+                "GET /api/v3/movie": (200, #"[{"id":12,"title":"Dune","year":2021,"tmdbId":438631,"monitored":true,"hasFile":true}]"#)
+            ]
+        )
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Home Radarr", hostURL: server.baseURL, serviceType: .radarr) { _ in
+            var intent = CheckArrLibraryIntent()
+            intent.title = "dune"
+            intent.kind = .movie
+
+            let response = try await intent.response()
+
+            #expect(response == "Yes. Dune from 2021 is in Home Radarr, and it has downloaded.")
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/movie")))
+            #expect(server.requests.allSatisfy { $0.method == "GET" })
+        }
+    }
+
+    @Test("Library check reports when a Sonarr series is absent")
+    func libraryCheckReportsMissingSeries() async throws {
+        let server = try await DuplicateCheckArrTestServer(
+            label: "library-check-series-missing",
+            routes: ["GET /api/v3/series": (200, "[]")]
+        )
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Home Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { _ in
+            var intent = CheckArrLibraryIntent()
+            intent.title = "Severance"
+            intent.kind = .series
+
+            let response = try await intent.response()
+
+            #expect(response == "No, I couldn't find Severance in your Sonarr library.")
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/series")))
+            #expect(server.requests.allSatisfy { $0.method == "GET" })
+        }
+    }
+
+    @Test("Library check surfaces a failed library read instead of claiming the title is absent")
+    func libraryCheckDoesNotTurnFailureIntoAbsence() async throws {
+        let server = try await DuplicateCheckArrTestServer(
+            label: "library-check-failure",
+            routes: ["GET /api/v3/movie": (500, #"{"message":"boom"}"#)]
+        )
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Home Radarr", hostURL: server.baseURL, serviceType: .radarr) { _ in
+            var intent = CheckArrLibraryIntent()
+            intent.title = "Dune"
+            intent.kind = .movie
+
+            do {
+                _ = try await intent.response()
+                Issue.record("Expected the failed library read to be surfaced.")
+            } catch let error as ArrIntentError {
+                guard case .requestFailed(let detail) = error else {
+                    Issue.record("Expected .requestFailed, got \(error)")
+                    return
+                }
+                #expect(detail.contains("Home Radarr"))
+                #expect(detail.contains("500"))
+            }
+        }
+    }
+
     // MARK: - Required behavior: a failed read blocks the add
 
     @Test("Add Movie to Radarr reports the duplicate-check read failure and sends no add mutation")

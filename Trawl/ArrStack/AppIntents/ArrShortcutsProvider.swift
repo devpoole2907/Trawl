@@ -24,7 +24,8 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             intent: AddRadarrMovieIntent(),
             phrases: [
                 "Add a movie in \(.applicationName)",
-                "Add a movie to Radarr in \(.applicationName)"
+                "Add a movie to Radarr in \(.applicationName)",
+                "Get a movie in \(.applicationName)"
             ],
             shortTitle: "Add Movie",
             systemImageName: "plus.rectangle.on.folder"
@@ -44,7 +45,8 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             intent: AddSonarrSeriesIntent(),
             phrases: [
                 "Add a series in \(.applicationName)",
-                "Add a show to Sonarr in \(.applicationName)"
+                "Add a show to Sonarr in \(.applicationName)",
+                "Get a show in \(.applicationName)"
             ],
             shortTitle: "Add Series",
             systemImageName: "plus.rectangle.on.folder"
@@ -74,7 +76,8 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             intent: ShowArrCalendarIntent(),
             phrases: [
                 "Show the \(.applicationName) calendar",
-                "What's coming up in \(.applicationName)"
+                "What's coming up in \(.applicationName)",
+                "What's upcoming in \(.applicationName)"
             ],
             shortTitle: "Upcoming Releases",
             systemImageName: "calendar"
@@ -98,6 +101,17 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             ],
             shortTitle: "Service Status",
             systemImageName: "heart.text.square"
+        )
+
+        AppShortcut(
+            intent: CheckArrLibraryIntent(),
+            phrases: [
+                "Check my library in \(.applicationName)",
+                "Do I have a title in \(.applicationName)",
+                "Do we have something in \(.applicationName)"
+            ],
+            shortTitle: "Check Library",
+            systemImageName: "checkmark.magnifyingglass"
         )
     }
 }
