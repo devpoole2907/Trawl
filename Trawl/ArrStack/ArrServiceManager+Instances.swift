@@ -381,6 +381,10 @@ extension ArrServiceManager {
         configurationByInstance({ $0.rootFolders }, { $0.rootFolders })
     }
 
+    func rootFolders(for instanceID: UUID) -> [ArrRootFolder] {
+        rootFoldersByInstance.first { $0.ref.id == instanceID }?.values ?? []
+    }
+
     var qualityProfilesByInstance: [(ref: ArrInstanceRef, values: [ArrQualityProfile])] {
         configurationByInstance({ $0.qualityProfiles }, { $0.qualityProfiles })
     }

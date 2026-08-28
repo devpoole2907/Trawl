@@ -25,6 +25,7 @@ struct LibraryImportScanView: View {
     @Environment(\.navigateToSeriesTab) private var navigateToSeriesTab
     @Environment(\.navigateToMoviesTab) private var navigateToMoviesTab
     @State private var viewModel: LibraryImportScanViewModel
+    private let instanceLabel: String?
     @State private var showSelectionReview = false
     @State private var isSelectingMode = false
     @State private var reviewingGroup: LibraryImportGroup?
@@ -109,11 +110,25 @@ struct LibraryImportScanView: View {
         path: String,
         service: ArrServiceType,
         serviceManager: ArrServiceManager,
+        instanceID: UUID? = nil,
         libraryItemID: Int? = nil,
         showsCloseButton: Bool = false,
         kind: ArrImportKind = .library
     ) {
-        _viewModel = State(wrappedValue: LibraryImportScanViewModel(path: path, service: service, serviceManager: serviceManager, libraryItemID: libraryItemID, kind: kind))
+        _viewModel = State(wrappedValue: LibraryImportScanViewModel(
+            path: path,
+            service: service,
+            serviceManager: serviceManager,
+            instanceID: instanceID,
+            libraryItemID: libraryItemID,
+            kind: kind
+        ))
+        if let instance = serviceManager.instanceRef(service, id: instanceID),
+           serviceManager.showsInstanceProvenance(for: service) {
+            self.instanceLabel = serviceManager.scopeLabel(for: instance)
+        } else {
+            self.instanceLabel = nil
+        }
         self.showsCloseButton = showsCloseButton
     }
 
@@ -189,6 +204,7 @@ struct LibraryImportScanView: View {
         .animation(.snappy, value: ownedImportedTitles.count)
         .moreDestinationBackground(.libraryImport)
         .navigationTitle(viewModel.folderName)
+        .navigationSubtitle(instanceLabel ?? "")
         #if os(iOS) || os(visionOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

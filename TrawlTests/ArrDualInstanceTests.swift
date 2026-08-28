@@ -548,6 +548,49 @@ struct ArrDualInstanceRoutingTests {
         }
     }
 
+    @Test("An import scan stays on the selected 4K server")
+    func importScanUsesTheSelectedServer() async throws {
+        let hd = try await DualInstanceRadarrServer(label: "hd-import", movies: "[]")
+        let uhd = try await DualInstanceRadarrServer(label: "4k-import", movies: "[]")
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, _, uhdID in
+            let viewModel = LibraryImportScanViewModel(
+                path: "/imports/movies",
+                service: .radarr,
+                serviceManager: manager,
+                instanceID: uhdID
+            )
+            viewModel.autoIdentifyEnabled = false
+
+            await viewModel.loadFiles()
+
+            #expect(viewModel.scanError == nil)
+            #expect(hd.requestedPaths.filter { $0.hasPrefix("/api/v3/manualimport") }.isEmpty)
+            #expect(uhd.requestedPaths.contains { $0.hasPrefix("/api/v3/manualimport") })
+        }
+    }
+
+    @Test("Root folders remain scoped to their server")
+    func rootFoldersAreScopedByInstance() async throws {
+        let hd = try await DualInstanceRadarrServer(
+            label: "hd-roots",
+            movies: "[]",
+            rootFolders: #"[{"id":1,"path":"/media/hd"}]"#
+        )
+        let uhd = try await DualInstanceRadarrServer(
+            label: "4k-roots",
+            movies: "[]",
+            rootFolders: #"[{"id":2,"path":"/media/4k"}]"#
+        )
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, hdID, uhdID in
+            #expect(manager.rootFolders(for: hdID).map(\.path) == ["/media/hd"])
+            #expect(manager.rootFolders(for: uhdID).map(\.path) == ["/media/4k"])
+        }
+    }
+
     @Test("Badges appear only once a second server exists")
     func provenanceIsSuppressedForASingleServer() async throws {
         let hd = try await DualInstanceRadarrServer(label: "hd-badge", movies: "[]")
@@ -640,14 +683,17 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue: DispatchQueue
     private let moviesBody: String
+    private let rootFoldersBody: String
     private let lock = NSLock()
     private var deletes: [String] = []
     private var commands: [String] = []
+    private var requests: [String] = []
 
-    init(label: String, movies: String) async throws {
+    init(label: String, movies: String, rootFolders: String = "[]") async throws {
         self.queue = DispatchQueue(label: "DualInstanceRadarrServer.\(label)")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.moviesBody = movies
+        self.rootFoldersBody = rootFolders
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
         }
@@ -678,6 +724,11 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
         return commands
     }
 
+    var requestedPaths: [String] {
+        lock.lock(); defer { lock.unlock() }
+        return requests
+    }
+
     func stop() { listener.cancel() }
 
     private func respond(to connection: NWConnection) {
@@ -695,6 +746,7 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
             let path = String(rawPath.split(separator: "?", maxSplits: 1).first ?? "")
 
             self.lock.lock()
+            self.requests.append(rawPath)
             if method == "DELETE" { self.deletes.append(path) }
             if method == "POST", path == "/api/v3/command" {
                 let body = text.components(separatedBy: "\r\n\r\n").dropFirst().joined(separator: "\r\n\r\n")
@@ -705,6 +757,7 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
             let body: String
             switch (method, path) {
             case ("GET", "/api/v3/movie"): body = self.moviesBody
+            case ("GET", "/api/v3/rootfolder"): body = self.rootFoldersBody
             case ("GET", "/api/v3/system/status"): body = "{}"
             case ("POST", "/api/v3/command"): body = #"{"id":1,"name":"MoviesSearch"}"#
             case ("DELETE", _): body = "{}"

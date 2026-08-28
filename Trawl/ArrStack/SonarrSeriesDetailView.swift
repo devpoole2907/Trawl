@@ -258,12 +258,12 @@ struct SonarrSeriesDetailView: View {
         .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
             TextField("Root folder", text: $rootFolderText)
             Button("Move Existing Files") {
-                if let series {
+                if let series = actionCopy {
                     Task { await updateSeriesRootFolder(series, moveFiles: true) }
                 }
             }
             Button("Update Only") {
-                if let series {
+                if let series = actionCopy {
                     Task { await updateSeriesRootFolder(series, moveFiles: false) }
                 }
             }
@@ -324,7 +324,7 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .sheet(isPresented: $showEditSheet) {
-            if let series, isInLibrary {
+            if let series = actionCopy, isInLibrary {
                 SonarrEditSeriesSheet(viewModel: viewModel, series: series)
                     .presentationDetents([.medium, .large])
                     .presentationDragIndicator(.visible)
@@ -354,12 +354,13 @@ struct SonarrSeriesDetailView: View {
             )
         }
         .sheet(isPresented: $showManualImport, onDismiss: { Task { await refreshSeriesDetailState() } }) {
-            if let series, let path = series.path {
+            if let series = actionCopy, let path = series.path {
                 NavigationStack {
                     LibraryImportScanView(
                         path: path,
                         service: .sonarr,
                         serviceManager: serviceManager,
+                        instanceID: series.instanceID,
                         libraryItemID: series.id,
                         showsCloseButton: true,
                         kind: .manual
@@ -1025,12 +1026,12 @@ struct SonarrSeriesDetailView: View {
     }
 
     private func renameSeriesFiles() async {
-        guard let id = resolvedSeriesId,
-              let client = serviceManager.sonarrClient else { return }
+        guard let series = actionCopy,
+              let client = serviceManager.sonarrClient(owning: series) else { return }
         isRenamingFiles = true
         defer { isRenamingFiles = false }
         do {
-            try await client.renameSeriesFiles(seriesId: id)
+            _ = try await client.renameSeriesFiles(seriesId: series.id)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Rename Queued",
                 message: "Sonarr is renaming the episode files in the background."
@@ -1139,7 +1140,7 @@ struct SonarrSeriesDetailView: View {
         ToolbarItem(placement: .primaryAction) {
             if isInLibrary {
                 Menu {
-                    if series != nil {
+                    if let series = actionCopy {
                         Button {
                             showEditSheet = true
                         } label: {
@@ -1147,21 +1148,19 @@ struct SonarrSeriesDetailView: View {
                         }
 
                         Button {
-                            rootFolderText = series?.rootFolderPath ?? ""
+                            rootFolderText = series.rootFolderPath ?? ""
                             showRootFolderAlert = true
                         } label: {
                             Label("Change Root Folder", systemImage: "folder")
                         }
 
-                        if let series {
-                            Button {
-                                Task { await viewModel.toggleSeriesMonitored(series) }
-                            } label: {
-                                Label(
-                                    series.monitored == true ? "Unmonitor" : "Monitor",
-                                    systemImage: series.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                                )
-                            }
+                        Button {
+                            Task { await viewModel.toggleSeriesMonitored(series) }
+                        } label: {
+                            Label(
+                                series.monitored == true ? "Unmonitor" : "Monitor",
+                                systemImage: series.monitored == true ? "bookmark.slash" : "bookmark.fill"
+                            )
                         }
 
                         Button {
@@ -1171,7 +1170,7 @@ struct SonarrSeriesDetailView: View {
                         }
                         .disabled(isRenamingFiles)
 
-                        if series?.path != nil {
+                        if series.path != nil {
                             Button {
                                 showManualImport = true
                             } label: {

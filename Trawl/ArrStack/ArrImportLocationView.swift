@@ -54,7 +54,7 @@ struct ArrImportLocationView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Query private var allProfiles: [ArrServiceProfile]
 
-    @State private var selectedService: ArrServiceType = .sonarr
+    @State private var selectedInstanceID: UUID?
     @State private var showAddLocation = false
 
     init(kind: ArrImportKind = .library) {
@@ -68,29 +68,34 @@ struct ArrImportLocationView: View {
         return services
     }
 
+    private var selectedService: ArrServiceType {
+        selectedInstance?.serviceType ?? .sonarr
+    }
+
     private var hasConnectedService: Bool {
         serviceManager.sonarrConnected || serviceManager.radarrConnected
     }
 
-    private var rootFolders: [ArrRootFolder] {
-        selectedService == .sonarr ? serviceManager.sonarrRootFolders : serviceManager.radarrRootFolders
+    /// Every connected Sonarr and Radarr, since an import writes into one
+    /// server's library and the pair do not share root folders.
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref)
     }
 
-    private var currentProfile: ArrServiceProfile? {
-        let activeProfileID: UUID?
-        switch selectedService {
-        case .sonarr:
-            activeProfileID = serviceManager.activeSonarrProfileID
-        case .radarr:
-            activeProfileID = serviceManager.activeRadarrProfileID
-        case .prowlarr, .bazarr:
-            activeProfileID = nil
-        }
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
 
-        if let activeProfileID, let profile = allProfiles.first(where: { $0.id == activeProfileID }) {
-            return profile
-        }
-        return allProfiles.first { $0.resolvedServiceType == selectedService }
+    private var rootFolders: [ArrRootFolder] {
+        guard let instance = selectedInstance else { return [] }
+        return serviceManager.rootFolders(for: instance.id)
+    }
+
+    /// The profile holding this server's custom import folders — bookmarks are
+    /// stored per server, because the paths only exist on that server.
+    private var currentProfile: ArrServiceProfile? {
+        guard let instance = selectedInstance else { return nil }
+        return allProfiles.first { $0.id == instance.id }
     }
 
     private var customFolders: [String] {
@@ -193,29 +198,17 @@ struct ArrImportLocationView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedService)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: selectedInstanceID)
         .safeAreaInset(edge: .top) {
-            if availableServices.count > 1 {
-                TrawlSegmentBar("Service", selection: Binding(
-                    get: { selectedService },
-                    set: { newService in
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            selectedService = newService
-                        }
-                    }
-                ), items: availableServices.map(\.segmentBarItem), alignment: .center)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
         }
         .sheet(isPresented: $showAddLocation) {
-            AddImportLocationSheet(service: selectedService) { path in
+            AddImportLocationSheet(service: selectedService, instanceID: selectedInstance?.id) { path in
                 addBookmark(path: path)
             }
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
-            }
+            selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
         }
     }
 
@@ -258,8 +251,8 @@ struct ArrImportLocationView: View {
 
     private func scanDestination(path: String) -> MoreDestination {
         switch kind {
-        case .library: return .libraryImportScan(path: path, service: selectedService)
-        case .manual: return .manualImportScan(path: path, service: selectedService)
+        case .library: return .libraryImportScan(path: path, service: selectedService, instanceID: selectedInstance?.id)
+        case .manual: return .manualImportScan(path: path, service: selectedService, instanceID: selectedInstance?.id)
         }
     }
 

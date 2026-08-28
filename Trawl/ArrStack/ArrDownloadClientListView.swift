@@ -59,6 +59,10 @@ struct ArrDownloadClientListView: View {
         availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
     }
 
+    private var selectedLabel: String {
+        selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? serviceType.displayName
+    }
+
     /// Every read and mutation on this screen goes through the selected server.
     private var scopedClient: (any SharedArrClient)? {
         selectedInstance.flatMap { serviceManager.sharedClient(for: $0) }
@@ -107,7 +111,7 @@ struct ArrDownloadClientListView: View {
                 ContentUnavailableView(
                     "No Download Clients",
                     systemImage: "arrow.down.circle",
-                    description: Text("No download clients are configured in \(serviceType.displayName).")
+                    description: Text("No download clients are configured in \(selectedLabel).")
                 )
                 .listRowBackground(Color.clear)
             } else {
@@ -149,6 +153,7 @@ struct ArrDownloadClientListView: View {
         .sheet(item: supportsDownloadClients ? $pendingAddClient : .constant(nil)) { choice in
             ArrDownloadClientEditorSheet(
                 serviceType: serviceType,
+                instanceID: selectedInstance?.id,
                 initialImplementation: choice.implementation
             ) { saved in
                 clients.append(saved)
@@ -156,7 +161,7 @@ struct ArrDownloadClientListView: View {
                 checkReachability(for: saved)
                 inAppNotificationCenter.showSuccess(
                     title: "Added",
-                    message: "\(saved.name ?? "Download client") added to \(serviceType.displayName)."
+                    message: "\(saved.name ?? "Download client") added to \(selectedLabel)."
                 )
             }
             .environment(serviceManager)
@@ -166,14 +171,18 @@ struct ArrDownloadClientListView: View {
                 .environment(serviceManager)
         }
         .sheet(item: supportsDownloadClients ? $clientBeingEdited : .constant(nil)) { client in
-            ArrDownloadClientEditorSheet(serviceType: serviceType, existingClient: client) { saved in
+            ArrDownloadClientEditorSheet(
+                serviceType: serviceType,
+                instanceID: selectedInstance?.id,
+                existingClient: client
+            ) { saved in
                 if let idx = clients.firstIndex(where: { $0.id == saved.id }) {
                     clients[idx] = saved
                 }
                 checkReachability(for: saved)
                 inAppNotificationCenter.showSuccess(
                     title: "Updated",
-                    message: "\(saved.name ?? "Download client") updated in \(serviceType.displayName)."
+                    message: "\(saved.name ?? "Download client") updated in \(selectedLabel)."
                 )
             }
             .environment(serviceManager)
@@ -206,7 +215,7 @@ struct ArrDownloadClientListView: View {
             }
         } message: {
             if let client = clientPendingDelete {
-                Text("Remove '\(client.name ?? "this client")' from \(serviceType.displayName)?")
+                Text("Remove '\(client.name ?? "this client")' from \(selectedLabel)?")
             }
         }
     }
@@ -589,7 +598,7 @@ struct ArrDownloadClientListView: View {
             reachability.removeValue(forKey: downloadClient.id)
             inAppNotificationCenter.showSuccess(
                 title: "Deleted",
-                message: "\(downloadClient.name ?? "Client") removed from \(serviceType.displayName)."
+                message: "\(downloadClient.name ?? "Client") removed from \(selectedLabel)."
             )
         } catch {
             inAppNotificationCenter.showError(title: "Delete Failed", message: error.localizedDescription)

@@ -4,6 +4,7 @@ import OSLog
 
 struct AddImportLocationSheet: View {
     let service: ArrServiceType
+    let instanceID: UUID?
     let onAdd: (String) -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -84,14 +85,22 @@ struct AddImportLocationSheet: View {
     private var browserSource: RemotePathBrowserSource? {
         switch service {
         case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return nil }
+            guard let client = sonarrClient else { return nil }
             return Self.source(serviceName: "Sonarr", client: client)
         case .radarr:
-            guard let client = serviceManager.radarrClient else { return nil }
+            guard let client = radarrClient else { return nil }
             return Self.source(serviceName: "Radarr", client: client)
         case .prowlarr, .bazarr:
             return nil
         }
+    }
+
+    private var sonarrClient: SonarrAPIClient? {
+        instanceID.flatMap { serviceManager.sonarrClient(for: $0) } ?? serviceManager.sonarrClient
+    }
+
+    private var radarrClient: RadarrAPIClient? {
+        instanceID.flatMap { serviceManager.radarrClient(for: $0) } ?? serviceManager.radarrClient
     }
 
     private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {
@@ -176,12 +185,48 @@ final class LibraryImportScanViewModel {
     private var lastAutoSuggestionFilename: String?
     @ObservationIgnored private var autoIdentifyTask: Task<Void, Never>?
 
-    init(path: String, service: ArrServiceType, serviceManager: ArrServiceManager, libraryItemID: Int? = nil, kind: ArrImportKind = .library) {
+    /// The server this scan imports into. An import writes files into one
+    /// server's library, so with an HD/4K pair configured the destination has to
+    /// be chosen rather than inferred from whichever instance is active.
+    private let instanceID: UUID?
+
+    init(
+        path: String,
+        service: ArrServiceType,
+        serviceManager: ArrServiceManager,
+        instanceID: UUID? = nil,
+        libraryItemID: Int? = nil,
+        kind: ArrImportKind = .library
+    ) {
         self.path = path
         self.service = service
         self.serviceManager = serviceManager
+        self.instanceID = instanceID
         self.libraryItemID = libraryItemID
         self.importKind = kind
+    }
+
+    /// Every call in this view model goes through these rather than through the
+    /// manager's active client, so a scan started against the 4K server imports
+    /// there. They fall back to the active client only when no server was named —
+    /// a single-instance setup, or a caller that predates the pair.
+    private var sonarrClient: SonarrAPIClient? {
+        instanceID.flatMap { serviceManager.sonarrClient(for: $0) } ?? serviceManager.sonarrClient
+    }
+
+    private var radarrClient: RadarrAPIClient? {
+        instanceID.flatMap { serviceManager.radarrClient(for: $0) } ?? serviceManager.radarrClient
+    }
+
+    private var rootFolders: [ArrRootFolder] {
+        guard let instanceID else {
+            switch service {
+            case .sonarr: return serviceManager.sonarrRootFolders
+            case .radarr: return serviceManager.radarrRootFolders
+            case .prowlarr, .bazarr: return []
+            }
+        }
+        return serviceManager.rootFolders(for: instanceID)
     }
 
     var folderName: String {
@@ -414,7 +459,7 @@ final class LibraryImportScanViewModel {
             var resolved = false
             switch service {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { continue }
+                guard let client = sonarrClient else { continue }
                 guard let tvdbId = items.first?.catalogID else { continue }
                 if let match = librarySeries.first(where: { $0.tvdbId == tvdbId }) {
                     applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
@@ -423,7 +468,7 @@ final class LibraryImportScanViewModel {
                     resolved = await addToLibraryAndIdentify(blockedItems: items, series: candidate, importAfterAdding: false)
                 }
             case .radarr:
-                guard let client = serviceManager.radarrClient else { continue }
+                guard let client = radarrClient else { continue }
                 guard let tmdbId = items.first?.catalogID else { continue }
                 if let match = libraryMovies.first(where: { $0.tmdbId == tmdbId }) {
                     applyIdentification(to: items, mediaID: match.id, title: match.title, posterURL: posterURL(from: match.images))
@@ -609,7 +654,7 @@ final class LibraryImportScanViewModel {
     private func getManualImport(folder: String) async throws -> [JSONValue] {
         switch service {
         case .sonarr:
-            guard let client = serviceManager.sonarrClient else {
+            guard let client = sonarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Sonarr manual import scan for \(folder, privacy: .private)")
@@ -620,7 +665,7 @@ final class LibraryImportScanViewModel {
                 requestTimeout: Self.manualImportScanRequestTimeout
             )
         case .radarr:
-            guard let client = serviceManager.radarrClient else {
+            guard let client = radarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
             Self.logger.info("Requesting Radarr manual import scan for \(folder, privacy: .private)")
@@ -642,12 +687,12 @@ final class LibraryImportScanViewModel {
     ) async throws -> ArrCommand {
         switch service {
         case .sonarr:
-            guard let client = serviceManager.sonarrClient else {
+            guard let client = sonarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
             return try await client.manualImport(files: files, importMode: importMode.apiValue, onProgress: onProgress)
         case .radarr:
-            guard let client = serviceManager.radarrClient else {
+            guard let client = radarrClient else {
                 throw LibraryImportServiceClientUnavailableError(service: service)
             }
             return try await client.manualImport(files: files, importMode: importMode.apiValue, onProgress: onProgress)
@@ -724,7 +769,7 @@ final class LibraryImportScanViewModel {
             // Fetch the movie list live so in-library status reflects the current
             // library — relying on the cached `libraryMovies` left this stale (e.g.
             // unchanged after pull-to-refresh, which doesn't reload the library).
-            let movies = (try? await serviceManager.radarrClient?.getMovies()) ?? libraryMovies
+            let movies = (try? await radarrClient?.getMovies()) ?? libraryMovies
             if !movies.isEmpty { libraryMovies = movies }
             let moviesWithFile = Set(
                 movies
@@ -736,7 +781,7 @@ final class LibraryImportScanViewModel {
                 if moviesWithFile.contains(mid) { found.insert(item.id) }
             }
         case .sonarr:
-            guard let client = serviceManager.sonarrClient else { break }
+            guard let client = sonarrClient else { break }
             let seriesIDs = Set(importableFiles.compactMap(\.mediaID))
             var episodeKeys: Set<String> = []
             await withTaskGroup(of: [String].self) { group in
@@ -810,13 +855,13 @@ final class LibraryImportScanViewModel {
         do {
             switch service {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = sonarrClient else { return }
                 async let seriesResult = client.getSeries()
                 async let profilesResult = client.getQualityProfiles()
                 librarySeries = try await seriesResult
                 qualityProfiles = try await profilesResult
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = radarrClient else { return }
                 async let moviesResult = client.getMovies()
                 async let profilesResult = client.getQualityProfiles()
                 libraryMovies = try await moviesResult
@@ -881,7 +926,7 @@ final class LibraryImportScanViewModel {
         do {
             switch service {
             case .radarr:
-                guard let client = serviceManager.radarrClient else {
+                guard let client = radarrClient else {
                     lastAutoSuggestionFilename = nil
                     withAnimation(.snappy) { isLoadingAutoSuggestions = false }
                     return
@@ -892,7 +937,7 @@ final class LibraryImportScanViewModel {
                     isLoadingAutoSuggestions = false
                 }
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else {
+                guard let client = sonarrClient else {
                     lastAutoSuggestionFilename = nil
                     withAnimation(.snappy) { isLoadingAutoSuggestions = false }
                     return
@@ -993,7 +1038,7 @@ final class LibraryImportScanViewModel {
             do {
                 switch service {
                 case .sonarr:
-                    guard let client = serviceManager.sonarrClient else { return }
+                    guard let client = sonarrClient else { return }
                     let results = try await client.lookupSeries(term: term)
                     // After the network round-trip, re-read the group from the recomputed
                     // unidentified list. The user may have manually identified some/all of
@@ -1020,7 +1065,7 @@ final class LibraryImportScanViewModel {
                         autoIdentifyLastOutcomeMessage = "No library match found for \(group.displayTitle)."
                     }
                 case .radarr:
-                    guard let client = serviceManager.radarrClient else { return }
+                    guard let client = radarrClient else { return }
                     let results = try await client.lookupMovie(term: term)
                     guard let pending = pendingItems(forGroupID: groupID) else { continue }
                     if let match = results
@@ -1079,10 +1124,10 @@ final class LibraryImportScanViewModel {
         do {
             switch service {
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = radarrClient else { return }
                 catalogMovieResults = try await client.lookupMovie(term: trimmed)
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = sonarrClient else { return }
                 catalogSeriesResults = try await client.lookupSeries(term: trimmed)
             case .prowlarr, .bazarr:
                 break
@@ -1144,9 +1189,9 @@ final class LibraryImportScanViewModel {
     @discardableResult
     func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], movie: RadarrMovie, importAfterAdding: Bool = true) async -> Bool {
         guard !blockedItems.isEmpty,
-              let client = serviceManager.radarrClient,
+              let client = radarrClient,
               let tmdbId = movie.tmdbId,
-              let rootFolder = serviceManager.radarrRootFolders.first?.path,
+              let rootFolder = rootFolders.first?.path,
               let qualityProfileId = qualityProfiles.first?.id else { return false }
 
         isAddingToLibrary = true
@@ -1190,10 +1235,10 @@ final class LibraryImportScanViewModel {
     @discardableResult
     func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], series: SonarrSeries, importAfterAdding: Bool = true) async -> Bool {
         guard !blockedItems.isEmpty,
-              let client = serviceManager.sonarrClient,
+              let client = sonarrClient,
               let tvdbId = series.tvdbId,
               let titleSlug = series.titleSlug,
-              let rootFolder = serviceManager.sonarrRootFolders.first?.path,
+              let rootFolder = rootFolders.first?.path,
               let qualityProfileId = qualityProfiles.first?.id else { return false }
 
         isAddingToLibrary = true
@@ -1249,7 +1294,7 @@ final class LibraryImportScanViewModel {
 
     private func monitorImportedEpisodes(seriesID: Int, from items: [LibraryImportItem]) async {
         guard service == .sonarr,
-              let client = serviceManager.sonarrClient else { return }
+              let client = sonarrClient else { return }
 
         let importedKeys = Self.importedEpisodeKeys(from: items)
         guard !importedKeys.isEmpty else { return }
@@ -1326,10 +1371,10 @@ final class LibraryImportScanViewModel {
         do {
             switch service {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = sonarrClient else { return }
                 librarySeries = try await client.getSeries()
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = radarrClient else { return }
                 libraryMovies = try await client.getMovies()
             case .prowlarr, .bazarr:
                 break

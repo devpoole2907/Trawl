@@ -105,7 +105,7 @@ final class ArrCalendarViewModel {
     // Scroll state persistence
     var scrollID: Date? = Calendar.current.startOfDay(for: .now)
     
-    private var seriesLookup: [Int: SonarrSeries] = [:]
+    private var seriesLookup: [ArrScopedID: SonarrSeries] = [:]
     private let calendar = Calendar.current
     private var refreshGeneration = 0
     
@@ -149,7 +149,13 @@ final class ArrCalendarViewModel {
             monthsToLoad.append(startMonth.advanced(by: i))
         }
 
-        let lookup = Dictionary(uniqueKeysWithValues: libraries.series.map { ($0.id, $0) })
+        // Keyed by (server, series ID), and non-trapping: with a pair configured
+        // both servers hand back a series 1, which a bare-Int key either resolves
+        // to the wrong show or crashes on.
+        let lookup = Dictionary(
+            libraries.series.map { (ArrScopedID($0.instanceID, $0.id), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var monthData: [(YearMonth, [Date: [CalendarEvent]])] = []
         var errors: [YearMonth: String] = [:]
 
@@ -242,7 +248,7 @@ final class ArrCalendarViewModel {
 
     private func fetchMonthData(
         _ month: YearMonth,
-        lookup: [Int: SonarrSeries],
+        lookup: [ArrScopedID: SonarrSeries],
         snapshot: ArrCalendarRefreshSnapshot
     ) async -> Result<(YearMonth, [Date: [CalendarEvent]]), Error> {
         let start = month.startDate
@@ -258,7 +264,10 @@ final class ArrCalendarViewModel {
                             guard let seriesId = ep.seriesId,
                                   let date = ArrDateParser.parse(ep.airDateUtc) ?? ArrDateParser.parseDay(ep.airDate) else { continue }
                             let day = Calendar.current.startOfDay(for: date)
-                            dict[day, default: []].append(.episode(ep, series: lookup[seriesId], date: date))
+                            // Resolved on the episode's own server: an airing from the
+                            // 4K server must find that server's series 1, not the HD one's.
+                            let series = lookup[ArrScopedID(ep.instanceID, seriesId)]
+                            dict[day, default: []].append(.episode(ep, series: series, date: date))
                         }
                         return .success(dict)
                     } catch {
@@ -367,7 +376,10 @@ extension ArrCalendarViewModel {
         loadedMonths = [currentMonth.advanced(by: -1), currentMonth, currentMonth.advanced(by: 1)]
         sonarrSeries = SonarrSeries.previewList
         radarrMovies = RadarrMovie.previewList
-        seriesLookup = Dictionary(uniqueKeysWithValues: sonarrSeries.map { ($0.id, $0) })
+        seriesLookup = Dictionary(
+            sonarrSeries.map { (ArrScopedID($0.instanceID, $0.id), $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
         monthLoadErrors = [:]
         isLoadingInitial = false
         isRefreshing = false

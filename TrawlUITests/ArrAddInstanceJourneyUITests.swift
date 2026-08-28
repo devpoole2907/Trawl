@@ -26,19 +26,12 @@
 //
 //  The reachable add entry points come from `ArrServiceSettingsDetailView`:
 //  "Add <Service> Server" when none is configured (line ~102), and "Add Another
-//  <Service> Server" (line ~169). This drives the latter, because multi-instance state
+//  <Service> Server" once one is configured. This drives the latter, because multi-instance state
 //  is where the manager can go wrong — `sonarrInstances` is a list, and an add that
 //  clobbered an existing entry rather than appending would still look correct on one
 //  screen.
-//
-//  ## Why this launches with two instances already seeded
-//
-//  Not for convenience. "Add Another" lives inside a section gated on
-//  `serviceType != .prowlarr, serviceProfiles.count > 1` (line ~116), so it does not
-//  render until a second instance already exists — it cannot be the way a user gets
-//  from one instance to two. Seeding two is therefore the only way to reach this button
-//  at all, and this journey covers the add path from there. The gap that leaves is
-//  recorded in the audit rather than papered over here.
+//  The entry point disappears once the HD and 4K slots are both occupied, enforcing
+//  the deliberately narrow two-instance model at the same place users configure it.
 
 import Foundation
 import XCTest
@@ -46,7 +39,6 @@ import XCTest
 final class ArrAddInstanceJourneyUITests: XCTestCase {
     private var existingServer: SonarrFixtureServer?
     private var addedServer: SonarrFixtureServer?
-    private var alternateServer: SonarrFixtureServer?
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -57,8 +49,6 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         existingServer = nil
         addedServer?.stop()
         addedServer = nil
-        alternateServer?.stop()
-        alternateServer = nil
     }
 
     /// Regressions this catches: the add entry point disappearing from the service
@@ -81,18 +71,9 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         )
         addedServer = added
 
-        // A second seeded instance, purely to make the Instances section render. Its
-        // own server only has to answer the connect sequence.
-        let alternate = try await SonarrFixtureServer(
-            seriesJSON: #"[{"id":3,"title":"Series From Alternate"}]"#,
-            statusJSON: #"{"instanceName":"Alternate Sonarr","version":"4.0.0"}"#
-        )
-        alternateServer = alternate
-
         let app = XCUIApplication()
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = existing.baseURL
-        app.launchEnvironment["TRAWL_UITEST_SONARR_B_BASE_URL"] = alternate.baseURL
         app.launch()
 
         XCTAssertTrue(
@@ -182,6 +163,12 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         XCTAssertTrue(
             firstStaticText(labelContains: "Fixture Sonarr", in: app).exists,
             "The originally configured instance must still be listed — regression: the add replaced an existing profile instead of appending to the list."
+        )
+
+        waitForDisappearance(of: addButton, timeout: 10)
+        XCTAssertFalse(
+            addButton.exists,
+            "Once the HD and 4K slots are occupied, the UI must not offer a third Sonarr server."
         )
 
         XCTAssertGreaterThanOrEqual(

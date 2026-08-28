@@ -5,6 +5,9 @@ import SwiftUI
 struct UnifiedLogEntry: Identifiable, Sendable {
     let id: String
     let service: ArrServiceType
+    /// The server that logged this line. Both halves of a pair log the same
+    /// messages, so a merged "All" view is unreadable without it.
+    var instance: ArrInstanceRef?
     let level: String
     let logger: String?
     let message: String
@@ -17,7 +20,7 @@ struct UnifiedLogEntry: Identifiable, Sendable {
 
 private enum ArrEventsSelection: Hashable, Sendable {
     case all
-    case service(ArrServiceType)
+    case instance(ArrInstanceRef)
 }
 
 // MARK: - View
@@ -37,29 +40,29 @@ struct ArrEventsView: View {
 
     #if DEBUG
     init(previewEntries: [ArrServiceType: [UnifiedLogEntry]] = [:], selectedService: ArrServiceType? = nil) {
-        var previewVM = ArrEventsViewModel()
+        let previewVM = ArrEventsViewModel()
         previewVM.setPreviewEntries(previewEntries)
         _vm = State(initialValue: previewVM)
         if let selectedService {
-            _selectedSelection = State(initialValue: .service(selectedService))
+            _selectedSelection = State(initialValue: .instance(.preview(selectedService)))
         }
     }
 
     init(previewLoadingServices: [ArrServiceType], selectedService: ArrServiceType? = nil) {
-        var previewVM = ArrEventsViewModel()
+        let previewVM = ArrEventsViewModel()
         previewVM.setPreviewLoading(previewLoadingServices)
         _vm = State(initialValue: previewVM)
         if let selectedService {
-            _selectedSelection = State(initialValue: .service(selectedService))
+            _selectedSelection = State(initialValue: .instance(.preview(selectedService)))
         }
     }
 
     init(previewError: String, services: [ArrServiceType], selectedService: ArrServiceType? = nil) {
-        var previewVM = ArrEventsViewModel()
+        let previewVM = ArrEventsViewModel()
         previewVM.setPreviewError(previewError, for: services)
         _vm = State(initialValue: previewVM)
         if let selectedService {
-            _selectedSelection = State(initialValue: .service(selectedService))
+            _selectedSelection = State(initialValue: .instance(.preview(selectedService)))
         }
     }
     #endif
@@ -87,30 +90,54 @@ struct ArrEventsView: View {
 
     private var segmentItems: [TrawlSegmentBarItem<ArrEventsSelection>] {
         var items: [TrawlSegmentBarItem<ArrEventsSelection>] = []
-        if availableServices.count > 1 {
+        if availableInstances.count > 1 {
             items.append(TrawlSegmentBarItem("All", value: .all))
         }
-        for service in availableServices {
-            items.append(TrawlSegmentBarItem(service.displayName, value: .service(service)))
+        for instance in availableInstances {
+            items.append(TrawlSegmentBarItem(serviceManager.scopeLabel(for: instance), value: .instance(instance)))
         }
         return items
+    }
+
+    /// Every server that logs: both halves of each Arr pair, plus Prowlarr and
+    /// Bazarr.
+    private var availableInstances: [ArrInstanceRef] {
+        availableServices.flatMap { service in
+            if service == .bazarr {
+                return serviceManager.instanceRef(.bazarr, id: serviceManager.activeBazarrProfileID).map { [$0] } ?? []
+            }
+            return serviceManager.refs(for: service)
+        }
+    }
+
+    /// The badge for a log line, suppressed when its service has only one server.
+    private func instanceBadge(for entry: UnifiedLogEntry) -> ArrInstanceRef? {
+        guard let instance = entry.instance,
+              serviceManager.showsInstanceProvenance(for: instance.serviceType) else { return nil }
+        return instance
+    }
+
+    private func stateKey(for instance: ArrInstanceRef) -> UUID {
+        instance.serviceType == .bazarr ? ArrEventsViewModel.bazarrStateKey : instance.id
+    }
+
+    private var allEntries: [UnifiedLogEntry] {
+        availableInstances
+            .flatMap { vm.entries(for: stateKey(for: $0)) }
+            .sorted { $0.timestamp > $1.timestamp }
     }
 
     private var displayedEntries: [UnifiedLogEntry] {
         let query = committedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let raw: [UnifiedLogEntry]
         if !query.isEmpty {
-            raw = availableServices
-                .flatMap { vm.entries(for: $0) }
-                .sorted { $0.timestamp > $1.timestamp }
+            raw = allEntries
         } else {
             switch selectedSelection {
             case .all:
-                raw = availableServices
-                    .flatMap { vm.entries(for: $0) }
-                    .sorted { $0.timestamp > $1.timestamp }
-            case .service(let t):
-                raw = vm.entries(for: t)
+                raw = allEntries
+            case .instance(let instance):
+                raw = vm.entries(for: stateKey(for: instance))
             }
         }
 
@@ -129,22 +156,22 @@ struct ArrEventsView: View {
 
     private var isCurrentLoading: Bool {
         switch selectedSelection {
-        case .all: availableServices.contains { vm.isLoading(for: $0) }
-        case .service(let t): vm.isLoading(for: t)
+        case .all: availableInstances.contains { vm.isLoading(for: stateKey(for: $0)) }
+        case .instance(let instance): vm.isLoading(for: stateKey(for: instance))
         }
     }
 
     private var currentError: String? {
         switch selectedSelection {
         case .all: nil
-        case .service(let t): vm.errorMessage(for: t)
+        case .instance(let instance): vm.errorMessage(for: stateKey(for: instance))
         }
     }
 
     private var navigationSubtitleText: String {
         switch selectedSelection {
-        case .all: availableServices.count > 1 ? "All Services" : availableServices.first?.displayName ?? ""
-        case .service(let t): t.displayName
+        case .all: availableInstances.count > 1 ? "All Servers" : (availableInstances.first.map { serviceManager.scopeLabel(for: $0) } ?? "")
+        case .instance(let instance): serviceManager.scopeLabel(for: instance)
         }
     }
 
@@ -172,34 +199,7 @@ struct ArrEventsView: View {
         .navigationTitle("Events")
         .navigationSubtitle(navigationSubtitleText)
         .moreDestinationBackground(.logsAndEvents)
-        .toolbar {
-            if !availableServices.isEmpty {
-                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    ShareLink(item: exportText, preview: SharePreview("Arr Events")) {
-                        Label("Share Events", systemImage: "square.and.arrow.up")
-                    }
-                    .disabled(displayedEntries.isEmpty)
-
-                    Menu {
-                        ForEach(ArrLogLevelFilter.allCases, id: \.self) { level in
-                            Button {
-                                withAnimation { selectedLevel = level }
-                            } label: {
-                                if selectedLevel == level {
-                                    Label(level.displayName, systemImage: "checkmark")
-                                } else {
-                                    Text(level.displayName)
-                                }
-                            }
-                        }
-                    } label: {
-                        Image(systemName: selectedLevel == .all
-                              ? "line.3.horizontal.decrease.circle"
-                              : "line.3.horizontal.decrease.circle.fill")
-                    }
-                }
-            }
-        }
+        .toolbar { eventsToolbar }
         .safeAreaInset(edge: .top) {
             if !availableServices.isEmpty {
                 TrawlSegmentBar(
@@ -218,10 +218,10 @@ struct ArrEventsView: View {
             }
         }
         .loadServicesPeriodically(
-            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
-            keys: availableServices
-        ) { service in
-            await loadService(service)
+            id: availableInstances.map(\.id.uuidString).joined(separator: "|"),
+            keys: availableInstances
+        ) { instance in
+            await loadService(instance)
         }
         .sheet(isPresented: $showSettings) {
             if let service = primarySettingsService {
@@ -252,8 +252,8 @@ struct ArrEventsView: View {
             }
         }
         .onAppear {
-            if case .all = selectedSelection, availableServices.count < 2, let first = availableServices.first {
-                withAnimation { selectedSelection = .service(first) }
+            if case .all = selectedSelection, availableInstances.count < 2, let first = availableInstances.first {
+                withAnimation { selectedSelection = .instance(first) }
             }
         }
     }
@@ -288,18 +288,20 @@ struct ArrEventsView: View {
                         } label: {
                             UnifiedEventRow(
                                 entry: entry,
-                                showServiceBadge: selectedSelection == .all
+                                showServiceBadge: selectedSelection == .all,
+                                instanceBadge: instanceBadge(for: entry)
                             )
                         }
                         .buttonStyle(.plain)
                         .task {
-                            guard case .service(let t) = selectedSelection,
-                                  entry.id == vm.entries(for: t).last?.id
+                            guard case .instance(let instance) = selectedSelection,
+                                  entry.id == vm.entries(for: stateKey(for: instance)).last?.id
                             else { return }
-                            await loadMore(for: t)
+                            await loadMore(for: instance)
                         }
                     }
-                    if case .service(let t) = selectedSelection, vm.isLoadingMore(for: t) {
+                    if case .instance(let instance) = selectedSelection,
+                       vm.isLoadingMore(for: stateKey(for: instance)) {
                         HStack { Spacer(); ProgressView().controlSize(.small); Spacer() }
                     }
                 }
@@ -313,8 +315,8 @@ struct ArrEventsView: View {
         .scrollContentBackground(.hidden)
         .refreshable {
             await withTaskGroup(of: Void.self) { group in
-                for service in availableServices {
-                    group.addTask { await loadService(service) }
+                for instance in availableInstances {
+                    group.addTask { await loadService(instance) }
                 }
             }
         }
@@ -323,43 +325,66 @@ struct ArrEventsView: View {
 
     // MARK: - Load
 
-    @MainActor
-    private func loadService(_ service: ArrServiceType) async {
-        #if DEBUG
-        if ArrPreviewRuntime.isActive { return }
-        #endif
-        switch service {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return }
-            await vm.load(service: .sonarr, client: client)
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { return }
-            await vm.load(service: .radarr, client: client)
-        case .prowlarr:
-            guard let client = serviceManager.prowlarrClient else { return }
-            await vm.load(service: .prowlarr, client: client)
-        case .bazarr:
-            guard let client = serviceManager.activeBazarrEntry?.client else { return }
-            await vm.loadBazarr(client: client)
+    /// Lifted out of `body`: the filter menu plus the export/share items in one
+    /// expression pushed the type checker past its budget once the selection
+    /// started carrying a server.
+    @ToolbarContentBuilder
+    private var eventsToolbar: some ToolbarContent {
+        if !availableServices.isEmpty {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                ShareLink(item: exportText, preview: SharePreview("Arr Events")) {
+                    Label("Share Events", systemImage: "square.and.arrow.up")
+                }
+                .disabled(displayedEntries.isEmpty)
+
+                Menu {
+                    ForEach(ArrLogLevelFilter.allCases, id: \.self) { level in
+                        Button {
+                            withAnimation { selectedLevel = level }
+                        } label: {
+                            if selectedLevel == level {
+                                Label(level.displayName, systemImage: "checkmark")
+                            } else {
+                                Text(level.displayName)
+                            }
+                        }
+                    }
+                } label: {
+                    Label(
+                        "Filter Log Level",
+                        systemImage: selectedLevel == .all
+                            ? "line.3.horizontal.decrease.circle"
+                            : "line.3.horizontal.decrease.circle.fill"
+                    )
+                    .labelStyle(.iconOnly)
+                }
+            }
         }
     }
 
     @MainActor
-    private func loadMore(for service: ArrServiceType) async {
-        switch service {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return }
-            await vm.loadMore(service: .sonarr, client: client)
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { return }
-            await vm.loadMore(service: .radarr, client: client)
-        case .prowlarr:
-            guard let client = serviceManager.prowlarrClient else { return }
-            await vm.loadMore(service: .prowlarr, client: client)
-        case .bazarr:
+    private func loadService(_ instance: ArrInstanceRef) async {
+        #if DEBUG
+        if ArrPreviewRuntime.isActive { return }
+        #endif
+        if instance.serviceType == .bazarr {
+            guard let client = serviceManager.activeBazarrEntry?.client else { return }
+            await vm.loadBazarr(client: client)
+            return
+        }
+        guard let client = serviceManager.sharedClient(for: instance) else { return }
+        await vm.load(instance: instance, client: client)
+    }
+
+    @MainActor
+    private func loadMore(for instance: ArrInstanceRef) async {
+        if instance.serviceType == .bazarr {
             guard let client = serviceManager.activeBazarrEntry?.client else { return }
             await vm.loadMoreBazarr(client: client)
+            return
         }
+        guard let client = serviceManager.sharedClient(for: instance) else { return }
+        await vm.loadMore(instance: instance, client: client)
     }
 
     private var exportText: String {
@@ -369,6 +394,10 @@ struct ArrEventsView: View {
                 "[\(entry.service.displayName)]",
                 "[\(entry.level.uppercased())]"
             ]
+            if let instance = entry.instance,
+               serviceManager.showsInstanceProvenance(for: instance.serviceType) {
+                details.insert("[\(instance.shortLabel)]", at: 2)
+            }
             if let logger = entry.logger, !logger.isEmpty {
                 details.append("[\(logger)]")
             }
@@ -391,6 +420,10 @@ struct ArrEventsView: View {
 private struct UnifiedEventRow: View {
     let entry: UnifiedLogEntry
     let showServiceBadge: Bool
+    /// The server that logged the line, when there is more than one of its
+    /// service. Both halves of a pair log identical messages, so an unbadged
+    /// merged view cannot be read.
+    var instanceBadge: ArrInstanceRef? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -399,6 +432,9 @@ private struct UnifiedEventRow: View {
                     Image(systemName: entry.service.serviceIdentity.systemImage)
                         .font(.caption2)
                         .foregroundStyle(entry.service.serviceIdentity.brandColor)
+                }
+                if let instanceBadge {
+                    ArrInstanceBadge(label: instanceBadge.shortLabel, ordinal: instanceBadge.ordinal)
                 }
                 Image(systemName: levelIcon)
                     .font(.caption2)
@@ -610,101 +646,109 @@ final class ArrEventsViewModel {
         var hasMore: Bool { !loadMoreFailed && entries.count < total }
     }
 
-    private var states: [ArrServiceType: ServiceState] = [:]
+    // Keyed by server: each box keeps its own log.
+    private var states: [UUID: ServiceState] = [:]
     private let pageSize = 50
 
-    func entries(for service: ArrServiceType) -> [UnifiedLogEntry] {
-        states[service]?.entries ?? []
+    func entries(for instance: UUID) -> [UnifiedLogEntry] {
+        states[instance]?.entries ?? []
     }
 
-    func isLoading(for service: ArrServiceType) -> Bool {
-        states[service]?.isLoading ?? false
+    func isLoading(for instance: UUID) -> Bool {
+        states[instance]?.isLoading ?? false
     }
 
-    func isLoadingMore(for service: ArrServiceType) -> Bool {
-        states[service]?.isLoadingMore ?? false
+    func isLoadingMore(for instance: UUID) -> Bool {
+        states[instance]?.isLoadingMore ?? false
     }
 
-    func hasMore(for service: ArrServiceType) -> Bool {
-        states[service]?.hasMore ?? false
+    func hasMore(for instance: UUID) -> Bool {
+        states[instance]?.hasMore ?? false
     }
 
-    func errorMessage(for service: ArrServiceType) -> String? {
-        states[service]?.errorMessage
+    func errorMessage(for instance: UUID) -> String? {
+        states[instance]?.errorMessage
     }
 
-    func load(service: ArrServiceType, client: any SharedArrClient) async {
-        mutate(service) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
+    func load(instance: ArrInstanceRef, client: any SharedArrClient) async {
+        mutate(instance.id) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
         do {
             let page = try await client.getLog(page: 1, pageSize: pageSize, level: nil)
-            let entries = (page.records ?? []).compactMap { makeEntry(from: $0, service: service) }
-            mutate(service) {
+            let entries = (page.records ?? []).compactMap { makeEntry(from: $0, instance: instance) }
+            mutate(instance.id) {
                 $0.entries = entries
                 $0.total = page.totalRecords ?? 0
                 $0.isLoading = false
             }
         } catch {
-            mutate(service) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
+            mutate(instance.id) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
     }
 
-    func loadMore(service: ArrServiceType, client: any SharedArrClient) async {
-        guard states[service]?.hasMore == true, states[service]?.isLoadingMore == false else { return }
-        mutate(service) { $0.isLoadingMore = true }
+    func loadMore(instance: ArrInstanceRef, client: any SharedArrClient) async {
+        guard states[instance.id]?.hasMore == true, states[instance.id]?.isLoadingMore == false else { return }
+        mutate(instance.id) { $0.isLoadingMore = true }
         do {
-            let count = states[service]?.entries.count ?? 0
+            let count = states[instance.id]?.entries.count ?? 0
             let nextPage = (count / pageSize) + 1
             let page = try await client.getLog(page: nextPage, pageSize: pageSize, level: nil)
-            let newEntries = (page.records ?? []).compactMap { makeEntry(from: $0, service: service) }
-            mutate(service) {
+            let newEntries = (page.records ?? []).compactMap { makeEntry(from: $0, instance: instance) }
+            mutate(instance.id) {
                 $0.entries.append(contentsOf: newEntries)
                 $0.total = page.totalRecords ?? $0.total
                 $0.isLoadingMore = false
             }
         } catch {
-            mutate(service) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
+            mutate(instance.id) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
         }
     }
 
     func loadBazarr(client: BazarrAPIClient) async {
-        mutate(.bazarr) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
+        mutate(Self.bazarrStateKey) { $0.isLoading = true; $0.errorMessage = nil; $0.loadMoreFailed = false }
         do {
             let page = try await client.getLogs(start: 0, length: pageSize)
             let entries = page.data.compactMap { makeEntry(from: $0) }
-            mutate(.bazarr) { $0.entries = entries; $0.total = page.total; $0.isLoading = false }
+            mutate(Self.bazarrStateKey) { $0.entries = entries; $0.total = page.total; $0.isLoading = false }
         } catch {
-            mutate(.bazarr) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
+            mutate(Self.bazarrStateKey) { $0.errorMessage = error.localizedDescription; $0.isLoading = false }
         }
     }
 
     func loadMoreBazarr(client: BazarrAPIClient) async {
-        guard states[.bazarr]?.hasMore == true, states[.bazarr]?.isLoadingMore == false else { return }
-        mutate(.bazarr) { $0.isLoadingMore = true }
+        guard states[Self.bazarrStateKey]?.hasMore == true, states[Self.bazarrStateKey]?.isLoadingMore == false else { return }
+        mutate(Self.bazarrStateKey) { $0.isLoadingMore = true }
         do {
-            let count = states[.bazarr]?.entries.count ?? 0
+            let count = states[Self.bazarrStateKey]?.entries.count ?? 0
             let page = try await client.getLogs(start: count, length: pageSize)
             let newEntries = page.data.compactMap { makeEntry(from: $0) }
-            mutate(.bazarr) {
+            mutate(Self.bazarrStateKey) {
                 $0.entries.append(contentsOf: newEntries)
                 $0.total = page.total
                 $0.isLoadingMore = false
             }
         } catch {
-            mutate(.bazarr) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
+            mutate(Self.bazarrStateKey) { $0.loadMoreFailed = true; $0.isLoadingMore = false }
         }
     }
 
-    private func mutate(_ service: ArrServiceType, _ modify: (inout ServiceState) -> Void) {
-        var state = states[service] ?? ServiceState()
+    /// Bazarr has no Arr pair, so it gets a fixed key of its own rather than a
+    /// server ID.
+    static let bazarrStateKey = UUID(uuid: (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1))
+
+    private func mutate(_ instance: UUID, _ modify: (inout ServiceState) -> Void) {
+        var state = states[instance] ?? ServiceState()
         modify(&state)
-        states[service] = state
+        states[instance] = state
     }
 
-    private func makeEntry(from record: ArrLogRecord, service: ArrServiceType) -> UnifiedLogEntry? {
+    private func makeEntry(from record: ArrLogRecord, instance: ArrInstanceRef) -> UnifiedLogEntry? {
         guard let timestamp = parseArrDate(record.time) else { return nil }
         return UnifiedLogEntry(
-            id: "\(service.rawValue)-\(record.id)",
-            service: service,
+            // Keyed by server: both instances number their log rows from the same
+            // sequence, so the service alone is not unique across a pair.
+            id: "\(instance.id.uuidString)-\(record.id)",
+            service: instance.serviceType,
+            instance: instance,
             level: record.level ?? "info",
             logger: record.logger,
             message: record.message ?? "",
@@ -752,7 +796,7 @@ final class ArrEventsViewModel {
 extension ArrEventsViewModel {
     func setPreviewEntries(_ entriesByService: [ArrServiceType: [UnifiedLogEntry]]) {
         for (service, entries) in entriesByService {
-            mutate(service) {
+            mutate(ArrInstanceRef.preview(service).id) {
                 $0.entries = entries.sorted { $0.timestamp > $1.timestamp }
                 $0.total = entries.count
                 $0.isLoading = false
@@ -763,7 +807,7 @@ extension ArrEventsViewModel {
 
     func setPreviewLoading(_ services: [ArrServiceType]) {
         for service in services {
-            mutate(service) {
+            mutate(ArrInstanceRef.preview(service).id) {
                 $0.isLoading = true
                 $0.errorMessage = nil
             }
@@ -772,7 +816,7 @@ extension ArrEventsViewModel {
 
     func setPreviewError(_ error: String, for services: [ArrServiceType]) {
         for service in services {
-            mutate(service) {
+            mutate(ArrInstanceRef.preview(service).id) {
                 $0.isLoading = false
                 $0.errorMessage = error
             }

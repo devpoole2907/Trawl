@@ -74,6 +74,7 @@ struct ArrSetupSheet: View {
                     await vm.loadExisting(existingProfile)
                 } else if let initialServiceType {
                     vm.serviceType = initialServiceType
+                    vm.qualityTier = selectableTiers(for: initialServiceType).first ?? .hd
                 }
                 viewModel = vm
             }
@@ -111,6 +112,19 @@ struct ArrSetupSheet: View {
         return ArrQualityTier.allCases.filter { !taken.contains($0) }
     }
 
+    /// Tiers that are valid for the profile currently being created or edited.
+    /// A new second server therefore opens directly on the one remaining slot,
+    /// while an edit keeps its current tier available.
+    private func selectableTiers(for type: ArrServiceType) -> [ArrQualityTier] {
+        let free = freeTiers(for: type)
+        guard let existingProfile, existingProfile.resolvedServiceType == type else {
+            return free
+        }
+        return ArrQualityTier.allCases.filter {
+            $0 == existingProfile.qualityTier || free.contains($0)
+        }
+    }
+
     /// Explains what the tier choice means in terms of what the user will see,
     /// rather than restating the setting.
     private func tierFooter(vm: ArrSetupViewModel) -> String {
@@ -141,7 +155,7 @@ struct ArrSetupSheet: View {
             if ArrSetupViewModel.usesQualityTiers(vm.serviceType) {
                 Section {
                     Picker("Library", selection: $vm.qualityTier) {
-                        ForEach(ArrQualityTier.allCases) { tier in
+                        ForEach(selectableTiers(for: vm.serviceType)) { tier in
                             Text(tier.longLabel).tag(tier)
                         }
                     }

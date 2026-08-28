@@ -66,9 +66,15 @@ struct ArrServiceSettingsView: View {
                 if let profile {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
-                            Text(profile.displayName)
-                                .font(.subheadline)
-                                .fontWeight(.medium)
+                            HStack(spacing: 6) {
+                                Text(profile.displayName)
+                                    .font(.subheadline)
+                                    .fontWeight(.medium)
+                                if let instance = serviceManager.instanceRef(serviceType, id: profile.id),
+                                   serviceManager.showsInstanceProvenance(for: serviceType) {
+                                    ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                                }
+                            }
                             Text(profile.hostURL)
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
@@ -113,7 +119,7 @@ struct ArrServiceSettingsView: View {
             }
 
             if profile != nil {
-                if serviceType != .prowlarr, serviceProfiles.count > 1 {
+                if serviceType != .prowlarr, !serviceProfiles.isEmpty {
                     Section {
                         ForEach(serviceProfiles) { serviceProfile in
                             Button {
@@ -123,9 +129,14 @@ struct ArrServiceSettingsView: View {
                             } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 2) {
-                                        Text(serviceProfile.displayName)
-                                            .font(.subheadline.weight(.medium))
-                                            .foregroundStyle(.primary)
+                                        HStack(spacing: 6) {
+                                            Text(serviceProfile.displayName)
+                                                .font(.subheadline.weight(.medium))
+                                                .foregroundStyle(.primary)
+                                            if let instance = serviceManager.instanceRef(serviceType, id: serviceProfile.id) {
+                                                ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                                            }
+                                        }
                                         Text(serviceProfile.hostURL)
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
@@ -165,13 +176,15 @@ struct ArrServiceSettingsView: View {
                             }
                         }
 
-                        Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
-                            editorContext = .create(serviceType)
+                        if serviceProfiles.count < (ArrSetupViewModel.instanceLimit(for: serviceType) ?? .max) {
+                            Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
+                                editorContext = .create(serviceType)
+                            }
                         }
                     } header: {
-                        Text("Instances")
+                        Text("Servers")
                     } footer: {
-                        Text("Choose which \(serviceType.displayName) instance is active throughout Trawl.")
+                        Text("Choose the default server for actions that target only one \(serviceType.displayName) server. The library remains unified.")
                     }
                 }
 

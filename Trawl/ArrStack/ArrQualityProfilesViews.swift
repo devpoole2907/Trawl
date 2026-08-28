@@ -3,27 +3,38 @@ import SwiftUI
 struct ArrQualityProfilesListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-    @State private var selectedService: ArrServiceType = .sonarr
+    /// Quality profiles are per-server, and an HD/4K pair's are the whole point
+    /// of running two servers — one cuts off at 1080p, the other starts at 2160p.
+    @State private var selectedInstanceID: UUID?
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
     @State private var isSaving = false
 
-    private var availableServices: [ArrServiceType] {
-        var services: [ArrServiceType] = []
-        if serviceManager.hasSonarrInstance { services.append(.sonarr) }
-        if serviceManager.hasRadarrInstance { services.append(.radarr) }
-        return services
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref)
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
+    private var selectedService: ArrServiceType {
+        selectedInstance?.serviceType ?? .sonarr
     }
 
     private var profiles: [ArrQualityProfile] {
-        switch selectedService {
-        case .sonarr:
-            serviceManager.sonarrQualityProfiles
-        case .radarr:
-            serviceManager.radarrQualityProfiles
-        case .prowlarr, .bazarr:
-            []
-        }
+        guard let instance = selectedInstance else { return [] }
+        return serviceManager.qualityProfilesByInstance
+            .first { $0.ref.id == instance.id }?.values ?? []
+    }
+
+    /// Every mutation on this screen goes to the selected server.
+    private var scopedClient: (any SharedArrClient)? {
+        selectedInstance.flatMap { serviceManager.sharedClient(for: $0) }
+    }
+
+    private var selectedLabel: String {
+        selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? ""
     }
 
     private var sortedProfiles: [ArrQualityProfile] {
@@ -38,6 +49,7 @@ struct ArrQualityProfilesListView: View {
                         ArrQualityProfileDetailView(
                             serviceType: selectedService,
                             profile: profile,
+                            instance: selectedInstance,
                             onEdit: {
                                 editorSession = .edit(profile)
                             },
@@ -95,15 +107,7 @@ struct ArrQualityProfilesListView: View {
         #endif
         .moreDestinationBackground(.qualityProfiles)
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Service",
-                selection: Binding(
-                    get: { selectedService },
-                    set: { newService in withAnimation { selectedService = newService } }
-                ),
-                items: availableServices.map(\.segmentBarItem),
-                alignment: .center
-            )
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
         }
         .toolbar {
             if let firstProfile = sortedProfiles.first {
@@ -121,6 +125,7 @@ struct ArrQualityProfilesListView: View {
             NavigationStack {
                 ArrQualityProfileEditorView(
                     serviceType: selectedService,
+                    serverLabel: selectedInstance.map { serviceManager.scopeLabel(for: $0) },
                     session: session,
                     isSaving: isSaving,
                     onSave: { draft in
@@ -144,12 +149,10 @@ struct ArrQualityProfilesListView: View {
                 profilePendingDelete = nil
             }
         } message: { profile in
-            Text("Delete '\(profile.name)' from \(selectedService.displayName)?")
+            Text("Delete '\(profile.name)' from \(selectedLabel)?")
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
-            }
+            selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
         }
     }
 
@@ -161,29 +164,17 @@ struct ArrQualityProfilesListView: View {
         let profile = draft.makeProfile()
 
         do {
-            switch selectedService {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return false }
-                if draft.apiID == nil {
-                    _ = try await client.createQualityProfile(profile)
-                } else {
-                    _ = try await client.updateQualityProfile(profile)
-                }
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { return false }
-                if draft.apiID == nil {
-                    _ = try await client.createQualityProfile(profile)
-                } else {
-                    _ = try await client.updateQualityProfile(profile)
-                }
-            case .prowlarr, .bazarr:
-                return false
+            guard let client = scopedClient else { return false }
+            if draft.apiID == nil {
+                _ = try await client.createQualityProfile(profile)
+            } else {
+                _ = try await client.updateQualityProfile(profile)
             }
 
             await serviceManager.refreshConfiguration()
             editorSession = nil
             let verb = draft.apiID == nil ? "created" : "updated"
-            inAppNotificationCenter.showSuccess(title: "Saved", message: "Quality profile \(verb) in \(selectedService.displayName).")
+            inAppNotificationCenter.showSuccess(title: "Saved", message: "Quality profile \(verb) in \(selectedLabel).")
             return true
         } catch {
             inAppNotificationCenter.showError(title: "Save Failed", message: error.localizedDescription)
@@ -200,19 +191,11 @@ struct ArrQualityProfilesListView: View {
         }
 
         do {
-            switch selectedService {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
-                try await client.deleteQualityProfile(id: profile.id)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
-                try await client.deleteQualityProfile(id: profile.id)
-            case .prowlarr, .bazarr:
-                return
-            }
+            guard let client = scopedClient else { return }
+            try await client.deleteQualityProfile(id: profile.id)
 
             await serviceManager.refreshConfiguration()
-            inAppNotificationCenter.showSuccess(title: "Deleted", message: "Removed '\(profile.name)' from \(selectedService.displayName).")
+            inAppNotificationCenter.showSuccess(title: "Deleted", message: "Removed '\(profile.name)' from \(selectedLabel).")
         } catch {
             inAppNotificationCenter.showError(title: "Delete Failed", message: error.localizedDescription)
         }
@@ -222,6 +205,7 @@ struct ArrQualityProfilesListView: View {
 struct ArrQualityProfileDetailView: View {
     let serviceType: ArrServiceType
     let profile: ArrQualityProfile
+    var instance: ArrInstanceRef? = nil
     var onEdit: (() -> Void)? = nil
     var onDuplicate: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
@@ -242,6 +226,12 @@ struct ArrQualityProfileDetailView: View {
     var body: some View {
         List {
             Section {
+                if let instance {
+                    LabeledContent("Server") {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
+                }
+
                 LabeledContent("Service") {
                     HStack(spacing: 4) {
                         Image(systemName: serviceType.systemImage)
@@ -521,6 +511,7 @@ private struct ArrQualityProfileDraft: Sendable {
 
 private struct ArrQualityProfileEditorView: View {
     let serviceType: ArrServiceType
+    let serverLabel: String?
     let session: ArrQualityProfileEditorSession
     let isSaving: Bool
     let onSave: @Sendable (ArrQualityProfileDraft) async -> Bool
@@ -530,11 +521,13 @@ private struct ArrQualityProfileEditorView: View {
 
     init(
         serviceType: ArrServiceType,
+        serverLabel: String? = nil,
         session: ArrQualityProfileEditorSession,
         isSaving: Bool,
         onSave: @escaping @Sendable (ArrQualityProfileDraft) async -> Bool
     ) {
         self.serviceType = serviceType
+        self.serverLabel = serverLabel
         self.session = session
         self.isSaving = isSaving
         self.onSave = onSave
@@ -558,6 +551,12 @@ private struct ArrQualityProfileEditorView: View {
     var body: some View {
         let flattenedQualities = draft.makeProfile().flattenedQualities
         Form {
+            if let serverLabel {
+                Section {
+                    LabeledContent("Server", value: serverLabel)
+                }
+            }
+
             Section {
                 TextField("Name", text: $draft.name)
                 Toggle("Allow Upgrades", isOn: $draft.upgradeAllowed)

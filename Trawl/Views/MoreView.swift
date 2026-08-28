@@ -25,8 +25,8 @@ enum MoreDestination: Hashable {
     case libraryImport
     case manualImport
     case calendar
-    case libraryImportScan(path: String, service: ArrServiceType)
-    case manualImportScan(path: String, service: ArrServiceType)
+    case libraryImportScan(path: String, service: ArrServiceType, instanceID: UUID?)
+    case manualImportScan(path: String, service: ArrServiceType, instanceID: UUID?)
     case mediaManagement
     case arrNaming
     case rootFolders
@@ -730,11 +730,11 @@ struct MoreView: View {
                     unifiedUsersDestination
                         .moreDestinationBackground(.userManagement)
                         .moreDestinationTitleStyle()
-                case .libraryImportScan(let path, let service):
-                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, kind: .library)
+                case .libraryImportScan(let path, let service, let instanceID):
+                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .library)
                         .moreDestinationTitleStyle()
-                case .manualImportScan(let path, let service):
-                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, kind: .manual)
+                case .manualImportScan(let path, let service, let instanceID):
+                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .manual)
                         .moreDestinationTitleStyle()
                 case .mediaManagement:
                     ArrMediaManagementView(

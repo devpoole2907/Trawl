@@ -211,12 +211,12 @@ struct RadarrMovieDetailView: View {
         .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
             TextField("Root folder", text: $rootFolderText)
             Button("Move Existing Files") {
-                if let movie {
+                if let movie = actionCopy {
                     Task { await updateMovieRootFolder(movie, moveFiles: true) }
                 }
             }
             Button("Update Only") {
-                if let movie {
+                if let movie = actionCopy {
                     Task { await updateMovieRootFolder(movie, moveFiles: false) }
                 }
             }
@@ -276,7 +276,7 @@ struct RadarrMovieDetailView: View {
             )
         }
         .sheet(isPresented: $showEditSheet) {
-            if let movie, isInLibrary {
+            if let movie = actionCopy, isInLibrary {
                 RadarrEditMovieSheet(viewModel: viewModel, movie: movie)
             }
         }
@@ -291,12 +291,13 @@ struct RadarrMovieDetailView: View {
             )
         }
         .sheet(isPresented: $showManualImport, onDismiss: { Task { await refreshMovieDetailState() } }) {
-            if let movie, let path = movie.path {
+            if let movie = actionCopy, let path = movie.path {
                 NavigationStack {
                     LibraryImportScanView(
                         path: path,
                         service: .radarr,
                         serviceManager: serviceManager,
+                        instanceID: movie.instanceID,
                         libraryItemID: movie.id,
                         showsCloseButton: true,
                         kind: .manual
@@ -502,12 +503,12 @@ struct RadarrMovieDetailView: View {
     }
 
     private func renameMovieFiles() async {
-        guard let id = resolvedLibraryId,
-              let client = serviceManager.radarrClient else { return }
+        guard let movie = actionCopy,
+              let client = serviceManager.radarrClient(owning: movie) else { return }
         isRenamingFiles = true
         defer { isRenamingFiles = false }
         do {
-            try await client.renameMovieFiles(movieId: id)
+            _ = try await client.renameMovieFiles(movieId: movie.id)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Rename Queued",
                 message: "Radarr is renaming the movie file in the background."
@@ -1260,7 +1261,7 @@ struct RadarrMovieDetailView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .primaryAction) {
             if isInLibrary {
-                if let movie {
+                if let movie = actionCopy {
                     Menu {
                         Button {
                             showEditSheet = true

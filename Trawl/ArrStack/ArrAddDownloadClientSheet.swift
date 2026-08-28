@@ -8,6 +8,7 @@ struct ArrDownloadClientEditorSheet: View {
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
     let serviceType: ArrServiceType
+    let instanceID: UUID?
     let existingClient: ArrDownloadClient?
     let onComplete: (ArrDownloadClient) -> Void
 
@@ -29,11 +30,13 @@ struct ArrDownloadClientEditorSheet: View {
 
     init(
         serviceType: ArrServiceType,
+        instanceID: UUID? = nil,
         existingClient: ArrDownloadClient? = nil,
         initialImplementation: String? = nil,
         onComplete: @escaping (ArrDownloadClient) -> Void
     ) {
         self.serviceType = serviceType
+        self.instanceID = instanceID
         self.existingClient = existingClient
         self.onComplete = onComplete
         // The add menu already asked which client the user wants, so open on it.
@@ -50,6 +53,7 @@ struct ArrDownloadClientEditorSheet: View {
         errorMessage: String? = nil
     ) {
         self.serviceType = serviceType
+        self.instanceID = nil
         self.existingClient = previewClient
         self.onComplete = { _ in }
 
@@ -67,6 +71,25 @@ struct ArrDownloadClientEditorSheet: View {
     #endif
 
     private var isEditing: Bool { existingClient != nil }
+
+    private var instance: ArrInstanceRef? {
+        serviceManager.instanceRef(serviceType, id: instanceID)
+    }
+
+    /// The editor is presented from one server's scoped client list. Keep that
+    /// server fixed for schema loading, testing and saving even if the app's
+    /// active profile changes while the sheet is open.
+    private var scopedClient: (any SharedArrClient)? {
+        guard let instanceID,
+              let instance = serviceManager.instanceRef(serviceType, id: instanceID) else {
+            switch serviceType {
+            case .sonarr: return serviceManager.sonarrClient
+            case .radarr: return serviceManager.radarrClient
+            case .prowlarr, .bazarr: return nil
+            }
+        }
+        return serviceManager.sharedClient(for: instance)
+    }
 
     /// The client whose field metadata drives the form: the client being edited, or the
     /// schema for the implementation the user picked.
@@ -174,6 +197,15 @@ struct ArrDownloadClientEditorSheet: View {
             detents: [.medium, .large]
         ) {
             Form {
+                if let instance,
+                   serviceManager.showsInstanceProvenance(for: serviceType) {
+                    Section {
+                        LabeledContent("Server") {
+                            ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                        }
+                    }
+                }
+
                 if !isEditing {
                     implementationSection
                 }
@@ -449,11 +481,8 @@ struct ArrDownloadClientEditorSheet: View {
 
         do {
             switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                schemas = try await client.getDownloadClientSchema()
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
+            case .sonarr, .radarr:
+                guard let client = scopedClient else { throw ArrError.noServiceConfigured }
                 schemas = try await client.getDownloadClientSchema()
             case .prowlarr, .bazarr:
                 schemas = []
@@ -661,13 +690,8 @@ struct ArrDownloadClientEditorSheet: View {
         do {
             let saved: ArrDownloadClient
             switch serviceType {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { throw ArrError.noServiceConfigured }
-                saved = isEditing
-                    ? try await client.updateDownloadClient(payload)
-                    : try await client.createDownloadClient(payload)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { throw ArrError.noServiceConfigured }
+            case .sonarr, .radarr:
+                guard let client = scopedClient else { throw ArrError.noServiceConfigured }
                 saved = isEditing
                     ? try await client.updateDownloadClient(payload)
                     : try await client.createDownloadClient(payload)

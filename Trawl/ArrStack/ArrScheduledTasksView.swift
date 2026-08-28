@@ -65,7 +65,12 @@ struct ArrScheduledTasksView: View {
     /// Every server that runs tasks: both halves of each Arr pair, plus Prowlarr
     /// and Bazarr.
     private var availableInstances: [ArrInstanceRef] {
-        availableServices.flatMap { serviceManager.refs(for: $0) }
+        availableServices.flatMap { service in
+            if service == .bazarr {
+                return serviceManager.instanceRef(.bazarr, id: serviceManager.activeBazarrProfileID).map { [$0] } ?? []
+            }
+            return serviceManager.refs(for: service)
+        }
     }
 
     private var selectedInstance: ArrInstanceRef? {

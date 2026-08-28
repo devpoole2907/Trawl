@@ -615,9 +615,15 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             return
         }
 
-        let titlesByID = Dictionary(uniqueKeysWithValues: series
-            .filter { ids.contains($0.id) }
-            .map { ($0.id, $0.title) })
+        // Only used to name a failure, so the first copy's title is fine — but it
+        // must not trap: with a pair configured this list is the union of both
+        // servers, and they number their libraries from the same sequence.
+        let titlesByID = Dictionary(
+            series
+                .filter { ids.contains($0.id) }
+                .map { ($0.id, $0.title) },
+            uniquingKeysWith: { first, _ in first }
+        )
         var deletedIDs = Set<Int>()
         var failures: [String] = []
 

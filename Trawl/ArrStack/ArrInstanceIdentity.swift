@@ -165,3 +165,22 @@ nonisolated extension ArrInstanceRef {
     }
 }
 #endif
+
+// MARK: - Keying by (server, library ID)
+
+/// A library ID together with the server that issued it.
+///
+/// The *arr APIs number their libraries from the same sequence, so an `Int` on its
+/// own is not a key: two servers each hand out series 1, for different shows.
+/// Keying a lookup on the bare ID resolves an episode against whichever server's
+/// copy happened to win — and with a trapping `Dictionary` init it does not resolve
+/// anything at all, it crashes the app on the duplicate key.
+nonisolated struct ArrScopedID: Hashable, Sendable {
+    let instanceID: UUID?
+    let id: Int
+
+    init(_ instanceID: UUID?, _ id: Int) {
+        self.instanceID = instanceID
+        self.id = id
+    }
+}

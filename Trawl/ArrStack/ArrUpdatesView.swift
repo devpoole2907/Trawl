@@ -151,11 +151,9 @@ struct ArrUpdatesView: View {
         }
     }
 
-    @ViewBuilder
     private func changelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, instance: ArrInstanceRef) -> some View {
         let service = instance.serviceType
-        return
-        List {
+        return List {
             if data.allVersions.isEmpty {
                 ContentUnavailableView(
                     "No Update History",

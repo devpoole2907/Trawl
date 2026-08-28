@@ -24,8 +24,8 @@ struct ArrRemotePathMappingListView: View {
 
     private var availableServices: [ArrServiceType] {
         [
-            serviceManager.sonarrClient == nil ? nil : ArrServiceType.sonarr,
-            serviceManager.radarrClient == nil ? nil : ArrServiceType.radarr,
+            serviceManager.connectedSonarr.isEmpty ? nil : ArrServiceType.sonarr,
+            serviceManager.connectedRadarr.isEmpty ? nil : ArrServiceType.radarr,
             serviceManager.activeBazarrEntry?.client == nil ? nil : ArrServiceType.bazarr
         ].compactMap(\.self)
     }
@@ -109,12 +109,14 @@ struct ArrRemotePathMappingListView: View {
             }
         }
         .sheet(isPresented: !availableServices.isEmpty ? $showAddSheet : .constant(false)) {
-            ArrRemotePathMappingEditorSheet(availableServices: availableServices) { serviceType, saved in
-                mappings.append(RemotePathMappingEntry(serviceType: serviceType, mapping: saved))
+            ArrRemotePathMappingEditorSheet(availableServices: availableServices) { serviceType, saved, instance in
+                // The instance has to come back with the mapping: without it the new
+                // row has no server to route to, and deleting it fails.
+                mappings.append(RemotePathMappingEntry(serviceType: serviceType, mapping: saved, instance: instance))
                 sortMappings()
                 inAppNotificationCenter.showSuccess(
                     title: "Added",
-                    message: "Remote path mapping added to \(serviceType.displayName)."
+                    message: "Remote path mapping added to \(instance.map { serviceManager.scopeLabel(for: $0) } ?? serviceType.displayName)."
                 )
             }
             .environment(serviceManager)
@@ -125,18 +127,18 @@ struct ArrRemotePathMappingListView: View {
                 initialServiceType: entry.serviceType,
                 initialInstanceID: entry.instance?.id,
                 existingMapping: entry.mapping
-            ) { serviceType, saved in
+            ) { serviceType, saved, instance in
                 if let idx = mappings.firstIndex(where: { $0.id == entry.id }) {
                     mappings[idx] = RemotePathMappingEntry(
                         serviceType: serviceType,
                         mapping: saved,
-                        instance: entry.instance
+                        instance: instance ?? entry.instance
                     )
                     sortMappings()
                 }
                 inAppNotificationCenter.showSuccess(
                     title: "Updated",
-                    message: "Remote path mapping updated in \(serviceType.displayName)."
+                    message: "Remote path mapping updated in \(instance.map { serviceManager.scopeLabel(for: $0) } ?? serviceType.displayName)."
                 )
             }
             .environment(serviceManager)
@@ -308,7 +310,9 @@ struct ArrRemotePathMappingEditorSheet: View {
     let availableServices: [ArrServiceType]
     let initialServiceType: ArrServiceType?
     let existingMapping: ArrRemotePathMapping?
-    let onComplete: (ArrServiceType, ArrRemotePathMapping) -> Void
+    /// The saved mapping is handed back with the server it was written to, so the
+    /// list can keep routing that row. Nil for Bazarr, which is a single instance.
+    let onComplete: (ArrServiceType, ArrRemotePathMapping, ArrInstanceRef?) -> Void
     /// The server to edit when the sheet is opened on an existing row.
     var initialInstanceID: UUID? = nil
 
@@ -348,7 +352,7 @@ struct ArrRemotePathMappingEditorSheet: View {
         initialServiceType: ArrServiceType? = nil,
         initialInstanceID: UUID? = nil,
         existingMapping: ArrRemotePathMapping? = nil,
-        onComplete: @escaping (ArrServiceType, ArrRemotePathMapping) -> Void
+        onComplete: @escaping (ArrServiceType, ArrRemotePathMapping, ArrInstanceRef?) -> Void
     ) {
         self.availableServices = availableServices
         self.initialServiceType = initialServiceType
@@ -367,7 +371,7 @@ struct ArrRemotePathMappingEditorSheet: View {
         self.availableServices = previewAvailableServices
         self.initialServiceType = previewService
         self.existingMapping = previewMapping
-        self.onComplete = { _, _ in }
+        self.onComplete = { _, _, _ in }
         _selectedService = State(initialValue: previewService)
         _host = State(initialValue: previewMapping?.host ?? "*")
         _remotePath = State(initialValue: previewMapping?.remotePath ?? "/downloads/complete")
@@ -614,7 +618,7 @@ struct ArrRemotePathMappingEditorSheet: View {
                     ? try await client.updateRemotePathMapping(payload)
                     : try await client.createRemotePathMapping(payload)
             }
-            onComplete(selectedService, saved)
+            onComplete(selectedService, saved, selectedService == .bazarr ? nil : selectedInstance)
             dismiss()
         } catch {
             errorMessage = error.localizedDescription
