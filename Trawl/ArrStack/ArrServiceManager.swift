@@ -84,16 +84,25 @@ final class ArrServiceManager {
     var lastLibraryImportTimestamp: Date = .distantPast
     private(set) var isInitializing: Bool = false
     private(set) var connectionErrors: [String: String] = [:]
-    private var storedProfiles: [ArrServiceProfile] = []
+    private(set) var storedProfiles: [ArrServiceProfile] = []
+
+    /// Which instances the blended library is currently showing. Restored from
+    /// preferences at init so a narrowed filter survives a launch; no UI exposes
+    /// it yet, so in practice it starts and stays unfiltered.
+    var instanceFilter: ArrInstanceFilterState = .load(from: .standard)
 
     // MARK: - Cached health & blocklist (populated eagerly so nav subtitles are ready)
-    private(set) var sonarrHealthChecks: [ArrHealthCheck] = []
-    private(set) var radarrHealthChecks: [ArrHealthCheck] = []
-    private(set) var prowlarrHealthChecks: [ArrHealthCheck] = []
-    private(set) var sonarrBlocklist: [ArrBlocklistItem] = []
-    private(set) var radarrBlocklist: [ArrBlocklistItem] = []
-    private(set) var sonarrImportListExclusions: [ArrImportListExclusion] = []
-    private(set) var radarrImportListExclusions: [ArrImportListExclusion] = []
+    // Every cached collection below is fanned out across both instances of its
+    // service and tagged with the server it came from. The tag is what lets a
+    // unified list say which server raised a health check or blocked a release,
+    // and what lets a delete reach the server that actually holds the row.
+    private(set) var sonarrHealthChecks: [ArrInstanced<ArrHealthCheck>] = []
+    private(set) var radarrHealthChecks: [ArrInstanced<ArrHealthCheck>] = []
+    private(set) var prowlarrHealthChecks: [ArrInstanced<ArrHealthCheck>] = []
+    private(set) var sonarrBlocklist: [ArrInstanced<ArrBlocklistItem>] = []
+    private(set) var radarrBlocklist: [ArrInstanced<ArrBlocklistItem>] = []
+    private(set) var sonarrImportListExclusions: [ArrInstanced<ArrImportListExclusion>] = []
+    private(set) var radarrImportListExclusions: [ArrInstanced<ArrImportListExclusion>] = []
     private(set) var isLoadingHealth = false
     private(set) var isLoadingBlocklist = false
     private(set) var isLoadingImportListExclusions = false
@@ -103,10 +112,10 @@ final class ArrServiceManager {
     // MARK: - Cached download queue & history
     // Owned here rather than by DownloadsViewModel so the tab-bar accessory can see
     // Arr download failures without standing up a second poller against Sonarr/Radarr.
-    private(set) var sonarrQueue: [ArrQueueItem] = []
-    private(set) var radarrQueue: [ArrQueueItem] = []
-    private(set) var sonarrHistory: [ArrHistoryRecord] = []
-    private(set) var radarrHistory: [ArrHistoryRecord] = []
+    private(set) var sonarrQueue: [ArrInstanced<ArrQueueItem>] = []
+    private(set) var radarrQueue: [ArrInstanced<ArrQueueItem>] = []
+    private(set) var sonarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
+    private(set) var radarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
     private(set) var isLoadingQueue = false
     /// True once a queue refresh has completed, successfully or not. Views use this to
     /// show a spinner on first load only — `isLoadingQueue` alone flips on every poll,
@@ -609,6 +618,7 @@ final class ArrServiceManager {
         // are kept so the UI has something to render until the refetch lands.
         seriesLibrary.prune(keeping: Set(sonarrInstances.map(\.id)))
         movieLibrary.prune(keeping: Set(radarrInstances.map(\.id)))
+        pruneInstanceFilter()
         invalidateLibraryCaches()
 
         for profile in profiles where profile.isEnabled {
@@ -1018,24 +1028,23 @@ final class ArrServiceManager {
 
     // MARK: - Shared library access
 
-    /// The active instance's Sonarr library, from cache when it was fetched within
-    /// `maxAge` and from the server otherwise. `maxAge: 0` (the default) always
-    /// refetches; pass `ArrLibraryCache.appearMaxAge` for appear-time refreshes.
+    /// Every visible Sonarr server's library as one flat union, from cache when it
+    /// was fetched within `maxAge` and from the server otherwise. `maxAge: 0` (the
+    /// default) always refetches; pass `ArrLibraryCache.appearMaxAge` for
+    /// appear-time refreshes.
+    ///
+    /// Each item is stamped with the server that returned it, so callers can route
+    /// a command back to its owner. Callers that want one row per title rather
+    /// than one per server copy read `mergedSeriesLibrary`.
     @discardableResult
     func loadSeriesLibrary(maxAge: TimeInterval = 0) async throws -> [SonarrSeries] {
-        guard let client = sonarrClient else { return [] }
-        return try await seriesLibrary.load(instanceID: activeSonarrInstanceID, maxAge: maxAge) {
-            try await client.getSeries()
-        }
+        try await loadSeriesUnion(maxAge: maxAge)
     }
 
-    /// The active instance's Radarr library. See `loadSeriesLibrary(maxAge:)`.
+    /// Every visible Radarr server's library. See `loadSeriesLibrary(maxAge:)`.
     @discardableResult
     func loadMovieLibrary(maxAge: TimeInterval = 0) async throws -> [RadarrMovie] {
-        guard let client = radarrClient else { return [] }
-        return try await movieLibrary.load(instanceID: activeRadarrInstanceID, maxAge: maxAge) {
-            try await client.getMovies()
-        }
+        try await loadMovieUnion(maxAge: maxAge)
     }
 
     /// Warms both libraries in the background so the Series and Movies tabs have
@@ -1043,7 +1052,7 @@ final class ArrServiceManager {
     /// fetch on appear. Errors are swallowed: this is opportunistic, and every
     /// consumer still loads (and surfaces failures) on its own.
     func prefetchLibraries() {
-        guard sonarrClient != nil || radarrClient != nil else { return }
+        guard !connectedSonarr.isEmpty || !connectedRadarr.isEmpty else { return }
         Task { [weak self] in
             guard let self else { return }
             async let series: Void = { _ = try? await self.loadSeriesLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge) }()
@@ -1061,18 +1070,22 @@ final class ArrServiceManager {
 
     // MARK: - Download queue cache
 
-    /// Every cached queue row tagged with the service it came from, Sonarr first.
-    var queueItemsBySource: [(item: ArrQueueItem, source: ArrServiceType)] {
-        sonarrQueue.map { (item: $0, source: ArrServiceType.sonarr) }
-            + radarrQueue.map { (item: $0, source: ArrServiceType.radarr) }
+    /// Every cached queue row tagged with the server it came from, Sonarr first.
+    /// The tag carries both the service and the specific instance, so a download
+    /// row can name the server that is fetching it and a removal can be sent back
+    /// to that same server.
+    var queueItemsBySource: [ArrInstanced<ArrQueueItem>] {
+        sonarrQueue + radarrQueue
     }
 
-    /// Refreshes the cached queue and history. Mirrors `loadBlocklist()`: the active
-    /// instance of each service, both in parallel, errors folded into one string.
-    /// No-ops while a refresh is already in flight so overlapping polls can't stack.
+    /// Refreshes the cached queue and history across every visible instance of
+    /// both services in parallel, errors folded into one string. No-ops while a
+    /// refresh is already in flight so overlapping polls can't stack.
     func refreshQueues() async {
         guard !isLoadingQueue else { return }
-        guard sonarrClient != nil || radarrClient != nil else {
+        let sonarr = visibleSonarr
+        let radarr = visibleRadarr
+        guard !sonarr.isEmpty || !radarr.isEmpty else {
             sonarrQueue = []
             radarrQueue = []
             sonarrHistory = []
@@ -1086,15 +1099,36 @@ final class ArrServiceManager {
             isLoadingQueue = false
             hasLoadedQueueOnce = true
         }
-        async let s = fetchQueueSnapshot(sonarrClient, serviceName: "Sonarr")
-        async let r = fetchQueueSnapshot(radarrClient, serviceName: "Radarr")
+
+        async let s = fanOutQueueSnapshots(sonarr)
+        async let r = fanOutQueueSnapshots(radarr)
         let (sv, rv) = await (s, r)
         sonarrQueue = sv.queue
         sonarrHistory = sv.history
         radarrQueue = rv.queue
         radarrHistory = rv.history
-        let errors = [sv.error, rv.error].compactMap { $0 }
+        let errors = sv.errors + rv.errors
         queueError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+
+    /// Fetches queue and history from every instance of one service concurrently.
+    /// One server being down degrades its own rows only — the other instance's
+    /// queue still renders, which matters when a 4K server is offline and the HD
+    /// one is happily downloading.
+    private func fanOutQueueSnapshots<C: SharedArrClient>(
+        _ instances: [(ref: ArrInstanceRef, client: C)]
+    ) async -> (queue: [ArrInstanced<ArrQueueItem>], history: [ArrInstanced<ArrHistoryRecord>], errors: [String]) {
+        var queue: [ArrInstanced<ArrQueueItem>] = []
+        var history: [ArrInstanced<ArrHistoryRecord>] = []
+        var errors: [String] = []
+
+        for (ref, client) in instances {
+            let snapshot = await fetchQueueSnapshot(client, serviceName: ref.displayName)
+            queue += snapshot.queue.instanced(on: ref)
+            history += snapshot.history.instanced(on: ref)
+            if let error = snapshot.error { errors.append(error) }
+        }
+        return (queue, history, errors)
     }
 
     /// Starts the one shared queue poller. Idempotent — the `nil` check is what
@@ -1171,8 +1205,14 @@ final class ArrServiceManager {
 
     // MARK: - Health & Blocklist
 
+    /// Health across every visible instance. A check keeps the identity of the
+    /// server that raised it: "download client unavailable" on the 4K server and
+    /// the same message on the HD server are two different problems with two
+    /// different fixes, and collapsing them would hide one of them.
     func loadHealth() async {
-        guard sonarrConnected || radarrConnected || prowlarrConnected else {
+        let sonarr = visibleSonarr
+        let radarr = visibleRadarr
+        guard !sonarr.isEmpty || !radarr.isEmpty || prowlarrConnected else {
             sonarrHealthChecks = []
             radarrHealthChecks = []
             prowlarrHealthChecks = []
@@ -1180,17 +1220,20 @@ final class ArrServiceManager {
         }
         isLoadingHealth = true
         defer { isLoadingHealth = false }
-        async let s = fetchHealth(sonarrClient)
-        async let r = fetchHealth(radarrClient)
+
+        async let s = fanOutHealth(sonarr)
+        async let r = fanOutHealth(radarr)
         async let p = fetchHealth(prowlarrClient)
         let (sv, rv, pv) = await (s, r, p)
         sonarrHealthChecks = sv
         radarrHealthChecks = rv
-        prowlarrHealthChecks = pv
+        prowlarrHealthChecks = prowlarrRef.map { pv.instanced(on: $0) } ?? []
     }
 
     func loadBlocklist() async {
-        guard sonarrConnected || radarrConnected else {
+        let sonarr = visibleSonarr
+        let radarr = visibleRadarr
+        guard !sonarr.isEmpty || !radarr.isEmpty else {
             sonarrBlocklist = []
             radarrBlocklist = []
             blocklistError = nil
@@ -1198,17 +1241,20 @@ final class ArrServiceManager {
         }
         isLoadingBlocklist = true
         defer { isLoadingBlocklist = false }
-        async let s = fetchBlocklist(sonarrClient, serviceName: "Sonarr")
-        async let r = fetchBlocklist(radarrClient, serviceName: "Radarr")
+
+        async let s = fanOutBlocklist(sonarr)
+        async let r = fanOutBlocklist(radarr)
         let (sv, rv) = await (s, r)
         sonarrBlocklist = sv.items
         radarrBlocklist = rv.items
-        let errors = [sv.error, rv.error].compactMap { $0 }
+        let errors = sv.errors + rv.errors
         blocklistError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
     func loadImportListExclusions() async {
-        guard sonarrConnected || radarrConnected else {
+        let sonarr = visibleSonarr
+        let radarr = visibleRadarr
+        guard !sonarr.isEmpty || !radarr.isEmpty else {
             sonarrImportListExclusions = []
             radarrImportListExclusions = []
             importListExclusionsError = nil
@@ -1216,135 +1262,148 @@ final class ArrServiceManager {
         }
         isLoadingImportListExclusions = true
         defer { isLoadingImportListExclusions = false }
-        async let s = fetchImportListExclusions(sonarrClient, serviceName: "Sonarr")
-        async let r = fetchImportListExclusions(radarrClient, serviceName: "Radarr")
+
+        async let s = fanOutImportListExclusions(sonarr)
+        async let r = fanOutImportListExclusions(radarr)
         let (sv, rv) = await (s, r)
         sonarrImportListExclusions = sv.items
         radarrImportListExclusions = rv.items
-        let errors = [sv.error, rv.error].compactMap { $0 }
+        let errors = sv.errors + rv.errors
         importListExclusionsError = errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
 
-    func removeBlocklistItem(id: Int, source: ArrServiceType) async {
-        // Only remove from the local list once the server delete succeeds, otherwise
-        // the row vanishes from the UI while the item still exists on the server.
-        switch source {
-        case .sonarr:
-            guard let sonarrClient else { return }
-            do {
-                try await sonarrClient.deleteBlocklistItem(id: id)
-                sonarrBlocklist.removeAll { $0.id == id }
-            } catch {
-                // Deletion failed, do not remove from local array
-            }
-        case .radarr:
-            guard let radarrClient else { return }
-            do {
-                try await radarrClient.deleteBlocklistItem(id: id)
-                radarrBlocklist.removeAll { $0.id == id }
-            } catch {
-                // Deletion failed, do not remove from local array
-            }
-        case .prowlarr, .bazarr:
-            break
+    private var prowlarrRef: ArrInstanceRef? { refs(for: .prowlarr).first }
+
+    private func fanOutHealth<C: SharedArrClient>(
+        _ instances: [(ref: ArrInstanceRef, client: C)]
+    ) async -> [ArrInstanced<ArrHealthCheck>] {
+        var all: [ArrInstanced<ArrHealthCheck>] = []
+        for (ref, client) in instances {
+            all += await fetchHealth(client).instanced(on: ref)
+        }
+        return all
+    }
+
+    private func fanOutBlocklist<C: SharedArrClient>(
+        _ instances: [(ref: ArrInstanceRef, client: C)]
+    ) async -> (items: [ArrInstanced<ArrBlocklistItem>], errors: [String]) {
+        var items: [ArrInstanced<ArrBlocklistItem>] = []
+        var errors: [String] = []
+        for (ref, client) in instances {
+            let result = await fetchBlocklist(client, serviceName: ref.displayName)
+            items += result.items.instanced(on: ref)
+            if let error = result.error { errors.append(error) }
+        }
+        return (items, errors)
+    }
+
+    private func fanOutImportListExclusions<C: SharedArrClient>(
+        _ instances: [(ref: ArrInstanceRef, client: C)]
+    ) async -> (items: [ArrInstanced<ArrImportListExclusion>], errors: [String]) {
+        var items: [ArrInstanced<ArrImportListExclusion>] = []
+        var errors: [String] = []
+        for (ref, client) in instances {
+            let result = await fetchImportListExclusions(client, serviceName: ref.displayName)
+            items += result.items.instanced(on: ref)
+            if let error = result.error { errors.append(error) }
+        }
+        return (items, errors)
+    }
+
+    /// The client for one specific server, whatever its service.
+    ///
+    /// Every row in a unified list knows the instance it came from, so every
+    /// command issued from one can be sent back to that instance rather than to
+    /// whichever server happened to be active. Sending a delete to the wrong half
+    /// of an HD/4K pair either fails or, worse, succeeds against a different row
+    /// that happens to share the ID.
+    func sharedClient(for ref: ArrInstanceRef) -> (any SharedArrClient)? {
+        switch ref.serviceType {
+        case .sonarr: sonarrClient(for: ref.id)
+        case .radarr: radarrClient(for: ref.id)
+        case .prowlarr: prowlarrClient
+        case .bazarr: nil
         }
     }
 
-    func clearBlocklist(sonarrIDs: [Int], radarrIDs: [Int]) async {
-        // Capture the actor-isolated clients into locals before crossing isolation.
-        let sonarr = sonarrClient
-        let radarr = radarrClient
-
-        // Track per-service success so failed deletes keep their rows.
-        async let sonarrOK: Bool = {
-            guard !sonarrIDs.isEmpty, let sonarr else { return false }
-            do { try await sonarr.deleteBlocklistItems(ids: sonarrIDs); return true }
-            catch { return false }
-        }()
-        async let radarrOK: Bool = {
-            guard !radarrIDs.isEmpty, let radarr else { return false }
-            do { try await radarr.deleteBlocklistItems(ids: radarrIDs); return true }
-            catch { return false }
-        }()
-
-        if await sonarrOK {
-            sonarrBlocklist.removeAll { sonarrIDs.contains($0.id) }
-        }
-        if await radarrOK {
-            radarrBlocklist.removeAll { radarrIDs.contains($0.id) }
+    /// Removes one blocklist row from the server that holds it. The local row is
+    /// dropped only once the server confirms, otherwise it disappears from the UI
+    /// while still existing upstream.
+    func removeBlocklistItem(_ item: ArrInstanced<ArrBlocklistItem>) async {
+        guard let client = sharedClient(for: item.instance) else { return }
+        do {
+            try await client.deleteBlocklistItem(id: item.value.id)
+            removeBlocklistRows(matching: [item.id], serviceType: item.instance.serviceType)
+        } catch {
+            // Deletion failed, keep the row.
         }
     }
 
-    func removeImportListExclusion(id: Int, source: ArrServiceType) async {
-        switch source {
-        case .sonarr:
-            guard let sonarrClient else { return }
+    /// Clears a selection that may span both instances of both services, one
+    /// server at a time, keeping the rows of any server whose delete failed.
+    func clearBlocklist(_ items: [ArrInstanced<ArrBlocklistItem>]) async {
+        for (instance, group) in Dictionary(grouping: items, by: \.instance) {
+            guard let client = sharedClient(for: instance) else { continue }
             do {
-                try await sonarrClient.deleteImportListExclusion(id: id)
-                sonarrImportListExclusions.removeAll { $0.id == id }
+                try await client.deleteBlocklistItems(ids: group.map(\.value.id))
+                removeBlocklistRows(matching: Set(group.map(\.id)), serviceType: instance.serviceType)
             } catch {
-                // Deletion failed, do not remove from local array
+                // Keep this server's rows; another server's may still have gone.
             }
-        case .radarr:
-            guard let radarrClient else { return }
-            do {
-                try await radarrClient.deleteImportListExclusion(id: id)
-                radarrImportListExclusions.removeAll { $0.id == id }
-            } catch {
-                // Deletion failed, do not remove from local array
-            }
-        case .prowlarr, .bazarr:
-            break
         }
     }
 
-    func clearImportListExclusions(sonarrIDs: [Int], radarrIDs: [Int]) async {
-        let successfulSonarrIDs = await withTaskGroup(of: Int?.self) { group in
-            if let client = sonarrClient {
-                for id in sonarrIDs {
-                    group.addTask {
+    private func removeBlocklistRows(matching ids: Set<String>, serviceType: ArrServiceType) {
+        switch serviceType {
+        case .sonarr: sonarrBlocklist.removeAll { ids.contains($0.id) }
+        case .radarr: radarrBlocklist.removeAll { ids.contains($0.id) }
+        case .prowlarr, .bazarr: break
+        }
+    }
+
+    func removeImportListExclusion(_ item: ArrInstanced<ArrImportListExclusion>) async {
+        guard let client = sharedClient(for: item.instance) else { return }
+        do {
+            try await client.deleteImportListExclusion(id: item.value.id)
+            removeExclusionRows(matching: [item.id], serviceType: item.instance.serviceType)
+        } catch {
+            // Deletion failed, keep the row.
+        }
+    }
+
+    /// Clears a selection spanning any combination of servers. Exclusions have no
+    /// bulk endpoint, so each row is deleted individually and only the ones that
+    /// actually succeeded are removed locally.
+    func clearImportListExclusions(_ items: [ArrInstanced<ArrImportListExclusion>]) async {
+        for (instance, group) in Dictionary(grouping: items, by: \.instance) {
+            guard let client = sharedClient(for: instance) else { continue }
+            let deleted = await withTaskGroup(of: String?.self) { taskGroup in
+                for row in group {
+                    taskGroup.addTask {
                         do {
-                            try await client.deleteImportListExclusion(id: id)
-                            return id
+                            try await client.deleteImportListExclusion(id: row.value.id)
+                            return row.id
                         } catch {
                             return nil
                         }
                     }
                 }
-            }
-            var successful: [Int] = []
-            for await result in group {
-                if let id = result {
-                    successful.append(id)
+                var successful: Set<String> = []
+                for await result in taskGroup {
+                    if let id = result { successful.insert(id) }
                 }
+                return successful
             }
-            return successful
+            removeExclusionRows(matching: deleted, serviceType: instance.serviceType)
         }
+    }
 
-        let successfulRadarrIDs = await withTaskGroup(of: Int?.self) { group in
-            if let client = radarrClient {
-                for id in radarrIDs {
-                    group.addTask {
-                        do {
-                            try await client.deleteImportListExclusion(id: id)
-                            return id
-                        } catch {
-                            return nil
-                        }
-                    }
-                }
-            }
-            var successful: [Int] = []
-            for await result in group {
-                if let id = result {
-                    successful.append(id)
-                }
-            }
-            return successful
+    private func removeExclusionRows(matching ids: Set<String>, serviceType: ArrServiceType) {
+        switch serviceType {
+        case .sonarr: sonarrImportListExclusions.removeAll { ids.contains($0.id) }
+        case .radarr: radarrImportListExclusions.removeAll { ids.contains($0.id) }
+        case .prowlarr, .bazarr: break
         }
-
-        sonarrImportListExclusions.removeAll { successfulSonarrIDs.contains($0.id) }
-        radarrImportListExclusions.removeAll { successfulRadarrIDs.contains($0.id) }
     }
 
     private func fetchHealth<C: SharedArrClient>(_ client: C?) async -> [ArrHealthCheck] {

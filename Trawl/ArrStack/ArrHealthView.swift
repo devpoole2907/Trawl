@@ -84,11 +84,30 @@ struct ArrHealthView: View {
         }
 
         return (
-            serviceManager.sonarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .sonarr, index: $0.offset) } +
-            serviceManager.radarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .radarr, index: $0.offset) } +
-            serviceManager.prowlarrHealthChecks.enumerated().map { HealthItem(check: $0.element, source: .prowlarr, index: $0.offset) }
+            healthItems(serviceManager.sonarrHealthChecks, source: .sonarr) +
+            healthItems(serviceManager.radarrHealthChecks, source: .radarr) +
+            healthItems(serviceManager.prowlarrHealthChecks, source: .prowlarr)
         )
         .sorted { $0.severityRank > $1.severityRank }
+    }
+
+    /// The same warning raised by both halves of an HD/4K pair is two problems,
+    /// not one, so each check keeps the server that raised it. The instance is
+    /// attached only when a second server of that type exists — otherwise the
+    /// badge would label every row with the only server there is.
+    private func healthItems(
+        _ checks: [ArrInstanced<ArrHealthCheck>],
+        source: ArrServiceType
+    ) -> [HealthItem] {
+        let showsProvenance = serviceManager.showsInstanceProvenance(for: source)
+        return checks.enumerated().map { offset, check in
+            HealthItem(
+                check: check.value,
+                source: source,
+                index: offset,
+                instance: showsProvenance ? check.instance : nil
+            )
+        }
     }
 
     private var filteredChecks: [HealthItem] {
@@ -118,7 +137,9 @@ struct ArrHealthView: View {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif
-            guard serviceManager.sonarrConnected || serviceManager.radarrConnected || serviceManager.prowlarrConnected else {
+            guard !serviceManager.connectedSonarr.isEmpty
+                || !serviceManager.connectedRadarr.isEmpty
+                || serviceManager.prowlarrConnected else {
                 return
             }
             await serviceManager.loadHealth()
@@ -258,9 +279,12 @@ struct ArrHealthView: View {
     }
 
     private var healthReloadKey: String {
-        // Active Sonarr/Radarr instance IDs ensure health checks reload for the now-active
-        // instance when switching between connected instances.
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.prowlarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+        // Keyed by every connected instance rather than the one "active" server:
+        // a second instance connecting brings its own checks, and the list has to
+        // reload to pick them up.
+        let instances = serviceManager.connectedSonarr.map(\.ref.id.uuidString)
+            + serviceManager.connectedRadarr.map(\.ref.id.uuidString)
+        return "\(serviceManager.prowlarrConnected)-\(instances.joined(separator: ","))"
     }
 
 }
@@ -269,8 +293,11 @@ private struct HealthItem: Identifiable {
     let check: ArrHealthCheck
     let source: ArrServiceType
     let index: Int
+    /// The server that raised this check, or `nil` when only one instance of the
+    /// service is configured and naming it would add nothing.
+    var instance: ArrInstanceRef? = nil
 
-    var id: String { "\(source.rawValue)-\(check.id)-\(index)" }
+    var id: String { "\(instance?.id.uuidString ?? source.rawValue)-\(check.id)-\(index)" }
 
     var severityRank: Int {
         switch check.type?.lowercased() {
@@ -302,6 +329,10 @@ private struct HealthCheckRow: View {
                         .padding(.vertical, 3)
                         .background(serviceColor.opacity(0.14))
                         .clipShape(Capsule())
+
+                    if let instance = item.instance {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
                 }
 
                 if let message = item.check.message, !message.isEmpty {
@@ -362,12 +393,23 @@ private struct HealthDetailSheet: View {
                     .font(.title2)
                     .foregroundStyle(iconColor)
 
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(item.check.source ?? item.source.displayName)
                         .font(.headline)
-                    Text(item.source.displayName)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(item.source.displayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        // The fix for a health check is applied on one server, so
+                        // the sheet has to say which one raised it.
+                        if let instance = item.instance {
+                            ArrInstanceBadge(
+                                label: instance.shortLabel,
+                                ordinal: instance.ordinal,
+                                style: .prominent
+                            )
+                        }
+                    }
                 }
 
                 Spacer()

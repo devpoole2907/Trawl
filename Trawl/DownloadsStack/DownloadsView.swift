@@ -226,7 +226,7 @@ struct DownloadsView: View {
                     linkedSABJob: target.linkedSABJob,
                     includesSeparators: false
                 )
-                arrQueueRemovalActions(item: target.item, source: target.source)
+                arrQueueRemovalActions(item: target.item, source: target.source, instance: target.instance)
                 Button("Cancel", role: .cancel) { queueActionTarget = nil }
             }
     }
@@ -415,12 +415,13 @@ struct DownloadsView: View {
                 .tint(.blue)
             }
 
-        case .arrQueue(let queueItem, let source, let linkedTorrent, let linkedSABJob):
+        case .arrQueue(let queueItem, let source, let linkedTorrent, let linkedSABJob, let instance):
             arrQueueRow(
                 item: queueItem,
                 source: source,
                 linkedTorrent: linkedTorrent,
-                linkedSABJob: linkedSABJob
+                linkedSABJob: linkedSABJob,
+                instance: instance
             )
 
         case .arrHistory(let historyItem):
@@ -483,13 +484,15 @@ struct DownloadsView: View {
         item: ArrQueueItem,
         source: ArrServiceType,
         linkedTorrent: Torrent?,
-        linkedSABJob: SABnzbdJob?
+        linkedSABJob: SABnzbdJob?,
+        instance: ArrInstanceRef?
     ) -> some View {
         let target = ArrQueueActionTarget(
             item: item,
             source: source,
             linkedTorrent: linkedTorrent,
-            linkedSABJob: linkedSABJob
+            linkedSABJob: linkedSABJob,
+            instance: instance
         )
         let isInFlight = queueActionInFlightIDs.contains(target.id)
 
@@ -500,7 +503,7 @@ struct DownloadsView: View {
                         .environment(syncService)
                         .environment(torrentService)
                 } label: {
-                    ArrInfoRowView(queueItem: item, source: source, linkedTorrent: linkedTorrent)
+                    ArrInfoRowView(queueItem: item, source: source, linkedTorrent: linkedTorrent, instance: badgeInstance(instance, source))
                 }
             } else if let linkedSABJob {
                 // A matched Usenet job is every bit as navigable as a matched
@@ -514,7 +517,8 @@ struct DownloadsView: View {
                     ArrInfoRowView(
                         queueItem: item,
                         source: source,
-                        linkedSABJob: linkedSABJob
+                        linkedSABJob: linkedSABJob,
+                        instance: badgeInstance(instance, source)
                     )
                 }
             } else {
@@ -522,7 +526,7 @@ struct DownloadsView: View {
                     queueActionTarget = target
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
-                        ArrInfoRowView(queueItem: item, source: source)
+                        ArrInfoRowView(queueItem: item, source: source, instance: badgeInstance(instance, source))
                         if showsUnlinkedNotice(for: item) {
                             unlinkedNotice
                         }
@@ -539,21 +543,21 @@ struct DownloadsView: View {
                 arrQueueClientActions(linkedTorrent: linkedTorrent, linkedSABJob: linkedSABJob)
                 Divider()
             }
-            arrQueueRemovalActions(item: item, source: source)
+            arrQueueRemovalActions(item: item, source: source, instance: instance)
         }
         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button("Remove", systemImage: "xmark.circle", role: .destructive) {
-                performQueueAction(item: item, source: source, blocklist: false, searchAgain: false)
+                performQueueAction(item: item, source: source, instance: instance, blocklist: false, searchAgain: false)
             }
             Button("Blocklist", systemImage: "hand.raised") {
-                performQueueAction(item: item, source: source, blocklist: true, searchAgain: false)
+                performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: false)
             }
             .tint(.orange)
         }
         .swipeActions(edge: .leading, allowsFullSwipe: false) {
             if DownloadsViewModel.canSearchAgain(item, source: source) {
                 Button("Search Again", systemImage: "magnifyingglass") {
-                    performQueueAction(item: item, source: source, blocklist: true, searchAgain: true)
+                    performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: true)
                 }
                 .tint(.blue)
             }
@@ -682,18 +686,32 @@ struct DownloadsView: View {
     }
 
     @ViewBuilder
-    private func arrQueueRemovalActions(item: ArrQueueItem, source: ArrServiceType) -> some View {
-        Button("Remove from Queue", systemImage: "xmark.circle", role: .destructive) {
-            performQueueAction(item: item, source: source, blocklist: false, searchAgain: false)
-        }
-        Button("Blocklist & Remove", systemImage: "hand.raised", role: .destructive) {
-            performQueueAction(item: item, source: source, blocklist: true, searchAgain: false)
-        }
-        if DownloadsViewModel.canSearchAgain(item, source: source) {
-            Button("Blocklist & Search Again", systemImage: "magnifyingglass") {
-                performQueueAction(item: item, source: source, blocklist: true, searchAgain: true)
+    private func arrQueueRemovalActions(
+        item: ArrQueueItem,
+        source: ArrServiceType,
+        instance: ArrInstanceRef?
+    ) -> some View {
+        Group {
+            Button("Remove from Queue", systemImage: "xmark.circle", role: .destructive) {
+                performQueueAction(item: item, source: source, instance: instance, blocklist: false, searchAgain: false)
+            }
+            Button("Blocklist & Remove", systemImage: "hand.raised", role: .destructive) {
+                performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: false)
+            }
+            if DownloadsViewModel.canSearchAgain(item, source: source) {
+                Button("Blocklist & Search Again", systemImage: "magnifyingglass") {
+                    performQueueAction(item: item, source: source, instance: instance, blocklist: true, searchAgain: true)
+                }
             }
         }
+    }
+
+    /// Whether to badge a row with its server. Suppressed when only one instance
+    /// of that service is configured — the badge would then label every Sonarr row
+    /// "Sonarr" and say nothing. Routing still uses the real instance either way.
+    private func badgeInstance(_ instance: ArrInstanceRef?, _ source: ArrServiceType) -> ArrInstanceRef? {
+        guard arrServiceManager.showsInstanceProvenance(for: source) else { return nil }
+        return instance
     }
 
     private func isPaused(_ torrent: Torrent) -> Bool {
@@ -708,11 +726,12 @@ struct DownloadsView: View {
     private func performQueueAction(
         item: ArrQueueItem,
         source: ArrServiceType,
+        instance: ArrInstanceRef?,
         blocklist: Bool,
         searchAgain: Bool
     ) {
         queueActionTarget = nil
-        let key = ArrQueueActionTarget.id(for: item, source: source)
+        let key = ArrQueueActionTarget.id(for: item, source: source, instance: instance)
         guard !queueActionInFlightIDs.contains(key) else { return }
         queueActionInFlightIDs.insert(key)
 
@@ -721,6 +740,7 @@ struct DownloadsView: View {
             let failure = await viewModel.removeQueueItem(
                 item,
                 source: source,
+                instance: instance,
                 blocklist: blocklist,
                 searchAgain: searchAgain,
                 serviceManager: arrServiceManager
@@ -965,11 +985,14 @@ private struct ArrQueueActionTarget: Identifiable {
     let source: ArrServiceType
     let linkedTorrent: Torrent?
     let linkedSABJob: SABnzbdJob?
+    let instance: ArrInstanceRef?
 
-    var id: String { Self.id(for: item, source: source) }
+    var id: String { Self.id(for: item, source: source, instance: instance) }
 
-    static func id(for item: ArrQueueItem, source: ArrServiceType) -> String {
-        "\(source.rawValue)-\(item.id)"
+    /// Keyed by instance as well as service: an in-flight removal on the HD
+    /// server must not disable the identically-numbered row on the 4K one.
+    static func id(for item: ArrQueueItem, source: ArrServiceType, instance: ArrInstanceRef?) -> String {
+        "\(instance?.id.uuidString ?? source.rawValue)-\(item.id)"
     }
 }
 

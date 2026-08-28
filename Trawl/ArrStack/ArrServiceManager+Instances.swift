@@ -1,0 +1,293 @@
+import Foundation
+
+// Everything the rest of the app uses to talk about "which server".
+//
+// The manager already held every configured instance and connected them all; what
+// it lacked was a way to *use* more than one at a time. These are the accessors
+// that turn its instance arrays into a blended library: identity for badges,
+// clients for routing a command back to the server that owns an item, and loads
+// that fan out across both servers instead of picking one.
+
+extension ArrServiceManager {
+
+    // MARK: - Identity
+
+    /// Badge-ready identity for every configured Sonarr server, in the user's
+    /// configured order.
+    var sonarrRefs: [ArrInstanceRef] {
+        ArrInstanceRef.make(
+            from: sonarrInstances.map { (id: $0.id, displayName: $0.displayName) },
+            serviceType: .sonarr
+        )
+    }
+
+    var radarrRefs: [ArrInstanceRef] {
+        ArrInstanceRef.make(
+            from: radarrInstances.map { (id: $0.id, displayName: $0.displayName) },
+            serviceType: .radarr
+        )
+    }
+
+    var bazarrRefs: [ArrInstanceRef] {
+        ArrInstanceRef.make(
+            from: bazarrInstances.map { (id: $0.id, displayName: $0.displayName) },
+            serviceType: .bazarr
+        )
+    }
+
+    func refs(for serviceType: ArrServiceType) -> [ArrInstanceRef] {
+        switch serviceType {
+        case .sonarr: sonarrRefs
+        case .radarr: radarrRefs
+        case .bazarr: bazarrRefs
+        case .prowlarr:
+            prowlarrProfileRef.map { [$0] } ?? []
+        }
+    }
+
+    private var prowlarrProfileRef: ArrInstanceRef? {
+        guard let id = activeProwlarrProfileID else { return nil }
+        let name = storedProfileName(for: id) ?? ArrServiceType.prowlarr.displayName
+        return ArrInstanceRef.make(from: [(id: id, displayName: name)], serviceType: .prowlarr).first
+    }
+
+    /// Identity for one server, or `nil` if it is no longer configured.
+    func instanceRef(_ serviceType: ArrServiceType, id: UUID?) -> ArrInstanceRef? {
+        guard let id else { return nil }
+        return refs(for: serviceType).first { $0.id == id }
+    }
+
+    /// True when more than one server of this type is configured — the condition
+    /// under which a provenance badge earns its place. With a single instance the
+    /// badge distinguishes nothing and is noise on every row in the app.
+    func showsInstanceProvenance(for serviceType: ArrServiceType) -> Bool {
+        refs(for: serviceType).count > 1
+    }
+
+    /// Badges for a merged library entry: one per server holding the title,
+    /// suppressed entirely when provenance isn't worth showing.
+    func badgeRefs<Item>(for entry: ArrLibraryEntry<Item>) -> [ArrInstanceRef] {
+        let serviceType = entry.id.serviceType
+        guard showsInstanceProvenance(for: serviceType) else { return [] }
+        let byID = Dictionary(uniqueKeysWithValues: refs(for: serviceType).map { ($0.id, $0) })
+        return entry.instanceIDs.compactMap { byID[$0] }
+    }
+
+    // MARK: - Capacity
+
+    /// How many more servers of this type the user may add.
+    ///
+    /// Sonarr and Radarr are capped at two — the HD/4K pair the blended library is
+    /// designed around. Prowlarr stays at one (a second replaces the first, as it
+    /// always has) and Bazarr is uncapped, since it is matched to its own Sonarr
+    /// and Radarr rather than merged into the library.
+    func instanceSlotsRemaining(of serviceType: ArrServiceType) -> Int? {
+        switch serviceType {
+        case .sonarr, .radarr:
+            let configured = refs(for: serviceType).count
+            return max(0, ArrInstanceRef.maxInstancesPerServiceType - configured)
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    func canAddInstance(of serviceType: ArrServiceType) -> Bool {
+        guard let remaining = instanceSlotsRemaining(of: serviceType) else { return true }
+        return remaining > 0
+    }
+
+    // MARK: - Clients
+
+    /// Every connected Sonarr server, paired with its identity, in configured
+    /// order. This is the list a fan-out iterates.
+    var connectedSonarr: [(ref: ArrInstanceRef, client: SonarrAPIClient)] {
+        pair(sonarrInstances, with: sonarrRefs)
+    }
+
+    var connectedRadarr: [(ref: ArrInstanceRef, client: RadarrAPIClient)] {
+        pair(radarrInstances, with: radarrRefs)
+    }
+
+    /// The connected servers the instance filter is currently showing. Every
+    /// unified surface reads this rather than `connectedSonarr`, so narrowing the
+    /// filter narrows the whole app at once.
+    var visibleSonarr: [(ref: ArrInstanceRef, client: SonarrAPIClient)] {
+        connectedSonarr.filter { instanceFilter.isIncluded($0.ref.id, serviceType: .sonarr) }
+    }
+
+    var visibleRadarr: [(ref: ArrInstanceRef, client: RadarrAPIClient)] {
+        connectedRadarr.filter { instanceFilter.isIncluded($0.ref.id, serviceType: .radarr) }
+    }
+
+    private func pair<C: SharedArrClient>(
+        _ entries: [ArrClientEntry<C>],
+        with refs: [ArrInstanceRef]
+    ) -> [(ref: ArrInstanceRef, client: C)] {
+        let byID = Dictionary(uniqueKeysWithValues: refs.map { ($0.id, $0) })
+        return entries.compactMap { entry in
+            guard entry.isConnected, let client = entry.client, let ref = byID[entry.id] else { return nil }
+            return (ref: ref, client: client)
+        }
+    }
+
+    // MARK: - Command routing
+
+    /// The Radarr server that owns a given movie. Every mutation in a merged list
+    /// goes through here: without it a delete issued from a merged row would land
+    /// on whichever instance happened to be active, which in an HD/4K pair means
+    /// deleting the wrong copy — or a different film entirely, since the two
+    /// servers reuse the same integer IDs.
+    func radarrClient(owning movie: RadarrMovie) -> RadarrAPIClient? {
+        guard let instanceID = movie.instanceID else { return radarrClient }
+        return radarrClient(for: instanceID)
+    }
+
+    func sonarrClient(owning series: SonarrSeries) -> SonarrAPIClient? {
+        guard let instanceID = series.instanceID else { return sonarrClient }
+        return sonarrClient(for: instanceID)
+    }
+
+    // MARK: - Blended library loads
+
+    /// Every visible Sonarr server's library, as one flat union, each item stamped
+    /// with the server it came from.
+    ///
+    /// Each instance keeps its own cache entry, so a slow second server doesn't
+    /// re-fetch the first, and one server failing yields a partial library rather
+    /// than none — a broken 4K instance should not empty the HD library off the
+    /// screen. The first error is reported so the failure is still visible.
+    @discardableResult
+    func loadSeriesUnion(maxAge: TimeInterval = 0) async throws -> [SonarrSeries] {
+        try await loadUnion(
+            instances: visibleSonarr,
+            cache: seriesLibrary,
+            maxAge: maxAge
+        ) { try await $0.getSeries() }
+    }
+
+    /// Every visible Radarr server's library. See `loadSeriesUnion(maxAge:)`.
+    @discardableResult
+    func loadMovieUnion(maxAge: TimeInterval = 0) async throws -> [RadarrMovie] {
+        try await loadUnion(
+            instances: visibleRadarr,
+            cache: movieLibrary,
+            maxAge: maxAge
+        ) { try await $0.getMovies() }
+    }
+
+    private func loadUnion<C: SharedArrClient, Item: ArrInstanceScoped & Sendable>(
+        instances: [(ref: ArrInstanceRef, client: C)],
+        cache: ArrLibraryCache<Item>,
+        maxAge: TimeInterval,
+        fetch: @escaping @Sendable (C) async throws -> [Item]
+    ) async throws -> [Item] {
+        guard !instances.isEmpty else { return [] }
+
+        var union: [Item] = []
+        var firstError: Error?
+
+        for (ref, client) in instances {
+            do {
+                let items = try await cache.load(instanceID: ref.id, maxAge: maxAge) {
+                    // Stamped inside the cache's fetch so the cached copy carries
+                    // provenance too — a cache hit must be indistinguishable from
+                    // a fresh load, or a merged row would lose its badges the
+                    // second time it renders.
+                    try await fetch(client).stamped(with: ref.id)
+                }
+                union.append(contentsOf: items)
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                if firstError == nil { firstError = error }
+            }
+        }
+
+        // A total failure is a real failure; a partial one is a partial library.
+        if union.isEmpty, let firstError { throw firstError }
+        return union
+    }
+
+    /// The blended movie library: one entry per title, carrying every server's
+    /// copy of it.
+    var mergedMovieLibrary: [ArrLibraryEntry<RadarrMovie>] {
+        cachedMovieUnion.mergedByTitle()
+    }
+
+    /// The blended series library. See `mergedMovieLibrary`.
+    var mergedSeriesLibrary: [ArrLibraryEntry<SonarrSeries>] {
+        cachedSeriesUnion.mergedByTitle()
+    }
+
+    /// The flat union of what is currently cached for every visible Radarr server,
+    /// in configured order. Kept alongside the merged view because per-server
+    /// truth — disk usage, counts, which server to send a command to — cannot be
+    /// recovered once titles are collapsed into rows.
+    var cachedMovieUnion: [RadarrMovie] {
+        visibleRadarr.flatMap { movieLibrary.items(for: $0.ref.id) }
+    }
+
+    var cachedSeriesUnion: [SonarrSeries] {
+        visibleSonarr.flatMap { seriesLibrary.items(for: $0.ref.id) }
+    }
+
+    // MARK: - Instance filter
+
+    /// Shows or hides one server across every unified surface at once.
+    /// No UI calls this yet — the picker is the next piece of work.
+    @discardableResult
+    func setInstanceIncluded(
+        _ included: Bool,
+        instanceID: UUID,
+        serviceType: ArrServiceType
+    ) -> Bool {
+        var filter = instanceFilter
+        let changed = filter.setIncluded(
+            included,
+            instanceID: instanceID,
+            serviceType: serviceType,
+            available: Set(refs(for: serviceType).map(\.id))
+        )
+        if changed { applyInstanceFilter(filter) }
+        return changed
+    }
+
+    func showOnlyInstance(_ instanceID: UUID, serviceType: ArrServiceType) {
+        var filter = instanceFilter
+        filter.setOnly(
+            instanceID: instanceID,
+            serviceType: serviceType,
+            available: Set(refs(for: serviceType).map(\.id))
+        )
+        applyInstanceFilter(filter)
+    }
+
+    func showAllInstances(of serviceType: ArrServiceType) {
+        var filter = instanceFilter
+        filter.includeAll(serviceType: serviceType)
+        applyInstanceFilter(filter)
+    }
+
+    /// Drops filter entries for servers that no longer exist. Called after every
+    /// profile change so a deleted-and-re-added server can't inherit a stale hide.
+    func pruneInstanceFilter() {
+        var filter = instanceFilter
+        for serviceType in ArrServiceType.allCases {
+            filter.prune(keeping: Set(refs(for: serviceType).map(\.id)), serviceType: serviceType)
+        }
+        if filter != instanceFilter { applyInstanceFilter(filter) }
+    }
+
+    private func applyInstanceFilter(_ filter: ArrInstanceFilterState) {
+        instanceFilter = filter
+        filter.save(to: .standard)
+        // What each surface shows is derived from the filter, so everything that
+        // reads a cached library has to re-derive. Items are kept; only freshness
+        // is dropped, so a narrowed filter re-renders immediately.
+        invalidateLibraryCaches()
+    }
+
+    private func storedProfileName(for id: UUID) -> String? {
+        storedProfiles.first { $0.id == id }?.displayName
+    }
+}

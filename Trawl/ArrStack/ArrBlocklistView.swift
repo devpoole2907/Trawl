@@ -47,92 +47,107 @@ struct ArrBlocklistView: View {
         var id: String { rawValue }
     }
 
+    /// A blocklist row plus the server that holds it. Both instances of a service
+    /// contribute to one list, and their row IDs overlap, so the entry is keyed by
+    /// instance — and a delete reaches the right server for the same reason.
+    /// A blocklist row plus the server that holds it. Both instances of a service
+    /// contribute to one list, and their row IDs overlap, so the entry is keyed by
+    /// instance — and a delete reaches the right server for the same reason.
     struct BlocklistEntry: Identifiable {
-        let item: ArrBlocklistItem
+        let instanced: ArrInstanced<ArrBlocklistItem>
         let source: ArrServiceType
+        /// Whether to show the server on the row. Presentation only; the delete
+        /// routes by `instanced` regardless.
+        var showsInstance: Bool = false
 
-        var id: String { "\(source.rawValue)-\(item.id)" }
+        var item: ArrBlocklistItem { instanced.value }
+        var instance: ArrInstanceRef { instanced.instance }
+        var badgeInstance: ArrInstanceRef? { showsInstance ? instanced.instance : nil }
+        var id: String { instanced.id }
     }
 
     struct ExclusionEntry: Identifiable {
-        let item: ArrImportListExclusion
+        let instanced: ArrInstanced<ArrImportListExclusion>
         let source: ArrServiceType
+        var showsInstance: Bool = false
 
-        var id: String { "\(source.rawValue)-\(item.id)" }
+        var item: ArrImportListExclusion { instanced.value }
+        var instance: ArrInstanceRef { instanced.instance }
+        var badgeInstance: ArrInstanceRef? { showsInstance ? instanced.instance : nil }
+        var id: String { instanced.id }
     }
 
-    private var displayedSonarrItems: [ArrBlocklistItem] {
-        let items: [ArrBlocklistItem]
-        if let previewSonarrBlocklist {
-            items = previewSonarrBlocklist
-        } else {
-            guard serviceManager.sonarrConnected else { return [] }
-            items = serviceManager.sonarrBlocklist
-        }
-        guard scope != .movies else { return [] }
-        return items
+    private func showsProvenance(_ serviceType: ArrServiceType) -> Bool {
+        serviceManager.showsInstanceProvenance(for: serviceType)
     }
 
-    private var allSonarrItems: [ArrBlocklistItem] {
-        if let previewSonarrBlocklist {
-            return previewSonarrBlocklist
+    /// Preview fixtures arrive as bare API values; tag them with a stand-in server
+    /// so the preview exercises the same instanced path the app does.
+    private func previewInstanced<T: Identifiable & Sendable>(
+        _ items: [T],
+        _ serviceType: ArrServiceType
+    ) -> [ArrInstanced<T>] {
+        #if DEBUG
+        return items.instanced(on: .preview(serviceType))
+        #else
+        return []
+        #endif
+    }
+
+    private func liveBlocklist(_ serviceType: ArrServiceType) -> [ArrInstanced<ArrBlocklistItem>] {
+        switch serviceType {
+        case .sonarr: serviceManager.sonarrBlocklist
+        case .radarr: serviceManager.radarrBlocklist
+        default: []
         }
+    }
+
+    private func liveExclusions(_ serviceType: ArrServiceType) -> [ArrInstanced<ArrImportListExclusion>] {
+        switch serviceType {
+        case .sonarr: serviceManager.sonarrImportListExclusions
+        case .radarr: serviceManager.radarrImportListExclusions
+        default: []
+        }
+    }
+
+    private var allSonarrItems: [ArrInstanced<ArrBlocklistItem>] {
+        if let previewSonarrBlocklist { return previewInstanced(previewSonarrBlocklist, .sonarr) }
         guard serviceManager.sonarrConnected else { return [] }
-        return serviceManager.sonarrBlocklist
+        return liveBlocklist(.sonarr)
     }
 
-    private var displayedRadarrItems: [ArrBlocklistItem] {
-        let items: [ArrBlocklistItem]
-        if let previewRadarrBlocklist {
-            items = previewRadarrBlocklist
-        } else {
-            guard serviceManager.radarrConnected else { return [] }
-            items = serviceManager.radarrBlocklist
-        }
-        guard scope != .series else { return [] }
-        return items
-    }
-
-    private var allRadarrItems: [ArrBlocklistItem] {
-        if let previewRadarrBlocklist { return previewRadarrBlocklist }
+    private var allRadarrItems: [ArrInstanced<ArrBlocklistItem>] {
+        if let previewRadarrBlocklist { return previewInstanced(previewRadarrBlocklist, .radarr) }
         guard serviceManager.radarrConnected else { return [] }
-        return serviceManager.radarrBlocklist
+        return liveBlocklist(.radarr)
     }
 
-    private var displayedSonarrExclusions: [ArrImportListExclusion] {
-        let items: [ArrImportListExclusion]
-        if let previewSonarrExclusions {
-            items = previewSonarrExclusions
-        } else {
-            guard serviceManager.sonarrConnected else { return [] }
-            items = serviceManager.sonarrImportListExclusions
-        }
-        guard scope != .movies else { return [] }
-        return items
-    }
-
-    private var allSonarrExclusions: [ArrImportListExclusion] {
-        if let previewSonarrExclusions { return previewSonarrExclusions }
+    private var allSonarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
+        if let previewSonarrExclusions { return previewInstanced(previewSonarrExclusions, .sonarr) }
         guard serviceManager.sonarrConnected else { return [] }
-        return serviceManager.sonarrImportListExclusions
+        return liveExclusions(.sonarr)
     }
 
-    private var displayedRadarrExclusions: [ArrImportListExclusion] {
-        let items: [ArrImportListExclusion]
-        if let previewRadarrExclusions {
-            items = previewRadarrExclusions
-        } else {
-            guard serviceManager.radarrConnected else { return [] }
-            items = serviceManager.radarrImportListExclusions
-        }
-        guard scope != .series else { return [] }
-        return items
-    }
-
-    private var allRadarrExclusions: [ArrImportListExclusion] {
-        if let previewRadarrExclusions { return previewRadarrExclusions }
+    private var allRadarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
+        if let previewRadarrExclusions { return previewInstanced(previewRadarrExclusions, .radarr) }
         guard serviceManager.radarrConnected else { return [] }
-        return serviceManager.radarrImportListExclusions
+        return liveExclusions(.radarr)
+    }
+
+    private var displayedSonarrItems: [ArrInstanced<ArrBlocklistItem>] {
+        scope == .movies ? [] : allSonarrItems
+    }
+
+    private var displayedRadarrItems: [ArrInstanced<ArrBlocklistItem>] {
+        scope == .series ? [] : allRadarrItems
+    }
+
+    private var displayedSonarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
+        scope == .movies ? [] : allSonarrExclusions
+    }
+
+    private var displayedRadarrExclusions: [ArrInstanced<ArrImportListExclusion>] {
+        scope == .series ? [] : allRadarrExclusions
     }
 
     private var isEmpty: Bool {
@@ -192,16 +207,16 @@ struct ArrBlocklistView: View {
     }
 
     private var allEntries: [BlocklistEntry] {
-        let sonarrEntries = displayedSonarrItems.map { BlocklistEntry(item: $0, source: .sonarr) }
-        let radarrEntries = displayedRadarrItems.map { BlocklistEntry(item: $0, source: .radarr) }
+        let sonarrEntries = displayedSonarrItems.map { BlocklistEntry(instanced: $0, source: .sonarr, showsInstance: showsProvenance(.sonarr)) }
+        let radarrEntries = displayedRadarrItems.map { BlocklistEntry(instanced: $0, source: .radarr, showsInstance: showsProvenance(.radarr)) }
         return (sonarrEntries + radarrEntries).sorted { lhs, rhs in
             (blockDate(for: lhs.item) ?? .distantPast) > (blockDate(for: rhs.item) ?? .distantPast)
         }
     }
 
     private var allExclusionEntries: [ExclusionEntry] {
-        let sonarrEntries = displayedSonarrExclusions.map { ExclusionEntry(item: $0, source: .sonarr) }
-        let radarrEntries = displayedRadarrExclusions.map { ExclusionEntry(item: $0, source: .radarr) }
+        let sonarrEntries = displayedSonarrExclusions.map { ExclusionEntry(instanced: $0, source: .sonarr, showsInstance: showsProvenance(.sonarr)) }
+        let radarrEntries = displayedRadarrExclusions.map { ExclusionEntry(instanced: $0, source: .radarr, showsInstance: showsProvenance(.radarr)) }
         return (sonarrEntries + radarrEntries).sorted { lhs, rhs in
             lhs.item.displayTitle.localizedCaseInsensitiveCompare(rhs.item.displayTitle) == .orderedAscending
         }
@@ -216,16 +231,16 @@ struct ArrBlocklistView: View {
     }
 
     private var allBlocklistSearchEntries: [BlocklistEntry] {
-        (allSonarrItems.map { BlocklistEntry(item: $0, source: .sonarr) } +
-         allRadarrItems.map { BlocklistEntry(item: $0, source: .radarr) })
+        (allSonarrItems.map { BlocklistEntry(instanced: $0, source: .sonarr, showsInstance: showsProvenance(.sonarr)) } +
+         allRadarrItems.map { BlocklistEntry(instanced: $0, source: .radarr, showsInstance: showsProvenance(.radarr)) })
             .sorted { lhs, rhs in
                 (blockDate(for: lhs.item) ?? .distantPast) > (blockDate(for: rhs.item) ?? .distantPast)
             }
     }
 
     private var allExclusionSearchEntries: [ExclusionEntry] {
-        (allSonarrExclusions.map { ExclusionEntry(item: $0, source: .sonarr) } +
-         allRadarrExclusions.map { ExclusionEntry(item: $0, source: .radarr) })
+        (allSonarrExclusions.map { ExclusionEntry(instanced: $0, source: .sonarr, showsInstance: showsProvenance(.sonarr)) } +
+         allRadarrExclusions.map { ExclusionEntry(instanced: $0, source: .radarr, showsInstance: showsProvenance(.radarr)) })
             .sorted { lhs, rhs in
                 lhs.item.displayTitle.localizedCaseInsensitiveCompare(rhs.item.displayTitle) == .orderedAscending
             }
@@ -598,23 +613,22 @@ struct ArrBlocklistView: View {
     }
 
     private func deleteEntry(_ entry: BlocklistEntry) async {
-        await serviceManager.removeBlocklistItem(id: entry.item.id, source: entry.source)
+        await serviceManager.removeBlocklistItem(entry.instanced)
     }
 
     private func deleteExclusion(_ entry: ExclusionEntry) async {
-        await serviceManager.removeImportListExclusion(id: entry.item.id, source: entry.source)
+        await serviceManager.removeImportListExclusion(entry.instanced)
     }
 
+    /// Clears exactly what is on screen. With the scope filter set to Series or
+    /// Movies that is one service; with it set to All it spans both services and
+    /// both of their instances, and the manager groups the deletes per server.
     private func clearAll() async {
         switch mode {
         case .blocklist:
-            let sonarrIDs = displayedSonarrItems.map(\.id)
-            let radarrIDs = displayedRadarrItems.map(\.id)
-            await serviceManager.clearBlocklist(sonarrIDs: sonarrIDs, radarrIDs: radarrIDs)
+            await serviceManager.clearBlocklist(displayedSonarrItems + displayedRadarrItems)
         case .exclusions:
-            let sonarrIDs = displayedSonarrExclusions.map(\.id)
-            let radarrIDs = displayedRadarrExclusions.map(\.id)
-            await serviceManager.clearImportListExclusions(sonarrIDs: sonarrIDs, radarrIDs: radarrIDs)
+            await serviceManager.clearImportListExclusions(displayedSonarrExclusions + displayedRadarrExclusions)
         }
     }
 }
@@ -709,7 +723,7 @@ private struct BlocklistRow: View {
     let entry: ArrBlocklistView.BlocklistEntry
 
     var body: some View {
-        ArrInfoRowView(blocklistItem: entry.item, source: entry.source)
+        ArrInfoRowView(blocklistItem: entry.item, source: entry.source, instance: entry.badgeInstance)
     }
 }
 
@@ -745,6 +759,9 @@ private struct ExclusionRow: View {
 
                 HStack(spacing: 4) {
                     Label(entry.source.displayName, systemImage: entry.source.systemImage)
+                    if let instance = entry.badgeInstance {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
                     if let yearLabel {
                         Text("·")
                         Text(yearLabel)

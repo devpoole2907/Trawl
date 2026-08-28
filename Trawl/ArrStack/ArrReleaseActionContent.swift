@@ -255,6 +255,10 @@ struct ArrInfoRowView: View {
     let subtitleTrailing: String?
     let chips: [ArrReleaseInfoChip]
     let message: (text: String, color: Color)?
+    /// The server this row belongs to, shown beside the status line. `nil` when
+    /// the row isn't server-specific, or when only one instance of its service is
+    /// configured and the badge would say nothing.
+    let instance: ArrInstanceRef?
 
     init(
         icon: (systemImage: String, color: Color)? = nil,
@@ -263,7 +267,8 @@ struct ArrInfoRowView: View {
         subtitleLeadingColor: Color = .secondary,
         subtitleTrailing: String? = nil,
         chips: [ArrReleaseInfoChip] = [],
-        message: (text: String, color: Color)? = nil
+        message: (text: String, color: Color)? = nil,
+        instance: ArrInstanceRef? = nil
     ) {
         self.icon = icon
         self.title = title
@@ -272,9 +277,11 @@ struct ArrInfoRowView: View {
         self.subtitleTrailing = subtitleTrailing
         self.chips = chips
         self.message = message
+        self.instance = instance
     }
 
     init(release: ArrRelease) {
+        self.instance = nil
         self.icon = nil
         self.title = release.title ?? "Unknown Release"
         self.subtitleLeading = release.indexer ?? "Unknown Indexer"
@@ -284,7 +291,8 @@ struct ArrInfoRowView: View {
         self.message = nil
     }
 
-    init(blocklistItem item: ArrBlocklistItem, source: ArrServiceType) {
+    init(blocklistItem item: ArrBlocklistItem, source: ArrServiceType, instance: ArrInstanceRef? = nil) {
+        self.instance = instance
         self.icon = (
             systemImage: source == .sonarr ? "tv" : "film",
             color: source == .sonarr ? .purple : .orange
@@ -309,7 +317,8 @@ struct ArrInfoRowView: View {
         queueItem item: ArrQueueItem,
         source: ArrServiceType,
         linkedTorrent: Torrent? = nil,
-        linkedSABJob: SABnzbdJob? = nil
+        linkedSABJob: SABnzbdJob? = nil,
+        instance: ArrInstanceRef? = nil
     ) {
         // The download client is the live source of truth while a grab is in
         // flight. Arr's cached size-left value can lag well behind it, especially
@@ -334,7 +343,8 @@ struct ArrInfoRowView: View {
                 linkedSABJob: sabJob,
                 progress: progress
             ),
-            message: item.primaryStatusMessage.map { ($0, Self.queueStatusColor(for: item)) }
+            message: item.primaryStatusMessage.map { ($0, Self.queueStatusColor(for: item)) },
+            instance: instance
         )
     }
 
@@ -387,6 +397,12 @@ struct ArrInfoRowView: View {
 
     private var subtitleRow: some View {
         HStack(spacing: 6) {
+            // The server sits at the head of the status line rather than among
+            // the chips: which of a pair of servers a download belongs to is a
+            // fact about the row, not another piece of release metadata.
+            if let instance {
+                ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+            }
             Text(subtitleLeading)
                 .foregroundStyle(subtitleLeadingColor)
             if let trailing = subtitleTrailing {

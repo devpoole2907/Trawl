@@ -26,7 +26,7 @@ nonisolated struct ArrSystemStatus: Codable, Sendable {
 
 // MARK: - Health Check
 
-struct ArrHealthCheck: Codable, Identifiable, Sendable {
+nonisolated struct ArrHealthCheck: Codable, Identifiable, Sendable {
     var id: String { [source, type, message, wikiUrl].map { $0 ?? "" }.joined(separator: "|") }
     let source: String?
     let type: String?       // "ok", "notice", "warning", "error"
@@ -793,7 +793,7 @@ private nonisolated extension String {
     }
 }
 
-struct ArrReleaseQuality: Codable, Sendable {
+nonisolated struct ArrReleaseQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
@@ -828,7 +828,7 @@ nonisolated struct ArrQueuePage: Codable, Sendable {
     let records: [ArrQueueItem]?
 }
 
-struct ArrQueueItem: Codable, Identifiable, Sendable {
+nonisolated struct ArrQueueItem: Codable, Identifiable, Sendable {
     let id: Int
     let title: String?
     let status: String?             // "downloading", "completed", "delay", "paused", etc.
@@ -906,7 +906,7 @@ struct ArrQueueItem: Codable, Identifiable, Sendable {
     }
 }
 
-struct ArrStatusMessage: Codable, Sendable {
+nonisolated struct ArrStatusMessage: Codable, Sendable {
     let title: String?
     let messages: [String]?
 }
@@ -922,7 +922,7 @@ nonisolated struct ArrHistoryPage: Codable, Sendable {
     let records: [ArrHistoryRecord]?
 }
 
-struct ArrHistoryRecord: Codable, Identifiable, Sendable {
+nonisolated struct ArrHistoryRecord: Codable, Identifiable, Sendable {
     let id: Int
     let eventType: String?          // "grabbed", "downloadFolderImported", "downloadFailed", etc.
     let date: String?
@@ -1060,7 +1060,7 @@ nonisolated enum ArrHistoryEventFormatter {
     }
 }
 
-struct ArrHistoryQuality: Codable, Sendable {
+nonisolated struct ArrHistoryQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
@@ -1213,7 +1213,7 @@ nonisolated struct ArrBlocklistPage: Codable, Sendable {
     let records: [ArrBlocklistItem]?
 }
 
-struct ArrBlocklistItem: Codable, Identifiable, Sendable {
+nonisolated struct ArrBlocklistItem: Codable, Identifiable, Sendable {
     let id: Int
     let seriesId: Int?
     let movieId: Int?
@@ -1229,7 +1229,7 @@ struct ArrBlocklistItem: Codable, Identifiable, Sendable {
     }
 }
 
-struct ArrBlocklistQuality: Codable, Sendable {
+nonisolated struct ArrBlocklistQuality: Codable, Sendable {
     let quality: ArrQuality?
 }
 
@@ -1242,7 +1242,7 @@ nonisolated struct ArrImportListExclusionPage: Codable, Sendable {
     let records: [ArrImportListExclusion]?
 }
 
-struct ArrImportListExclusion: Codable, Identifiable, Sendable {
+nonisolated struct ArrImportListExclusion: Codable, Identifiable, Sendable {
     let id: Int
     let tvdbId: Int?
     let tmdbId: Int?

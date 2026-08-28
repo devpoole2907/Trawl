@@ -61,7 +61,7 @@ final class DownloadsViewModel {
         switch section {
         case .active:
             let activeQueue = queueItems.filter { item in
-                guard case .arrQueue(let record, _, _, _) = item else { return false }
+                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
                 return Self.isActive(record) && !record.isImportIssueQueueItem
             }
             let activeTorrents = unmatchedTorrents
@@ -75,7 +75,7 @@ final class DownloadsViewModel {
 
         case .queue:
             let waitingQueue = queueItems.filter { item in
-                guard case .arrQueue(let record, _, _, _) = item else { return false }
+                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
                 return !Self.isActive(record) && !record.isImportIssueQueueItem
             }
             let waitingTorrents = unmatchedTorrents
@@ -186,6 +186,7 @@ final class DownloadsViewModel {
     func removeQueueItem(
         _ item: ArrQueueItem,
         source: ArrServiceType,
+        instance: ArrInstanceRef?,
         blocklist: Bool,
         searchAgain: Bool,
         serviceManager: ArrServiceManager
@@ -193,7 +194,12 @@ final class DownloadsViewModel {
         do {
             switch source {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return "Sonarr isn’t connected." }
+                // Routed to the server that is actually running this download.
+                // Both instances number their queue rows from the same sequence,
+                // so sending the delete to the wrong one either 404s or removes
+                // an unrelated download that happens to share the ID.
+                guard let client = instance.flatMap({ serviceManager.sonarrClient(for: $0.id) })
+                        ?? serviceManager.sonarrClient else { return "Sonarr isn’t connected." }
                 try await client.deleteQueueItem(id: item.id, removeFromClient: true, blocklist: blocklist)
                 if searchAgain {
                     if let episodeId = item.episodeId {
@@ -203,7 +209,8 @@ final class DownloadsViewModel {
                     }
                 }
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return "Radarr isn’t connected." }
+                guard let client = instance.flatMap({ serviceManager.radarrClient(for: $0.id) })
+                        ?? serviceManager.radarrClient else { return "Radarr isn’t connected." }
                 try await client.deleteQueueItem(id: item.id, removeFromClient: true, blocklist: blocklist)
                 if searchAgain, let movieId = item.movieId {
                     _ = try await client.searchMovie(movieIds: [movieId])
@@ -218,7 +225,11 @@ final class DownloadsViewModel {
         // Drop the row immediately so the list reflects the action even if a poll
         // is mid-flight and swallows the refresh below. Suppression (rather than a
         // direct edit of the shared cache) is what survives that poll landing.
-        removedQueueItemKeys.insert(Self.queueItemKey(item, source: source))
+        // Must match ArrInstanced's own id, which is what `arrQueueRecords`
+        // filters against — a key built any other way would suppress nothing.
+        if let instance {
+            removedQueueItemKeys.insert("\(instance.id.uuidString):\(item.id)")
+        }
         if blocklist {
             await serviceManager.loadBlocklist()
         }
@@ -232,10 +243,10 @@ final class DownloadsViewModel {
     /// model has optimistically removed.
     private func arrQueueRecords(
         serviceManager: ArrServiceManager
-    ) -> [(item: ArrQueueItem, source: ArrServiceType)] {
+    ) -> [ArrInstanced<ArrQueueItem>] {
         guard !removedQueueItemKeys.isEmpty else { return serviceManager.queueItemsBySource }
         return serviceManager.queueItemsBySource.filter {
-            !removedQueueItemKeys.contains(Self.queueItemKey($0.item, source: $0.source))
+            !removedQueueItemKeys.contains($0.id)
         }
     }
 
@@ -243,21 +254,15 @@ final class DownloadsViewModel {
     /// still reports stays hidden — the delete simply hasn't been picked up yet.
     private func pruneRemovedQueueItems(serviceManager: ArrServiceManager) {
         guard !removedQueueItemKeys.isEmpty else { return }
-        let live = Set(
-            serviceManager.queueItemsBySource.map { Self.queueItemKey($0.item, source: $0.source) }
-        )
+        let live = Set(serviceManager.queueItemsBySource.map(\.id))
         removedQueueItemKeys.formIntersection(live)
-    }
-
-    private static func queueItemKey(_ item: ArrQueueItem, source: ArrServiceType) -> String {
-        "\(source.rawValue)-\(item.id)"
     }
 
     /// Arr queue rows linked to their download-client job, plus the torrents and
     /// SABnzbd jobs no Arr row claims. Shared with `attentionItems` so the app-wide
     /// failure list is built from exactly the same matching the tab uses.
     private static func match(
-        queueRecords: [(item: ArrQueueItem, source: ArrServiceType)],
+        queueRecords: [ArrInstanced<ArrQueueItem>],
         torrents: [String: Torrent],
         sabActiveJobs: [SABnzbdJob],
         sabHistoryJobs: [SABnzbdJob]
@@ -268,11 +273,13 @@ final class DownloadsViewModel {
         let sabJobs = sabActiveJobs + sabHistoryJobs
         let queueItems = queueRecords
             .map { record in
-                DownloadListItem.arrQueue(
-                    item: record.item,
-                    source: record.source,
-                    linkedTorrent: linkedTorrent(for: record.item, torrents: torrents),
-                    linkedSABJob: linkedSABJob(for: record.item, jobs: sabJobs)
+                let source = record.instance.serviceType
+                return DownloadListItem.arrQueue(
+                    item: record.value,
+                    source: source,
+                    linkedTorrent: linkedTorrent(for: record.value, torrents: torrents),
+                    linkedSABJob: linkedSABJob(for: record.value, jobs: sabJobs),
+                    instance: record.instance
                 )
             }
             .sorted { lhs, rhs in
@@ -280,11 +287,11 @@ final class DownloadsViewModel {
             }
 
         let linkedHashes = Set(queueItems.compactMap { item -> String? in
-            guard case .arrQueue(_, _, let linkedTorrent, _) = item else { return nil }
+            guard case .arrQueue(_, _, let linkedTorrent, _, _) = item else { return nil }
             return linkedTorrent?.hash.lowercased()
         })
         let linkedSABIDs = Set(queueItems.compactMap { item -> String? in
-            guard case .arrQueue(_, _, _, let linkedSABJob) = item else { return nil }
+            guard case .arrQueue(_, _, _, let linkedSABJob, _) = item else { return nil }
             return linkedSABJob?.id.lowercased()
         })
 
@@ -300,7 +307,7 @@ final class DownloadsViewModel {
     /// and counted by the tab-bar accessory.
     private static func issueItems(_ matched: MatchedDownloads) -> [DownloadListItem] {
         let queueIssues = matched.queueItems.filter { item in
-            guard case .arrQueue(let record, _, _, _) = item else { return false }
+            guard case .arrQueue(let record, _, _, _, _) = item else { return false }
             return record.isImportIssueQueueItem
         }
         let torrentIssues = matched.unmatchedTorrents
@@ -321,9 +328,27 @@ final class DownloadsViewModel {
     }
 
     private func arrHistoryItems(serviceManager: ArrServiceManager) -> [HistoryItem] {
-        let sonarr = serviceManager.sonarrHistory.map { HistoryItem(record: $0, source: .sonarr) }
-        let radarr = serviceManager.radarrHistory.map { HistoryItem(record: $0, source: .radarr) }
+        let sonarr = historyItems(serviceManager.sonarrHistory, serviceManager: serviceManager)
+        let radarr = historyItems(serviceManager.radarrHistory, serviceManager: serviceManager)
         return (sonarr + radarr).sorted { $0.sortDate > $1.sortDate }
+    }
+
+    /// History is one merged, date-sorted list across both services and both of
+    /// their instances, so a row has to say which server imported or grabbed the
+    /// release — otherwise an HD grab and a 4K grab of the same title are two
+    /// identical-looking lines.
+    private func historyItems(
+        _ records: [ArrInstanced<ArrHistoryRecord>],
+        serviceManager: ArrServiceManager
+    ) -> [HistoryItem] {
+        records.map { record in
+            HistoryItem(
+                record: record.value,
+                source: record.instance.serviceType,
+                instance: record.instance,
+                showsInstance: serviceManager.showsInstanceProvenance(for: record.instance.serviceType)
+            )
+        }
     }
 
     private static func isActive(_ item: ArrQueueItem) -> Bool {
@@ -386,7 +411,7 @@ final class DownloadsViewModel {
     }
 
     private static func queueSortRank(_ item: DownloadListItem) -> Double {
-        guard case .arrQueue(let record, _, _, _) = item else { return .greatestFiniteMagnitude }
+        guard case .arrQueue(let record, _, _, _, _) = item else { return .greatestFiniteMagnitude }
         return record.sizeleft ?? .greatestFiniteMagnitude
     }
 }

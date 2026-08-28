@@ -142,3 +142,78 @@ nonisolated extension Array where Element: ArrInstanceScoped {
         map { $0.stamped(with: instanceID) }
     }
 }
+
+// MARK: - Pairing a value with the server it came from
+
+/// A value together with the server that produced it.
+///
+/// Used for everything the *arr APIs return that isn't a merged library item:
+/// queue rows, history, health checks, root folders, download clients, backups,
+/// scheduled tasks. Those are per-server facts, and the alternative — stamping an
+/// `instanceID` onto each wire model — risks encoding Trawl's bookkeeping back to
+/// a server on the next PUT. Wrapping keeps the wire models exactly as the API
+/// defines them and makes provenance impossible to drop by accident: a caller
+/// that wants the value has to acknowledge the instance to reach it.
+nonisolated struct ArrInstanced<Value: Sendable>: Identifiable, Sendable {
+    let instance: ArrInstanceRef
+    let value: Value
+
+    /// Unique across instances even when two servers hand out the same row ID.
+    var id: String { "\(instance.id.uuidString):\(elementID)" }
+    private let elementID: String
+
+    init(_ value: Value, on instance: ArrInstanceRef, elementID: String) {
+        self.value = value
+        self.instance = instance
+        self.elementID = elementID
+    }
+}
+
+nonisolated extension ArrInstanced where Value: Identifiable {
+    init(_ value: Value, on instance: ArrInstanceRef) {
+        self.init(value, on: instance, elementID: String(describing: value.id))
+    }
+}
+
+nonisolated extension Array where Element: Identifiable & Sendable {
+    /// Tags every element of one server's response with that server.
+    func instanced(on instance: ArrInstanceRef) -> [ArrInstanced<Element>] {
+        map { ArrInstanced($0, on: instance) }
+    }
+}
+
+#if DEBUG
+nonisolated extension ArrInstanceRef {
+    /// A stable stand-in server for previews and fixtures.
+    ///
+    /// The UUID is derived from the service and position rather than generated,
+    /// so a preview that rebuilds its body doesn't hand SwiftUI a new identity for
+    /// the same row every time it re-renders.
+    static func preview(
+        _ serviceType: ArrServiceType,
+        ordinal: Int = 0,
+        displayName: String? = nil
+    ) -> ArrInstanceRef {
+        let name = displayName ?? (ordinal == 0 ? "\(serviceType.displayName) HD" : "4K \(serviceType.displayName)")
+        var bytes = [UInt8](repeating: 0, count: 16)
+        bytes[0] = UInt8(truncatingIfNeeded: serviceType.rawValue.hashValue)
+        bytes[15] = UInt8(truncatingIfNeeded: ordinal + 1)
+        for index in 1..<15 { bytes[index] = UInt8(index) }
+        let uuid = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
+                               bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11],
+                               bytes[12], bytes[13], bytes[14], bytes[15]))
+        return ArrInstanceRef(
+            id: uuid,
+            serviceType: serviceType,
+            displayName: name,
+            ordinal: ordinal,
+            shortLabel: badgeLabel(for: name, serviceType: serviceType)
+        )
+    }
+
+    /// The HD/4K pair, as the blended library expects to find them.
+    static func previewPair(_ serviceType: ArrServiceType) -> [ArrInstanceRef] {
+        [preview(serviceType, ordinal: 0), preview(serviceType, ordinal: 1)]
+    }
+}
+#endif

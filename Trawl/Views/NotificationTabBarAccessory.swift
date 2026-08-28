@@ -1715,7 +1715,7 @@ private extension DownloadListItem {
     var attentionTitle: String {
         switch self {
         case .torrent(let torrent): torrent.name
-        case .arrQueue(let item, _, _, _): item.title ?? "Untitled release"
+        case .arrQueue(let item, _, _, _, _): item.title ?? "Untitled release"
         case .arrHistory(let item): item.record.sourceTitle ?? "Untitled release"
         case .sab(let job): job.name
         }
@@ -1726,7 +1726,7 @@ private extension DownloadListItem {
         switch self {
         case .torrent(let torrent):
             parts = [ServiceIdentity.qbittorrent.displayName, torrent.state.displayName]
-        case .arrQueue(let item, let source, _, let linkedSABJob):
+        case .arrQueue(let item, let source, _, let linkedSABJob, _):
             parts = [
                 source.displayName,
                 item.primaryStatusMessage ?? linkedSABJob?.failureMessage ?? item.status
@@ -1742,7 +1742,7 @@ private extension DownloadListItem {
     var attentionSystemImage: String {
         switch self {
         case .torrent: ServiceIdentity.qbittorrent.systemImage
-        case .arrQueue(_, let source, _, _): source == .radarr
+        case .arrQueue(_, let source, _, _, _): source == .radarr
             ? ServiceIdentity.radarr.systemImage
             : ServiceIdentity.sonarr.systemImage
         case .arrHistory(let item): item.source == .radarr

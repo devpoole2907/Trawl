@@ -6,7 +6,10 @@ enum DownloadListItem: Identifiable {
         item: ArrQueueItem,
         source: ArrServiceType,
         linkedTorrent: Torrent?,
-        linkedSABJob: SABnzbdJob?
+        linkedSABJob: SABnzbdJob?,
+        /// The server fetching this download. `nil` when only one instance of the
+        /// service is configured, where naming it would add nothing to the row.
+        instance: ArrInstanceRef?
     )
     case arrHistory(HistoryItem)
     case sab(SABnzbdJob)
@@ -15,8 +18,10 @@ enum DownloadListItem: Identifiable {
         switch self {
         case .torrent(let torrent):
             "qbittorrent-\(torrent.hash)"
-        case .arrQueue(let item, let source, _, _):
-            "arr-queue-\(source.rawValue)-\(item.id)"
+        case .arrQueue(let item, let source, _, _, let instance):
+            // Both instances of a service number their queue rows from the same
+            // sequence, so the service alone is not a unique key across a pair.
+            "arr-queue-\(instance?.id.uuidString ?? source.rawValue)-\(item.id)"
         case .arrHistory(let item):
             "arr-history-\(item.id)"
         case .sab(let job):
@@ -30,7 +35,7 @@ enum DownloadListItem: Identifiable {
             [torrent.name, torrent.category, torrent.state.displayName]
                 .compactMap { $0 }
                 .joined(separator: " ")
-        case .arrQueue(let item, let source, _, let linkedSABJob):
+        case .arrQueue(let item, let source, _, let linkedSABJob, _):
             [
                 item.title,
                 source.rawValue,
@@ -77,7 +82,7 @@ enum DownloadListItem: Identifiable {
                 status: torrent.state.displayName
             )
 
-        case .arrQueue(let item, let source, let linkedTorrent, let linkedSABJob):
+        case .arrQueue(let item, let source, let linkedTorrent, let linkedSABJob, _):
             let torrentDate = linkedTorrent.flatMap { torrent in
                 torrent.addedOn > 0
                     ? Date(timeIntervalSince1970: TimeInterval(torrent.addedOn))

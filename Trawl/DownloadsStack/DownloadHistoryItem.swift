@@ -3,6 +3,15 @@ import SwiftUI
 struct HistoryItem: Identifiable {
     let record: ArrHistoryRecord
     let source: ArrServiceType
+    /// The server this history row came from. Always populated for live rows —
+    /// it is part of the row's identity, since both instances of a service number
+    /// their history from the same sequence.
+    var instance: ArrInstanceRef?
+    /// Whether to *show* that server. False when only one instance of the service
+    /// is configured, where the badge would label every row with the only server
+    /// there is. Kept separate from `instance` so identity never depends on a
+    /// presentation decision.
+    var showsInstance: Bool = false
     var indexerName: String?
 
     /// Parsed once at construction rather than on every read. This is the sort key
@@ -10,14 +19,24 @@ struct HistoryItem: Identifiable {
     /// twice per comparison — thousands of parses per sort.
     let sortDate: Date
 
-    init(record: ArrHistoryRecord, source: ArrServiceType, indexerName: String? = nil) {
+    init(
+        record: ArrHistoryRecord,
+        source: ArrServiceType,
+        instance: ArrInstanceRef? = nil,
+        showsInstance: Bool = false,
+        indexerName: String? = nil
+    ) {
         self.record = record
         self.source = source
+        self.instance = instance
+        self.showsInstance = showsInstance
         self.indexerName = indexerName
         self.sortDate = HistoryDateParser.parse(record.date) ?? .distantPast
     }
 
-    var id: String { "\(source.rawValue)-\(record.id)" }
+    // Both instances of a service number their history rows from the same
+    // sequence, so the service alone is not unique across an HD/4K pair.
+    var id: String { "\(instance?.id.uuidString ?? source.rawValue)-\(record.id)" }
 
     var dayKey: String {
         sortDate.formatted(date: .abbreviated, time: .omitted)
@@ -85,6 +104,13 @@ struct HistoryRow: View {
         var chips = [
             ArrReleaseInfoChip(eventLabel, color: iconColor, isProminent: true)
         ]
+
+        if item.showsInstance, let instance = item.instance {
+            chips.append(ArrReleaseInfoChip(
+                instance.shortLabel,
+                color: ArrInstanceBadge.tint(forOrdinal: instance.ordinal)
+            ))
+        }
 
         if let quality = item.record.quality?.quality?.name, !quality.isEmpty {
             chips.append(ArrReleaseInfoChip(quality, color: .primary))
