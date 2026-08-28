@@ -291,3 +291,93 @@ extension ArrServiceManager {
         storedProfiles.first { $0.id == id }?.displayName
     }
 }
+
+// MARK: - Admin fan-out
+
+extension ArrServiceManager {
+
+    /// Every connected Sonarr and Radarr instance, paired with its identity, in
+    /// service then configured order.
+    ///
+    /// This is the list the per-server admin screens iterate. They used to read
+    /// "the Sonarr client" and "the Radarr client" and present two sections; they
+    /// now present one section per *server*, because root folders, download
+    /// clients, naming formats and scheduled tasks are configured per server and a
+    /// pair's two halves rarely agree.
+    var visibleArrInstances: [(ref: ArrInstanceRef, client: any SharedArrClient)] {
+        visibleSonarr.map { (ref: $0.ref, client: $0.client as any SharedArrClient) }
+            + visibleRadarr.map { (ref: $0.ref, client: $0.client as any SharedArrClient) }
+    }
+
+    /// Runs one read against every visible Sonarr and Radarr, tagging each result
+    /// with the server it came from and collecting per-server failures rather than
+    /// failing the whole screen.
+    func fanOutAcrossArrInstances<T: Identifiable & Sendable>(
+        _ fetch: @Sendable (any SharedArrClient) async throws -> [T]
+    ) async -> (items: [ArrInstanced<T>], errors: [String]) {
+        var items: [ArrInstanced<T>] = []
+        var errors: [String] = []
+        for (ref, client) in visibleArrInstances {
+            do {
+                items += try await fetch(client).instanced(on: ref)
+            } catch {
+                errors.append("\(ref.displayName): \(error.localizedDescription)")
+            }
+        }
+        return (items, errors)
+    }
+
+    /// The same fan-out for reads that return a single value per server rather
+    /// than a list — naming config, media management, host config.
+    func fanOutSingleAcrossArrInstances<T: Sendable>(
+        _ fetch: @Sendable (any SharedArrClient) async throws -> T
+    ) async -> (items: [(ref: ArrInstanceRef, value: T)], errors: [String]) {
+        var items: [(ref: ArrInstanceRef, value: T)] = []
+        var errors: [String] = []
+        for (ref, client) in visibleArrInstances {
+            do {
+                items.append((ref: ref, value: try await fetch(client)))
+            } catch {
+                errors.append("\(ref.displayName): \(error.localizedDescription)")
+            }
+        }
+        return (items, errors)
+    }
+}
+
+// MARK: - Per-server configuration
+
+extension ArrServiceManager {
+
+    /// Root folders for every visible Sonarr and Radarr, tagged with the server
+    /// that owns them.
+    ///
+    /// Already cached per instance by `connectService`, so this is a regrouping
+    /// rather than a fetch. The screens that read it used to show "the Sonarr
+    /// root folders", which meant one server's — and an HD/4K pair almost never
+    /// shares a root folder, so the other server's were simply invisible.
+    var rootFoldersByInstance: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
+        configurationByInstance({ $0.rootFolders }, { $0.rootFolders })
+    }
+
+    var qualityProfilesByInstance: [(ref: ArrInstanceRef, values: [ArrQualityProfile])] {
+        configurationByInstance({ $0.qualityProfiles }, { $0.qualityProfiles })
+    }
+
+    var tagsByInstance: [(ref: ArrInstanceRef, values: [ArrTag])] {
+        configurationByInstance({ $0.tags }, { $0.tags })
+    }
+
+    private func configurationByInstance<T>(
+        _ sonarrValues: (SonarrClientEntry) -> [T],
+        _ radarrValues: (RadarrClientEntry) -> [T]
+    ) -> [(ref: ArrInstanceRef, values: [T])] {
+        let sonarrByID = Dictionary(uniqueKeysWithValues: sonarrInstances.map { ($0.id, $0) })
+        let radarrByID = Dictionary(uniqueKeysWithValues: radarrInstances.map { ($0.id, $0) })
+        return visibleSonarr.compactMap { pair in
+            sonarrByID[pair.ref.id].map { (ref: pair.ref, values: sonarrValues($0)) }
+        } + visibleRadarr.compactMap { pair in
+            radarrByID[pair.ref.id].map { (ref: pair.ref, values: radarrValues($0)) }
+        }
+    }
+}

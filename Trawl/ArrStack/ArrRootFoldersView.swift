@@ -5,7 +5,7 @@ struct ArrRootFoldersView: View {
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
     @State private var showingAddSheet = false
-    @State private var pendingDelete: (folder: ArrRootFolder, service: ArrServiceType)?
+    @State private var pendingDelete: (folder: ArrRootFolder, instance: ArrInstanceRef)?
     @State private var isDeleting = false
     @State private var showSettings = false
 
@@ -26,41 +26,20 @@ struct ArrRootFoldersView: View {
                     title: "Services Unreachable",
                     message: "Unable to reach your configured Sonarr or Radarr servers."
                 )
-            } else if sonarrFolders.isEmpty && radarrFolders.isEmpty {
+            } else if foldersByInstance.allSatisfy({ $0.values.isEmpty }) {
                 ContentUnavailableView(
                     "No Root Folders",
                     systemImage: "folder",
                     description: Text("No root folders are configured in Sonarr or Radarr.")
                 )
             } else {
+                // One section per server rather than per service. Root folders are
+                // per-server configuration, and an HD/4K pair almost never shares
+                // one — grouping by service showed a single server's folders and
+                // left the other's invisible.
                 List {
-                    if !sonarrFolders.isEmpty {
-                        Section("Sonarr") {
-                            ForEach(sonarrFolders) { folder in
-                                rootFolderRow(folder, color: ServiceIdentity.sonarr.brandColor)
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button(role: .destructive) {
-                                            pendingDelete = (folder, .sonarr)
-                                        } label: {
-                                            Label("Remove", systemImage: "trash")
-                                        }
-                                    }
-                            }
-                        }
-                    }
-                    if !radarrFolders.isEmpty {
-                        Section("Radarr") {
-                            ForEach(radarrFolders) { folder in
-                                rootFolderRow(folder, color: ServiceIdentity.radarr.brandColor)
-                                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                        Button(role: .destructive) {
-                                            pendingDelete = (folder, .radarr)
-                                        } label: {
-                                            Label("Remove", systemImage: "trash")
-                                        }
-                                    }
-                            }
-                        }
+                    ForEach(populatedGroups, id: \.ref.id) { group in
+                        instanceSection(group)
                     }
                 }
                 #if os(iOS)
@@ -102,8 +81,8 @@ struct ArrRootFoldersView: View {
             }
         }
         .sheet(isPresented: $showingAddSheet) {
-            AddRootFolderSheet { path, service in
-                await addFolder(path: path, service: service)
+            AddRootFolderSheet { path, instance in
+                await addFolder(path: path, instance: instance)
             }
             .environment(serviceManager)
             #if os(iOS)
@@ -126,7 +105,7 @@ struct ArrRootFoldersView: View {
                 Button("Remove", role: .destructive) {
                     let capture = pending
                     pendingDelete = nil
-                    Task { await deleteFolder(capture.folder, service: capture.service) }
+                    Task { await deleteFolder(capture.folder, on: capture.instance) }
                 }
                 Button("Cancel", role: .cancel) {
                     pendingDelete = nil
@@ -134,7 +113,7 @@ struct ArrRootFoldersView: View {
             }
         } message: {
             if let pending = pendingDelete {
-                Text("Remove \"\(pending.folder.path)\" from \(pending.service.displayName)? Files will not be deleted.")
+                Text("Remove \"\(pending.folder.path)\" from \(pending.instance.displayName)? Files will not be deleted.")
             }
         }
     }
@@ -166,12 +145,37 @@ struct ArrRootFoldersView: View {
         return .radarr
     }
 
-    private var sonarrFolders: [ArrRootFolder] {
-        serviceManager.sonarrRootFolders
+    private var foldersByInstance: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
+        serviceManager.rootFoldersByInstance
     }
 
-    private var radarrFolders: [ArrRootFolder] {
-        serviceManager.radarrRootFolders
+    private var populatedGroups: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
+        foldersByInstance.filter { !$0.values.isEmpty }
+    }
+
+    @ViewBuilder
+    private func instanceSection(_ group: (ref: ArrInstanceRef, values: [ArrRootFolder])) -> some View {
+        Section(sectionTitle(for: group.ref)) {
+            ForEach(group.values) { folder in
+                rootFolderRow(folder, color: group.ref.serviceType.serviceIdentity.brandColor)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            pendingDelete = (folder, group.ref)
+                        } label: {
+                            Label("Remove", systemImage: "trash")
+                        }
+                    }
+            }
+        }
+    }
+
+    /// "Sonarr" with one server of that type, "Sonarr — 4K" with two, so the
+    /// section header answers which server without the user counting rows.
+    private func sectionTitle(for ref: ArrInstanceRef) -> String {
+        guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
+            return ref.serviceType.displayName
+        }
+        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
     }
 
     private func refreshRootFolders() async {
@@ -204,20 +208,15 @@ struct ArrRootFoldersView: View {
         .opacity(isDeleting ? 0.5 : 1)
     }
 
-    private func addFolder(path: String, service: ArrServiceType) async -> Bool {
+    private func addFolder(path: String, instance: ArrInstanceRef) async -> Bool {
+        guard let client = serviceManager.sharedClient(for: instance) else { return false }
         do {
-            switch service {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return false }
-                _ = try await client.createRootFolder(path: path)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { return false }
-                _ = try await client.createRootFolder(path: path)
-            case .prowlarr, .bazarr:
-                return false
-            }
+            _ = try await client.createRootFolder(path: path)
             await serviceManager.refreshConfiguration()
-            notificationCenter.showSuccess(title: "Root Folder Added", message: path)
+            notificationCenter.showSuccess(
+                title: "Root Folder Added",
+                message: "\(path) on \(instance.displayName)"
+            )
             return true
         } catch {
             notificationCenter.showError(title: "Failed to Add", message: error.localizedDescription)
@@ -225,22 +224,20 @@ struct ArrRootFoldersView: View {
         }
     }
 
-    private func deleteFolder(_ folder: ArrRootFolder, service: ArrServiceType) async {
+    /// Routed to the server whose section the row was in. Both instances number
+    /// their root folders from the same sequence, so sending the delete anywhere
+    /// else removes a different folder.
+    private func deleteFolder(_ folder: ArrRootFolder, on instance: ArrInstanceRef) async {
+        guard let client = serviceManager.sharedClient(for: instance) else { return }
         isDeleting = true
         defer { isDeleting = false }
         do {
-            switch service {
-            case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
-                try await client.deleteRootFolder(id: folder.id)
-            case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
-                try await client.deleteRootFolder(id: folder.id)
-            case .prowlarr, .bazarr:
-                return
-            }
+            try await client.deleteRootFolder(id: folder.id)
             await serviceManager.refreshConfiguration()
-            notificationCenter.showSuccess(title: "Root Folder Removed", message: folder.path)
+            notificationCenter.showSuccess(
+                title: "Root Folder Removed",
+                message: "\(folder.path) on \(instance.displayName)"
+            )
         } catch {
             notificationCenter.showError(title: "Failed to Remove", message: error.localizedDescription)
         }
@@ -277,18 +274,28 @@ private struct AddRootFolderSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(ArrServiceManager.self) private var serviceManager
 
-    let onAdd: @Sendable (String, ArrServiceType) async -> Bool
+    let onAdd: @Sendable (String, ArrInstanceRef) async -> Bool
 
     @State private var path = ""
-    @State private var selectedService: ArrServiceType = .sonarr
+    @State private var selectedInstanceID: UUID?
     @State private var isSaving = false
     @State private var showingBrowser = false
 
-    private var availableServices: [ArrServiceType] {
-        var services: [ArrServiceType] = []
-        if serviceManager.sonarrConnected { services.append(.sonarr) }
-        if serviceManager.radarrConnected { services.append(.radarr) }
-        return services
+    /// Every connected server, since a root folder is added to one server, not to
+    /// a service. With a pair configured this is four options, not two.
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref)
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
+    private func optionTitle(for ref: ArrInstanceRef) -> String {
+        guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
+            return ref.serviceType.displayName
+        }
+        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
     }
 
     private var canSave: Bool {
@@ -304,23 +311,26 @@ private struct AddRootFolderSheet: View {
             onConfirm: {
                 let trimmed = path.trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !trimmed.isEmpty else { return }
+                guard let instance = selectedInstance else { return }
                 isSaving = true
                 Task {
-                    let success = await onAdd(trimmed, selectedService)
+                    let success = await onAdd(trimmed, instance)
                     isSaving = false
                     if success { dismiss() }
                 }
             }
         ) {
             Form {
-                if availableServices.count > 1 {
+                // Picks a server, not a service: with an HD/4K pair configured
+                // there are four possible destinations and they do not share
+                // root folders.
+                if availableInstances.count > 1 {
                     Section {
-                        Picker("Service", selection: $selectedService) {
-                            ForEach(availableServices, id: \.self) { service in
-                                Text(service.displayName).tag(service)
+                        Picker("Server", selection: $selectedInstanceID) {
+                            ForEach(availableInstances) { ref in
+                                Text(optionTitle(for: ref)).tag(Optional(ref.id))
                             }
                         }
-                        .pickerStyle(.segmented)
                     }
                 }
 
@@ -343,19 +353,19 @@ private struct AddRootFolderSheet: View {
                 } header: {
                     Text("Path")
                 } footer: {
-                    Text("Enter or browse to the full path on your \(selectedService.displayName) server or container.")
+                    Text("Enter or browse to the full path on \(selectedInstance?.displayName ?? "your server") or its container.")
                 }
             }
             .onAppear {
-                if let first = availableServices.first {
-                    selectedService = first
+                if selectedInstanceID == nil {
+                    selectedInstanceID = availableInstances.first?.id
                 }
             }
             .sheet(isPresented: $showingBrowser) {
                 if let source = browserSource {
                     NavigationStack {
                         RemotePathBrowserView(
-                            title: "\(selectedService.displayName) Folders",
+                            title: "\(selectedInstance?.displayName ?? "Server") Folders",
                             source: source,
                             initialPath: path,
                             onClose: { showingBrowser = false }
@@ -368,17 +378,12 @@ private struct AddRootFolderSheet: View {
         }
     }
 
+    /// Browses the filesystem of the selected server — the paths only that
+    /// server can see.
     private var browserSource: RemotePathBrowserSource? {
-        switch selectedService {
-        case .sonarr:
-            guard let client = serviceManager.sonarrClient else { return nil }
-            return Self.source(serviceName: "Sonarr", client: client)
-        case .radarr:
-            guard let client = serviceManager.radarrClient else { return nil }
-            return Self.source(serviceName: "Radarr", client: client)
-        case .prowlarr, .bazarr:
-            return nil
-        }
+        guard let instance = selectedInstance,
+              let client = serviceManager.sharedClient(for: instance) else { return nil }
+        return Self.source(serviceName: instance.displayName, client: client)
     }
 
     private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {

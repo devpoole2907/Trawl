@@ -1306,14 +1306,17 @@ struct ArrDiskSpace: Codable, Identifiable, Sendable {
 
 // MARK: - Disk Space Snapshot (UI model)
 
-struct ArrDiskSpaceSnapshot: Identifiable, Sendable {
+nonisolated struct ArrDiskSpaceSnapshot: Identifiable, Sendable {
     let serviceType: ArrServiceType
     let path: String
     let label: String?
     let freeSpace: Int64?
     let totalSpace: Int64?
+    /// The server reporting this volume. Two servers on the same host report the
+    /// same paths, so without it their rows collide into one.
+    var instance: ArrInstanceRef?
 
-    var id: String { "\(serviceType.rawValue)-\(path)" }
+    var id: String { "\(instance?.id.uuidString ?? serviceType.rawValue)-\(path)" }
 }
 
 // MARK: - Update Info

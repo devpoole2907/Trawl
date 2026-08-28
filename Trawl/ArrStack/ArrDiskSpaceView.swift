@@ -40,13 +40,12 @@ struct ArrDiskSpaceView: View {
                     description: Text("No disk space information is currently available from your services.")
                 )
             } else {
+                // One section per server. Two Radarr instances on the same host
+                // report the same volumes, and the point of reading this screen
+                // with a pair is seeing which server is filling which disk.
                 List {
-                    if !sonarrSnapshots.isEmpty {
-                        serviceSection(title: "Sonarr", snapshots: sonarrSnapshots)
-                    }
-
-                    if !radarrSnapshots.isEmpty {
-                        serviceSection(title: "Radarr", snapshots: radarrSnapshots)
+                    ForEach(groupedSnapshots, id: \.title) { group in
+                        serviceSection(title: group.title, snapshots: group.snapshots)
                     }
                 }
                 #if os(iOS)
@@ -88,47 +87,60 @@ struct ArrDiskSpaceView: View {
     private var reloadKey: String {
         // Active Sonarr/Radarr instance IDs are part of the key so switching between
         // connected instances reloads disk space for the now-active instance.
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+        serviceManager.visibleArrInstances.map(\.ref.id.uuidString).joined(separator: "|")
     }
 
-    private var sonarrSnapshots: [ArrDiskSpaceSnapshot] {
-        snapshots.filter { $0.serviceType == .sonarr }
+    /// Snapshots grouped by the server that reported them, in configured order.
+    private var groupedSnapshots: [(title: String, snapshots: [ArrDiskSpaceSnapshot])] {
+        var groups: [(title: String, snapshots: [ArrDiskSpaceSnapshot])] = []
+        for ref in serviceManager.visibleArrInstances.map(\.ref) {
+            let matching = snapshots.filter { $0.instance?.id == ref.id }
+            guard !matching.isEmpty else { continue }
+            groups.append((title: sectionTitle(for: ref), snapshots: matching))
+        }
+        // Preview and fixture snapshots carry no server; keep them visible under
+        // their service name rather than dropping them off the screen.
+        for serviceType in [ArrServiceType.sonarr, .radarr] {
+            let orphans = snapshots.filter { $0.instance == nil && $0.serviceType == serviceType }
+            if !orphans.isEmpty {
+                groups.append((title: serviceType.displayName, snapshots: orphans))
+            }
+        }
+        return groups
     }
 
-    private var radarrSnapshots: [ArrDiskSpaceSnapshot] {
-        snapshots.filter { $0.serviceType == .radarr }
+    private func sectionTitle(for ref: ArrInstanceRef) -> String {
+        guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
+            return ref.serviceType.displayName
+        }
+        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
     }
 
     private func loadDiskSpace() async {
         isLoading = true
-
-        async let sonarrDisks: [ArrDiskSpaceSnapshot] = loadDiskSpace(
-            from: serviceManager.sonarrClient,
-            serviceType: .sonarr
-        )
-        async let radarrDisks: [ArrDiskSpaceSnapshot] = loadDiskSpace(
-            from: serviceManager.radarrClient,
-            serviceType: .radarr
-        )
-
-        snapshots = await (sonarrDisks + radarrDisks)
+        var all: [ArrDiskSpaceSnapshot] = []
+        for (ref, client) in serviceManager.visibleArrInstances {
+            all += await loadDiskSpace(from: client, instance: ref)
+        }
+        snapshots = all
         isLoading = false
     }
 
     private func loadDiskSpace(
-        from client: ArrDiskSpaceViewProviding?,
-        serviceType: ArrServiceType
+        from client: (any SharedArrClient)?,
+        instance: ArrInstanceRef
     ) async -> [ArrDiskSpaceSnapshot] {
         guard let client else { return [] }
 
         do {
             return try await client.getDiskSpace().map {
                 ArrDiskSpaceSnapshot(
-                    serviceType: serviceType,
+                    serviceType: instance.serviceType,
                     path: $0.path ?? "Unknown",
                     label: $0.label,
                     freeSpace: $0.freeSpace,
-                    totalSpace: $0.totalSpace
+                    totalSpace: $0.totalSpace,
+                    instance: instance
                 )
             }
         } catch {
