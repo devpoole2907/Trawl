@@ -78,13 +78,7 @@ struct ArrInstanceBadgeRow: View {
 
 #if DEBUG
 #Preview("Badges") {
-    let refs = ArrInstanceRef.make(
-        from: [
-            (id: UUID(), displayName: "Radarr HD"),
-            (id: UUID(), displayName: "4K Radarr")
-        ],
-        serviceType: .radarr
-    )
+    let refs = ArrInstanceRef.previewPair(.radarr)
     return VStack(alignment: .leading, spacing: 16) {
         ArrInstanceBadgeRow(refs: refs)
         ArrInstanceBadgeRow(refs: refs, style: .prominent)

@@ -550,8 +550,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
             id: UUID(uuid: (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)),
             serviceType: .prowlarr,
             displayName: "",
-            ordinal: 0,
-            shortLabel: ""
+            tier: .hd
         )
     }
 

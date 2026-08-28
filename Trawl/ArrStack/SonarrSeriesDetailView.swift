@@ -648,10 +648,18 @@ struct SonarrSeriesDetailView: View {
                     let total = copy.statistics?.episodeCount ?? 0
                     statCell(value: "\(files)/\(total)", label: "\(ref.shortLabel) Episodes")
                 }
-                if totalSeriesSizeOnDisk > 0 {
-                    cardDivider
-                    statCell(value: ByteFormatter.format(bytes: totalSeriesSizeOnDisk), label: "On Disk")
+                cardDivider
+                VStack(spacing: 4) {
+                    ArrAvailabilityPill(
+                        availableTiers: availableTiers,
+                        showsTiers: !instanceRefs.isEmpty,
+                        unavailableStatus: "Not downloaded"
+                    )
+                    Text("Library")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
                 }
+                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -678,6 +686,13 @@ struct SonarrSeriesDetailView: View {
             .padding(.vertical, 12)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         }
+    }
+
+    /// A series counts as available on a server once that server holds any
+    /// episode file — the 4K library has started it, and the per-server episode
+    /// cells beside the pill carry how far along each one is.
+    private var availableTiers: [ArrQualityTier] {
+        entry?.availableTiers(from: instanceRefs) { ($0.statistics?.episodeFileCount ?? 0) > 0 } ?? []
     }
 
     /// Summed across servers: a series held in both HD and 4K is using both.

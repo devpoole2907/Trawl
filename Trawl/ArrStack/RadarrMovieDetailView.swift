@@ -686,10 +686,13 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Stats card
 
-    /// Runtime is metadata and identical on both servers; disk usage and download
-    /// status are not. When a title is on a pair, each server gets its own "On
-    /// Disk" cell, because "68 GB" for a film that is 68 GB in 4K and 14 GB in HD
-    /// describes neither server.
+    /// Runtime is metadata and identical on both servers; disk usage is not. On a
+    /// pair each server gets its own "On Disk" cell, because "68 GB" for a film
+    /// that is 68 GB in 4K and 14 GB in HD describes neither server.
+    ///
+    /// Status is an availability pill rather than a stat cell — it is the one
+    /// thing here that answers "do I have this, and in what", so it reads as a
+    /// state and not as another number.
     private func statsCard(_ movie: RadarrMovie) -> some View {
         let perInstance = perInstanceSizes
         return HStack(spacing: 0) {
@@ -709,11 +712,25 @@ struct RadarrMovieDetailView: View {
                 statCell(value: ByteFormatter.format(bytes: size), label: "On Disk")
                 cardDivider
             }
-            statCell(value: movie.displayStatus, label: "Status")
+            VStack(spacing: 4) {
+                ArrAvailabilityPill(
+                    availableTiers: availableTiers,
+                    showsTiers: !instanceRefs.isEmpty,
+                    unavailableStatus: movie.displayStatus
+                )
+                Text("Status")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    private var availableTiers: [ArrQualityTier] {
+        entry?.availableTiers(from: instanceRefs) { $0.hasFile == true } ?? []
     }
 
     private var perInstanceSizes: [(ref: ArrInstanceRef, size: Int64)] {

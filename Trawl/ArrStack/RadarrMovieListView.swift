@@ -303,15 +303,14 @@ struct RadarrMovieRow: View {
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 6) {
-                    Image(systemName: hasFileEverywhere ? "checkmark.circle.fill" : "clock")
-                        .font(.caption2)
-                        .foregroundStyle(hasFileEverywhere ? .green : .orange)
-                    Text(statusText)
-                        .font(.caption2)
-                        .foregroundStyle(hasFileEverywhere ? .green : .secondary)
+                    ArrAvailabilityPill(
+                        availableTiers: availableTiers,
+                        showsTiers: !instances.isEmpty,
+                        unavailableStatus: movie.displayStatus
+                    )
 
                     if totalSizeOnDisk > 0 {
-                        Text("• \(ByteFormatter.format(bytes: totalSizeOnDisk))")
+                        Text(ByteFormatter.format(bytes: totalSizeOnDisk))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -343,27 +342,15 @@ struct RadarrMovieRow: View {
         .padding(.vertical, 4)
     }
 
-    private var hasFileEverywhere: Bool {
-        entry.copies.allSatisfy { $0.hasFile == true }
+    /// The tiers that actually hold the film — the whole point of a pair.
+    private var availableTiers: [ArrQualityTier] {
+        entry.availableTiers(from: instances) { $0.hasFile == true }
     }
 
     /// Size summed across servers: a film held in both HD and 4K really is using
     /// both, and reporting one copy's size would understate it.
     private var totalSizeOnDisk: Int64 {
         entry.copies.reduce(Int64(0)) { $0 + ($1.sizeOnDisk ?? 0) }
-    }
-
-    /// Says where a title actually is when the two servers disagree. "Downloaded"
-    /// on a row that is only downloaded on one of two servers would be a lie, and
-    /// it is precisely the case an HD/4K setup exists to see.
-    private var statusText: String {
-        guard entry.isOnMultipleInstances, instances.count == entry.copies.count else {
-            return movie.displayStatus
-        }
-        let downloaded = zip(entry.copies, instances).filter { $0.0.hasFile == true }
-        if downloaded.count == entry.copies.count { return movie.displayStatus }
-        if downloaded.isEmpty { return movie.displayStatus }
-        return "Downloaded on \(downloaded.map(\.1.shortLabel).joined(separator: ", ")) only"
     }
 
     private var metadataItems: [String] {

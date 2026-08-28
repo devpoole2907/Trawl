@@ -12,103 +12,53 @@ nonisolated struct ArrInstanceRef: Identifiable, Hashable, Sendable {
     /// The `ArrServiceProfile` ID. Stable across edits to the profile.
     let id: UUID
     let serviceType: ArrServiceType
-    /// The profile's full name, as the user typed it in setup.
+    /// The profile's full name, as the user typed it in setup. Used in menus and
+    /// confirmations, where there is room for it.
     let displayName: String
-    /// Position in the user's configured order, 0-based. Drives badge colour and
-    /// the order copies appear inside a merged library entry, so both stay stable
-    /// as long as the user doesn't reorder their servers.
-    let ordinal: Int
-    /// The badge text: `displayName` with the service's own name removed, so
-    /// "4K Radarr" badges as "4K". Disambiguated against the other instance of
-    /// the same service — see `ArrInstanceRef.make(from:)`.
-    let shortLabel: String
+    /// Which copy of the library this server holds.
+    let tier: ArrQualityTier
+
+    /// The badge text — "HD" or "4K".
+    ///
+    /// Taken from the declared tier rather than parsed out of `displayName`. The
+    /// name is whatever the user felt like typing; the tier is the thing the
+    /// blended library is actually organised around.
+    var shortLabel: String { tier.label }
+
+    /// Position in the badge row and the palette. HD first, 4K second, always —
+    /// so "the blue one" is the same server on every screen, whatever order the
+    /// two were added in.
+    var ordinal: Int {
+        switch tier {
+        case .hd: 0
+        case .uhd: 1
+        }
+    }
 }
 
 nonisolated extension ArrInstanceRef {
-    /// The most instances of one service type Trawl will connect. The product
-    /// shape is an HD/4K pair; a third instance has no place to go in a merged
-    /// library entry's badge row, and every "which server owns this" affordance
-    /// is designed around a binary choice.
-    static let maxInstancesPerServiceType = 2
-
-    /// Builds refs for one service type's profiles, in the given order, deriving
-    /// a short badge label for each and disambiguating collisions.
+    /// The most instances of one service type Trawl will connect.
     ///
-    /// - Parameters:
-    ///   - profiles: `(id, displayName)` pairs, already ordered and already
-    ///     limited to a single service type.
-    ///   - serviceType: the service all `profiles` belong to.
+    /// Two, because there are two tiers. The cap is a consequence of the model
+    /// rather than a rule bolted onto it: a third server would have no tier left
+    /// to hold, no badge to wear, and nowhere to sit in a merged row.
+    static let maxInstancesPerServiceType = ArrQualityTier.allCases.count
+
+    /// Builds refs for one service type's profiles, ordered HD first.
     static func make(
-        from profiles: [(id: UUID, displayName: String)],
+        from profiles: [(id: UUID, displayName: String, tier: ArrQualityTier)],
         serviceType: ArrServiceType
     ) -> [ArrInstanceRef] {
-        let rawLabels = profiles.map { badgeLabel(for: $0.displayName, serviceType: serviceType) }
-
-        // Two servers both called "Radarr" (or both "Radarr 4K") would otherwise
-        // badge identically, which is worse than no badge — it claims a
-        // distinction the label doesn't actually make. Number them instead.
-        var counts: [String: Int] = [:]
-        for label in rawLabels { counts[label.lowercased(), default: 0] += 1 }
-
-        var seen: [String: Int] = [:]
-        return profiles.enumerated().map { index, profile in
-            let raw = rawLabels[index]
-            let key = raw.lowercased()
-            let label: String
-            if counts[key, default: 0] > 1 {
-                let occurrence = (seen[key] ?? 0) + 1
-                seen[key] = occurrence
-                label = "\(raw) \(occurrence)"
-            } else {
-                label = raw
+        profiles
+            .map {
+                ArrInstanceRef(
+                    id: $0.id,
+                    serviceType: serviceType,
+                    displayName: $0.displayName,
+                    tier: $0.tier
+                )
             }
-            return ArrInstanceRef(
-                id: profile.id,
-                serviceType: serviceType,
-                displayName: profile.displayName,
-                ordinal: index,
-                shortLabel: label
-            )
-        }
-    }
-
-    /// Strips the service's own name out of a display name, so the badge carries
-    /// only what distinguishes this server from its sibling.
-    ///
-    /// "4K Radarr" → "4K", "Radarr - HD" → "HD", "radarr(2160p)" → "2160p".
-    /// A name that is *only* the service name ("Radarr") has nothing to strip and
-    /// keeps its full text, because an empty badge would be worse than a
-    /// redundant one.
-    static func badgeLabel(for displayName: String, serviceType: ArrServiceType) -> String {
-        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return serviceType.displayName }
-
-        let serviceName = serviceType.displayName
-        // Word-boundary removal only: a server called "Radarrific" keeps its name.
-        var result = ""
-        var remainder = Substring(trimmed)
-        while let range = remainder.range(of: serviceName, options: [.caseInsensitive]) {
-            let precedingOK = range.lowerBound == remainder.startIndex
-                || !remainder[remainder.index(before: range.lowerBound)].isLetter
-            let followingOK = range.upperBound == remainder.endIndex
-                || !remainder[range.upperBound].isLetter
-            if precedingOK && followingOK {
-                result += remainder[remainder.startIndex..<range.lowerBound]
-                remainder = remainder[range.upperBound...]
-            } else {
-                result += remainder[remainder.startIndex..<range.upperBound]
-                remainder = remainder[range.upperBound...]
-            }
-        }
-        result += remainder
-
-        let separators = CharacterSet(charactersIn: " -–—:_|/()[]{}·•,")
-        let stripped = result
-            .trimmingCharacters(in: separators)
-            .split(whereSeparator: { $0 == " " || $0 == "\t" })
-            .joined(separator: " ")
-
-        return stripped.isEmpty ? trimmed : stripped
+            .sorted { $0.ordinal < $1.ordinal }
     }
 }
 
@@ -186,18 +136,17 @@ nonisolated extension Array where Element: Identifiable & Sendable {
 nonisolated extension ArrInstanceRef {
     /// A stable stand-in server for previews and fixtures.
     ///
-    /// The UUID is derived from the service and position rather than generated,
-    /// so a preview that rebuilds its body doesn't hand SwiftUI a new identity for
-    /// the same row every time it re-renders.
+    /// The UUID is derived from the service and tier rather than generated, so a
+    /// preview that rebuilds its body doesn't hand SwiftUI a new identity for the
+    /// same row every time it re-renders.
     static func preview(
         _ serviceType: ArrServiceType,
-        ordinal: Int = 0,
+        tier: ArrQualityTier = .hd,
         displayName: String? = nil
     ) -> ArrInstanceRef {
-        let name = displayName ?? (ordinal == 0 ? "\(serviceType.displayName) HD" : "4K \(serviceType.displayName)")
         var bytes = [UInt8](repeating: 0, count: 16)
         bytes[0] = UInt8(truncatingIfNeeded: serviceType.rawValue.hashValue)
-        bytes[15] = UInt8(truncatingIfNeeded: ordinal + 1)
+        bytes[15] = tier == .hd ? 1 : 2
         for index in 1..<15 { bytes[index] = UInt8(index) }
         let uuid = UUID(uuid: (bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5],
                                bytes[6], bytes[7], bytes[8], bytes[9], bytes[10], bytes[11],
@@ -205,15 +154,14 @@ nonisolated extension ArrInstanceRef {
         return ArrInstanceRef(
             id: uuid,
             serviceType: serviceType,
-            displayName: name,
-            ordinal: ordinal,
-            shortLabel: badgeLabel(for: name, serviceType: serviceType)
+            displayName: displayName ?? "\(serviceType.displayName) \(tier.label)",
+            tier: tier
         )
     }
 
     /// The HD/4K pair, as the blended library expects to find them.
     static func previewPair(_ serviceType: ArrServiceType) -> [ArrInstanceRef] {
-        [preview(serviceType, ordinal: 0), preview(serviceType, ordinal: 1)]
+        [preview(serviceType, tier: .hd), preview(serviceType, tier: .uhd)]
     }
 }
 #endif

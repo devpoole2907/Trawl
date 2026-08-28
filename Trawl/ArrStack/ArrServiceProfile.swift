@@ -9,6 +9,9 @@ public final class ArrServiceProfile {
     public var displayName: String
     public var hostURL: String              // e.g. "http://192.168.1.100:8989"
     private var allowsUntrustedTLSValue: Bool?
+    /// Optional-backed so an existing store migrates lightly, exactly like
+    /// `allowsUntrustedTLSValue`. `nil` reads as HD.
+    private var qualityTierValue: String?
     public var serviceType: String          // "sonarr", "radarr", or "prowlarr"
     public var isEnabled: Bool
     public var dateAdded: Date
@@ -16,11 +19,18 @@ public final class ArrServiceProfile {
     public var apiVersion: String?          // Populated from /api/v3/system/status
     public var importFolders: [String] = [] // Custom folders for manual importing
 
-    public init(displayName: String, hostURL: String, serviceType: ArrServiceType, allowsUntrustedTLS: Bool = false) {
+    public init(
+        displayName: String,
+        hostURL: String,
+        serviceType: ArrServiceType,
+        allowsUntrustedTLS: Bool = false,
+        qualityTier: ArrQualityTier = .hd
+    ) {
         self.id = UUID()
         self.displayName = displayName
         self.hostURL = hostURL
         self.allowsUntrustedTLSValue = allowsUntrustedTLS
+        self.qualityTierValue = qualityTier.rawValue
         self.serviceType = serviceType.rawValue
         self.isEnabled = true
         self.dateAdded = .now
@@ -31,11 +41,56 @@ public final class ArrServiceProfile {
         set { allowsUntrustedTLSValue = newValue }
     }
 
+    /// Whether this server holds the HD or the 4K copy of the library.
+    ///
+    /// This is the whole shape of multi-instance support in Trawl, and it is
+    /// declared rather than guessed. An earlier pass derived "HD" and "4K" from
+    /// whatever the user had named the server, which worked for "4K Radarr" and
+    /// silently produced nonsense for "Radarr (big box)". Seerr models the same
+    /// setup the same way, with the 4K server named explicitly.
+    ///
+    /// Defaults to HD, so an existing single-server install keeps working and
+    /// reads as the HD library it always was.
+    public var qualityTier: ArrQualityTier {
+        get { qualityTierValue.flatMap(ArrQualityTier.init(rawValue:)) ?? .hd }
+        set { qualityTierValue = newValue.rawValue }
+    }
+
     /// Keychain key for the API key
     public var apiKeyKeychainKey: String { "arr_\(id.uuidString)_apikey" }
 
     public var resolvedServiceType: ArrServiceType? {
         ArrServiceType(rawValue: serviceType)
+    }
+}
+
+/// Which copy of the library a server holds.
+///
+/// Trawl supports one of each per service — an HD Sonarr and a 4K Sonarr, an HD
+/// Radarr and a 4K Radarr — presented as one blended library. That is also where
+/// the two-instance cap comes from: there are two tiers, so there are two slots,
+/// and the limit needs no separate rule.
+nonisolated public enum ArrQualityTier: String, Codable, CaseIterable, Identifiable, Sendable {
+    case hd
+    case uhd
+
+    public var id: String { rawValue }
+
+    /// The badge text. Short by design — it sits on every row of the library.
+    public var label: String {
+        switch self {
+        case .hd: "HD"
+        case .uhd: "4K"
+        }
+    }
+
+    /// Spelled out for pickers and confirmations, where the extra words earn
+    /// their place.
+    public var longLabel: String {
+        switch self {
+        case .hd: "HD (1080p and below)"
+        case .uhd: "4K (2160p)"
+        }
     }
 }
 

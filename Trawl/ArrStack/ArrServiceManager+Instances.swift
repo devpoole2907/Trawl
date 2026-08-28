@@ -15,23 +15,31 @@ extension ArrServiceManager {
     /// Badge-ready identity for every configured Sonarr server, in the user's
     /// configured order.
     var sonarrRefs: [ArrInstanceRef] {
-        ArrInstanceRef.make(
-            from: sonarrInstances.map { (id: $0.id, displayName: $0.displayName) },
-            serviceType: .sonarr
-        )
+        refs(from: sonarrInstances.map { (id: $0.id, displayName: $0.displayName) }, serviceType: .sonarr)
     }
 
     var radarrRefs: [ArrInstanceRef] {
-        ArrInstanceRef.make(
-            from: radarrInstances.map { (id: $0.id, displayName: $0.displayName) },
-            serviceType: .radarr
-        )
+        refs(from: radarrInstances.map { (id: $0.id, displayName: $0.displayName) }, serviceType: .radarr)
     }
 
     var bazarrRefs: [ArrInstanceRef] {
-        ArrInstanceRef.make(
-            from: bazarrInstances.map { (id: $0.id, displayName: $0.displayName) },
-            serviceType: .bazarr
+        refs(from: bazarrInstances.map { (id: $0.id, displayName: $0.displayName) }, serviceType: .bazarr)
+    }
+
+    /// The tier comes from the stored profile, which is the only place it is
+    /// declared. A connected instance whose profile has gone is dropped rather
+    /// than guessed at.
+    private func refs(
+        from entries: [(id: UUID, displayName: String)],
+        serviceType: ArrServiceType
+    ) -> [ArrInstanceRef] {
+        let tiers = Dictionary(
+            storedProfiles.map { ($0.id, $0.qualityTier) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        return ArrInstanceRef.make(
+            from: entries.map { (id: $0.id, displayName: $0.displayName, tier: tiers[$0.id] ?? .hd) },
+            serviceType: serviceType
         )
     }
 
@@ -48,7 +56,9 @@ extension ArrServiceManager {
     private var prowlarrProfileRef: ArrInstanceRef? {
         guard let id = activeProwlarrProfileID else { return nil }
         let name = storedProfileName(for: id) ?? ArrServiceType.prowlarr.displayName
-        return ArrInstanceRef.make(from: [(id: id, displayName: name)], serviceType: .prowlarr).first
+        // Prowlarr is a single indexer manager, not half of a library pair; it
+        // takes the default tier and never badges.
+        return ArrInstanceRef(id: id, serviceType: .prowlarr, displayName: name, tier: .hd)
     }
 
     /// Identity for one server, or `nil` if it is no longer configured.
@@ -84,11 +94,22 @@ extension ArrServiceManager {
     func instanceSlotsRemaining(of serviceType: ArrServiceType) -> Int? {
         switch serviceType {
         case .sonarr, .radarr:
-            let configured = refs(for: serviceType).count
-            return max(0, ArrInstanceRef.maxInstancesPerServiceType - configured)
+            return max(0, availableTiers(for: serviceType).count)
         case .prowlarr, .bazarr:
             return nil
         }
+    }
+
+    /// The tiers this service has no server for yet. Setup offers exactly these,
+    /// so the pair can never end up with two HD servers and no 4K one.
+    func availableTiers(for serviceType: ArrServiceType) -> [ArrQualityTier] {
+        let taken = Set(refs(for: serviceType).map(\.tier))
+        return ArrQualityTier.allCases.filter { !taken.contains($0) }
+    }
+
+    /// The server holding a given tier, if one is configured.
+    func instance(_ serviceType: ArrServiceType, tier: ArrQualityTier) -> ArrInstanceRef? {
+        refs(for: serviceType).first { $0.tier == tier }
     }
 
     func canAddInstance(of serviceType: ArrServiceType) -> Bool {

@@ -91,15 +91,36 @@ struct ArrSetupSheet: View {
         }
     }
 
-    /// Whether another server of this type can be added.
-    ///
-    /// Sonarr and Radarr are capped at the HD/4K pair the blended library is
-    /// built around. Editing an existing profile always passes: the cap is on
-    /// adding a third, not on changing one of the two.
+    /// Whether another server of this type can be added — that is, whether it
+    /// still has a free quality tier.
     private func hasRoomForAnother(_ type: ArrServiceType) -> Bool {
         if existingProfile?.resolvedServiceType == type { return true }
-        guard let limit = ArrSetupViewModel.instanceLimit(for: type) else { return true }
-        return profiles.filter { $0.resolvedServiceType == type }.count < limit
+        guard ArrSetupViewModel.usesQualityTiers(type) else { return true }
+        return !freeTiers(for: type).isEmpty
+    }
+
+    /// The tiers this service has no server for yet. Editing keeps its own tier
+    /// available, so a user can re-save an existing server without being told its
+    /// tier is taken by itself.
+    private func freeTiers(for type: ArrServiceType) -> [ArrQualityTier] {
+        let taken = Set(
+            profiles
+                .filter { $0.resolvedServiceType == type && $0.id != existingProfile?.id }
+                .map(\.qualityTier)
+        )
+        return ArrQualityTier.allCases.filter { !taken.contains($0) }
+    }
+
+    /// Explains what the tier choice means in terms of what the user will see,
+    /// rather than restating the setting.
+    private func tierFooter(vm: ArrSetupViewModel) -> String {
+        let other: ArrQualityTier = vm.qualityTier == .hd ? .uhd : .hd
+        if profiles.contains(where: {
+            $0.resolvedServiceType == vm.serviceType && $0.qualityTier == other && $0.id != existingProfile?.id
+        }) {
+            return "Your \(other.label) \(vm.serviceType.displayName) is already set up. Both servers appear as one library, with each title showing whether it's available in HD, 4K, or both."
+        }
+        return "Trawl holds one \(vm.serviceType.displayName) for HD and one for 4K, blended into a single library. Add the other later to see both."
     }
 
     @ViewBuilder
@@ -114,6 +135,20 @@ struct ArrSetupSheet: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+            }
+
+            if ArrSetupViewModel.usesQualityTiers(vm.serviceType) {
+                Section {
+                    Picker("Library", selection: $vm.qualityTier) {
+                        ForEach(ArrQualityTier.allCases) { tier in
+                            Text(tier.longLabel).tag(tier)
+                        }
+                    }
+                } header: {
+                    Text("Quality")
+                } footer: {
+                    Text(tierFooter(vm: vm))
                 }
             }
 
@@ -141,14 +176,7 @@ struct ArrSetupSheet: View {
                         .foregroundStyle(.secondary)
                 }
 
-                if let limit = ArrSetupViewModel.instanceLimit(for: vm.serviceType) {
-                    let configured = profiles.filter { $0.resolvedServiceType == vm.serviceType }.count
-                    if existingProfile == nil, configured == limit - 1 {
-                        Text("This will be your second \(vm.serviceType.displayName) server. Both appear as one library, with each title labelled by the server holding it.")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                }
+
             }
 
             if vm.isValidating {

@@ -183,10 +183,16 @@ struct SonarrSeriesRow: View {
                         ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
                             .tint(fileCount == totalCount ? .green : .blue)
                             .frame(width: 40)
-                        Text(episodeCountLabel(fileCount: fileCount, totalCount: totalCount))
+                        Text("\(fileCount)/\(totalCount) eps")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
+
+                    ArrAvailabilityPill(
+                        availableTiers: availableTiers,
+                        showsTiers: !instances.isEmpty,
+                        unavailableStatus: unavailableStatus
+                    )
 
                     if subtitleCoverage.hasIndicator {
                         Text("•")
@@ -215,22 +221,17 @@ struct SonarrSeriesRow: View {
         .padding(.vertical, 4)
     }
 
-    /// "18/22 eps" for one server; "HD 22/22 · 4K 9/22" when the pair disagrees,
-    /// so a half-grabbed 4K copy is visible without opening the title.
-    private func episodeCountLabel(fileCount: Int, totalCount: Int) -> String {
-        guard entry.isOnMultipleInstances, instances.count == entry.copies.count else {
-            return "\(fileCount)/\(totalCount) eps"
-        }
-        let counts = entry.copies.map { $0.statistics?.episodeFileCount ?? 0 }
-        guard Set(counts).count > 1 else { return "\(fileCount)/\(totalCount) eps" }
-        return zip(instances, entry.copies)
-            .map { ref, copy in
-                let files = copy.statistics?.episodeFileCount ?? 0
-                let total = copy.statistics?.episodeCount ?? 0
-                return "\(ref.shortLabel) \(files)/\(total)"
-            }
-            .joined(separator: " · ")
+    /// A series counts as available on a server once that server has any episode
+    /// file. "Available 4K" on a show with one 2160p episode is the honest
+    /// reading — the 4K library has started it — and the episode counter beside
+    /// the pill carries how far along it is.
+    private var availableTiers: [ArrQualityTier] {
+        entry.availableTiers(from: instances) { ($0.statistics?.episodeFileCount ?? 0) > 0 }
     }
+
+    /// Sonarr's series `status` is "continuing"/"ended", which describes the show
+    /// rather than the library, so an undownloaded series says so plainly.
+    private var unavailableStatus: String { "Not downloaded" }
 
     private var metadataItems: [SeriesRowMetadataItem] {
         var items: [SeriesRowMetadataItem] = []

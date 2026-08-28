@@ -16,53 +16,96 @@ import Testing
 @MainActor
 struct ArrDualInstanceTests {
 
-    // MARK: - Badge labels
+    // MARK: - Quality tiers
 
-    @Test("A server's badge is what distinguishes it from its sibling", arguments: [
-        ("4K Radarr", ArrServiceType.radarr, "4K"),
-        ("Radarr 4K", .radarr, "4K"),
-        ("Radarr - HD", .radarr, "HD"),
-        ("Radarr (2160p)", .radarr, "2160p"),
-        ("radarr HD", .radarr, "HD"),
-        ("Sonarr Anime", .sonarr, "Anime"),
-        ("Main Sonarr Box", .sonarr, "Main Box")
-    ])
-    func badgeLabelStripsTheServiceName(name: String, serviceType: ArrServiceType, expected: String) {
-        #expect(ArrInstanceRef.badgeLabel(for: name, serviceType: serviceType) == expected)
-    }
-
-    @Test("A server named only after its service keeps its full name")
-    func badgeLabelKeepsBareServiceName() {
-        // Stripping "Radarr" out of "Radarr" leaves nothing, and an empty badge is
-        // worse than a redundant one — it reads as a rendering bug.
-        #expect(ArrInstanceRef.badgeLabel(for: "Radarr", serviceType: .radarr) == "Radarr")
-        #expect(ArrInstanceRef.badgeLabel(for: "  ", serviceType: .radarr) == "Radarr")
-    }
-
-    @Test("A name that merely contains the service name is left alone")
-    func badgeLabelOnlyStripsWholeWords() {
-        #expect(ArrInstanceRef.badgeLabel(for: "Radarrific", serviceType: .radarr) == "Radarrific")
-    }
-
-    @Test("Two servers that would badge identically are numbered instead")
-    func collidingBadgeLabelsAreDisambiguated() {
-        // Identical badges are worse than none: they claim a distinction the label
-        // does not actually make, so the user cannot tell the rows apart at all.
+    @Test("A server's badge is its declared tier, not its name")
+    func badgeComesFromTheDeclaredTier() {
+        // An earlier pass parsed "HD" and "4K" out of whatever the user had named
+        // the server. That worked for "4K Radarr" and produced nonsense for
+        // "Radarr (big box)". The tier is declared at setup instead.
         let refs = ArrInstanceRef.make(
-            from: [(id: UUID(), displayName: "Radarr"), (id: UUID(), displayName: "radarr")],
-            serviceType: .radarr
-        )
-        #expect(refs.map(\.shortLabel) == ["Radarr 1", "radarr 2"])
-        #expect(refs.map(\.ordinal) == [0, 1])
-    }
-
-    @Test("Distinguishable servers are not numbered")
-    func distinctBadgeLabelsAreLeftAlone() {
-        let refs = ArrInstanceRef.make(
-            from: [(id: UUID(), displayName: "Radarr HD"), (id: UUID(), displayName: "4K Radarr")],
+            from: [
+                (id: UUID(), displayName: "Radarr (big box)", tier: .uhd),
+                (id: UUID(), displayName: "spare", tier: .hd)
+            ],
             serviceType: .radarr
         )
         #expect(refs.map(\.shortLabel) == ["HD", "4K"])
+        #expect(refs.map(\.displayName) == ["spare", "Radarr (big box)"])
+    }
+
+    @Test("HD always sorts and colours before 4K, whatever order they were added")
+    func tierDrivesOrderingNotInsertionOrder() {
+        // "The blue one" has to be the same server on every screen, so the badge
+        // position comes from the tier rather than from which was configured first.
+        let refs = ArrInstanceRef.make(
+            from: [
+                (id: UUID(), displayName: "Second", tier: .uhd),
+                (id: UUID(), displayName: "First", tier: .hd)
+            ],
+            serviceType: .sonarr
+        )
+        #expect(refs.map(\.shortLabel) == ["HD", "4K"])
+        #expect(refs.map(\.ordinal) == [0, 1])
+    }
+
+    @Test("There are exactly as many instance slots as there are tiers")
+    func theCapIsAConsequenceOfTheTiers() {
+        // The two-instance limit is not a separate rule: a third server would have
+        // no tier to hold and no badge to wear.
+        #expect(ArrInstanceRef.maxInstancesPerServiceType == ArrQualityTier.allCases.count)
+        #expect(ArrQualityTier.allCases.map(\.label) == ["HD", "4K"])
+    }
+
+    // MARK: - Availability pills
+
+    @Test("Availability says which tiers hold the title", arguments: [
+        ([ArrQualityTier.hd, .uhd], true, "Available HD & 4K"),
+        ([.hd], true, "Available HD"),
+        ([.uhd], true, "Available 4K"),
+        ([], true, "Missing")
+    ])
+    func availabilityLabelNamesTheTiers(tiers: [ArrQualityTier], showsTiers: Bool, expected: String) {
+        #expect(
+            ArrAvailabilityPill.label(availableTiers: tiers, showsTiers: showsTiers, unavailableStatus: "Missing")
+                == expected
+        )
+    }
+
+    @Test("A single-server library says only Available")
+    func availabilityOmitsTiersWithOneServer() {
+        // "Available HD" on a one-server setup implies a 4K library that does not
+        // exist.
+        #expect(
+            ArrAvailabilityPill.label(availableTiers: [.hd], showsTiers: false, unavailableStatus: "Missing")
+                == "Available"
+        )
+    }
+
+    @Test("Tiers are named in HD-then-4K order however the copies arrive")
+    func availabilityLabelIsOrderIndependent() {
+        #expect(
+            ArrAvailabilityPill.label(availableTiers: [.uhd, .hd], showsTiers: true, unavailableStatus: "Missing")
+                == "Available HD & 4K"
+        )
+    }
+
+    @Test("Availability is matched by server, not by position")
+    func availabilityTiersAreMatchedByInstance() throws {
+        // A filtered or partially-loaded library hands back fewer refs than
+        // copies. Zipping them would then label a copy with the wrong server — and
+        // "Available 4K" on a film that only exists in HD is the worst kind of
+        // wrong, because it looks right.
+        let hd = ArrInstanceRef.preview(.radarr, tier: .hd)
+        let uhd = ArrInstanceRef.preview(.radarr, tier: .uhd)
+        let entry = try #require([
+            try Self.movie(id: 1, title: "Dune", tmdbId: 438_631, hasFile: false).stamped(with: hd.id),
+            try Self.movie(id: 4, title: "Dune", tmdbId: 438_631, hasFile: true).stamped(with: uhd.id)
+        ].mergedByTitle().first)
+
+        #expect(entry.availableTiers(from: [hd, uhd]) { $0.hasFile == true } == [.uhd])
+        // Only the HD server visible: the 4K copy contributes nothing.
+        #expect(entry.availableTiers(from: [hd]) { $0.hasFile == true } == [])
     }
 
     // MARK: - Identity
@@ -323,23 +366,63 @@ struct ArrDualInstanceTests {
 
     // MARK: - Capacity
 
-    @Test("Sonarr and Radarr hold two servers; Prowlarr and Bazarr are not capped here")
+    @Test("Sonarr and Radarr are tiered; Prowlarr and Bazarr are not")
     func instanceLimits() {
+        #expect(ArrSetupViewModel.usesQualityTiers(.sonarr))
+        #expect(ArrSetupViewModel.usesQualityTiers(.radarr))
+        #expect(ArrSetupViewModel.usesQualityTiers(.prowlarr) == false)
+        #expect(ArrSetupViewModel.usesQualityTiers(.bazarr) == false)
         #expect(ArrSetupViewModel.instanceLimit(for: .sonarr) == 2)
-        #expect(ArrSetupViewModel.instanceLimit(for: .radarr) == 2)
         #expect(ArrSetupViewModel.instanceLimit(for: .prowlarr) == nil)
-        #expect(ArrSetupViewModel.instanceLimit(for: .bazarr) == nil)
-        #expect(ArrInstanceRef.maxInstancesPerServiceType == 2)
+    }
+
+    @Test("An existing untiered pair is split into HD and 4K by age")
+    func migrationAssignsTiersToAnExistingPair() {
+        // The tier was added after multi-instance already worked, so a user with
+        // two Sonarr servers has two profiles that both default to HD. Left alone
+        // they badge identically and collide in the merged row. The 4K instance is
+        // the one added second, in every setup that grows this way.
+        let older = ArrServiceProfile(displayName: "Sonarr", hostURL: "http://a", serviceType: .sonarr)
+        let newer = ArrServiceProfile(displayName: "Sonarr 2", hostURL: "http://b", serviceType: .sonarr)
+        newer.dateAdded = older.dateAdded.addingTimeInterval(60)
+        #expect(older.qualityTier == .hd)
+        #expect(newer.qualityTier == .hd)
+
+        ArrServiceManager.normalizeQualityTiers(in: [newer, older])
+
+        #expect(older.qualityTier == .hd)
+        #expect(newer.qualityTier == .uhd)
+    }
+
+    @Test("A pair that already has a tier each is left alone")
+    func migrationIsIdempotent() {
+        let hd = ArrServiceProfile(displayName: "HD", hostURL: "http://a", serviceType: .radarr, qualityTier: .hd)
+        let uhd = ArrServiceProfile(displayName: "4K", hostURL: "http://b", serviceType: .radarr, qualityTier: .uhd)
+        uhd.dateAdded = hd.dateAdded.addingTimeInterval(-60)
+
+        // Deliberately aged backwards: a correct assignment must survive a second
+        // launch even when the 4K server happens to be the older profile.
+        ArrServiceManager.normalizeQualityTiers(in: [hd, uhd])
+
+        #expect(hd.qualityTier == .hd)
+        #expect(uhd.qualityTier == .uhd)
     }
 
     // MARK: - Fixtures
 
     /// Decoded rather than constructed, so every fixture goes through the real
     /// decoder — which is where `instanceID` has to start out nil.
-    private static func movie(id: Int, title: String, tmdbId: Int? = nil, year: Int? = nil) throws -> RadarrMovie {
+    private static func movie(
+        id: Int,
+        title: String,
+        tmdbId: Int? = nil,
+        year: Int? = nil,
+        hasFile: Bool? = nil
+    ) throws -> RadarrMovie {
         var fields = ["\"id\": \(id)", "\"title\": \"\(title)\""]
         if let tmdbId { fields.append("\"tmdbId\": \(tmdbId)") }
         if let year { fields.append("\"year\": \(year)") }
+        if let hasFile { fields.append("\"hasFile\": \(hasFile)") }
         return try JSONDecoder().decode(RadarrMovie.self, from: Data("{\(fields.joined(separator: ", "))}".utf8))
     }
 
@@ -472,7 +555,7 @@ struct ArrDualInstanceRoutingTests {
         defer { hd.stop(); uhd.stop() }
 
         let manager = ArrServiceManager()
-        let hdProfile = ArrServiceProfile(displayName: "Radarr HD", hostURL: hd.baseURL, serviceType: .radarr)
+        let hdProfile = ArrServiceProfile(displayName: "Radarr HD", hostURL: hd.baseURL, serviceType: .radarr, qualityTier: .hd)
         try await KeychainHelper.shared.save(key: hdProfile.apiKeyKeychainKey, value: "dual-key")
         defer { Task { try? await KeychainHelper.shared.delete(key: hdProfile.apiKeyKeychainKey) } }
         await manager.connectService(hdProfile)
@@ -480,7 +563,7 @@ struct ArrDualInstanceRoutingTests {
         // One server: a badge saying "Radarr" on every row distinguishes nothing.
         #expect(manager.showsInstanceProvenance(for: .radarr) == false)
 
-        let uhdProfile = ArrServiceProfile(displayName: "4K Radarr", hostURL: uhd.baseURL, serviceType: .radarr)
+        let uhdProfile = ArrServiceProfile(displayName: "4K Radarr", hostURL: uhd.baseURL, serviceType: .radarr, qualityTier: .uhd)
         try await KeychainHelper.shared.save(key: uhdProfile.apiKeyKeychainKey, value: "dual-key")
         defer { Task { try? await KeychainHelper.shared.delete(key: uhdProfile.apiKeyKeychainKey) } }
         await manager.connectService(uhdProfile)
@@ -527,8 +610,8 @@ struct ArrDualInstanceRoutingTests {
         _ body: (ArrServiceManager, UUID, UUID) async throws -> Void
     ) async throws {
         let manager = ArrServiceManager()
-        let hdProfile = ArrServiceProfile(displayName: "Radarr HD", hostURL: hd.baseURL, serviceType: .radarr)
-        let uhdProfile = ArrServiceProfile(displayName: "4K Radarr", hostURL: uhd.baseURL, serviceType: .radarr)
+        let hdProfile = ArrServiceProfile(displayName: "Radarr HD", hostURL: hd.baseURL, serviceType: .radarr, qualityTier: .hd)
+        let uhdProfile = ArrServiceProfile(displayName: "4K Radarr", hostURL: uhd.baseURL, serviceType: .radarr, qualityTier: .uhd)
 
         for profile in [hdProfile, uhdProfile] {
             try await KeychainHelper.shared.save(key: profile.apiKeyKeychainKey, value: "dual-instance-key")

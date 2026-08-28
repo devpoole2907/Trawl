@@ -595,6 +595,7 @@ final class ArrServiceManager {
     // MARK: - Initialization
 
     func initialize(from profiles: [ArrServiceProfile]) async {
+        Self.normalizeQualityTiers(in: profiles)
         storedProfiles = profiles
         isInitializing = true
         defer { isInitializing = false }
@@ -639,6 +640,29 @@ final class ArrServiceManager {
         storedProfiles = profiles
     }
 
+    /// Gives an existing pair a tier each.
+    ///
+    /// The quality tier was added after multi-instance already worked, so a user
+    /// who had configured two Sonarr servers has two profiles that both default to
+    /// HD. Left alone they would badge identically and collide in the merged row.
+    /// The older server keeps HD and the newer takes 4K, which matches how these
+    /// setups are actually built — the 4K instance is the one added second.
+    ///
+    /// Idempotent: a set that already has one server per tier is untouched.
+    static func normalizeQualityTiers(in profiles: [ArrServiceProfile]) {
+        for serviceType in [ArrServiceType.sonarr, .radarr] {
+            let matching = profiles
+                .filter { $0.resolvedServiceType == serviceType }
+                .sorted { $0.dateAdded < $1.dateAdded }
+            guard matching.count > 1 else { continue }
+            guard Set(matching.map(\.qualityTier)).count == 1 else { continue }
+
+            for (index, profile) in matching.enumerated() {
+                profile.qualityTier = index == 0 ? .hd : .uhd
+            }
+        }
+    }
+
     /// Retry connecting a specific service type using the last known profiles.
     func retry(_ serviceType: ArrServiceType) async {
         let profiles = storedProfiles.filter { $0.resolvedServiceType == serviceType && $0.isEnabled }
@@ -668,6 +692,17 @@ final class ArrServiceManager {
         guard let serviceType = profile.resolvedServiceType else {
             connectionErrors[profile.id.uuidString] = "Invalid service type: \(profile.serviceType)"
             return
+        }
+
+        // Record the profile if this is the first the manager has seen of it.
+        // `storedProfiles` is the only place the quality tier lives, so a server
+        // connected without going through `initialize(from:)` — a freshly added
+        // one, or a test driving `connectService` directly — would otherwise badge
+        // as HD whatever it actually is.
+        if let index = storedProfiles.firstIndex(where: { $0.id == profile.id }) {
+            storedProfiles[index] = profile
+        } else {
+            storedProfiles.append(profile)
         }
 
         setConnecting(true, for: serviceType, id: profile.id)

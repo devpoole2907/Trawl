@@ -11,6 +11,9 @@ final class ArrSetupViewModel {
     var apiKey: String = ""
     var displayName: String = ""
     var serviceType: ArrServiceType = .sonarr
+    /// Which copy of the library this server holds. Only meaningful for Sonarr
+    /// and Radarr; Prowlarr and Bazarr ignore it.
+    var qualityTier: ArrQualityTier = .hd
     var allowsUntrustedTLS: Bool = false
     var isValidating: Bool = false
     var isSaving: Bool = false
@@ -25,20 +28,26 @@ final class ArrSetupViewModel {
         self.serviceManager = serviceManager
     }
 
-    /// How many instances of a service Trawl will hold, or `nil` when unlimited.
+    /// Whether a service is organised as an HD/4K pair.
     ///
-    /// Sonarr and Radarr are the merged pair; Prowlarr replaces rather than adds
-    /// (handled below), and Bazarr is matched to its own Sonarr and Radarr rather
-    /// than merged into the library, so neither is capped here.
-    static func instanceLimit(for serviceType: ArrServiceType) -> Int? {
+    /// Sonarr and Radarr are; Prowlarr replaces rather than adds, and Bazarr is
+    /// matched to its own Sonarr and Radarr rather than merged into the library.
+    static func usesQualityTiers(_ serviceType: ArrServiceType) -> Bool {
         switch serviceType {
-        case .sonarr, .radarr: ArrInstanceRef.maxInstancesPerServiceType
-        case .prowlarr, .bazarr: nil
+        case .sonarr, .radarr: true
+        case .prowlarr, .bazarr: false
         }
     }
 
-    static func instanceLimitMessage(for serviceType: ArrServiceType, limit: Int) -> String {
-        "Trawl supports up to \(limit) \(serviceType.displayName) servers — the usual setup is one HD and one 4K. Remove or edit an existing \(serviceType.displayName) server to add a different one."
+    /// How many instances of a service Trawl will hold, or `nil` when unlimited.
+    /// One per tier, so the cap is a consequence of the model rather than a rule
+    /// bolted onto it.
+    static func instanceLimit(for serviceType: ArrServiceType) -> Int? {
+        usesQualityTiers(serviceType) ? ArrQualityTier.allCases.count : nil
+    }
+
+    static func tierTakenMessage(for serviceType: ArrServiceType, tier: ArrQualityTier) -> String {
+        "A \(tier.label) \(serviceType.displayName) server is already set up. Edit it, or choose the other quality tier."
     }
 
     /// Validate the connection and save the profile.
@@ -86,17 +95,19 @@ final class ArrSetupViewModel {
 
             let allProfiles = try modelContext.fetch(FetchDescriptor<ArrServiceProfile>())
 
-            // Sonarr and Radarr are capped at two instances — the HD/4K pair the
-            // blended library is built around. Editing an existing profile is
-            // always allowed; only adding a third is refused, and it is refused
-            // here rather than at the UI so the limit holds however setup is
-            // reached.
-            if existingProfile == nil,
-               let limit = Self.instanceLimit(for: serviceType) {
-                let configured = allProfiles.filter { $0.resolvedServiceType == serviceType }.count
-                if configured >= limit {
+            // One server per quality tier. Enforced here rather than at the UI so
+            // the rule holds however setup is reached, and expressed as "that tier
+            // is taken" rather than "you have too many servers" — the second is
+            // true but tells the user nothing about what to do next.
+            if Self.usesQualityTiers(serviceType) {
+                let conflict = allProfiles.first {
+                    $0.resolvedServiceType == serviceType
+                        && $0.qualityTier == qualityTier
+                        && $0.id != existingProfile?.id
+                }
+                if conflict != nil {
                     isValidating = false
-                    validationError = Self.instanceLimitMessage(for: serviceType, limit: limit)
+                    validationError = Self.tierTakenMessage(for: serviceType, tier: qualityTier)
                     return false
                 }
             }
@@ -125,7 +136,8 @@ final class ArrSetupViewModel {
                     displayName: name,
                     hostURL: trimmedURL,
                     serviceType: serviceType,
-                    allowsUntrustedTLS: allowsUntrustedTLS
+                    allowsUntrustedTLS: allowsUntrustedTLS,
+                    qualityTier: qualityTier
                 )
                 profile.apiVersion = status.version
                 isEditing = false
@@ -136,6 +148,7 @@ final class ArrSetupViewModel {
             let originalServiceType = profile.serviceType
             let originalResolvedServiceType = profile.resolvedServiceType
             let originalAllowsUntrustedTLS = profile.allowsUntrustedTLS
+            let originalQualityTier = profile.qualityTier
             let originalApiVersion = profile.apiVersion
             let originalIsEnabled = profile.isEnabled
             let keychainKey = profile.apiKeyKeychainKey
@@ -152,6 +165,7 @@ final class ArrSetupViewModel {
             profile.serviceType = serviceType.rawValue
             profile.isEnabled = true
             profile.allowsUntrustedTLS = allowsUntrustedTLS
+            profile.qualityTier = qualityTier
             profile.apiVersion = status.version
 
             if !isEditing {
@@ -174,6 +188,7 @@ final class ArrSetupViewModel {
                     profile.hostURL = originalHostURL
                     profile.serviceType = originalServiceType
                     profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                    profile.qualityTier = originalQualityTier
                     profile.apiVersion = originalApiVersion
                     profile.isEnabled = originalIsEnabled
 
@@ -207,6 +222,7 @@ final class ArrSetupViewModel {
                     profile.hostURL = originalHostURL
                     profile.serviceType = originalServiceType
                     profile.allowsUntrustedTLS = originalAllowsUntrustedTLS
+                    profile.qualityTier = originalQualityTier
                     profile.apiVersion = originalApiVersion
                     profile.isEnabled = originalIsEnabled
 
@@ -281,6 +297,7 @@ final class ArrSetupViewModel {
             validationError = "Invalid service type stored in profile. Defaulting to Sonarr."
         }
         allowsUntrustedTLS = profile.allowsUntrustedTLS
+        qualityTier = profile.qualityTier
         do {
             apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey) ?? ""
         } catch {
