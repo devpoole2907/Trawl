@@ -71,6 +71,12 @@ nonisolated struct ArrLibraryEntry<Item: ArrMergeableLibraryItem>: Identifiable,
     }
 }
 
+nonisolated extension ArrLibraryEntry: Equatable where Item: Equatable {
+    static func == (lhs: ArrLibraryEntry<Item>, rhs: ArrLibraryEntry<Item>) -> Bool {
+        lhs.id == rhs.id && lhs.copies == rhs.copies
+    }
+}
+
 nonisolated extension Array where Element: ArrMergeableLibraryItem {
     /// Collapses a flat union of every instance's library into one entry per
     /// title, preserving the order the items arrived in.

@@ -81,17 +81,24 @@ struct RadarrMovieListView: View {
                 nounSingular: "Movie",
                 nounPlural: "Movies",
                 emptyIcon: "film",
-                row: { movie, _ in
+                row: { entry, _ in
                     RadarrMovieRow(
-                        movie: movie,
-                        hasIssue: vm.queue.contains {
-                            $0.movieId == movie.id && $0.isImportIssueQueueItem
+                        entry: entry,
+                        // An import issue on either server is an issue with this
+                        // title, and the queue rows carry the instance that owns
+                        // them, so the match is on (server, movie) not movie alone.
+                        hasIssue: vm.queueRecords.contains { record in
+                            record.value.isImportIssueQueueItem
+                                && entry.copies.contains {
+                                    $0.instanceID == record.instance.id && $0.id == record.value.movieId
+                                }
                         },
-                        subtitleCoverage: serviceManager.subtitleCoverage(for: movie)
+                        subtitleCoverage: serviceManager.subtitleCoverage(for: entry.primary),
+                        instances: serviceManager.badgeRefs(for: entry)
                     )
                 },
-                detailDestination: { movieId in
-                    RadarrMovieDetailView(movieId: movieId, viewModel: vm)
+                detailDestination: { key in
+                    RadarrMovieDetailView(mergeKey: key, viewModel: vm)
                 }
             )
         } else {
@@ -106,16 +113,16 @@ struct RadarrMovieListView: View {
         switch presentation {
         case .error(let message):
             ArrLibraryListView(
-                items: [RadarrMovie](),
+                items: [ArrLibraryEntry<RadarrMovie>](),
                 isLoading: false,
                 error: message,
                 nounSingular: "Movie",
                 nounPlural: "Movies",
                 emptyIcon: "film",
-                titleKeyPath: \.title,
+                titleKeyPath: \.primary.title,
                 selectedIDs: [],
-                row: { movie, _ in
-                    RadarrMovieRow(movie: movie, hasIssue: false)
+                row: { entry, _ in
+                    RadarrMovieRow(entry: entry, hasIssue: false)
                 },
                 retry: nil
             )
@@ -186,8 +193,13 @@ struct RadarrMovieListView: View {
         }
     }
 
+    /// Rebuilds the view model when the *set* of connected servers changes, not
+    /// just when one nominated server does. Adding, losing or reconnecting either
+    /// half of a pair changes what the blended library contains.
     private var viewModelLoadKey: String {
-        "\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none"):\(serviceManager.activeRadarrClientRevision?.uuidString ?? "none"):\(serviceManager.radarrConnected)"
+        serviceManager.connectedRadarr
+            .map { "\($0.ref.id.uuidString):\($0.ref.ordinal)" }
+            .joined(separator: "|")
     }
 }
 
@@ -248,10 +260,17 @@ struct RadarrMovieListView: View {
 // MARK: - Movie Row
 
 struct RadarrMovieRow: View {
-    let movie: RadarrMovie
+    let entry: ArrLibraryEntry<RadarrMovie>
     let hasIssue: Bool
     var subtitleCoverage: SubtitleCoverage = .unknown
     var showTypeLabel: Bool = false
+    /// The servers holding this title. Empty when only one Radarr is configured,
+    /// which suppresses the badges entirely.
+    var instances: [ArrInstanceRef] = []
+
+    /// Shared metadata — title, year, artwork, runtime — is identical on both
+    /// servers, so the row reads it from the first copy.
+    private var movie: RadarrMovie { entry.primary }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -263,10 +282,14 @@ struct RadarrMovieRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(movie.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(movie.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    // One row per title, badged with every server that holds it.
+                    ArrInstanceBadgeRow(refs: instances)
+                }
 
                 HStack(spacing: 4) {
                     ForEach(Array(metadataItems.enumerated()), id: \.offset) { index, item in
@@ -280,15 +303,15 @@ struct RadarrMovieRow: View {
                 .foregroundStyle(.secondary)
 
                 HStack(spacing: 6) {
-                    Image(systemName: movie.hasFile == true ? "checkmark.circle.fill" : "clock")
+                    Image(systemName: hasFileEverywhere ? "checkmark.circle.fill" : "clock")
                         .font(.caption2)
-                        .foregroundStyle(movie.hasFile == true ? .green : .orange)
-                    Text(movie.displayStatus)
+                        .foregroundStyle(hasFileEverywhere ? .green : .orange)
+                    Text(statusText)
                         .font(.caption2)
-                        .foregroundStyle(movie.hasFile == true ? .green : .secondary)
+                        .foregroundStyle(hasFileEverywhere ? .green : .secondary)
 
-                    if let size = movie.sizeOnDisk, size > 0 {
-                        Text("• \(ByteFormatter.format(bytes: size))")
+                    if totalSizeOnDisk > 0 {
+                        Text("• \(ByteFormatter.format(bytes: totalSizeOnDisk))")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -313,11 +336,34 @@ struct RadarrMovieRow: View {
                         .foregroundStyle(.orange)
                 }
 
-                ArrMonitorBadge(isMonitored: movie.monitored == true)
+                ArrMonitorBadge(isMonitored: entry.copies.contains { $0.monitored == true })
                     .font(.caption)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    private var hasFileEverywhere: Bool {
+        entry.copies.allSatisfy { $0.hasFile == true }
+    }
+
+    /// Size summed across servers: a film held in both HD and 4K really is using
+    /// both, and reporting one copy's size would understate it.
+    private var totalSizeOnDisk: Int64 {
+        entry.copies.reduce(Int64(0)) { $0 + ($1.sizeOnDisk ?? 0) }
+    }
+
+    /// Says where a title actually is when the two servers disagree. "Downloaded"
+    /// on a row that is only downloaded on one of two servers would be a lie, and
+    /// it is precisely the case an HD/4K setup exists to see.
+    private var statusText: String {
+        guard entry.isOnMultipleInstances, instances.count == entry.copies.count else {
+            return movie.displayStatus
+        }
+        let downloaded = zip(entry.copies, instances).filter { $0.0.hasFile == true }
+        if downloaded.count == entry.copies.count { return movie.displayStatus }
+        if downloaded.isEmpty { return movie.displayStatus }
+        return "Downloaded on \(downloaded.map(\.1.shortLabel).joined(separator: ", ")) only"
     }
 
     private var metadataItems: [String] {

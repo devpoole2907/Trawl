@@ -258,6 +258,7 @@ class ArrMediaLibraryViewModel<
     Sort: RawRepresentable & CaseIterable & Identifiable & Hashable
 >: ArrLibraryViewModel<Client.LibraryItem, Client>, ArrMediaListViewModel
 where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
+      Client.LibraryItem: ArrMergeableLibraryItem,
       Filter.RawValue == String, Sort.RawValue == String {
     typealias LibraryItem = Client.LibraryItem
     typealias WantedRecord = Client.WantedRecord
@@ -267,10 +268,12 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     var searchText: String = "" { didSet { rebuildFilteredItems() } }
     var selectedFilter: Filter { didSet { rebuildFilteredItems() } }
     var sortOrder: Sort { didSet { rebuildFilteredItems() } }
-    var filteredItems: [Item] = []
+    var filteredItems: [ArrLibraryEntry<LibraryItem>] = []
 
-    // Queue
-    private(set) var queue: [ArrQueueItem] = []
+    // Queue — fanned out across every visible instance, each row keeping the
+    // server it came from so a removal can be routed back to it.
+    private(set) var queueRecords: [ArrInstanced<ArrQueueItem>] = []
+    var queue: [ArrQueueItem] { queueRecords.map(\.value) }
 
     // Updates
     private(set) var availableUpdates: [ArrUpdateInfo] = []
@@ -318,6 +321,31 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         rebuildFilteredItems()
     }
 
+    /// Merges the flat union into one row per title, then filters and sorts those
+    /// rows.
+    ///
+    /// Filtering is "any copy matches", applied to the row rather than to each
+    /// copy. A film that is downloaded on the HD server and missing on the 4K one
+    /// belongs in both the Downloaded and the Missing list, and in each it keeps
+    /// both copies — so its badges stay honest about where it actually lives
+    /// instead of implying it exists only on the server that matched.
+    func makeFilteredEntries(
+        from items: [LibraryItem],
+        matchesSearch: (LibraryItem, String) -> Bool,
+        matchesFilter: (LibraryItem, Filter) -> Bool,
+        areInIncreasingOrder: (ArrLibraryEntry<LibraryItem>, ArrLibraryEntry<LibraryItem>, Sort) -> Bool
+    ) -> [ArrLibraryEntry<LibraryItem>] {
+        FilterSortPipeline.apply(
+            items: items.mergedByTitle(),
+            filter: selectedFilter,
+            searchText: searchText,
+            sort: sortOrder,
+            matchesSearch: { entry, query in entry.copies.contains { matchesSearch($0, query) } },
+            matchesFilter: { entry, filter in entry.copies.contains { matchesFilter($0, filter) } },
+            areInIncreasingOrder: areInIncreasingOrder
+        )
+    }
+
     /// Override hook
     func rebuildFilteredItems() {}
 
@@ -333,6 +361,17 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     func deleteItems(ids: Set<Int>, deleteFiles: Bool) async {
         await deleteItems(ids: ids, deleteFiles: deleteFiles, nounSingular: nounSingular, nounPlural: nounPlural)
+    }
+
+    /// Override hook — routes each copy to the server that holds it.
+    func deleteEntries(_ entries: [ArrLibraryEntry<LibraryItem>], deleteFiles: Bool) async {}
+
+    /// Override hook — flips every copy so a merged row can't end up half
+    /// monitored.
+    func toggleMonitoredAcrossInstances(_ entry: ArrLibraryEntry<LibraryItem>) async {
+        for copy in entry.copies {
+            await toggleMonitored(copy)
+        }
     }
 
     // MARK: - Library
@@ -461,22 +500,70 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     // MARK: - Queue
 
+    /// Every connected instance of this view model's service, in configured
+    /// order. Overridden by the Sonarr and Radarr view models; the base returns
+    /// nothing, so Bazarr and Prowlarr — which have no instance pair — keep
+    /// falling back to their single bound client.
+    var routedInstances: [(ref: ArrInstanceRef, client: Client)] { [] }
+
     func loadQueue() async {
-        guard let client else { return }
-        do {
-            let page = try await client.getQueue(page: 1, pageSize: 250)
-            queue = page.records ?? []
-        } catch {
-            self.error = error.localizedDescription
+        let instances = routedInstances
+        guard !instances.isEmpty else {
+            // No instance identity available: a preview view model, or a service
+            // that isn't paired. Load the bound client and leave provenance nil.
+            guard let client else { return }
+            do {
+                let page = try await client.getQueue(page: 1, pageSize: 250)
+                queueRecords = (page.records ?? []).map {
+                    ArrInstanced($0, on: unpairedInstanceRef, elementID: String($0.id))
+                }
+            } catch {
+                self.error = error.localizedDescription
+            }
+            return
         }
+
+        var records: [ArrInstanced<ArrQueueItem>] = []
+        var firstError: String?
+        for (ref, client) in instances {
+            do {
+                let page = try await client.getQueue(page: 1, pageSize: 250)
+                records += (page.records ?? []).instanced(on: ref)
+            } catch {
+                if firstError == nil { firstError = error.localizedDescription }
+            }
+        }
+        queueRecords = records
+        // A failure on one server is not a failure of the queue; only report when
+        // nothing at all came back.
+        self.error = records.isEmpty ? firstError : nil
     }
 
+    /// Identity stand-in for a view model with no instance pair behind it.
+    private var unpairedInstanceRef: ArrInstanceRef {
+        ArrInstanceRef(
+            id: UUID(uuid: (0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0)),
+            serviceType: .prowlarr,
+            displayName: "",
+            ordinal: 0,
+            shortLabel: ""
+        )
+    }
+
+    /// Removes a queue row from the server that actually holds it.
     @discardableResult
     func removeQueueItem(id: Int, blocklist: Bool = false) async -> Bool {
-        guard let client else { return false }
+        let record = queueRecords.first { $0.value.id == id }
+        let routed = record
+            .flatMap { row in routedInstances.first { $0.ref.id == row.instance.id }?.client }
+        guard let client = routed ?? client else { return false }
         do {
             try await client.deleteQueueItem(id: id, blocklist: blocklist)
-            queue.removeAll { $0.id == id }
+            if let record {
+                queueRecords.removeAll { $0.id == record.id }
+            } else {
+                queueRecords.removeAll { $0.value.id == id }
+            }
             error = nil
             return true
         } catch {
@@ -728,11 +815,14 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 /// Common interface for Sonarr and Radarr view models to drive the generic list view.
 @MainActor
 protocol ArrMediaListViewModel: AnyObject, Sendable {
-    associatedtype Item: Identifiable & JellyfinMatchable & Equatable where Item.ID == Int
+    associatedtype Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryItem where Item.ID == Int
     associatedtype Filter: RawRepresentable & CaseIterable & Identifiable & Hashable where Filter.RawValue == String
     associatedtype Sort: RawRepresentable & CaseIterable & Identifiable & Hashable where Sort.RawValue == String
 
-    var filteredItems: [Item] { get }
+    /// The list's unit is a merged entry — one title, every server's copy of it —
+    /// not a raw library item. `items` keeps the flat union underneath for
+    /// anything that needs per-server truth.
+    var filteredItems: [ArrLibraryEntry<Item>] { get }
     var searchText: String { get set }
     var selectedFilter: Filter { get set }
     var sortOrder: Sort { get set }
@@ -750,6 +840,14 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     func deleteItem(id: Int, deleteFiles: Bool) async
     func deleteItems(ids: Set<Int>, deleteFiles: Bool) async
     func toggleMonitored(_ item: Item) async
+    /// Deletes every server's copy of each selected title. A merged row stands for
+    /// the title, so deleting it from the blended library means deleting it
+    /// everywhere — leaving the 4K copy behind after deleting the HD one would
+    /// leave the row on screen and look like the delete failed.
+    func deleteEntries(_ entries: [ArrLibraryEntry<Item>], deleteFiles: Bool) async
+    /// Flips monitoring on every server's copy, so the merged row's state stays
+    /// coherent instead of the two servers drifting apart.
+    func toggleMonitoredAcrossInstances(_ entry: ArrLibraryEntry<Item>) async
     func refreshFilters()
     func refreshJellyfinLibraryCache() async
     func rebuildFilteredItems()

@@ -8,7 +8,12 @@ import SwiftUI
 final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFilter, RadarrSortOrder> {
     // Library state
     private(set) var movies: [RadarrMovie] = [] { didSet { rebuildFilteredItems() } }
+    /// Files for the copy most recently asked for, kept for callers that only
+    /// deal with one server.
     private(set) var movieFiles: [RadarrMovieFile] = []
+    /// Files per server, for a merged detail view that shows what each half of an
+    /// HD/4K pair actually holds. Keyed by instance ID.
+    private(set) var movieFilesByInstance: [UUID: [RadarrMovieFile]] = [:]
     private(set) var isLoadingFiles: Bool = false
 
     // Race-condition guard for loadMovieFiles
@@ -59,11 +64,8 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     }
 
     override func rebuildFilteredItems() {
-        filteredItems = FilterSortPipeline.apply(
-            items: movies,
-            filter: selectedFilter,
-            searchText: searchText,
-            sort: sortOrder,
+        filteredItems = makeFilteredEntries(
+            from: movies,
             matchesSearch: { movie, query in
                 movie.title.localizedCaseInsensitiveContains(query)
             },
@@ -87,27 +89,112 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                     isInJellyfinLibrary(movie)
                 }
             },
-            areInIncreasingOrder: { a, b, sort in
+            areInIncreasingOrder: { lhs, rhs, sort in
+                let a = lhs.primary
+                let b = rhs.primary
                 switch sort {
                 case .title:
-                    (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
+                    return (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
                 case .recentlyAdded:
-                    (a.added ?? "") > (b.added ?? "")
+                    return (a.added ?? "") > (b.added ?? "")
                 case .year:
-                    (a.year ?? 0) > (b.year ?? 0)
+                    return (a.year ?? 0) > (b.year ?? 0)
                 case .size:
-                    (a.sizeOnDisk ?? 0) > (b.sizeOnDisk ?? 0)
+                    // Summed across servers: a film held in both HD and 4K really
+                    // is occupying both, and sorting by one copy would rank it as
+                    // though the other weren't there.
+                    let lhsSize = lhs.copies.reduce(Int64(0)) { $0 + ($1.sizeOnDisk ?? 0) }
+                    let rhsSize = rhs.copies.reduce(Int64(0)) { $0 + ($1.sizeOnDisk ?? 0) }
+                    return lhsSize > rhsSize
                 case .status:
-                    a.displayStatus < b.displayStatus
+                    return a.displayStatus < b.displayStatus
                 }
             }
         )
+    }
+
+    /// Deletes every server's copy of each selected title, routing each delete to
+    /// the server that holds it.
+    override func deleteEntries(_ entries: [ArrLibraryEntry<RadarrMovie>], deleteFiles: Bool) async {
+        var deleted: [(instanceID: UUID?, id: Int)] = []
+        var failures: [String] = []
+
+        for entry in entries {
+            for copy in entry.copies {
+                guard let client = serviceManager.radarrClient(owning: copy) else {
+                    failures.append("\(copy.title): Radarr isn’t connected.")
+                    continue
+                }
+                do {
+                    try await client.deleteMovie(id: copy.id, deleteFiles: deleteFiles)
+                    deleted.append((copy.instanceID, copy.id))
+                } catch {
+                    failures.append("\(copy.title): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        if !deleted.isEmpty {
+            movies.removeAll { movie in
+                deleted.contains { $0.instanceID == movie.instanceID && $0.id == movie.id }
+            }
+            await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Deleted",
+                message: Self.bulkDeleteSuccessMessage(count: entries.count, singular: "movie", plural: "movies")
+            )
+        }
+
+        if failures.isEmpty {
+            error = nil
+        } else {
+            error = failures.first
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: Self.bulkDeleteFailureMessage(failures, singular: "movie", plural: "movies")
+            )
+        }
     }
 
     var qualityProfiles: [ArrQualityProfile] { serviceManager.radarrQualityProfiles }
     var rootFolders: [ArrRootFolder] { serviceManager.radarrRootFolders }
     var tags: [ArrTag] { serviceManager.radarrTags }
     var isConnected: Bool { serviceManager.radarrConnected }
+
+
+    // MARK: - Instance routing
+
+    /// The Radarr server holding a given library ID.
+    ///
+    /// Every mutation goes through here rather than through `client`, which is
+    /// still whichever instance is nominally active. In a blended library the row
+    /// the user acted on may belong to either server, and the two hand out the
+    /// same integer IDs — so sending an update to the active client can silently
+    /// modify a different film that happens to share the ID.
+    ///
+    /// Falls back to the active client only for IDs that aren't in the loaded
+    /// union at all: freshly added movies, and preview/fixture view models that
+    /// never loaded from a server.
+    func routedClient(forMovieID id: Int, instanceID: UUID? = nil) -> RadarrAPIClient? {
+        if let instanceID, let client = serviceManager.radarrClient(for: instanceID) {
+            return client
+        }
+        if let owner = movies.first(where: { $0.id == id })?.instanceID,
+           let client = serviceManager.radarrClient(for: owner) {
+            return client
+        }
+        return client
+    }
+
+    func routedClient(for movie: RadarrMovie) -> RadarrAPIClient? {
+        routedClient(forMovieID: movie.id, instanceID: movie.instanceID)
+    }
+
+    /// Both Radarr servers, so the queue, history and library this view model
+    /// exposes cover the whole blended library rather than one half of it.
+    override var routedInstances: [(ref: ArrInstanceRef, client: RadarrAPIClient)] {
+        serviceManager.visibleRadarr
+    }
 
     // MARK: - Library
 
@@ -119,7 +206,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     }
 
     func loadMovieFiles(movieId: Int) async {
-        guard let client else { return }
+        guard let client = routedClient(forMovieID: movieId) else { return }
         latestRequestedMovieId = movieId
         movieFiles = []
         isLoadingFiles = true
@@ -135,6 +222,24 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         }
     }
 
+    /// Loads files for every server's copy of one title, so a merged detail view
+    /// can show what the HD server holds next to what the 4K server holds rather
+    /// than picking one and implying it speaks for both.
+    func loadMovieFiles(for entry: ArrLibraryEntry<RadarrMovie>) async {
+        isLoadingFiles = true
+        defer { isLoadingFiles = false }
+
+        var byInstance: [UUID: [RadarrMovieFile]] = [:]
+        for copy in entry.copies {
+            guard let instanceID = copy.instanceID,
+                  let client = serviceManager.radarrClient(owning: copy) else { continue }
+            byInstance[instanceID] = (try? await client.getMovieFiles(movieId: copy.id)) ?? []
+        }
+        movieFilesByInstance = byInstance
+        // Keep the flat list in step for the single-server callers.
+        movieFiles = entry.copies.compactMap(\.instanceID).flatMap { byInstance[$0] ?? [] }
+    }
+
     func refreshMovies() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.refreshMovie()
@@ -145,19 +250,23 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
 
     // MARK: - Movie Detail
 
-    func getMovie(id: Int) async -> RadarrMovie? {
-        guard let client else { return nil }
+    func getMovie(id: Int, instanceID: UUID? = nil) async -> RadarrMovie? {
+        let owner = instanceID ?? movies.first(where: { $0.id == id })?.instanceID
+        guard let client = routedClient(forMovieID: id, instanceID: owner) else { return nil }
         do {
-            return try await client.getMovie(id: id)
+            // Re-stamped on the way back: a movie fetched from a specific server
+            // has to remember which one, or the next command on it loses its route.
+            return try await client.getMovie(id: id).stamped(with: owner)
         } catch {
             self.error = error.localizedDescription
             return nil
         }
     }
 
-    private func refreshMovieInLibrary(id: Int) async {
-        guard let refreshedMovie = await getMovie(id: id) else { return }
-        if let index = movies.firstIndex(where: { $0.id == id }) {
+    private func refreshMovieInLibrary(id: Int, instanceID: UUID? = nil) async {
+        let owner = instanceID ?? movies.first(where: { $0.id == id })?.instanceID
+        guard let refreshedMovie = await getMovie(id: id, instanceID: owner) else { return }
+        if let index = movies.firstIndex(where: { $0.id == id && $0.instanceID == owner }) {
             movies[index] = refreshedMovie
         } else {
             movies.append(refreshedMovie)
@@ -222,7 +331,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         tags: [Int],
         moveFiles: Bool = false
     ) async -> Bool {
-        guard let client else { return false }
+        guard let client = routedClient(for: movie) else { return false }
         do {
             let rootFolderChanged = rootFolderPath != (movie.rootFolderPath ?? "")
             let updatedMovie = movie.updatingForEdit(
@@ -257,14 +366,14 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     }
 
     func toggleMovieMonitored(_ movie: RadarrMovie) async {
-        guard let client else { return }
+        guard let client = routedClient(for: movie) else { return }
         guard movie.id > 0 else {
             await loadMovies()
             return
         }
         let newMonitored = !(movie.monitored ?? true)
         do {
-            let canonicalMovie = try await client.getMovie(id: movie.id)
+            let canonicalMovie = try await client.getMovie(id: movie.id).stamped(with: movie.instanceID)
             guard canonicalMovie.qualityProfileId != nil,
                   let rootFolderPath = canonicalMovie.rootFolderPath,
                   !rootFolderPath.isEmpty else {
@@ -280,7 +389,9 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                 tags: canonicalMovie.tags ?? []
             )
 
-            if let idx = self.movies.firstIndex(where: { $0.id == movie.id }) {
+            if let idx = self.movies.firstIndex(where: {
+                $0.id == movie.id && $0.instanceID == movie.instanceID
+            }) {
                 self.movies[idx] = updatedMovie
             }
             _ = try await client.updateMovie(updatedMovie, moveFiles: false)
@@ -298,12 +409,13 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         }
     }
 
-    func deleteMovie(id: Int, deleteFiles: Bool = false) async -> Bool {
-        guard let client else { return false }
-        let movieTitle = movies.first(where: { $0.id == id })?.title ?? "Movie"
+    func deleteMovie(id: Int, deleteFiles: Bool = false, instanceID: UUID? = nil) async -> Bool {
+        let owner = instanceID ?? movies.first(where: { $0.id == id })?.instanceID
+        guard let client = routedClient(forMovieID: id, instanceID: owner) else { return false }
+        let movieTitle = movies.first(where: { $0.id == id && $0.instanceID == owner })?.title ?? "Movie"
         do {
             try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
-            movies.removeAll { $0.id == id }
+            movies.removeAll { $0.id == id && $0.instanceID == owner }
             await serviceManager.calendarViewModel.refresh()
             InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: movieTitle)
             return true
@@ -365,8 +477,8 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     // MARK: - Search for existing
 
     @discardableResult
-    func searchMovie(movieId: Int) async -> Bool {
-        guard let client else {
+    func searchMovie(movieId: Int, instanceID: UUID? = nil) async -> Bool {
+        guard let client = routedClient(forMovieID: movieId, instanceID: instanceID) else {
             self.error = ArrServiceError.clientNotAvailable.errorDescription
             return false
         }
@@ -385,8 +497,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         }
     }
 
-    func interactiveSearchMovie(movieId: Int) async throws -> [ArrRelease] {
-        guard let client else { throw ArrError.noServiceConfigured }
+    func interactiveSearchMovie(movieId: Int, instanceID: UUID? = nil) async throws -> [ArrRelease] {
+        guard let client = routedClient(forMovieID: movieId, instanceID: instanceID) else {
+            throw ArrError.noServiceConfigured
+        }
         error = nil
         #if DEBUG
         print("[InteractiveSearch][Radarr] start movieId=\(movieId)")
@@ -412,9 +526,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         }
     }
 
-    func deleteMovieFile(id: Int) async -> Bool {
-        guard let client else { return false }
+    func deleteMovieFile(id: Int, instanceID: UUID? = nil) async -> Bool {
+        let owner = instanceID ?? movies.first(where: { $0.movieFile?.id == id })?.instanceID
         let movieId = movies.first(where: { $0.movieFile?.id == id })?.id ?? movieFiles.first(where: { $0.id == id })?.movieId
+        guard let client = routedClient(forMovieID: movieId ?? 0, instanceID: owner) else { return false }
 
         do {
             try await client.deleteMovieFile(id: id)

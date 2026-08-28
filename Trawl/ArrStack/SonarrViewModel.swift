@@ -68,11 +68,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     override func rebuildFilteredItems() {
-        filteredItems = FilterSortPipeline.apply(
-            items: series,
-            filter: selectedFilter,
-            searchText: searchText,
-            sort: sortOrder,
+        filteredItems = makeFilteredEntries(
+            from: series,
             matchesSearch: { series, query in
                 series.title.localizedCaseInsensitiveContains(query)
             },
@@ -97,7 +94,9 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                     return isInJellyfinLibrary(series)
                 }
             },
-            areInIncreasingOrder: { a, b, sort in
+            areInIncreasingOrder: { lhs, rhs, sort in
+                let a = lhs.primary
+                let b = rhs.primary
                 switch sort {
                 case .title:
                     return (a.sortTitle ?? a.title) < (b.sortTitle ?? b.title)
@@ -106,12 +105,60 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 case .status:
                     return (a.status ?? "") < (b.status ?? "")
                 case .progress:
-                    return progressFraction(for: a) > progressFraction(for: b)
+                    // The best-served copy wins: a series complete on the HD
+                    // server shouldn't sort as incomplete because the 4K server
+                    // has only half of it.
+                    let lhsProgress = lhs.copies.map { self.progressFraction(for: $0) }.max() ?? 0
+                    let rhsProgress = rhs.copies.map { self.progressFraction(for: $0) }.max() ?? 0
+                    return lhsProgress > rhsProgress
                 case .network:
                     return (a.network ?? "") < (b.network ?? "")
                 }
             }
         )
+    }
+
+    /// Deletes every server's copy of each selected title, routing each delete to
+    /// the server that holds it.
+    override func deleteEntries(_ entries: [ArrLibraryEntry<SonarrSeries>], deleteFiles: Bool) async {
+        var deleted: [(instanceID: UUID?, id: Int)] = []
+        var failures: [String] = []
+
+        for entry in entries {
+            for copy in entry.copies {
+                guard let client = serviceManager.sonarrClient(owning: copy) else {
+                    failures.append("\(copy.title): Sonarr isn’t connected.")
+                    continue
+                }
+                do {
+                    try await client.deleteSeries(id: copy.id, deleteFiles: deleteFiles)
+                    deleted.append((copy.instanceID, copy.id))
+                } catch {
+                    failures.append("\(copy.title): \(error.localizedDescription)")
+                }
+            }
+        }
+
+        if !deleted.isEmpty {
+            series.removeAll { item in
+                deleted.contains { $0.instanceID == item.instanceID && $0.id == item.id }
+            }
+            await serviceManager.calendarViewModel.refresh()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Deleted",
+                message: Self.bulkDeleteSuccessMessage(count: entries.count, singular: "series", plural: "series")
+            )
+        }
+
+        if failures.isEmpty {
+            error = nil
+        } else {
+            error = failures.first
+            InAppNotificationCenter.shared.showError(
+                title: "Delete Failed",
+                message: Self.bulkDeleteFailureMessage(failures, singular: "series", plural: "series")
+            )
+        }
     }
 
     private func progressFraction(for series: SonarrSeries) -> Double {
@@ -128,6 +175,12 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     var rootFolders: [ArrRootFolder] { serviceManager.sonarrRootFolders }
     var tags: [ArrTag] { serviceManager.sonarrTags }
     var isConnected: Bool { serviceManager.sonarrConnected }
+
+    /// Both Sonarr servers, so the queue, history and library this view model
+    /// exposes cover the whole blended library rather than one half of it.
+    override var routedInstances: [(ref: ArrInstanceRef, client: SonarrAPIClient)] {
+        serviceManager.visibleSonarr
+    }
 
     // MARK: - Library
 

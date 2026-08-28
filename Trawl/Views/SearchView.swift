@@ -411,11 +411,32 @@ struct SearchView: View {
         }
     }
 
+    /// A one-copy entry. `ArrLibraryEntry(copies:)` only fails on an empty array,
+    /// which a single element cannot be; this keeps the call site total.
+    private func singleEntry<Item: ArrMergeableLibraryItem>(_ item: Item) -> ArrLibraryEntry<Item> {
+        ArrLibraryEntry(copies: [item])!
+    }
+
+    /// The badge for a search result's server, suppressed when only one instance
+    /// of that service is configured.
+    private func badgeRefs(for instanceID: UUID?, serviceType: ArrServiceType) -> [ArrInstanceRef] {
+        guard arrServiceManager.showsInstanceProvenance(for: serviceType),
+              let ref = arrServiceManager.instanceRef(serviceType, id: instanceID) else { return [] }
+        return [ref]
+    }
+
     @ViewBuilder
     private func librarySeriesRow(_ series: SonarrSeries) -> some View {
         let isMonitored = series.monitored ?? true
         NavigationLink(value: ArrMediaDestination.series(id: series.id)) {
-            SonarrSeriesRow(series: series, hasIssue: false, showTypeLabel: viewModel.filter == .all)
+            // Search results stay per-server rather than merging: search answers
+            // "find this row", and each row is badged with the server holding it.
+            SonarrSeriesRow(
+                entry: ArrLibraryEntry(copies: [series]) ?? singleEntry(series),
+                hasIssue: false,
+                showTypeLabel: viewModel.filter == .all,
+                instances: badgeRefs(for: series.instanceID, serviceType: .sonarr)
+            )
         }
         .contextMenu {
             Button {
@@ -444,7 +465,12 @@ struct SearchView: View {
     private func libraryMovieRow(_ movie: RadarrMovie) -> some View {
         let isMonitored = movie.monitored ?? true
         NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
-            RadarrMovieRow(movie: movie, hasIssue: false, showTypeLabel: viewModel.filter == .all)
+            RadarrMovieRow(
+                entry: ArrLibraryEntry(copies: [movie]) ?? singleEntry(movie),
+                hasIssue: false,
+                showTypeLabel: viewModel.filter == .all,
+                instances: badgeRefs(for: movie.instanceID, serviceType: .radarr)
+            )
         }
         .contextMenu {
             Button {

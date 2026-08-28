@@ -4,9 +4,11 @@ import Foundation
 
 @MainActor
 struct ArrMediaListView<Item, VM, Row, Detail>: View
-where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
+where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryItem, Item.ID == Int,
       VM: ArrMediaListViewModel & Observable, VM.Item == Item,
       Row: View, Detail: View {
+    /// One row of the blended library: a title, with every server's copy of it.
+    typealias Entry = ArrLibraryEntry<Item>
 
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
@@ -22,19 +24,19 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     let nounSingular: String
     let nounPlural: String
     let emptyIcon: String
-    let row: (Item, Bool) -> Row
-    let detailDestination: (Int) -> Detail
+    let row: (Entry, Bool) -> Row
+    let detailDestination: (ArrMergeKey) -> Detail
 
-    @State private var listScrollPosition: Int?
+    @State private var listScrollPosition: ArrMergeKey?
     @Namespace private var namespace
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
     @State private var showWantedMissing = false
-    @State private var pendingDeleteItem: Item?
+    @State private var pendingDeleteItem: Entry?
     @State private var isRunningCommand = false
     @State private var editMode: SelectionMode = .inactive
-    @State private var selectedIDs: Set<Int> = []
+    @State private var selectedIDs: Set<ArrMergeKey> = []
     @State private var showBulkDeleteAlert = false
     @State private var isFilterSearchExpanded = false
 
@@ -113,8 +115,10 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                     .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
-            .navigationDestination(for: Int.self) { id in
-                detailDestination(id)
+            // Keyed by the merge key rather than a library ID: a row stands for a
+            // title, and the same title has a different ID on each server.
+            .navigationDestination(for: ArrMergeKey.self) { key in
+                detailDestination(key)
                     .environment(syncService)
             }
             // Keyed by the view model's identity rather than the active instance ID.
@@ -215,12 +219,13 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
             nounPlural: nounPlural,
             emptyIcon: emptyIcon,
             titleKeyPath: \.titlePlaceholder,
-            sectionTitle: { item in
-                (item as? any ArrSortable)?.sortTitle ?? (item as? any ArrTitleable)?.title ?? ""
+            sectionTitle: { entry in
+                let item = entry.primary
+                return (item as? any ArrSortable)?.sortTitle ?? (item as? any ArrTitleable)?.title ?? ""
             },
             usesTitleSections: viewModel.sortOrder.rawValue == "Title",
             selectedIDs: selectedIDs,
-            row: { item, _ in itemRow(item) },
+            row: { entry, _ in itemRow(entry) },
             retry: nil
         )
         .scrollPosition(id: $listScrollPosition)
@@ -228,65 +233,74 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     }
 
     @ViewBuilder
-    private func itemRow(_ item: Item) -> some View {
+    private func itemRow(_ entry: Entry) -> some View {
         if editMode.isEditing {
             Button {
-                toggleSelection(item)
+                toggleSelection(entry)
             } label: {
                 HStack(spacing: 12) {
-                    Image(systemName: selectedIDs.contains(item.id) ? "checkmark.circle.fill" : "circle")
+                    Image(systemName: selectedIDs.contains(entry.id) ? "checkmark.circle.fill" : "circle")
                         .font(.title3)
-                        .foregroundStyle(selectedIDs.contains(item.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    row(item, true)
+                        .foregroundStyle(selectedIDs.contains(entry.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+                    row(entry, true)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
         } else {
-            NavigationLink(value: item.id) {
-                row(item, false)
+            NavigationLink(value: entry.id) {
+                row(entry, false)
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 Button(role: .destructive) {
-                    pendingDeleteItem = item
+                    pendingDeleteItem = entry
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }
 
+                // A swipe acts on the title, so it acts on every server holding
+                // it. Monitoring one copy and not the other would leave the row
+                // showing a state that is true of neither server.
                 Button {
-                    Task { await viewModel.toggleMonitored(item) }
+                    Task { await viewModel.toggleMonitoredAcrossInstances(entry) }
                 } label: {
-                    let monitored = (item as? any ArrMonitorable)?.monitored ?? true
                     Label(
-                        monitored ? "Unmonitor" : "Monitor",
-                        systemImage: monitored ? "bookmark.slash" : "bookmark.fill"
+                        isMonitored(entry) ? "Unmonitor" : "Monitor",
+                        systemImage: isMonitored(entry) ? "bookmark.slash" : "bookmark.fill"
                     )
                 }
-                .tint(((item as? any ArrMonitorable)?.monitored ?? true) ? .orange : .blue)
+                .tint(isMonitored(entry) ? .orange : .blue)
             }
         }
     }
 
-    private func toggleSelection(_ item: Item) {
+    /// A merged row counts as monitored when any server is monitoring it, so the
+    /// swipe offers "Unmonitor" while at least one copy is still being watched.
+    private func isMonitored(_ entry: Entry) -> Bool {
+        entry.copies.contains { ($0 as? any ArrMonitorable)?.monitored ?? true }
+    }
+
+    private func toggleSelection(_ entry: Entry) {
         withAnimation {
-            if selectedIDs.contains(item.id) {
-                selectedIDs.remove(item.id)
+            if selectedIDs.contains(entry.id) {
+                selectedIDs.remove(entry.id)
             } else {
-                selectedIDs.insert(item.id)
+                selectedIDs.insert(entry.id)
             }
         }
     }
 
     private func bulkDeleteItems(deleteFiles: Bool) {
-        let ids = selectedIDs
-        guard !ids.isEmpty else { return }
+        let keys = selectedIDs
+        guard !keys.isEmpty else { return }
+        let entries = viewModel.filteredItems.filter { keys.contains($0.id) }
         withAnimation {
             selectedIDs = []
             editMode = .inactive
         }
         Task {
-            await viewModel.deleteItems(ids: ids, deleteFiles: deleteFiles)
+            await viewModel.deleteEntries(entries, deleteFiles: deleteFiles)
         }
     }
 
@@ -552,7 +566,7 @@ private extension View {
 }
 
 struct ArrMediaListViewAlertsAndSheets<Item, VM>: ViewModifier
-where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
+where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryItem, Item.ID == Int,
       VM: ArrMediaListViewModel & Observable, VM.Item == Item {
     let serviceType: ArrServiceType
     let nounSingular: String
@@ -562,15 +576,36 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
     let syncService: SyncService
     let namespace: Namespace.ID
 
-    @Binding var pendingDeleteItem: Item?
+    @Binding var pendingDeleteItem: ArrLibraryEntry<Item>?
     @Binding var showBulkDeleteAlert: Bool
-    @Binding var selectedIDs: Set<Int>
+    @Binding var selectedIDs: Set<ArrMergeKey>
     @Binding var showSettings: Bool
     @Binding var showAddSheet: Bool
     @Binding var showCalendar: Bool
     @Binding var showWantedMissing: Bool
 
     let onBulkDelete: (Bool) -> Void
+
+    /// Names the servers when a title lives on more than one, so a destructive
+    /// action can't be confirmed without knowing it hits both.
+    private func deleteButtonTitle(for entry: ArrLibraryEntry<Item>) -> String {
+        let names = instanceNames(for: entry)
+        guard names.count > 1 else { return "Delete from \(serviceType.displayName)" }
+        return "Delete from \(names.joined(separator: " and "))"
+    }
+
+    private func deleteMessage(for entry: ArrLibraryEntry<Item>) -> String {
+        let title = (entry.primary as? any ArrTitleable)?.title ?? nounSingular
+        let names = instanceNames(for: entry)
+        if names.count > 1 {
+            return "\(title) is on \(names.joined(separator: " and ")). Choose whether to remove it from both or also delete its files."
+        }
+        return "Choose whether to remove only \(title) from \(serviceType.displayName) or also delete its files."
+    }
+
+    private func instanceNames(for entry: ArrLibraryEntry<Item>) -> [String] {
+        serviceManager.badgeRefs(for: entry).map(\.displayName)
+    }
 
     func body(content: Content) -> some View {
         content
@@ -581,23 +616,20 @@ where Item: Identifiable & JellyfinMatchable & Equatable, Item.ID == Int,
                     set: { if !$0 { pendingDeleteItem = nil } }
                 ),
                 presenting: pendingDeleteItem
-            ) { item in
-                Button("Delete from \(serviceType.displayName)", role: .destructive) {
-                    let id = item.id
+            ) { entry in
+                Button(deleteButtonTitle(for: entry), role: .destructive) {
                     pendingDeleteItem = nil
-                    Task { await viewModel.deleteItem(id: id, deleteFiles: false) }
+                    Task { await viewModel.deleteEntries([entry], deleteFiles: false) }
                 }
                 Button("Delete \(nounSingular) and Files", role: .destructive) {
-                    let id = item.id
                     pendingDeleteItem = nil
-                    Task { await viewModel.deleteItem(id: id, deleteFiles: true) }
+                    Task { await viewModel.deleteEntries([entry], deleteFiles: true) }
                 }
                 Button("Cancel", role: .cancel) {
                     pendingDeleteItem = nil
                 }
-            } message: { item in
-                let title = (item as? any ArrTitleable)?.title ?? nounSingular
-                Text("Choose whether to remove only \(title) from \(serviceType.displayName) or also delete its files.")
+            } message: { entry in
+                Text(deleteMessage(for: entry))
             }
             .alert("Delete \(selectedIDs.count) \(selectedIDs.count == 1 ? nounSingular : nounPlural)?", isPresented: $showBulkDeleteAlert) {
                 Button("Delete from \(serviceType.displayName)", role: .destructive) {

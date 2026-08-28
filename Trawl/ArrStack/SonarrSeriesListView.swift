@@ -19,17 +19,24 @@ struct SonarrSeriesListView: View {
                     nounSingular: "Series",
                     nounPlural: "Series",
                     emptyIcon: "tv",
-                    row: { series, _ in
+                    row: { entry, _ in
                         SonarrSeriesRow(
-                            series: series,
-                            hasIssue: vm.queue.contains {
-                                $0.seriesId == series.id && $0.isImportIssueQueueItem
+                            entry: entry,
+                            // An import issue on either server is an issue with
+                            // this title. Queue rows carry the server that owns
+                            // them, so the match is on (server, series).
+                            hasIssue: vm.queueRecords.contains { record in
+                                record.value.isImportIssueQueueItem
+                                    && entry.copies.contains {
+                                        $0.instanceID == record.instance.id && $0.id == record.value.seriesId
+                                    }
                             },
-                            subtitleCoverage: serviceManager.subtitleCoverage(for: series)
+                            subtitleCoverage: serviceManager.subtitleCoverage(for: entry.primary),
+                            instances: serviceManager.badgeRefs(for: entry)
                         )
                     },
-                    detailDestination: { seriesId in
-                        SonarrSeriesDetailView(seriesId: seriesId, viewModel: vm)
+                    detailDestination: { key in
+                        SonarrSeriesDetailView(mergeKey: key, viewModel: vm)
                     }
                 )
             } else {
@@ -113,18 +120,30 @@ struct SonarrSeriesListView: View {
         }
     }
 
+    /// Rebuilds when the *set* of connected servers changes, not just when one
+    /// nominated server does — either half of a pair joining or leaving changes
+    /// what the blended library contains.
     private var viewModelLoadKey: String {
-        "\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none"):\(serviceManager.activeSonarrClientRevision?.uuidString ?? "none"):\(serviceManager.sonarrConnected)"
+        serviceManager.connectedSonarr
+            .map { "\($0.ref.id.uuidString):\($0.ref.ordinal)" }
+            .joined(separator: "|")
     }
 }
 
 // MARK: - Series Row
 
 struct SonarrSeriesRow: View {
-    let series: SonarrSeries
+    let entry: ArrLibraryEntry<SonarrSeries>
     let hasIssue: Bool
     var subtitleCoverage: SubtitleCoverage = .unknown
     var showTypeLabel: Bool = false
+    /// The servers holding this title. Empty when only one Sonarr is configured,
+    /// which suppresses the badges entirely.
+    var instances: [ArrInstanceRef] = []
+
+    /// Shared metadata — title, year, artwork, network — is identical on both
+    /// servers, so the row reads it from the first copy.
+    private var series: SonarrSeries { entry.primary }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -136,10 +155,14 @@ struct SonarrSeriesRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(series.title)
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(series.title)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                    // One row per title, badged with every server that holds it.
+                    ArrInstanceBadgeRow(refs: instances)
+                }
 
                 HStack(spacing: 4) {
                     ForEach(Array(metadataItems.enumerated()), id: \.offset) { index, item in
@@ -160,7 +183,7 @@ struct SonarrSeriesRow: View {
                         ProgressView(value: totalCount > 0 ? Double(fileCount) / Double(totalCount) : 0)
                             .tint(fileCount == totalCount ? .green : .blue)
                             .frame(width: 40)
-                        Text("\(fileCount)/\(totalCount) eps")
+                        Text(episodeCountLabel(fileCount: fileCount, totalCount: totalCount))
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -185,11 +208,28 @@ struct SonarrSeriesRow: View {
                         .foregroundStyle(.orange)
                 }
 
-                ArrMonitorBadge(isMonitored: series.monitored == true)
+                ArrMonitorBadge(isMonitored: entry.copies.contains { $0.monitored == true })
                     .font(.caption)
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// "18/22 eps" for one server; "HD 22/22 · 4K 9/22" when the pair disagrees,
+    /// so a half-grabbed 4K copy is visible without opening the title.
+    private func episodeCountLabel(fileCount: Int, totalCount: Int) -> String {
+        guard entry.isOnMultipleInstances, instances.count == entry.copies.count else {
+            return "\(fileCount)/\(totalCount) eps"
+        }
+        let counts = entry.copies.map { $0.statistics?.episodeFileCount ?? 0 }
+        guard Set(counts).count > 1 else { return "\(fileCount)/\(totalCount) eps" }
+        return zip(instances, entry.copies)
+            .map { ref, copy in
+                let files = copy.statistics?.episodeFileCount ?? 0
+                let total = copy.statistics?.episodeCount ?? 0
+                return "\(ref.shortLabel) \(files)/\(total)"
+            }
+            .joined(separator: " · ")
     }
 
     private var metadataItems: [SeriesRowMetadataItem] {

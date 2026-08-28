@@ -11,6 +11,8 @@ struct RadarrMovieDetailView: View {
 
     // Library mode: look up movie by ID from viewModel
     private let movieId: Int?
+    // Blended-library mode: the title, resolved across every server holding it.
+    private let mergeKey: ArrMergeKey?
     // Discover mode: movie object passed directly
     private let discoverMovie: RadarrMovie?
     private let onAdded: (() async -> Void)?
@@ -47,10 +49,25 @@ struct RadarrMovieDetailView: View {
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
+    /// Which server the server-specific actions act on. Only consulted when the
+    /// title is on both; defaults to the first copy.
+    @State private var actionInstanceID: UUID?
 
-    /// Library init — movie lives in the ViewModel's loaded library.
+    /// Blended-library init — the title, wherever it lives.
+    init(mergeKey: ArrMergeKey, viewModel: RadarrViewModel) {
+        self.mergeKey = mergeKey
+        self.movieId = nil
+        self.discoverMovie = nil
+        self.viewModel = viewModel
+        self.onAdded = nil
+    }
+
+    /// Library init — movie lives in the ViewModel's loaded library. Kept for the
+    /// entry points that only have a library ID: widgets, Siri intents, Seerr
+    /// deep links, calendar and wanted rows.
     init(movieId: Int, viewModel: RadarrViewModel) {
         self.movieId = movieId
+        self.mergeKey = nil
         self.discoverMovie = nil
         self.viewModel = viewModel
         self.onAdded = nil
@@ -59,6 +76,7 @@ struct RadarrMovieDetailView: View {
     /// Discover init — movie comes from a lookup result, may or may not be in library.
     init(movie: RadarrMovie, viewModel: RadarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverMovie = movie
+        self.mergeKey = nil
         // If it's already in the library, use its library ID
         let libraryMatch = viewModel.movies.first { $0.tmdbId == movie.tmdbId }
         self.movieId = libraryMatch?.id
@@ -78,23 +96,53 @@ struct RadarrMovieDetailView: View {
     }
     #endif
 
-    /// The resolved movie: prefer library version (by ID or TMDb ID), fall back to discover object.
-    private var movie: RadarrMovie? {
-        if let movieId, let found = viewModel.movies.first(where: { $0.id == movieId }) {
-            return found
+    /// Every server's copy of this title.
+    ///
+    /// A library ID identifies a row on one server, so an ID-based entry point is
+    /// resolved to its copy first and then widened to the whole merged entry —
+    /// arriving from a widget or a Siri intent lands on the same screen as
+    /// tapping the row in the library.
+    private var entry: ArrLibraryEntry<RadarrMovie>? {
+        let merged = viewModel.movies.mergedByTitle()
+        if let mergeKey {
+            return merged.first { $0.id == mergeKey }
         }
-        // After adding, the movie may be in the library under a new ID
-        if let tmdbId = discoverMovie?.tmdbId,
-           let found = viewModel.movies.first(where: { $0.tmdbId == tmdbId }) {
-            return found
+        if let movieId, let match = merged.first(where: { $0.copy(withLibraryID: movieId) != nil }) {
+            return match
         }
-        return discoverMovie
+        if let tmdbId = discoverMovie?.tmdbId {
+            return merged.first { $0.copies.contains { $0.tmdbId == tmdbId } }
+        }
+        return nil
     }
 
-    /// Whether this movie is present in the library.
+    /// The copy the shared parts of the screen render from. Title, overview,
+    /// artwork, cast, ratings and release dates are the same metadata on both
+    /// servers, so any copy will do.
+    private var movie: RadarrMovie? {
+        entry?.primary ?? discoverMovie
+    }
+
+    /// The servers holding this title, empty when there is nothing to distinguish.
+    private var instanceRefs: [ArrInstanceRef] {
+        guard let entry else { return [] }
+        return serviceManager.badgeRefs(for: entry)
+    }
+
+    /// The copy that server-specific actions act on: search, interactive search,
+    /// edit, rename, manual import. Defaults to the first server holding the
+    /// title, and is switchable when both do.
+    private var actionCopy: RadarrMovie? {
+        guard let entry else { return discoverMovie }
+        if let actionInstanceID, let copy = entry.copy(on: actionInstanceID) { return copy }
+        return entry.primary
+    }
+
+    /// Whether this movie is present in the library, on any server.
     private var isInLibrary: Bool {
+        if entry != nil { return true }
         guard let tmdbId = (discoverMovie?.tmdbId ?? movie?.tmdbId) else {
-            return movieId != nil
+            return movieId != nil || mergeKey != nil
         }
         return viewModel.movies.contains { $0.tmdbId == tmdbId }
     }
@@ -178,22 +226,18 @@ struct RadarrMovieDetailView: View {
         }
         .alert("Delete Movie?", isPresented: $showDeleteAlert) {
             Button("Delete & Remove Files", role: .destructive) {
-                if let id = resolvedLibraryId {
-                    deleteFiles = true
-                    Task { await handleDeleteMovie(id: id) }
-                }
+                deleteFiles = true
+                Task { await handleDeleteMovie() }
             }
-            Button("Remove from Radarr Only", role: .destructive) {
-                if let id = resolvedLibraryId {
-                    deleteFiles = false
-                    Task { await handleDeleteMovie(id: id) }
-                }
+            Button(removeOnlyButtonTitle, role: .destructive) {
+                deleteFiles = false
+                Task { await handleDeleteMovie() }
             }
             Button("Cancel", role: .cancel) {
                 showDeleteAlert = false
             }
         } message: {
-            Text("Remove from Radarr, or also delete the files from disk?")
+            Text(deleteAlertMessage)
         }
         .alert("Delete File?", isPresented: $showDeleteFileAlert) {
             Button("Delete", role: .destructive) {
@@ -291,12 +335,17 @@ struct RadarrMovieDetailView: View {
             SonarrSeriesDetailView(series: creditSeries, viewModel: SonarrViewModel(serviceManager: serviceManager))
                 .environment(syncService)
         }
-        .task(id: resolvedLibraryId) {
+        .task(id: fileLoadKey) {
             #if DEBUG
             guard !disablesPreviewLoadingTasks else { return }
             #endif
             guard let id = resolvedLibraryId else { return }
-            await viewModel.loadMovieFiles(movieId: id)
+            // Both servers' files, so the card can show what each one holds.
+            if let entry, entry.isOnMultipleInstances {
+                await viewModel.loadMovieFiles(for: entry)
+            } else {
+                await viewModel.loadMovieFiles(movieId: id)
+            }
             // Appear-time only, so the shared cache serves it — opening a movie
             // shouldn't re-download the whole library the list already has. Pull to
             // refresh and the queue-driven reloads below still force a fetch.
@@ -311,7 +360,11 @@ struct RadarrMovieDetailView: View {
                     let currentIds = Set(viewModel.queue.map(\.id))
                     let hasActive = viewModel.queue.contains { $0.movieId == id && isActiveQueueItem($0) }
                     if currentIds != knownQueueIds || hasActive {
-                        await viewModel.loadMovieFiles(movieId: id)
+                        if let entry, entry.isOnMultipleInstances {
+                            await viewModel.loadMovieFiles(for: entry)
+                        } else {
+                            await viewModel.loadMovieFiles(movieId: id)
+                        }
                         try Task.checkCancellation()
                         await viewModel.loadMovies()
                         try Task.checkCancellation()
@@ -357,27 +410,64 @@ struct RadarrMovieDetailView: View {
         }
     }
 
+    /// The library ID of the copy the server-specific work targets. Follows the
+    /// action picker, so file loads and queue matching stay on the same server the
+    /// buttons act on.
     private var resolvedLibraryId: Int? {
+        if let copy = actionCopy, entry != nil { return copy.id }
         if let movieId { return movieId }
         guard let tmdbId = movie?.tmdbId else { return nil }
         return viewModel.movies.first { $0.tmdbId == tmdbId }?.id
     }
 
-    private func handleDeleteMovie(id: Int) async {
+    /// Re-runs when the target server changes as well as when the title does.
+    private var fileLoadKey: String {
+        "\(resolvedLibraryId ?? -1):\(entry?.instanceIDs.map(\.uuidString).joined(separator: ",") ?? "")"
+    }
+
+    /// Names the servers when a title is on both, so the confirmation can't hide
+    /// that it removes the film from two libraries.
+    private var removeOnlyButtonTitle: String {
+        guard instanceRefs.count > 1 else { return "Remove from Radarr Only" }
+        return "Remove from \(instanceRefs.map(\.shortLabel).joined(separator: " and ")) Only"
+    }
+
+    private var deleteAlertMessage: String {
+        guard instanceRefs.count > 1 else {
+            return "Remove from Radarr, or also delete the files from disk?"
+        }
+        let names = instanceRefs.map(\.displayName).joined(separator: " and ")
+        return "This removes the movie from \(names). Remove it from both, or also delete the files from disk?"
+    }
+
+    /// Deletes every server's copy: the screen shows one title, so leaving one
+    /// server's copy behind would look like the delete silently failed.
+    private func handleDeleteMovie() async {
         defer { deleteFiles = false }
         let title = movie?.title ?? "Movie"
-        let didDelete = await viewModel.deleteMovie(id: id, deleteFiles: deleteFiles)
+        let shouldDeleteFiles = deleteFiles
+
+        if let entry {
+            await viewModel.deleteEntries([entry], deleteFiles: shouldDeleteFiles)
+            if viewModel.error == nil {
+                dismiss()
+            }
+            return
+        }
+
+        guard let id = resolvedLibraryId else { return }
+        let didDelete = await viewModel.deleteMovie(id: id, deleteFiles: shouldDeleteFiles)
         if didDelete {
             dismiss()
             InAppNotificationCenter.shared.showSuccess(
                 title: "Movie Deleted",
-                message: deleteFiles ? "\(title) and its files have been removed." : "\(title) has been removed from Radarr."
+                message: shouldDeleteFiles ? "\(title) and its files have been removed." : "\(title) has been removed from Radarr."
             )
             return
         }
         guard let error = viewModel.error else { return }
         InAppNotificationCenter.shared.showError(
-            title: deleteFiles ? "Couldn't Delete Movie and Files" : "Couldn't Delete Movie",
+            title: shouldDeleteFiles ? "Couldn't Delete Movie and Files" : "Couldn't Delete Movie",
             message: error
         )
     }
@@ -433,7 +523,11 @@ struct RadarrMovieDetailView: View {
             return
         }
         await viewModel.loadQueue()
-        await viewModel.loadMovieFiles(movieId: id)
+        if let entry, entry.isOnMultipleInstances {
+            await viewModel.loadMovieFiles(for: entry)
+        } else {
+            await viewModel.loadMovieFiles(movieId: id)
+        }
         await viewModel.loadMovies()
     }
 
@@ -471,6 +565,13 @@ struct RadarrMovieDetailView: View {
             )),
             genres: movie.genres ?? []
         )
+        .overlay(alignment: .topTrailing) {
+            // Says at a glance which servers hold this title, before any card is
+            // read. Absent entirely when only one Radarr is configured.
+            ArrInstanceBadgeRow(refs: instanceRefs, style: .prominent)
+                .padding(.top, 8)
+                .padding(.trailing, 8)
+        }
     }
 
     // MARK: - Cards section
@@ -585,13 +686,26 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Stats card
 
+    /// Runtime is metadata and identical on both servers; disk usage and download
+    /// status are not. When a title is on a pair, each server gets its own "On
+    /// Disk" cell, because "68 GB" for a film that is 68 GB in 4K and 14 GB in HD
+    /// describes neither server.
     private func statsCard(_ movie: RadarrMovie) -> some View {
-        HStack(spacing: 0) {
+        let perInstance = perInstanceSizes
+        return HStack(spacing: 0) {
             if let runtime = movie.runtime, runtime > 0 {
                 statCell(value: "\(runtime)m", label: "Runtime")
                 cardDivider
             }
-            if let size = movie.sizeOnDisk, size > 0 {
+            if perInstance.count > 1 {
+                ForEach(perInstance, id: \.ref.id) { entryPair in
+                    statCell(
+                        value: entryPair.size > 0 ? ByteFormatter.format(bytes: entryPair.size) : "—",
+                        label: "\(entryPair.ref.shortLabel) on Disk"
+                    )
+                    cardDivider
+                }
+            } else if let size = movie.sizeOnDisk, size > 0 {
                 statCell(value: ByteFormatter.format(bytes: size), label: "On Disk")
                 cardDivider
             }
@@ -602,48 +716,104 @@ struct RadarrMovieDetailView: View {
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
     }
 
+    private var perInstanceSizes: [(ref: ArrInstanceRef, size: Int64)] {
+        guard let entry, instanceRefs.count == entry.copies.count else { return [] }
+        return zip(instanceRefs, entry.copies).map { (ref: $0, size: $1.sizeOnDisk ?? 0) }
+    }
+
+    /// A search runs on one server and grabs into that server's library, so when
+    /// a title is on a pair the card first asks which one. Without that the
+    /// buttons would silently pick a server, and "search for this film" would
+    /// fetch a 4K release into the HD library as often as not.
+    @ViewBuilder
     private func searchActionsCard(_ movie: RadarrMovie) -> some View {
-        HStack(spacing: 12) {
-            Button {
-                guard !isDispatchingAutomaticSearch else { return }
-                isDispatchingAutomaticSearch = true
-                Task {
-                    await viewModel.searchMovie(movieId: movie.id)
-                    isDispatchingAutomaticSearch = false
+        let target = actionCopy ?? movie
+        VStack(spacing: 12) {
+            instanceActionPicker
+            HStack(spacing: 12) {
+                Button {
+                    guard !isDispatchingAutomaticSearch else { return }
+                    isDispatchingAutomaticSearch = true
+                    Task {
+                        await viewModel.searchMovie(movieId: target.id, instanceID: target.instanceID)
+                        isDispatchingAutomaticSearch = false
 
-                    if let error = viewModel.error, !error.isEmpty {
-                        InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
-                    } else {
-                        InAppNotificationCenter.shared.showSuccess(
-                            title: "Search Queued",
-                            message: "\(movie.title) was sent to Radarr for automatic search."
-                        )
+                        if let error = viewModel.error, !error.isEmpty {
+                            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+                        } else {
+                            InAppNotificationCenter.shared.showSuccess(
+                                title: "Search Queued",
+                                message: searchQueuedMessage(for: target)
+                            )
+                        }
                     }
+                } label: {
+                    detailSearchButtonLabel(
+                        title: "Automatic",
+                        subtitle: "Normal search",
+                        systemImage: "magnifyingglass",
+                        isLoading: isDispatchingAutomaticSearch
+                    )
                 }
-            } label: {
-                detailSearchButtonLabel(
-                    title: "Automatic",
-                    subtitle: "Normal search",
-                    systemImage: "magnifyingglass",
-                    isLoading: isDispatchingAutomaticSearch
-                )
-            }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
 
-            Button {
-                interactiveSearchMovie = movie
-            } label: {
-                detailSearchButtonLabel(
-                    title: "Interactive",
-                    subtitle: "Pick a release",
-                    systemImage: "person.fill",
-                    trailingSystemImage: "arrow.up.forward.square"
-                )
+                Button {
+                    interactiveSearchMovie = target
+                } label: {
+                    detailSearchButtonLabel(
+                        title: "Interactive",
+                        subtitle: "Pick a release",
+                        systemImage: "person.fill",
+                        trailingSystemImage: "arrow.up.forward.square"
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity)
         }
+    }
+
+    /// Chooses which server the server-specific actions below act on. Rendered
+    /// only when the title is genuinely on both — with one server there is
+    /// nothing to choose and the control would be dead weight.
+    @ViewBuilder
+    private var instanceActionPicker: some View {
+        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
+            HStack(spacing: 8) {
+                Text("Act on")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
+                    let isSelected = (actionCopy?.instanceID ?? entry.primary.instanceID) == copy.instanceID
+                    Button {
+                        withAnimation(.snappy) { actionInstanceID = copy.instanceID }
+                    } label: {
+                        Text(ref.shortLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(isSelected ? Color.white : ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                isSelected
+                                    ? AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
+                                    : AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal).opacity(0.14)),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private func searchQueuedMessage(for target: RadarrMovie) -> String {
+        guard let ref = instanceRefs.first(where: { $0.id == target.instanceID }),
+              instanceRefs.count > 1 else {
+            return "\(target.title) was sent to Radarr for automatic search."
+        }
+        return "\(target.title) was sent to \(ref.displayName) for automatic search."
     }
 
     private func detailSearchButtonLabel(
@@ -850,8 +1020,91 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Files card
 
+    /// Files, grouped by the server holding them.
+    ///
+    /// This is the card the whole HD/4K setup exists for: seeing that the 4K
+    /// server has the 2160p remux and the HD server has the 1080p encode, side by
+    /// side, without switching screens. With one server configured it collapses
+    /// back to a plain file list.
     @ViewBuilder
     private var filesCard: some View {
+        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
+            perInstanceFilesCard(entry: entry)
+        } else {
+            singleInstanceFilesCard
+        }
+    }
+
+    private func perInstanceFilesCard(entry: ArrLibraryEntry<RadarrMovie>) -> some View {
+        let groups = zip(instanceRefs, entry.copies).map { ref, copy in
+            (ref: ref, files: viewModel.movieFilesByInstance[copy.instanceID ?? UUID()] ?? [])
+        }
+        let total = groups.reduce(0) { $0 + $1.files.count }
+
+        return Group {
+            if total > 0 {
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            isFilesExpanded.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            HStack(spacing: 8) {
+                                sectionLabel(total == 1 ? "File" : "Files", icon: "doc.fill")
+                                Text("\(total)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: isFilesExpanded ? "chevron.up" : "chevron.down")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 14)
+                        .padding(.bottom, isFilesExpanded ? 8 : 14)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+
+                    if isFilesExpanded {
+                        ForEach(groups, id: \.ref.id) { group in
+                            HStack(spacing: 6) {
+                                ArrInstanceBadge(label: group.ref.shortLabel, ordinal: group.ref.ordinal)
+                                if group.files.isEmpty {
+                                    Text("No file on this server")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 6)
+
+                            ForEach(Array(group.files.enumerated()), id: \.element.id) { index, file in
+                                ArrMediaFileRow(config: file.arrMediaFileConfig(
+                                    subtitles: bazarrMovieSubtitles,
+                                    onDelete: {
+                                        movieFileToDelete = file.id
+                                        showDeleteFileAlert = true
+                                    }
+                                ))
+                                if index < group.files.count - 1 {
+                                    Divider().padding(.leading, 16)
+                                }
+                            }
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var singleInstanceFilesCard: some View {
         let files = viewModel.movieFiles
         if !files.isEmpty {
             VStack(alignment: .leading, spacing: 0) {

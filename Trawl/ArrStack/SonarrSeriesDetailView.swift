@@ -10,6 +10,8 @@ struct SonarrSeriesDetailView: View {
 
     // Library mode: look up series by ID from viewModel
     private let seriesId: Int?
+    // Blended-library mode: the title, resolved across every server holding it.
+    private let mergeKey: ArrMergeKey?
     // Discover mode: series object passed directly
     private let discoverSeries: SonarrSeries?
     private let onAdded: (() async -> Void)?
@@ -41,10 +43,25 @@ struct SonarrSeriesDetailView: View {
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
+    /// Which server the server-specific actions act on. Only consulted when the
+    /// title is on both; defaults to the first copy.
+    @State private var actionInstanceID: UUID?
 
-    /// Library init — series lives in the ViewModel's loaded library.
+    /// Blended-library init — the title, wherever it lives.
+    init(mergeKey: ArrMergeKey, viewModel: SonarrViewModel) {
+        self.mergeKey = mergeKey
+        self.seriesId = nil
+        self.discoverSeries = nil
+        self.viewModel = viewModel
+        self.onAdded = nil
+    }
+
+    /// Library init — series lives in the ViewModel's loaded library. Kept for
+    /// the entry points that only have a library ID: widgets, Siri intents, Seerr
+    /// deep links, calendar and wanted rows.
     init(seriesId: Int, viewModel: SonarrViewModel) {
         self.seriesId = seriesId
+        self.mergeKey = nil
         self.discoverSeries = nil
         self.viewModel = viewModel
         self.onAdded = nil
@@ -53,6 +70,7 @@ struct SonarrSeriesDetailView: View {
     /// Discover init — series comes from a lookup result, may or may not be in library.
     init(series: SonarrSeries, viewModel: SonarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverSeries = series
+        self.mergeKey = nil
         let libraryMatch = viewModel.series.first { $0.tvdbId == series.tvdbId }
         self.seriesId = libraryMatch?.id
         self.viewModel = viewModel
@@ -60,26 +78,60 @@ struct SonarrSeriesDetailView: View {
     }
 
     /// The resolved series: prefer library version (by ID or TVDB ID), fall back to discover object.
-    private var series: SonarrSeries? {
-        if let seriesId, let found = viewModel.series.first(where: { $0.id == seriesId }) {
-            return found
+    /// Every server's copy of this title.
+    ///
+    /// A library ID identifies a row on one server, so an ID-based entry point is
+    /// resolved to its copy first and then widened to the whole merged entry —
+    /// arriving from a widget or a Siri intent lands on the same screen as
+    /// tapping the row in the library.
+    private var entry: ArrLibraryEntry<SonarrSeries>? {
+        let merged = viewModel.series.mergedByTitle()
+        if let mergeKey {
+            return merged.first { $0.id == mergeKey }
         }
-        if let tvdbId = discoverSeries?.tvdbId,
-           let found = viewModel.series.first(where: { $0.tvdbId == tvdbId }) {
-            return found
+        if let seriesId, let match = merged.first(where: { $0.copy(withLibraryID: seriesId) != nil }) {
+            return match
         }
-        return discoverSeries
+        if let tvdbId = discoverSeries?.tvdbId {
+            return merged.first { $0.copies.contains { $0.tvdbId == tvdbId } }
+        }
+        return nil
     }
 
-    /// Whether this series is present in the library.
+    /// The copy the shared parts of the screen render from. Title, overview,
+    /// artwork, cast, network and genres are the same metadata on both servers.
+    private var series: SonarrSeries? {
+        entry?.primary ?? discoverSeries
+    }
+
+    /// The servers holding this title, empty when there is nothing to distinguish.
+    private var instanceRefs: [ArrInstanceRef] {
+        guard let entry else { return [] }
+        return serviceManager.badgeRefs(for: entry)
+    }
+
+    /// The copy that server-specific actions act on: search, interactive search,
+    /// edit, rename, manual import, episode files.
+    private var actionCopy: SonarrSeries? {
+        guard let entry else { return discoverSeries }
+        if let actionInstanceID, let copy = entry.copy(on: actionInstanceID) { return copy }
+        return entry.primary
+    }
+
+    /// Whether this series is present in the library, on any server.
     private var isInLibrary: Bool {
+        if entry != nil { return true }
         guard let tvdbId = (discoverSeries?.tvdbId ?? series?.tvdbId) else {
-            return seriesId != nil
+            return seriesId != nil || mergeKey != nil
         }
         return viewModel.series.contains { $0.tvdbId == tvdbId }
     }
 
+    /// The library ID of the copy the server-specific work targets. Follows the
+    /// action picker, so episodes, files and queue matching stay on the same
+    /// server the buttons act on.
     private var resolvedSeriesId: Int? {
+        if let copy = actionCopy, entry != nil { return copy.id }
         if let seriesId { return seriesId }
         guard let tvdbId = (discoverSeries?.tvdbId ?? series?.tvdbId) else { return nil }
         return viewModel.series.first { $0.tvdbId == tvdbId }?.id
@@ -392,6 +444,46 @@ struct SonarrSeriesDetailView: View {
             )),
             genres: series.genres ?? []
         )
+        .overlay(alignment: .topTrailing) {
+            // Says at a glance which servers hold this title, before any card is
+            // read. Absent entirely when only one Sonarr is configured.
+            ArrInstanceBadgeRow(refs: instanceRefs, style: .prominent)
+                .padding(.top, 8)
+                .padding(.trailing, 8)
+        }
+    }
+
+    /// Chooses which server the server-specific actions below act on. Rendered
+    /// only when the title is genuinely on both.
+    @ViewBuilder
+    private var instanceActionPicker: some View {
+        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
+            HStack(spacing: 8) {
+                Text("Act on")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
+                    let isSelected = (actionCopy?.instanceID ?? entry.primary.instanceID) == copy.instanceID
+                    Button {
+                        withAnimation(.snappy) { actionInstanceID = copy.instanceID }
+                    } label: {
+                        Text(ref.shortLabel)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(isSelected ? Color.white : ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 4)
+                            .background(
+                                isSelected
+                                    ? AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
+                                    : AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal).opacity(0.14)),
+                                in: Capsule()
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+                Spacer()
+            }
+        }
     }
 
     // MARK: - Cards section
@@ -541,32 +633,68 @@ struct SonarrSeriesDetailView: View {
 
     // MARK: - Stats card
 
+    /// Season count is metadata and identical on both servers; episode counts and
+    /// disk usage are not. On a pair each server gets its own Episodes cell, so a
+    /// series complete in HD and half-grabbed in 4K reads as exactly that instead
+    /// of averaging into a number true of neither.
+    @ViewBuilder
     private func statsCard(_ series: SonarrSeries) -> some View {
-        HStack(spacing: 0) {
-            if let stats = series.statistics {
-                statCell(value: "\(stats.seasonCount ?? 0)", label: "Seasons")
-                cardDivider
-                let files = stats.episodeFileCount ?? 0
-                let total = stats.episodeCount ?? 0
-                statCell(value: "\(files)/\(total)", label: "Episodes")
-                if let size = stats.sizeOnDisk, size > 0 {
+        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
+            HStack(spacing: 0) {
+                statCell(value: "\(series.statistics?.seasonCount ?? 0)", label: "Seasons")
+                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
                     cardDivider
-                    statCell(value: ByteFormatter.format(bytes: size), label: "On Disk")
+                    let files = copy.statistics?.episodeFileCount ?? 0
+                    let total = copy.statistics?.episodeCount ?? 0
+                    statCell(value: "\(files)/\(total)", label: "\(ref.shortLabel) Episodes")
                 }
-                if total > 0 {
+                if totalSeriesSizeOnDisk > 0 {
                     cardDivider
-                    statCell(value: "\(Int(Double(files) / Double(total) * 100))%", label: "Complete")
+                    statCell(value: ByteFormatter.format(bytes: totalSeriesSizeOnDisk), label: "On Disk")
                 }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+        } else {
+            HStack(spacing: 0) {
+                if let stats = series.statistics {
+                    statCell(value: "\(stats.seasonCount ?? 0)", label: "Seasons")
+                    cardDivider
+                    let files = stats.episodeFileCount ?? 0
+                    let total = stats.episodeCount ?? 0
+                    statCell(value: "\(files)/\(total)", label: "Episodes")
+                    if let size = stats.sizeOnDisk, size > 0 {
+                        cardDivider
+                        statCell(value: ByteFormatter.format(bytes: size), label: "On Disk")
+                    }
+                    if total > 0 {
+                        cardDivider
+                        statCell(value: "\(Int(Double(files) / Double(total) * 100))%", label: "Complete")
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 12)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+    }
+
+    /// Summed across servers: a series held in both HD and 4K is using both.
+    private var totalSeriesSizeOnDisk: Int64 {
+        entry?.copies.reduce(Int64(0)) { $0 + ($1.statistics?.sizeOnDisk ?? 0) } ?? 0
     }
 
     // MARK: - Search card
 
     private func seriesSearchCard(_ series: SonarrSeries) -> some View {
+        VStack(spacing: 12) {
+            instanceActionPicker
+            seriesSearchButtons(series)
+        }
+    }
+
+    private func seriesSearchButtons(_ series: SonarrSeries) -> some View {
         HStack(spacing: 12) {
             Button {
                 guard !isDispatchingSeriesSearch else { return }

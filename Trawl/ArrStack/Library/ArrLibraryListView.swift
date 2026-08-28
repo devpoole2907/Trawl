@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == Int {
+struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     let items: [Item]
     let isLoading: Bool
     let error: String?
@@ -10,7 +10,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View where Item.ID == 
     let titleKeyPath: KeyPath<Item, String>
     var sectionTitle: ((Item) -> String)?
     var usesTitleSections = true
-    let selectedIDs: Set<Int>
+    let selectedIDs: Set<Item.ID>
     let row: (Item, Bool) -> Row
     let retry: (() async -> Void)?
 
