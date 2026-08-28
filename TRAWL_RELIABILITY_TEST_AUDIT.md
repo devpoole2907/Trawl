@@ -51,7 +51,6 @@ Everything still outstanding. Nothing else in this repository is a tracked open 
 | **W-02** | `upSpeed`, `dlLimit` and `upLimit` are read from qBittorrent alone while download speed blends both clients. A SAB-only user sees a live download figure beside a permanent `↑ 0 B/s`. | Open — fix before release |
 | **W-05** | The Seerr widget decoding tests are hand-authored JSON that has never met a live payload; the test Seerr instance reports `"initialized": false`. They pass, but may pin a shape Seerr does not emit. | Open |
 | — | SABnzbd returns `kbpersec` as a **string**; the in-repo sample uses a number. Production is safe via `lossyDouble`, but no fixture would catch a regression to a plain `Double` decode, which would silently zero the download widgets. | Open, not a defect |
-| — | `WidgetInstalledProcessUITests` installs a Home Screen widget on every run and never removes it. This is the likely trigger for the simulator PosterBoard crash-loop. Needs a `tearDown`. | Open |
 | — | `BazarrAPIClient.resetProviders` is unpinned. It is **not** a configuration wipe: the UI labels it "Reset Provider Status" and enabled-provider configuration saves separately through `saveEnabledProviders`. Do not test or document it as deleting provider configuration without captured live proof. | Standing caveat |
 
 ### Closed on 28 August 2026
@@ -59,6 +58,7 @@ Everything still outstanding. Nothing else in this repository is a tracked open 
 - **W-03** — SABnzbd per-job speed is synthesised (one global rate credited to the first downloading slot). Deliberate; documented, accepted.
 - **W-04** — widget content unreachable from XCTest. Resolved as test design; see [Standing constraints](#standing-constraints).
 - **W-06** — Calendar widget shapes validated against a live Sonarr and Radarr. See [Live validation](#live-validation).
+- **Widget UI cleanup** — `WidgetInstalledProcessUITests` records the pre-test Trawl-widget count and removes only widgets added by that run in async teardown. If setup fails before the count is captured, teardown preserves everything. This closes the unbounded Home Screen state growth that likely triggered the simulator's PosterBoard crash-loop.
 
 ---
 

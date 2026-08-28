@@ -10,8 +10,10 @@ import XCTest
 /// and timed out. SpringBoard does expose the widget itself: an icon element carrying
 /// `value: Widget`, which the plain app icon does not have. That element is the honest
 /// boundary to assert on, and tapping it exercises the same deep link a user would.
+@MainActor
 final class WidgetInstalledProcessUITests: XCTestCase {
     private let hostBundleIdentifier = "com.poole.james.Trawl"
+    private var widgetCountBeforeTest: Int?
 
     /// A home-screen widget. The app icon shares the label but carries no value.
     private var trawlWidgetIcons: XCUIElementQuery {
@@ -35,7 +37,10 @@ final class WidgetInstalledProcessUITests: XCTestCase {
         continueAfterFailure = false
     }
 
-    @MainActor
+    override func tearDown() async throws {
+        try removeWidgetsAddedByThisTest()
+    }
+
     func testInstalledWidgetRendersAndOpensTrawl() throws {
         let app = XCUIApplication(bundleIdentifier: hostBundleIdentifier)
         app.launch()
@@ -46,6 +51,7 @@ final class WidgetInstalledProcessUITests: XCTestCase {
         XCTAssertTrue(springboard.wait(for: .runningForeground, timeout: 10))
 
         let widgetsBefore = trawlWidgetIcons.count
+        widgetCountBeforeTest = widgetsBefore
 
         try enterWidgetGallery()
         try installTrawlWidget()
@@ -74,7 +80,6 @@ final class WidgetInstalledProcessUITests: XCTestCase {
 
     // MARK: - Flow steps
 
-    @MainActor
     private func enterWidgetGallery() throws {
         let appIcon = trawlAppIcon
         XCTAssertTrue(
@@ -101,7 +106,6 @@ final class WidgetInstalledProcessUITests: XCTestCase {
         addWidget.tap()
     }
 
-    @MainActor
     private func installTrawlWidget() throws {
         let searchField = springboard.searchFields.firstMatch
         XCTAssertTrue(searchField.waitForExistence(timeout: 10))
@@ -135,11 +139,70 @@ final class WidgetInstalledProcessUITests: XCTestCase {
         }
     }
 
+    /// Restores the Home Screen to the exact Trawl-widget count it had before the
+    /// test. This matters beyond tidiness: repeated widget installation without
+    /// removal eventually corrupted the simulator's PosterBoard data store and sent
+    /// Apple's process into a crash loop. Existing widgets are user-owned and are
+    /// deliberately preserved.
+    private func removeWidgetsAddedByThisTest() throws {
+        // If setup failed before the initial count was captured, there is no safe
+        // basis for deciding which widgets belong to this test. Preserve everything.
+        guard let widgetCountBeforeTest else { return }
+
+        XCUIDevice.shared.press(.home)
+        let springboard = self.springboard
+        guard springboard.wait(for: .runningForeground, timeout: 10) else { return }
+
+        var removalAttempts = 0
+        while trawlWidgetIcons.count > widgetCountBeforeTest, removalAttempts < 3 {
+            removalAttempts += 1
+            let widget = trawlWidgetIcons.firstMatch
+            guard widget.waitForExistence(timeout: 5),
+                  try waitUntilHittable(widget, timeout: 5) else {
+                break
+            }
+
+            let countBeforeRemoval = trawlWidgetIcons.count
+            widget.press(forDuration: 1.2)
+
+            let removeWidget = springboard.buttons["Remove Widget"].firstMatch
+            guard removeWidget.waitForExistence(timeout: 5),
+                  try waitUntilHittable(removeWidget, timeout: 5) else {
+                break
+            }
+            removeWidget.tap()
+
+            let confirmRemoval = springboard.alerts.buttons["Remove"].firstMatch
+            guard confirmRemoval.waitForExistence(timeout: 5),
+                  try waitUntilHittable(confirmRemoval, timeout: 5) else {
+                break
+            }
+            confirmRemoval.tap()
+
+            let countDropped = NSPredicate(
+                format: "count < %d",
+                countBeforeRemoval
+            )
+            let expectation = XCTNSPredicateExpectation(
+                predicate: countDropped,
+                object: trawlWidgetIcons
+            )
+            guard XCTWaiter().wait(for: [expectation], timeout: 10) == .completed else {
+                break
+            }
+        }
+
+        XCTAssertEqual(
+            trawlWidgetIcons.count,
+            widgetCountBeforeTest,
+            "Widget UI test did not restore the pre-test Home Screen state"
+        )
+    }
+
     // MARK: - Helpers
 
     /// A tap on an element that exists but is not yet hittable is silently dropped and
     /// the failure surfaces later against an unrelated element, so every tap waits.
-    @MainActor
     private func waitUntilHittable(_ element: XCUIElement, timeout: TimeInterval) throws -> Bool {
         let predicate = NSPredicate(format: "hittable == true")
         let expectation = XCTNSPredicateExpectation(predicate: predicate, object: element)

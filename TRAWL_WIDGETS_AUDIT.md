@@ -211,6 +211,7 @@ See `TRAWL_TEST_COVERAGE_MAP.md` for the authoritative row. Current state:
 | WidgetKit extension registration | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | Installed widget presence and layout | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
 | `trawl://downloads` deep link from widget | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green |
+| Home Screen state restored after UI test | `TrawlUITests/WidgetInstalledProcessUITests.swift` | Green — teardown removes only widgets added above the recorded pre-test count |
 | Glance formatting (gauges, rate labels, inline text, countdown) | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green |
 | Download-control blended running state | `TrawlTests/WidgetTimelineAndDataTests.swift` | Green — a negative control exposed that the original SAB case survived mutation; a `soleLiveSAB` case now covers "control silently reverted to qBittorrent-only" |
 | `setDownloadsPaused` against a live client | — | **Gap — never run against a real qBittorrent or SABnzbd** |
