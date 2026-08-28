@@ -87,8 +87,19 @@ struct ArrSetupSheet: View {
 
     private var availableServiceTypes: [ArrServiceType] {
         ArrServiceType.allCases.filter { type in
-            type != .prowlarr || canCreateProwlarr
+            (type != .prowlarr || canCreateProwlarr) && hasRoomForAnother(type)
         }
+    }
+
+    /// Whether another server of this type can be added.
+    ///
+    /// Sonarr and Radarr are capped at the HD/4K pair the blended library is
+    /// built around. Editing an existing profile always passes: the cap is on
+    /// adding a third, not on changing one of the two.
+    private func hasRoomForAnother(_ type: ArrServiceType) -> Bool {
+        if existingProfile?.resolvedServiceType == type { return true }
+        guard let limit = ArrSetupViewModel.instanceLimit(for: type) else { return true }
+        return profiles.filter { $0.resolvedServiceType == type }.count < limit
     }
 
     @ViewBuilder
@@ -128,6 +139,15 @@ struct ArrSetupSheet: View {
                     Text("Trawl supports a single Prowlarr server. Saving Prowlarr settings updates the existing server.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                }
+
+                if let limit = ArrSetupViewModel.instanceLimit(for: vm.serviceType) {
+                    let configured = profiles.filter { $0.resolvedServiceType == vm.serviceType }.count
+                    if existingProfile == nil, configured == limit - 1 {
+                        Text("This will be your second \(vm.serviceType.displayName) server. Both appear as one library, with each title labelled by the server holding it.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
             }
 

@@ -39,3 +39,8 @@ nonisolated extension SonarrSeries: ArrMergeableLibraryItem {
         )
     }
 }
+
+/// Episodes are not merged — they belong to one server's copy of a series — but
+/// they still need to remember which server returned them so a calendar row can
+/// say where an airing is being tracked.
+nonisolated extension SonarrEpisode: ArrInstanceScoped {}

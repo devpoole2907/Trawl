@@ -31,6 +31,11 @@ struct ArrServicesSettingsView: View {
                 } label: {
                     Label("Add Service", systemImage: "plus.circle")
                 }
+                .disabled(!canAddAnyService)
+            } footer: {
+                if !canAddAnyService {
+                    Text("Every service Trawl supports is configured. Sonarr and Radarr allow two servers each — the usual setup is one HD and one 4K — and both appear as a single library.")
+                }
             }
 
             Section("Status") {
@@ -56,6 +61,15 @@ struct ArrServicesSettingsView: View {
                 Task { await serviceManager.refreshConfiguration() }
             })
             .environment(serviceManager)
+        }
+    }
+
+    /// True while any service still has an unused slot. Sonarr and Radarr are
+    /// capped at two; Prowlarr replaces rather than adds; Bazarr is uncapped.
+    private var canAddAnyService: Bool {
+        ArrServiceType.allCases.contains { type in
+            guard let limit = ArrSetupViewModel.instanceLimit(for: type) else { return true }
+            return profiles.filter { $0.resolvedServiceType == type }.count < limit
         }
     }
 

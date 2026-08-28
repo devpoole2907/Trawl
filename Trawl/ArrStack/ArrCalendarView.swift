@@ -26,36 +26,56 @@ struct ArrCalendarRefreshSnapshot: Sendable {
 }
 
 extension ArrServiceManager: ArrCalendarDataSource {
+    /// Keyed by every visible instance, so adding, losing or filtering a server
+    /// rebuilds the calendar instead of leaving one server's airings on screen.
     var calendarConnectionKey: String {
-        "\(sonarrConnected)-\(radarrConnected)-\(activeSonarrInstanceID?.uuidString ?? "none")-\(activeRadarrInstanceID?.uuidString ?? "none")"
+        (visibleSonarr.map(\.ref.id.uuidString) + visibleRadarr.map(\.ref.id.uuidString))
+            .joined(separator: "|")
     }
 
+    /// The calendar is the union of both servers' schedules.
+    ///
+    /// Every fetch is stamped with the server it came from, so an episode that
+    /// both a HD and a 4K Sonarr are tracking shows as two airings — which is the
+    /// truth, since each will grab its own release — each labelled with its
+    /// server rather than silently collapsing into one.
     func calendarRefreshSnapshot() -> ArrCalendarRefreshSnapshot {
-        let sonarr = sonarrClient
-        let radarr = radarrClient
-        let loadEpisodes: (@Sendable (Date, Date) async throws -> [SonarrEpisode])? = if let sonarr {
-            { start, end in
-                try await sonarr.getCalendar(start: start, end: end, unmonitored: true, includeSeries: true)
+        let sonarr = visibleSonarr
+        let radarr = visibleRadarr
+
+        let loadEpisodes: (@Sendable (Date, Date) async throws -> [SonarrEpisode])? = sonarr.isEmpty ? nil : { @Sendable start, end in
+            var all: [SonarrEpisode] = []
+            for (ref, client) in sonarr {
+                let page = try await client.getCalendar(start: start, end: end, unmonitored: true, includeSeries: true)
+                all += page.stamped(with: ref.id)
             }
-        } else {
-            nil
+            return all
         }
-        let loadMovieCalendar: (@Sendable (Date, Date) async throws -> [RadarrMovie])? = if let radarr {
-            { start, end in
-                try await radarr.getCalendar(start: start, end: end, unmonitored: true)
+
+        let loadMovieCalendar: (@Sendable (Date, Date) async throws -> [RadarrMovie])? = radarr.isEmpty ? nil : { @Sendable start, end in
+            var all: [RadarrMovie] = []
+            for (ref, client) in radarr {
+                let page = try await client.getCalendar(start: start, end: end, unmonitored: true)
+                all += page.stamped(with: ref.id)
             }
-        } else {
-            nil
+            return all
         }
+
         return ArrCalendarRefreshSnapshot(
             connectionKey: calendarConnectionKey,
             loadSeries: {
-                guard let sonarr else { return [] }
-                return try await sonarr.getSeries()
+                var all: [SonarrSeries] = []
+                for (ref, client) in sonarr {
+                    all += try await client.getSeries().stamped(with: ref.id)
+                }
+                return all
             },
             loadMovies: {
-                guard let radarr else { return [] }
-                return try await radarr.getMovies()
+                var all: [RadarrMovie] = []
+                for (ref, client) in radarr {
+                    all += try await client.getMovies().stamped(with: ref.id)
+                }
+                return all
             },
             loadEpisodes: loadEpisodes,
             loadMovieCalendar: loadMovieCalendar
@@ -702,22 +722,31 @@ struct ArrCalendarView: View {
     }
     @ViewBuilder
     private func calendarEventLink(for event: CalendarEvent) -> some View {
+        let instance = badgeInstance(for: event)
         switch event {
         case .episode(let episode, _, _):
             if let seriesID = episode.seriesId {
                 NavigationLink(value: ArrMediaDestination.series(id: seriesID)) {
-                    EventRow(event: event)
+                    EventRow(event: event, instance: instance)
                 }
                 .buttonStyle(.plain)
             } else {
-                EventRow(event: event)
+                EventRow(event: event, instance: instance)
             }
         case .movie(let movie, _, _):
             NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
-                EventRow(event: event)
+                EventRow(event: event, instance: instance)
             }
             .buttonStyle(.plain)
         }
+    }
+
+    /// The server tracking an airing, shown only when a second instance of that
+    /// service exists. With a pair, the same episode legitimately appears twice —
+    /// each server grabs its own release — and the badge is what tells them apart.
+    private func badgeInstance(for event: CalendarEvent) -> ArrInstanceRef? {
+        guard serviceManager.showsInstanceProvenance(for: event.serviceType) else { return nil }
+        return serviceManager.instanceRef(event.serviceType, id: event.instanceID)
     }
 }
 
@@ -864,6 +893,7 @@ private struct CalendarWeekRange: View {
 
 private struct EventRow: View {
     let event: CalendarEvent
+    var instance: ArrInstanceRef? = nil
     
     var body: some View {
         HStack(spacing: 12) {
@@ -879,9 +909,14 @@ private struct EventRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 4))
             
             VStack(alignment: .leading, spacing: 3) {
-                Text(event.title)
-                    .font(.subheadline.bold())
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(event.title)
+                        .font(.subheadline.bold())
+                        .lineLimit(1)
+                    if let instance {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
+                }
                 
                 if let sub = event.subtitle {
                     Text(sub)
@@ -926,10 +961,28 @@ fileprivate enum CalendarEvent: Identifiable {
     case episode(SonarrEpisode, series: SonarrSeries?, date: Date)
     case movie(RadarrMovie, date: Date, kind: MovieReleaseKind)
 
+    /// Keyed by server as well as record: both instances number their episodes
+    /// and movies from the same sequence, so without it two servers' airings on
+    /// the same day collide into one row.
     var id: String {
         switch self {
-        case .episode(let ep, _, _): "ep-\(ep.id)"
-        case .movie(let m, _, let k): "movie-\(m.id)-\(k.label)"
+        case .episode(let ep, _, _): "ep-\(ep.instanceID?.uuidString ?? "-")-\(ep.id)"
+        case .movie(let m, _, let k): "movie-\(m.instanceID?.uuidString ?? "-")-\(m.id)-\(k.label)"
+        }
+    }
+
+    /// The server tracking this airing.
+    var instanceID: UUID? {
+        switch self {
+        case .episode(let ep, let series, _): ep.instanceID ?? series?.instanceID
+        case .movie(let m, _, _): m.instanceID
+        }
+    }
+
+    var serviceType: ArrServiceType {
+        switch self {
+        case .episode: .sonarr
+        case .movie: .radarr
         }
     }
 

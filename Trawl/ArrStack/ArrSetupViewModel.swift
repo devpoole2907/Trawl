@@ -25,6 +25,22 @@ final class ArrSetupViewModel {
         self.serviceManager = serviceManager
     }
 
+    /// How many instances of a service Trawl will hold, or `nil` when unlimited.
+    ///
+    /// Sonarr and Radarr are the merged pair; Prowlarr replaces rather than adds
+    /// (handled below), and Bazarr is matched to its own Sonarr and Radarr rather
+    /// than merged into the library, so neither is capped here.
+    static func instanceLimit(for serviceType: ArrServiceType) -> Int? {
+        switch serviceType {
+        case .sonarr, .radarr: ArrInstanceRef.maxInstancesPerServiceType
+        case .prowlarr, .bazarr: nil
+        }
+    }
+
+    static func instanceLimitMessage(for serviceType: ArrServiceType, limit: Int) -> String {
+        "Trawl supports up to \(limit) \(serviceType.displayName) servers — the usual setup is one HD and one 4K. Remove or edit an existing \(serviceType.displayName) server to add a different one."
+    }
+
     /// Validate the connection and save the profile.
     func validateAndSave(modelContext: ModelContext) async -> Bool {
         guard !Task.isCancelled else { return false }
@@ -69,6 +85,21 @@ final class ArrSetupViewModel {
             let name = displayName.isEmpty ? (status.instanceName ?? serviceType.displayName) : displayName
 
             let allProfiles = try modelContext.fetch(FetchDescriptor<ArrServiceProfile>())
+
+            // Sonarr and Radarr are capped at two instances — the HD/4K pair the
+            // blended library is built around. Editing an existing profile is
+            // always allowed; only adding a third is refused, and it is refused
+            // here rather than at the UI so the limit holds however setup is
+            // reached.
+            if existingProfile == nil,
+               let limit = Self.instanceLimit(for: serviceType) {
+                let configured = allProfiles.filter { $0.resolvedServiceType == serviceType }.count
+                if configured >= limit {
+                    isValidating = false
+                    validationError = Self.instanceLimitMessage(for: serviceType, limit: limit)
+                    return false
+                }
+            }
             let activeProwlarrProfileID = serviceManager.activeProwlarrProfileID
             let existingProwlarrProfiles = allProfiles.filter { $0.resolvedServiceType == .prowlarr }
             let existingProwlarrProfile =

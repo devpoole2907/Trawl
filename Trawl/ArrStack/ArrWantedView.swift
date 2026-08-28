@@ -146,7 +146,10 @@ struct ArrWantedView: View {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
-                                    WantedEpisodeRow(episode: episode) {
+                                    WantedEpisodeRow(
+                                        episode: episode,
+                                        instance: badgeInstance(episode.instanceID, .sonarr)
+                                    ) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -172,7 +175,10 @@ struct ArrWantedView: View {
                         if scope.includesMovies, let radarrViewModel, !radarrViewModel.wantedMovies.isEmpty {
                             Section("Movies") {
                                 ForEach(radarrViewModel.wantedMovies) { movie in
-                                    WantedMovieRow(movie: movie) {
+                                    WantedMovieRow(
+                                        movie: movie,
+                                        instance: badgeInstance(movie.instanceID, .radarr)
+                                    ) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -308,18 +314,41 @@ struct ArrWantedView: View {
 
     // MARK: - Actions
 
+    /// The server a wanted row belongs to, shown only when a second instance of
+    /// that service exists. Missing in HD and missing in 4K are separate rows
+    /// with separate searches, so the badge is what distinguishes them.
+    private func badgeInstance(_ instanceID: UUID?, _ serviceType: ArrServiceType) -> ArrInstanceRef? {
+        guard serviceManager.showsInstanceProvenance(for: serviceType) else { return nil }
+        return serviceManager.instanceRef(serviceType, id: instanceID)
+    }
+
     private func searchEpisode(_ episode: SonarrEpisode, in vm: SonarrViewModel) async {
         await vm.searchEpisode(episode)
         if vm.error == nil {
-            InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "\(episode.episodeIdentifier) was sent to Sonarr for automatic search.")
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: searchQueuedMessage(episode.episodeIdentifier, instanceID: episode.instanceID, serviceType: .sonarr)
+            )
         }
     }
 
     private func searchMovie(_ movie: RadarrMovie, in vm: RadarrViewModel) async {
-        let didStart = await vm.searchMovie(movieId: movie.id)
+        // Routed to the server the row came from: a movie missing on the 4K
+        // server must be searched there, not on whichever Radarr is active.
+        let didStart = await vm.searchMovie(movieId: movie.id, instanceID: movie.instanceID)
         if didStart {
-            InAppNotificationCenter.shared.showSuccess(title: "Search Queued", message: "\(movie.title) was sent to Radarr for automatic search.")
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Search Queued",
+                message: searchQueuedMessage(movie.title, instanceID: movie.instanceID, serviceType: .radarr)
+            )
         }
+    }
+
+    private func searchQueuedMessage(_ subject: String, instanceID: UUID?, serviceType: ArrServiceType) -> String {
+        guard let ref = badgeInstance(instanceID, serviceType) else {
+            return "\(subject) was sent to \(serviceType.displayName) for automatic search."
+        }
+        return "\(subject) was sent to \(ref.displayName) for automatic search."
     }
 
     private func searchBazarrSeries(_ series: BazarrSeries, in vm: BazarrViewModel) async {
@@ -534,6 +563,7 @@ enum ArrWantedScope: CaseIterable, Hashable {
 
 private struct WantedEpisodeRow: View {
     let episode: SonarrEpisode
+    var instance: ArrInstanceRef? = nil
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
@@ -578,9 +608,14 @@ private struct WantedEpisodeRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(episode.series?.title ?? "Unknown Series")
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(episode.series?.title ?? "Unknown Series")
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if let instance {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
+                }
 
                 if let title = episode.title, !title.isEmpty {
                     Text(title)
@@ -613,6 +648,7 @@ private struct WantedEpisodeRow: View {
 
 private struct WantedMovieRow: View {
     let movie: RadarrMovie
+    var instance: ArrInstanceRef? = nil
     let onSearch: @MainActor () async -> Void
 
     @State private var isSearching = false
@@ -655,9 +691,14 @@ private struct WantedMovieRow: View {
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(movie.title)
-                    .font(.subheadline.weight(.semibold))
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(movie.title)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if let instance {
+                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                    }
+                }
 
                 if let subtitle = movie.originalTitle,
                    subtitle != movie.title {

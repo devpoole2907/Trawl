@@ -331,7 +331,7 @@ struct SonarrSeasonStatistics: Codable, Sendable {
 
 // MARK: - Episode
 
-struct SonarrEpisode: Codable, Identifiable, Sendable {
+nonisolated struct SonarrEpisode: Codable, Identifiable, Sendable {
     let id: Int
     let seriesId: Int?
     let series: SonarrSeries?
@@ -351,6 +351,10 @@ struct SonarrEpisode: Codable, Identifiable, Sendable {
     let sceneSeasonNumber: Int?
     let unverifiedSceneNumbering: Bool?
     let grabbed: Bool?
+
+    /// Which Sonarr server returned this episode. Outside `CodingKeys`, like the
+    /// matching field on `SonarrSeries` — see the note there.
+    var instanceID: UUID?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -377,6 +381,7 @@ struct SonarrEpisode: Codable, Identifiable, Sendable {
     nonisolated init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
 
+        instanceID = nil
         id = try container.decode(Int.self, forKey: .id)
         seriesId = try container.decodeIfPresent(Int.self, forKey: .seriesId)
         series = try container.decodeIfPresent(SonarrSeries.self, forKey: .series)

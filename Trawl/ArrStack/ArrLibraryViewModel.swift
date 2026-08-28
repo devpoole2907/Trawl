@@ -18,7 +18,7 @@ protocol ArrWantedPageResponse: Sendable {
 /// grab/install/RSS operations on a single intermediate base class.
 protocol ArrLibraryAPIClient: SharedArrClient {
     associatedtype LibraryItem: Identifiable & Sendable where LibraryItem.ID == Int
-    associatedtype WantedRecord: Sendable
+    associatedtype WantedRecord: Sendable & ArrInstanceScoped
     associatedtype WantedPage: ArrWantedPageResponse where WantedPage.Record == WantedRecord
 
     static var serviceType: ArrServiceType { get }
@@ -288,6 +288,11 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     private(set) var wantedRecords: [WantedRecord] = []
     private(set) var isLoadingWantedMissing: Bool = false
     private(set) var wantedMissingTotalRecords: Int = 0
+    /// One paginator per server. A single page number has no meaning across two
+    /// servers' wanted lists — page 2 of the union is not page 2 of either — so
+    /// each instance is paged independently and the results concatenated in
+    /// configured order.
+    @ObservationIgnored private var wantedMissingLoaders: [UUID: PaginatedLoader<WantedRecord>] = [:]
     @ObservationIgnored private var wantedMissingLoader = PaginatedLoader<WantedRecord>(pageSize: 20)
 
     // Jellyfin library presence cache
@@ -690,45 +695,110 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     var canLoadMoreWantedMissing: Bool { wantedRecords.count < wantedMissingTotalRecords }
 
+    /// The wanted list across every visible server.
+    ///
+    /// Records stay per-server rather than merging by title: "missing in 4K" and
+    /// "missing in HD" are two different jobs with two different searches, and
+    /// collapsing them would hide exactly the gap an HD/4K pair is set up to
+    /// expose. Each record is stamped so its row can name the server and its
+    /// search can be routed there.
     func loadWantedMissing() async {
         guard !isLoadingWantedMissing else { return }
-        guard let client else { return }
+        let instances = routedInstances
+        guard !instances.isEmpty else {
+            guard let client else { return }
+            isLoadingWantedMissing = true
+            defer { isLoadingWantedMissing = false }
+            error = nil
+            do {
+                let page = try await client.wantedMissingPage(page: 1, pageSize: wantedMissingLoader.pageSize)
+                wantedMissingLoader.replace(
+                    with: page.records ?? [],
+                    page: page.page ?? 1,
+                    totalRecords: page.totalRecords
+                )
+                wantedRecords = wantedMissingLoader.items
+                wantedMissingTotalRecords = wantedMissingLoader.totalRecords
+            } catch {
+                self.error = error.localizedDescription
+            }
+            return
+        }
+
         isLoadingWantedMissing = true
         defer { isLoadingWantedMissing = false }
         error = nil
-        do {
-            let page = try await client.wantedMissingPage(page: 1, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.replace(
-                with: page.records ?? [],
-                page: page.page ?? 1,
-                totalRecords: page.totalRecords
-            )
-            wantedRecords = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
+
+        var loaders: [UUID: PaginatedLoader<WantedRecord>] = [:]
+        var firstError: String?
+        for (ref, client) in instances {
+            var loader = PaginatedLoader<WantedRecord>(pageSize: wantedMissingLoader.pageSize)
+            do {
+                let page = try await client.wantedMissingPage(page: 1, pageSize: loader.pageSize)
+                loader.replace(
+                    with: (page.records ?? []).stamped(with: ref.id),
+                    page: page.page ?? 1,
+                    totalRecords: page.totalRecords
+                )
+            } catch {
+                if firstError == nil { firstError = error.localizedDescription }
+            }
+            loaders[ref.id] = loader
         }
+        wantedMissingLoaders = loaders
+        applyWantedLoaders(order: instances.map(\.ref.id))
+        // One server failing leaves the other's wanted list on screen.
+        if wantedRecords.isEmpty { self.error = firstError }
     }
 
     func loadMoreWantedMissing() async {
         guard !isLoadingWantedMissing && canLoadMoreWantedMissing else { return }
-        guard let client else { return }
+        let instances = routedInstances
+        guard !instances.isEmpty else {
+            guard let client else { return }
+            isLoadingWantedMissing = true
+            defer { isLoadingWantedMissing = false }
+            let nextPage = wantedMissingLoader.page + 1
+            do {
+                let page = try await client.wantedMissingPage(page: nextPage, pageSize: wantedMissingLoader.pageSize)
+                wantedMissingLoader.append(
+                    page.records ?? [],
+                    page: page.page ?? nextPage,
+                    totalRecords: page.totalRecords
+                )
+                wantedRecords = wantedMissingLoader.items
+                wantedMissingTotalRecords = wantedMissingLoader.totalRecords
+            } catch {
+                self.error = error.localizedDescription
+            }
+            return
+        }
+
         isLoadingWantedMissing = true
         defer { isLoadingWantedMissing = false }
 
-        let nextPage = wantedMissingLoader.page + 1
-        do {
-            let page = try await client.wantedMissingPage(page: nextPage, pageSize: wantedMissingLoader.pageSize)
-            wantedMissingLoader.append(
-                page.records ?? [],
-                page: page.page ?? nextPage,
-                totalRecords: page.totalRecords
-            )
-            wantedRecords = wantedMissingLoader.items
-            wantedMissingTotalRecords = wantedMissingLoader.totalRecords
-        } catch {
-            self.error = error.localizedDescription
+        for (ref, client) in instances {
+            guard var loader = wantedMissingLoaders[ref.id],
+                  loader.items.count < loader.totalRecords else { continue }
+            let nextPage = loader.page + 1
+            do {
+                let page = try await client.wantedMissingPage(page: nextPage, pageSize: loader.pageSize)
+                loader.append(
+                    (page.records ?? []).stamped(with: ref.id),
+                    page: page.page ?? nextPage,
+                    totalRecords: page.totalRecords
+                )
+                wantedMissingLoaders[ref.id] = loader
+            } catch {
+                self.error = error.localizedDescription
+            }
         }
+        applyWantedLoaders(order: instances.map(\.ref.id))
+    }
+
+    private func applyWantedLoaders(order: [UUID]) {
+        wantedRecords = order.flatMap { wantedMissingLoaders[$0]?.items ?? [] }
+        wantedMissingTotalRecords = order.reduce(0) { $0 + (wantedMissingLoaders[$1]?.totalRecords ?? 0) }
     }
 
     // MARK: - Jellyfin library matching

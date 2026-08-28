@@ -388,29 +388,6 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 }
                 .accessibilityLabel("\(serviceType.displayName) Actions")
 
-                if instanceProfiles.count > 1 {
-                    Menu {
-                        ForEach(instanceProfiles) { profile in
-                            Button {
-                                switch serviceType {
-                                case .sonarr: serviceManager.setActiveSonarr(profile.id)
-                                case .radarr: serviceManager.setActiveRadarr(profile.id)
-                                default: break
-                                }
-                            } label: {
-                                if profile.id == serviceManager.activeInstanceID(serviceType) {
-                                    Label(instanceDisplayName(for: profile), systemImage: "checkmark")
-                                } else {
-                                    Label(instanceDisplayName(for: profile),
-                                          systemImage: serviceManager.isConnected(serviceType, profileID: profile.id) ? "server.rack" : "exclamationmark.triangle")
-                                }
-                            }
-                            .disabled(!serviceManager.isConnected(serviceType, profileID: profile.id))
-                        }
-                    } label: {
-                        Label("Instance", systemImage: "server.rack")
-                    }
-                }
             }
         }
     }
@@ -473,10 +450,10 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         instanceProfiles.count > 1
     }
 
-    private var navigationTitleText: String {
-        guard shouldShowInstanceTitleMenu, let profile = activeProfile else { return nounPlural }
-        return instanceDisplayName(for: profile)
-    }
+    /// Always the library's own name. Titling the screen after one server made
+    /// sense when the list showed one server; the list is now the union of both,
+    /// and naming either of them would misdescribe it.
+    private var navigationTitleText: String { nounPlural }
 
     private var isShowingConnectingState: Bool {
         activeProfile != nil && (serviceManager.isInitializing || serviceManager.isConnecting(serviceType))
