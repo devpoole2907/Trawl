@@ -123,4 +123,14 @@ struct ArrIntentSupportTests {
         let restored = try await ArrMovieEntityQuery().entities(for: ["not-base64-$$$"])
         #expect(restored.isEmpty)
     }
+
+    @Test("A spoken library title resolves without requiring a catalog match")
+    func libraryTitleEntityResolvesAnyNonEmptyTitle() async throws {
+        let query = ArrLibraryTitleEntityQuery()
+        let entities = try await query.entities(matching: "  Shrek the Third  ")
+
+        #expect(entities.map(\.title) == ["Shrek the Third"])
+        #expect(try await query.entities(matching: "   ").isEmpty)
+        #expect(try await query.entities(for: ["Of Mice and Men"]).first?.title == "Of Mice and Men")
+    }
 }

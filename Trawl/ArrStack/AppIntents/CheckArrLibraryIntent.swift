@@ -11,14 +11,14 @@ struct CheckArrLibraryIntent: AppIntent {
         categoryName: "Library"
     )
 
-    @Parameter(title: "Title", requestValueDialog: "What movie or show should I check?")
-    var title: String
+    @Parameter(title: "Movie or Show", requestValueDialog: "What movie or show should I check?")
+    var item: ArrLibraryTitleEntity
 
     @Parameter(title: "Media Type")
     var kind: ArrMediaKind?
 
     static var parameterSummary: some ParameterSummary {
-        Summary("Check whether \(\.$title) is in my library") {
+        Summary("Check whether \(\.$item) is in my library") {
             \.$kind
         }
     }
@@ -31,6 +31,11 @@ struct CheckArrLibraryIntent: AppIntent {
     /// Kept separate from the App Intents result wrapper so the complete Siri answer can be
     /// contract-tested against real loopback Radarr/Sonarr responses.
     func response() async throws -> String {
+        try await Self.response(for: item.title, kind: kind)
+    }
+
+    /// Shared by the App Intent result wrapper and focused contract tests.
+    static func response(for title: String, kind: ArrMediaKind?) async throws -> String {
         let query = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !query.isEmpty else {
             throw ArrIntentError.noResults("")

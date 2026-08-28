@@ -50,7 +50,7 @@ extension ArrSeriesEntity {
     }
 }
 
-nonisolated struct ArrSeriesEntityQuery: EntityQuery {
+nonisolated struct ArrSeriesEntityQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [ArrSeriesEntity] {
         identifiers.compactMap { identifier in
             guard let payload = try? ArrIDCodec.decode(ArrMediaPayload.self, from: identifier) else {
@@ -61,4 +61,27 @@ nonisolated struct ArrSeriesEntityQuery: EntityQuery {
     }
 
     func suggestedEntities() async throws -> [ArrSeriesEntity] { [] }
+
+    /// Resolves a naturally spoken show title into real Sonarr lookup entities for one-shot
+    /// Apple Intelligence and Siri requests.
+    func entities(matching string: String) async throws -> [ArrSeriesEntity] {
+        let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+
+        let services = try await ArrIntentSupport.loadServices(ofTypes: [.sonarr])
+        var entities: [ArrSeriesEntity] = []
+        for service in services {
+            do {
+                let client = try await ArrIntentSupport.makeSonarrClient(service)
+                let results = try await client.lookupSeries(term: query)
+                entities.append(contentsOf: results.prefix(10).map {
+                    ArrSeriesEntity(serviceID: service.id.uuidString, series: $0)
+                })
+            } catch {
+                guard services.count == 1 else { continue }
+                throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
+            }
+        }
+        return entities
+    }
 }

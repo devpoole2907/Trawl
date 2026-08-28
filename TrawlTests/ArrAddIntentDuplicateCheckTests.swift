@@ -19,6 +19,46 @@ import Testing
 @MainActor
 struct ArrAddIntentDuplicateCheckTests {
 
+    // MARK: - Natural-language entity resolution
+
+    @Test("Spoken movie titles resolve through Radarr lookup")
+    func spokenMovieTitleResolves() async throws {
+        let server = try await DuplicateCheckArrTestServer(
+            label: "siri-movie-title",
+            routes: [
+                "GET /api/v3/movie/lookup": (200, #"[{"id":0,"title":"Shrek the Third","year":2007,"tmdbId":810}]"#)
+            ]
+        )
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Home Radarr", hostURL: server.baseURL, serviceType: .radarr) { _ in
+            let entities = try await ArrMovieEntityQuery().entities(matching: "Shrek 3")
+
+            #expect(entities.first?.payload.title == "Shrek the Third")
+            #expect(entities.first?.payload.tmdbId == 810)
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/movie/lookup")))
+        }
+    }
+
+    @Test("Spoken series titles resolve through Sonarr lookup")
+    func spokenSeriesTitleResolves() async throws {
+        let server = try await DuplicateCheckArrTestServer(
+            label: "siri-series-title",
+            routes: [
+                "GET /api/v3/series/lookup": (200, #"[{"id":0,"title":"Severance","year":2022,"tvdbId":371980,"titleSlug":"severance"}]"#)
+            ]
+        )
+        defer { server.stop() }
+
+        try await withStoredArrProfile(displayName: "Home Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { _ in
+            let entities = try await ArrSeriesEntityQuery().entities(matching: "Severance")
+
+            #expect(entities.first?.payload.title == "Severance")
+            #expect(entities.first?.payload.tvdbId == 371980)
+            #expect(server.requests.contains(.init(method: "GET", path: "/api/v3/series/lookup")))
+        }
+    }
+
     // MARK: - Conversational library checks
 
     @Test("Library check reports a downloaded Radarr movie without mutating the server")
@@ -33,7 +73,7 @@ struct ArrAddIntentDuplicateCheckTests {
 
         try await withStoredArrProfile(displayName: "Home Radarr", hostURL: server.baseURL, serviceType: .radarr) { _ in
             var intent = CheckArrLibraryIntent()
-            intent.title = "dune"
+            intent.item = ArrLibraryTitleEntity(title: "dune")
             intent.kind = .movie
 
             let response = try await intent.response()
@@ -54,7 +94,7 @@ struct ArrAddIntentDuplicateCheckTests {
 
         try await withStoredArrProfile(displayName: "Home Sonarr", hostURL: server.baseURL, serviceType: .sonarr) { _ in
             var intent = CheckArrLibraryIntent()
-            intent.title = "Severance"
+            intent.item = ArrLibraryTitleEntity(title: "Severance")
             intent.kind = .series
 
             let response = try await intent.response()
@@ -75,7 +115,7 @@ struct ArrAddIntentDuplicateCheckTests {
 
         try await withStoredArrProfile(displayName: "Home Radarr", hostURL: server.baseURL, serviceType: .radarr) { _ in
             var intent = CheckArrLibraryIntent()
-            intent.title = "Dune"
+            intent.item = ArrLibraryTitleEntity(title: "Dune")
             intent.kind = .movie
 
             do {

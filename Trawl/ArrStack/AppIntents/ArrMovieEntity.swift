@@ -72,7 +72,7 @@ extension ArrMovieEntity {
     }
 }
 
-nonisolated struct ArrMovieEntityQuery: EntityQuery {
+nonisolated struct ArrMovieEntityQuery: EntityStringQuery {
     func entities(for identifiers: [String]) async throws -> [ArrMovieEntity] {
         identifiers.compactMap { identifier in
             guard let payload = try? ArrIDCodec.decode(ArrMediaPayload.self, from: identifier) else {
@@ -84,4 +84,27 @@ nonisolated struct ArrMovieEntityQuery: EntityQuery {
 
     /// Search-derived entities aren't suggested up front.
     func suggestedEntities() async throws -> [ArrMovieEntity] { [] }
+
+    /// Resolves a naturally spoken movie title into real Radarr lookup entities. Siri uses this
+    /// to fill the entity parameter in one-shot requests such as “Get Shrek 3 in Trawl.”
+    func entities(matching string: String) async throws -> [ArrMovieEntity] {
+        let query = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return [] }
+
+        let services = try await ArrIntentSupport.loadServices(ofTypes: [.radarr])
+        var entities: [ArrMovieEntity] = []
+        for service in services {
+            do {
+                let client = try await ArrIntentSupport.makeRadarrClient(service)
+                let results = try await client.lookupMovie(term: query)
+                entities.append(contentsOf: results.prefix(10).map {
+                    ArrMovieEntity(serviceID: service.id.uuidString, movie: $0)
+                })
+            } catch {
+                guard services.count == 1 else { continue }
+                throw ArrIntentError.requestFailed(ArrIntentSupport.describe(error))
+            }
+        }
+        return entities
+    }
 }

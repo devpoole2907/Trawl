@@ -1,13 +1,8 @@
 import AppIntents
 
-/// Exposes Trawl's *arr App Intents to Shortcuts and Siri with fixed phrases.
-///
-/// v1 relies only on standard `AppShortcutsProvider` phrase matching (iOS 16+ App Intents),
-/// not the newer Siri AI natural-language / entity-schema APIs. Every phrase includes the
-/// `\(.applicationName)` token as required.
-// TODO (future Siri AI): when targeting the newer SDK, adopt App Entity schemas, Spotlight
-// semantic indexing, action/content donation, and view annotations ("add this movie") so users
-// can act conversationally without these fixed phrases.
+/// Exposes Trawl's *arr App Intents to Shortcuts and Siri. Entity-bearing phrases give Siri
+/// examples of both the action and its typed title slot, while the corresponding
+/// `EntityStringQuery` implementations resolve naturally spoken movie and show names.
 struct ArrShortcutsProvider: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
@@ -25,7 +20,9 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             phrases: [
                 "Add a movie in \(.applicationName)",
                 "Add a movie to Radarr in \(.applicationName)",
-                "Get a movie in \(.applicationName)"
+                "Get a movie in \(.applicationName)",
+                "Get \(\.$movie) in \(.applicationName)",
+                "Add \(\.$movie) to \(.applicationName)"
             ],
             shortTitle: "Add Movie",
             systemImageName: "plus.rectangle.on.folder"
@@ -46,7 +43,9 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             phrases: [
                 "Add a series in \(.applicationName)",
                 "Add a show to Sonarr in \(.applicationName)",
-                "Get a show in \(.applicationName)"
+                "Get a show in \(.applicationName)",
+                "Get \(\.$series) in \(.applicationName)",
+                "Add \(\.$series) to \(.applicationName)"
             ],
             shortTitle: "Add Series",
             systemImageName: "plus.rectangle.on.folder"
@@ -107,8 +106,10 @@ struct ArrShortcutsProvider: AppShortcutsProvider {
             intent: CheckArrLibraryIntent(),
             phrases: [
                 "Check my library in \(.applicationName)",
-                "Do I have a title in \(.applicationName)",
-                "Do we have something in \(.applicationName)"
+                "Do I have \(\.$item) in \(.applicationName)",
+                "Do we have \(\.$item) in \(.applicationName)",
+                "Is \(\.$item) in \(.applicationName)",
+                "Check \(.applicationName) for \(\.$item)"
             ],
             shortTitle: "Check Library",
             systemImageName: "checkmark.magnifyingglass"
