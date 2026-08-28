@@ -909,7 +909,23 @@ of the plan also reports success.
 
 ## N-06 — the Arr services screen was never wired up, and the add paths inherited the gap
 
-### Product direction and 1.0 boundary — 28 August 2026
+### Delivered — 28 August 2026
+
+Multi-instance is no longer deferred. Sonarr and Radarr accept two servers each,
+presented as one blended library: merged rows carrying every server's copy of a title,
+badges as provenance, and commands routed back to the server that owns the row. The
+instance filter exists and is wired through every unified surface but is deliberately
+not exposed in the UI yet — the picker is separate work.
+
+Still targeting a single server, and the remaining scope of this change: the per-server
+admin screens other than Root Folders and Disk Space. Download clients, remote path
+mappings, naming config, quality profiles, quality definitions, backups, scheduled
+tasks, events, updates, media management and import locations all still read one
+instance per service. The pattern to follow is in `ArrRootFoldersView`: section by
+server rather than by service, and route mutations through
+`ArrServiceManager.sharedClient(for:)`.
+
+### Product direction and 1.0 boundary — superseded, kept for the reasoning — 28 August 2026
 
 Multi-instance configuration is deliberately **deferred from 1.0**, not rejected. The
 intended personal setup is two Sonarr instances (for example HD and 4K) and two Radarr
