@@ -38,8 +38,21 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
     let rootFolderPath: String?
     let alternateTitles: [SonarrAlternateTitle]?
 
-    static func == (lhs: SonarrSeries, rhs: SonarrSeries) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    /// Which Sonarr server handed this series over. Deliberately absent from
+    /// `CodingKeys`: it is Trawl's own bookkeeping and must never be encoded back
+    /// to a server on an update. Stamped by `ArrServiceManager` at load time and
+    /// `nil` for lookup results, previews and fixtures, which belong to no server.
+    var instanceID: UUID?
+
+    /// Identity is `(server, library ID)`, not the library ID alone — see the
+    /// matching note on `RadarrMovie`.
+    static func == (lhs: SonarrSeries, rhs: SonarrSeries) -> Bool {
+        lhs.id == rhs.id && lhs.instanceID == rhs.instanceID
+    }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(instanceID)
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -113,6 +126,8 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
         rootFolderPath = try container.decodeIfPresent(String.self, forKey: .rootFolderPath)
         alternateTitles = try container.decodeIfPresent([SonarrAlternateTitle].self, forKey: .alternateTitles)
 
+        instanceID = nil
+
         if let decodedID = try container.decodeIfPresent(Int.self, forKey: .id) {
             id = decodedID
         } else if let tvdbId {
@@ -159,8 +174,10 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
         seriesType: String?,
         cleanTitle: String?,
         rootFolderPath: String?,
-        alternateTitles: [SonarrAlternateTitle]?
+        alternateTitles: [SonarrAlternateTitle]?,
+        instanceID: UUID? = nil
     ) {
+        self.instanceID = instanceID
         self.id = id
         self.title = title
         self.sortTitle = sortTitle
@@ -274,7 +291,8 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
             seriesType: seriesType,
             cleanTitle: cleanTitle,
             rootFolderPath: rootFolderPath,
-            alternateTitles: alternateTitles
+            alternateTitles: alternateTitles,
+            instanceID: instanceID
         )
     }
 }

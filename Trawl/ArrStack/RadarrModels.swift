@@ -44,8 +44,23 @@ nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
     let statistics: RadarrMovieStatistics?
     let alternateTitles: [RadarrAlternateTitle]?
 
-    static func == (lhs: RadarrMovie, rhs: RadarrMovie) -> Bool { lhs.id == rhs.id }
-    func hash(into hasher: inout Hasher) { hasher.combine(id) }
+    /// Which Radarr server handed this movie over. Deliberately absent from
+    /// `CodingKeys`: it is Trawl's own bookkeeping and must never be encoded back
+    /// to a server on an update. Stamped by `ArrServiceManager` at load time and
+    /// `nil` for lookup results, previews and fixtures, which belong to no server.
+    var instanceID: UUID?
+
+    /// Identity is `(server, library ID)`, not the library ID alone. Two Radarr
+    /// instances hand out the same small integers for different films, so without
+    /// the server in the equation the HD copy of one title compares equal to the
+    /// 4K copy of another and a merged list renders the wrong rows.
+    static func == (lhs: RadarrMovie, rhs: RadarrMovie) -> Bool {
+        lhs.id == rhs.id && lhs.instanceID == rhs.instanceID
+    }
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(id)
+        hasher.combine(instanceID)
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -129,6 +144,8 @@ nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         statistics = try container.decodeIfPresent(RadarrMovieStatistics.self, forKey: .statistics)
         alternateTitles = try container.decodeIfPresent([RadarrAlternateTitle].self, forKey: .alternateTitles)
 
+        instanceID = nil
+
         if let decodedID = try container.decodeIfPresent(Int.self, forKey: .id) {
             id = decodedID
         } else if let tmdbId {
@@ -176,8 +193,10 @@ nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         collection: RadarrCollection?,
         popularity: Double?,
         statistics: RadarrMovieStatistics?,
-        alternateTitles: [RadarrAlternateTitle]?
+        alternateTitles: [RadarrAlternateTitle]?,
+        instanceID: UUID? = nil
     ) {
+        self.instanceID = instanceID
         self.id = id
         self.title = title
         self.originalTitle = originalTitle
@@ -319,7 +338,8 @@ nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
             collection: collection,
             popularity: popularity,
             statistics: statistics,
-            alternateTitles: alternateTitles
+            alternateTitles: alternateTitles,
+            instanceID: instanceID
         )
     }
 }
