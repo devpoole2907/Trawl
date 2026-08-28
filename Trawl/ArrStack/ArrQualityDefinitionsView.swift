@@ -44,6 +44,9 @@ struct ArrQualityDefinitionsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
+    /// Quality definitions — the size limits per quality — are per-server, and an
+    /// HD/4K pair sets them very differently. Scoped to a server, not a service.
+    @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var definitions: [ArrQualityDefinition] = []
     @State private var isLoading = false
@@ -71,6 +74,14 @@ struct ArrQualityDefinitionsView: View {
         if serviceManager.hasSonarrInstance { services.append(.sonarr) }
         if serviceManager.hasRadarrInstance { services.append(.radarr) }
         return services
+    }
+
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref)
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
     }
 
     private var isSelectedConnecting: Bool {
@@ -111,27 +122,20 @@ struct ArrQualityDefinitionsView: View {
         .navigationTitle("Quality Definitions")
         .moreDestinationBackground(.qualityDefinitions)
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Service",
-                selection: Binding(
-                    get: { selectedService },
-                    set: { newService in withAnimation { selectedService = newService } }
-                ),
-                items: availableServices.map(\.segmentBarItem),
-                alignment: .center
-            )
-            .disabled(isSaving)
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+                .disabled(isSaving)
         }
-        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService)):\(serviceManager.activeInstanceID(selectedService)?.uuidString ?? "none")") {
+        .task(id: selectedInstance?.id) {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif
             await load()
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
-            }
+            selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+        }
+        .onChange(of: selectedInstance?.serviceType) { _, newValue in
+            if let newValue { selectedService = newValue }
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -220,17 +224,15 @@ struct ArrQualityDefinitionsView: View {
         }
     }
 
+    /// The server whose definitions are on screen — every read and save goes
+    /// through it, so a size limit edited on the 4K server cannot land on the HD
+    /// one.
     private func currentClient() throws -> any SharedArrClient {
-        switch selectedService {
-        case .sonarr:
-            guard let c = serviceManager.sonarrClient else { throw ArrClientError.unavailable }
-            return c
-        case .radarr:
-            guard let c = serviceManager.radarrClient else { throw ArrClientError.unavailable }
-            return c
-        case .prowlarr, .bazarr:
+        guard let instance = selectedInstance,
+              let client = serviceManager.sharedClient(for: instance) else {
             throw ArrClientError.unavailable
         }
+        return client
     }
 }
 

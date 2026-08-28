@@ -5,16 +5,16 @@ import SwiftUI
 struct ArrUpdatesView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @State private var viewModel = ArrUpdatesViewModel()
-    @State private var selectedService: ArrServiceType?
-    @State private var confirmingInstall: ArrServiceType?
+    @State private var selectedInstanceID: UUID?
+    @State private var confirmingInstall: ArrInstanceRef?
     @State private var showSettings = false
 
     #if DEBUG
-    init(previewUpdates: [ArrServiceType: ArrUpdatesViewModel.ServiceUpdatesData] = [:], selectedService: ArrServiceType? = .sonarr) {
+    init(previewUpdates: [UUID: ArrUpdatesViewModel.ServiceUpdatesData] = [:], selectedInstanceID: UUID? = nil) {
         let previewVM = ArrUpdatesViewModel()
         previewVM.setPreviewUpdates(previewUpdates)
         _viewModel = State(initialValue: previewVM)
-        _selectedService = State(initialValue: selectedService)
+        _selectedInstanceID = State(initialValue: selectedInstanceID)
     }
     #endif
 
@@ -38,8 +38,14 @@ struct ArrUpdatesView: View {
         availableServices.first { !serviceManager.isConnected($0) } ?? availableServices.first
     }
 
-    private var segmentItems: [TrawlSegmentBarItem<ArrServiceType>] {
-        availableServices.map { TrawlSegmentBarItem($0.displayName, value: $0) }
+    /// Every server that reports a version — both halves of each pair, plus
+    /// Prowlarr.
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref) + serviceManager.refs(for: .prowlarr)
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
     }
 
     var body: some View {
@@ -59,8 +65,8 @@ struct ArrUpdatesView: View {
                     title: "Services Unreachable",
                     message: "Unable to reach your configured services."
                 )
-            } else if let service = selectedService {
-                serviceContent(for: service)
+            } else if let instance = selectedInstance {
+                serviceContent(for: instance)
             } else {
                 ProgressView()
                     .controlSize(.large)
@@ -68,32 +74,22 @@ struct ArrUpdatesView: View {
             }
         }
         .navigationTitle("Updates")
-        .navigationSubtitle(availableServices.isEmpty ? "" : selectedService?.displayName ?? "")
+        .navigationSubtitle(selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? "")
         .moreDestinationBackground(.updates)
         .safeAreaInset(edge: .top) {
-            if availableServices.count > 1, let selected = selectedService {
-                TrawlSegmentBar(
-                    "Service",
-                    selection: Binding(
-                        get: { selected },
-                        set: { newService in withAnimation { selectedService = newService } }
-                    ),
-                    items: segmentItems,
-                    alignment: .center
-                )
-            }
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
         }
         .onAppear {
-            if selectedService == nil || !availableServices.contains(selectedService!) {
-                selectedService = availableServices.first
+            if selectedInstanceID == nil || !availableInstances.contains(where: { $0.id == selectedInstanceID }) {
+                selectedInstanceID = availableInstances.first?.id
             }
         }
-        // Preloads all services in parallel on appear; refreshes every 30 s.
+        // Preloads every server in parallel on appear; refreshes every 30 s.
         .loadServicesPeriodically(
-            id: availableServices.map { "\($0.rawValue):\(serviceManager.isConnected($0))" }.joined(),
-            keys: availableServices
-        ) { service in
-            await viewModel.load(service: service, serviceManager: serviceManager)
+            id: availableInstances.map(\.id.uuidString).joined(separator: "|"),
+            keys: availableInstances
+        ) { instance in
+            await viewModel.load(instance: instance, serviceManager: serviceManager)
         }
         .sheet(isPresented: $showSettings) {
             if let service = primarySettingsService {
@@ -116,17 +112,17 @@ struct ArrUpdatesView: View {
             ),
             titleVisibility: .visible
         ) {
-            if let service = confirmingInstall {
+            if let instance = confirmingInstall {
                 Button("Install Now") {
-                    let s = service
+                    let target = instance
                     confirmingInstall = nil
-                    Task { await viewModel.install(service: s, serviceManager: serviceManager) }
+                    Task { await viewModel.install(instance: target, serviceManager: serviceManager) }
                 }
                 Button("Cancel", role: .cancel) { confirmingInstall = nil }
             }
         } message: {
-            if let service = confirmingInstall,
-               let data = viewModel.allUpdates[service],
+            if let instance = confirmingInstall,
+               let data = viewModel.allUpdates[instance.id],
                data.isDocker {
                 Text("Warning: Internal updates are often disabled or discouraged for Docker instances. You should typically update by pulling a new image.")
             } else {
@@ -136,12 +132,12 @@ struct ArrUpdatesView: View {
     }
 
     @ViewBuilder
-    private func serviceContent(for service: ArrServiceType) -> some View {
-        let data = viewModel.allUpdates[service]
-        let isLoading = viewModel.loadingServices.contains(service)
+    private func serviceContent(for instance: ArrInstanceRef) -> some View {
+        let data = viewModel.allUpdates[instance.id]
+        let isLoading = viewModel.loadingServices.contains(instance.id)
 
         if let data, data.error == nil {
-            changelogList(data: data, service: service)
+            changelogList(data: data, instance: instance)
         } else if isLoading || data == nil {
             ProgressView()
                 .controlSize(.large)
@@ -156,7 +152,9 @@ struct ArrUpdatesView: View {
     }
 
     @ViewBuilder
-    private func changelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, service: ArrServiceType) -> some View {
+    private func changelogList(data: ArrUpdatesViewModel.ServiceUpdatesData, instance: ArrInstanceRef) -> some View {
+        let service = instance.serviceType
+        return
         List {
             if data.allVersions.isEmpty {
                 ContentUnavailableView(
@@ -170,9 +168,9 @@ struct ArrUpdatesView: View {
                     Section {
                         ChangelogEntryRow(
                             update: update,
-                            isInstalling: viewModel.installingServices.contains(service)
+                            isInstalling: viewModel.installingServices.contains(instance.id)
                         ) {
-                            confirmingInstall = service
+                            confirmingInstall = instance
                         }
                     } header: {
                         UpdateSectionHeader(update: update, service: service)
@@ -186,7 +184,7 @@ struct ArrUpdatesView: View {
         .listStyle(.inset)
         #endif
         .scrollContentBackground(.hidden)
-        .refreshable { await viewModel.load(service: service, serviceManager: serviceManager) }
+        .refreshable { await viewModel.load(instance: instance, serviceManager: serviceManager) }
         .animation(.default, value: data.allVersions.map(\.id))
     }
 }
@@ -323,27 +321,24 @@ final class ArrUpdatesViewModel {
         let error: String?
     }
 
-    private(set) var allUpdates: [ArrServiceType: ServiceUpdatesData] = [:]
-    private(set) var loadingServices: Set<ArrServiceType> = []
-    private(set) var installingServices: Set<ArrServiceType> = []
+    // Keyed by server rather than by service: each half of an HD/4K pair runs its
+    // own build and updates on its own schedule, so "the Sonarr version" is two
+    // different answers once a pair is configured.
+    private(set) var allUpdates: [UUID: ServiceUpdatesData] = [:]
+    private(set) var loadingServices: Set<UUID> = []
+    private(set) var installingServices: Set<UUID> = []
 
-    func load(service: ArrServiceType, serviceManager: ArrServiceManager) async {
+    func load(instance: ArrInstanceRef, serviceManager: ArrServiceManager) async {
         #if DEBUG
         if ArrPreviewRuntime.isActive { return }
         #endif
-        loadingServices.insert(service)
-        defer { loadingServices.remove(service) }
+        loadingServices.insert(instance.id)
+        defer { loadingServices.remove(instance.id) }
 
-        let client: (any SharedArrClient)? = switch service {
-        case .sonarr: serviceManager.sonarrClient
-        case .radarr: serviceManager.radarrClient
-        case .prowlarr: serviceManager.prowlarrClient
-        case .bazarr: nil
-        }
-
-        guard let client else {
-            guard !serviceManager.isInitializing, !serviceManager.isConnecting(service) else { return }
-            allUpdates[service] = ServiceUpdatesData(
+        guard let client = serviceManager.sharedClient(for: instance) else {
+            guard !serviceManager.isInitializing,
+                  !serviceManager.isConnecting(instance.serviceType) else { return }
+            allUpdates[instance.id] = ServiceUpdatesData(
                 currentVersion: nil, allVersions: [], isDocker: false, error: "Not connected"
             )
             return
@@ -353,30 +348,32 @@ final class ArrUpdatesViewModel {
             async let statusTask = client.getSystemStatus()
             async let updatesTask = client.getUpdates()
             let (status, updates) = try await (statusTask, updatesTask)
-            allUpdates[service] = ServiceUpdatesData(
+            allUpdates[instance.id] = ServiceUpdatesData(
                 currentVersion: status.version,
                 allVersions: updates,
                 isDocker: status.isDocker ?? false,
                 error: nil
             )
         } catch {
-            allUpdates[service] = ServiceUpdatesData(
+            allUpdates[instance.id] = ServiceUpdatesData(
                 currentVersion: nil, allVersions: [], isDocker: false, error: error.localizedDescription
             )
         }
     }
 
-    func install(service: ArrServiceType, serviceManager: ArrServiceManager) async {
-        installingServices.insert(service)
-        defer { installingServices.remove(service) }
+    /// Installs on one server. Updating "Sonarr" has to mean updating a specific
+    /// box: restarting the wrong half of a pair mid-download is a real cost.
+    func install(instance: ArrInstanceRef, serviceManager: ArrServiceManager) async {
+        installingServices.insert(instance.id)
+        defer { installingServices.remove(instance.id) }
 
         do {
-            switch service {
+            switch instance.serviceType {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = serviceManager.sonarrClient(for: instance.id) else { return }
                 _ = try await client.installUpdate()
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = serviceManager.radarrClient(for: instance.id) else { return }
                 _ = try await client.installUpdate()
             case .prowlarr:
                 guard let client = serviceManager.prowlarrClient else { return }
@@ -386,7 +383,7 @@ final class ArrUpdatesViewModel {
             }
             InAppNotificationCenter.shared.showSuccess(
                 title: "Update Started",
-                message: "\(service.displayName) update command sent."
+                message: "\(instance.displayName) update command sent."
             )
         } catch {
             InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
@@ -396,7 +393,7 @@ final class ArrUpdatesViewModel {
 
 #if DEBUG
 extension ArrUpdatesViewModel {
-    func setPreviewUpdates(_ data: [ArrServiceType: ServiceUpdatesData]) {
+    func setPreviewUpdates(_ data: [UUID: ServiceUpdatesData]) {
         allUpdates = data
         loadingServices = []
         installingServices = []
@@ -407,8 +404,8 @@ extension ArrUpdatesViewModel {
     PreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) {
         NavigationStack {
             ArrUpdatesView(previewUpdates: [
-                .sonarr: .init(currentVersion: "4.0.12.2823", allVersions: ArrUpdateInfo.previewList, isDocker: true, error: nil),
-                .radarr: .init(currentVersion: "5.4.6.8723", allVersions: ArrUpdateInfo.previewList, isDocker: false, error: nil),
+                ArrInstanceRef.preview(.sonarr).id: .init(currentVersion: "4.0.12.2823", allVersions: ArrUpdateInfo.previewList, isDocker: true, error: nil),
+                ArrInstanceRef.preview(.radarr).id: .init(currentVersion: "5.4.6.8723", allVersions: ArrUpdateInfo.previewList, isDocker: false, error: nil),
             ])
         }
     }
@@ -419,9 +416,9 @@ extension ArrUpdatesViewModel {
         NavigationStack {
             ArrUpdatesView(
                 previewUpdates: [
-                    .sonarr: .init(currentVersion: nil, allVersions: [], isDocker: false, error: "Update feed unavailable.")
+                    ArrInstanceRef.preview(.sonarr).id: .init(currentVersion: nil, allVersions: [], isDocker: false, error: "Update feed unavailable.")
                 ],
-                selectedService: .sonarr
+                selectedInstanceID: ArrInstanceRef.preview(.sonarr).id
             )
         }
     }

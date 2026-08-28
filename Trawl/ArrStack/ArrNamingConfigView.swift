@@ -4,6 +4,11 @@ struct ArrNamingConfigView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
+    /// Which *server* this screen is editing. Naming formats are per-server
+    /// configuration and an HD/4K pair usually differs — the 4K server writes into
+    /// a different folder tree — so "the Sonarr naming config" was never a single
+    /// thing once a pair was configured.
+    @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var sonarrConfig: SonarrNamingConfig?
     @State private var radarrConfig: RadarrNamingConfig?
@@ -37,12 +42,18 @@ struct ArrNamingConfigView: View {
         return services
     }
 
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances.map(\.ref)
+    }
+
+    /// The server being edited. Falls back to the first connected one when the
+    /// stored selection has been removed or filtered away.
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
     private var isConnected: Bool {
-        switch selectedService {
-        case .sonarr: serviceManager.sonarrConnected
-        case .radarr: serviceManager.radarrConnected
-        case .prowlarr, .bazarr: false
-        }
+        selectedInstance != nil
     }
 
     private var isSelectedConnecting: Bool {
@@ -80,17 +91,7 @@ struct ArrNamingConfigView: View {
         .navigationTitle("Naming")
         .moreDestinationBackground(selectedService == .sonarr ? .sonarrNaming : .radarrNaming)
         .safeAreaInset(edge: .top) {
-            TrawlSegmentBar(
-                "Service",
-                selection: Binding(
-                    get: { selectedService },
-                    set: { newService in
-                        withAnimation { selectedService = newService }
-                    }
-                ),
-                items: availableServices.map(\.segmentBarItem),
-                alignment: .center
-            )
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
         }
         .sheet(item: $editingFormatTarget) { target in
             ArrNamingFormatEditorSheet(
@@ -99,16 +100,19 @@ struct ArrNamingConfigView: View {
                 onSave: { newFormat in applyFormat(newFormat, for: target) }
             )
         }
-        .task(id: "\(selectedService.rawValue):\(serviceManager.isConnected(selectedService)):\(serviceManager.activeInstanceID(selectedService)?.uuidString ?? "none")") {
+        .task(id: selectedInstance?.id) {
             #if DEBUG
             if ArrPreviewRuntime.isActive { return }
             #endif
             await load()
         }
         .onAppear {
-            if !availableServices.contains(selectedService), let first = availableServices.first {
-                selectedService = first
-            }
+            selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+        }
+        .onChange(of: selectedInstance?.serviceType) { _, newValue in
+            // The form rendered depends on the service, and switching servers can
+            // cross from Sonarr to Radarr.
+            if let newValue { selectedService = newValue }
         }
         .sheet(isPresented: $showSettings) {
             NavigationStack {
@@ -302,14 +306,15 @@ struct ArrNamingConfigView: View {
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        guard isConnected else { return }
+        guard let instance = selectedInstance else { return }
+        selectedService = instance.serviceType
         do {
-            switch selectedService {
+            switch instance.serviceType {
             case .sonarr:
-                guard let client = serviceManager.sonarrClient else { return }
+                guard let client = serviceManager.sonarrClient(for: instance.id) else { return }
                 sonarrConfig = try await client.getNamingConfig()
             case .radarr:
-                guard let client = serviceManager.radarrClient else { return }
+                guard let client = serviceManager.radarrClient(for: instance.id) else { return }
                 radarrConfig = try await client.getNamingConfig()
             case .prowlarr, .bazarr:
                 break
@@ -341,7 +346,10 @@ struct ArrNamingConfigView: View {
     }
 
     private func saveSonarr(_ config: SonarrNamingConfig, successMessage: String? = nil) async {
-        guard let client = serviceManager.sonarrClient else { return }
+        // Saved back to the server the form was loaded from, not to whichever
+        // Sonarr happens to be active.
+        guard let instance = selectedInstance,
+              let client = serviceManager.sonarrClient(for: instance.id) else { return }
         isSaving = true
         defer {
             isSaving = false
@@ -378,7 +386,8 @@ struct ArrNamingConfigView: View {
     }
 
     private func saveRadarr(_ config: RadarrNamingConfig, successMessage: String? = nil) async {
-        guard let client = serviceManager.radarrClient else { return }
+        guard let instance = selectedInstance,
+              let client = serviceManager.radarrClient(for: instance.id) else { return }
         isSaving = true
         defer {
             isSaving = false
