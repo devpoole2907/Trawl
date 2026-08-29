@@ -4,7 +4,7 @@ struct ArrQualityProfilesListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     /// Quality profiles are per-server, and an HD/4K pair's are the whole point
-    /// of running two servers — one cuts off at 1080p, the other starts at 2160p.
+    /// of running two servers - one cuts off at 1080p, the other starts at 2160p.
     @State private var selectedInstanceID: UUID?
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
@@ -114,19 +114,6 @@ struct ArrQualityProfilesListView: View {
         }
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                if let firstProfile = sortedProfiles.first {
-                    // Duplicate keeps its own affordance and its own icon. It used
-                    // to wear the `plus` and stand in for Add, which is why its
-                    // sheet opened titled "Duplicate Profile" with "<name> Copy"
-                    // already in the name field.
-                    Button {
-                        editorSession = .duplicate(from: firstProfile)
-                    } label: {
-                        Label("Duplicate Profile", systemImage: "plus.square.on.square")
-                    }
-                    .disabled(isSaving || isLoadingSchema)
-                }
-
                 Button {
                     Task { await beginNewProfile() }
                 } label: {
@@ -462,7 +449,7 @@ private struct ArrQualityProfileQuality: Identifiable, Hashable {
 
 private struct ArrQualityProfileEditorSession: Identifiable {
     /// Why the sheet is open. Previously inferred from `apiID == nil`, which
-    /// cannot tell a new profile from a duplicate — so everything that wasn't an
+    /// cannot tell a new profile from a duplicate - so everything that wasn't an
     /// edit was titled "Duplicate Profile".
     enum Kind {
         case new
@@ -487,7 +474,7 @@ private struct ArrQualityProfileEditorSession: Identifiable {
     }
 
     /// Built from the server's own `/qualityprofile/schema`, so the draft carries
-    /// exactly the qualities this server knows about — the reason a blank profile
+    /// exactly the qualities this server knows about - the reason a blank profile
     /// cannot simply be constructed here.
     static func new(from schema: ArrQualityProfile) -> ArrQualityProfileEditorSession {
         .init(kind: .new, draft: ArrQualityProfileDraft(

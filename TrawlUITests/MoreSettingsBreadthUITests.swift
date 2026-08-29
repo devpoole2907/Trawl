@@ -70,7 +70,7 @@ final class MoreSettingsBreadthUITests: XCTestCase {
                     "onnected"
                 )
             ).firstMatch.waitForExistence(in: app, timeout: 5),
-            "A configured Sonarr settings screen should expose its server as a tappable row — the row itself is the editor entry point, replacing the separate 'Edit Server' button that duplicated it."
+            "A configured Sonarr settings screen should expose its server as a tappable row - the row itself is the editor entry point, replacing the separate 'Edit Server' button that duplicated it."
         )
         XCTAssertTrue(
             sonarr.hasReceivedRequest(method: "GET", path: "/api/v3/system/status"),
@@ -241,6 +241,51 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         XCTAssertTrue(
             radarr.hasReceivedRequest(method: "GET", path: "/api/v3/health"),
             "ArrHealthView should request Radarr health through ArrServiceManager.loadHealth()."
+        )
+    }
+
+    /// Quality-profile duplication is an action on a specific existing profile,
+    /// available from its row's swipe and context menus. The list toolbar should
+    /// therefore expose the one global action - creating a new server-shaped
+    /// profile - without a second, arbitrary "duplicate the first profile" button.
+    @MainActor
+    func testQualityProfilesShowsOnlyTheNewProfileToolbarAction() async throws {
+        let radarr = try await RadarrFixtureServer()
+        radarrServer = radarr
+
+        let app = launchApp(radarr: radarr)
+        let movies = app.tabBars.buttons["Movies"]
+        XCTAssertTrue(tapWhenHittable(movies, in: app), "The Movies tab should be available while waiting for Radarr to connect.")
+        XCTAssertTrue(
+            app.staticTexts[RadarrFixtureServer.movieTitle].waitForExistence(timeout: 15),
+            "The Radarr library must load before its Quality Profiles administration route is exercised."
+        )
+
+        openMore(in: app)
+        let libraryManagement = firstButton(labelContaining: "Library Management", in: app)
+        XCTAssertTrue(
+            tapWhenHittable(libraryManagement, in: app),
+            "More should expose Library Management for a configured Radarr server."
+        )
+        XCTAssertTrue(app.navigationBars["Library Management"].waitForExistence(timeout: 10), "Library Management should render after navigation.")
+
+        let qualityProfiles = firstButton(labelContaining: "Quality Profiles", in: app)
+        XCTAssertTrue(
+            tapWhenHittable(qualityProfiles, in: app),
+            "Library Management should expose the Quality Profiles route."
+        )
+        XCTAssertTrue(app.navigationBars["Quality Profiles"].waitForExistence(timeout: 10), "Quality Profiles should render after navigation.")
+        XCTAssertTrue(
+            app.staticTexts["HD-1080p"].waitForExistence(timeout: 15),
+            "The quality-profile list should render the profile supplied by the connected Radarr server."
+        )
+        XCTAssertTrue(
+            app.buttons["New Profile"].waitForExistence(timeout: 5),
+            "The toolbar must retain the global New Profile action."
+        )
+        XCTAssertFalse(
+            app.buttons["Duplicate Profile"].exists,
+            "Duplicate Profile belongs to an individual row and must not also appear as a toolbar action."
         )
     }
 
