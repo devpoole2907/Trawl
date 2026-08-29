@@ -164,6 +164,110 @@ final class LibraryImportScanJourneyUITests: XCTestCase {
         )
     }
 
+    /// The Owned tab exists to answer "what of this folder is already in my
+    /// library?". The fixture's series lives under the scanned root, so
+    /// `computeOwnedTitlesInFolder()` finds it - and the tab has to actually render
+    /// that title, not merely count it in a section header the user cannot open.
+    @MainActor
+    func testOwnedTabRendersTheInLibraryTitlesItCounts() async throws {
+        let fixture = try await LibraryImportScanUIFixtureServer(scenario: .groupedSelection)
+        self.fixture = fixture
+        let app = launchConfiguredSonarrApp(using: fixture)
+
+        openLibraryImportRoot(in: app)
+
+        XCTAssertTrue(
+            app.staticTexts["1 ready"].waitForExistence(in: app, timeout: 15),
+            "The scan has to finish before the Owned tab has anything to show."
+        )
+
+        XCTAssertTrue(
+            tapWhenHittable(app.buttons["Owned"], in: app, timeout: 10),
+            "The scan screen should offer the Owned segment."
+        )
+
+        let ownedRow = app.descendants(matching: .any)
+            .matching(identifier: "library-import-owned-\(LibraryImportScanUIFixtureServer.seriesID)")
+            .firstMatch
+        XCTAssertTrue(
+            ownedRow.waitForExistence(in: app, timeout: 10),
+            "The Owned tab counted a library title from this folder, so it must show that title's row rather than hiding it behind a section the user can't expand."
+        )
+        XCTAssertTrue(
+            ownedRow.label.contains(LibraryImportScanUIFixtureServer.seriesTitle),
+            "The rendered owned row should be the fixture's library series, got: \(ownedRow.label)"
+        )
+
+        // The section had a collapse binding with no control to work it, so being
+        // expanded by default is only half the fix - the user has to be able to
+        // close it and open it again.
+        let disclosure = app.buttons["library-import-in-library-disclosure"]
+        XCTAssertTrue(disclosure.waitForExistence(in: app, timeout: 10), "The In Library section should expose a disclosure control.")
+        XCTAssertEqual(disclosure.value as? String, "Expanded")
+
+        XCTAssertTrue(tapWhenHittable(disclosure, in: app, timeout: 5))
+        XCTAssertEqual(disclosure.value as? String, "Collapsed")
+        XCTAssertFalse(ownedRow.exists, "Collapsing In Library should hide its rows.")
+
+        XCTAssertTrue(tapWhenHittable(disclosure, in: app, timeout: 5))
+        XCTAssertEqual(disclosure.value as? String, "Expanded")
+        XCTAssertTrue(ownedRow.waitForExistence(in: app, timeout: 5), "Re-expanding In Library should bring its rows back.")
+    }
+
+    /// The reported regression: leaving a folder and coming back re-scanned it and
+    /// re-ran Auto Match, so every match the user had already watched land was
+    /// thrown away. The scan describes the folder, so it must survive the pop -
+    /// proven here by the identified file still being counted with no second
+    /// manual-import scan and no second catalog lookup.
+    @MainActor
+    func testAutoMatchResultsSurviveNavigatingAwayAndBack() async throws {
+        let fixture = try await LibraryImportScanUIFixtureServer(scenario: .autoMatchPersistence)
+        self.fixture = fixture
+        let app = launchConfiguredSonarrApp(using: fixture)
+
+        openLibraryImportRoot(in: app)
+
+        let identifiedChip = app.staticTexts["1 identified"]
+        XCTAssertTrue(
+            identifiedChip.waitForExistence(in: app, timeout: 30),
+            "Auto Match should resolve the unknown-series file against the Sonarr catalog lookup and move it into the identified bucket."
+        )
+
+        let scansAfterFirstVisit = fixture.requests.filter { $0.method == "GET" && $0.path == "/api/v3/manualimport" }.count
+        let lookupsAfterFirstVisit = fixture.requests.filter { $0.method == "GET" && $0.path == "/api/v3/series/lookup" }.count
+        XCTAssertEqual(scansAfterFirstVisit, 1, "Opening the folder should scan it exactly once.")
+        XCTAssertEqual(lookupsAfterFirstVisit, 1, "Auto Match should look the one unidentified group up exactly once.")
+
+        let backButton = app.navigationBars["import-library"].buttons.element(boundBy: 0)
+        XCTAssertTrue(tapWhenHittable(backButton, in: app, timeout: 10), "The scan should be dismissable back to the import location list.")
+        XCTAssertTrue(
+            app.navigationBars["Library Import"].waitForExistence(in: app, timeout: 10),
+            "Going back should land on the Library Import location list."
+        )
+
+        let rootFolder = firstButton(labelContaining: LibraryImportScanUIFixtureServer.rootFolderPath, in: app)
+        XCTAssertTrue(tapWhenHittable(rootFolder, in: app, timeout: 10), "The root folder should still be selectable on the way back in.")
+        XCTAssertTrue(
+            app.navigationBars["import-library"].waitForExistence(in: app, timeout: 10),
+            "Re-selecting the root folder should push the scan view again."
+        )
+
+        XCTAssertTrue(
+            identifiedChip.waitForExistence(in: app, timeout: 15),
+            "Returning to the folder must show the file Auto Match already identified, not an empty or re-scanning screen."
+        )
+        XCTAssertEqual(
+            fixture.requests.filter { $0.method == "GET" && $0.path == "/api/v3/manualimport" }.count,
+            1,
+            "Returning to a folder already scanned this session must not re-scan it."
+        )
+        XCTAssertEqual(
+            fixture.requests.filter { $0.method == "GET" && $0.path == "/api/v3/series/lookup" }.count,
+            1,
+            "Returning must not re-run Auto Match over a file it already matched."
+        )
+    }
+
     // MARK: Navigation and UI helpers
 
     @MainActor

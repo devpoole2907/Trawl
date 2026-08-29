@@ -37,7 +37,7 @@ struct LibraryImportScanView: View {
     @State private var needsIDExpanded = true
     @State private var blockedExpanded = false
     @State private var inLibraryExpanded = true
-    @State private var importedExpanded = false
+    @State private var importedExpanded = true
     @ScaledMetric(relativeTo: .subheadline) private var autoIdentifyStatusRowHeight: CGFloat = 50
     let showsCloseButton: Bool
 
@@ -115,7 +115,9 @@ struct LibraryImportScanView: View {
         showsCloseButton: Bool = false,
         kind: ArrImportKind = .library
     ) {
-        _viewModel = State(wrappedValue: LibraryImportScanViewModel(
+        // Session-scoped rather than view-scoped: popping this view must not throw
+        // away the scan or the matches Auto Match earned for this folder.
+        _viewModel = State(wrappedValue: LibraryImportScanSessionStore.shared.viewModel(
             path: path,
             service: service,
             serviceManager: serviceManager,
@@ -386,7 +388,7 @@ struct LibraryImportScanView: View {
             }
         } footer: {
             if viewModel.hasPerformedInitialScan {
-                Text("These are untracked files found in this folder — extra copies, samples, and anything \(viewModel.service.displayName) hasn't imported yet. Files already in your library are listed under the Owned tab.")
+                Text("These are untracked files found in this folder - extra copies, samples, and anything \(viewModel.service.displayName) hasn't imported yet. Files already in your library are listed under the Owned tab.")
             }
         }
     }
@@ -413,13 +415,13 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var readySection: some View {
         if !readyGroups.isEmpty {
-            Section(isExpanded: $readyExpanded) {
-                if viewModel.service == .sonarr {
+            Section {
+                if readyExpanded, viewModel.service == .sonarr {
                     Toggle(isOn: Binding(get: { viewModel.seasonFolder }, set: { viewModel.seasonFolder = $0 })) {
                         Label("Season Folder", systemImage: "folder.badge.plus")
                     }
                 }
-                ForEach(readyGroups) { group in
+                ForEach(readyExpanded ? readyGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
@@ -436,7 +438,12 @@ struct LibraryImportScanView: View {
                     }
                 }
             } header: {
-                Text("Ready to Import (\(readyGroups.count))")
+                LibraryImportDisclosureHeader(
+                    title: "Ready to Import (\(readyGroups.count))",
+                    isExpanded: $readyExpanded,
+                    identifier: "library-import-ready-disclosure",
+                    noun: "files ready to import"
+                )
             }
         }
     }
@@ -444,8 +451,8 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var pendingAddSection: some View {
         if !pendingAddGroups.isEmpty {
-            Section(isExpanded: $pendingAddExpanded) {
-                ForEach(pendingAddGroups) { group in
+            Section {
+                ForEach(pendingAddExpanded ? pendingAddGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .pendingAdd,
                         selectionState: blockedGroupSelectionState(group),
@@ -462,7 +469,12 @@ struct LibraryImportScanView: View {
                     }
                 }
             } header: {
-                Text("Identified (\(pendingAddGroups.count))")
+                LibraryImportDisclosureHeader(
+                    title: "Identified (\(pendingAddGroups.count))",
+                    isExpanded: $pendingAddExpanded,
+                    identifier: "library-import-identified-disclosure",
+                    noun: "identified files"
+                )
             }
         }
     }
@@ -470,8 +482,8 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var needsIDSection: some View {
         if !needsIDGroups.isEmpty {
-            Section(isExpanded: $needsIDExpanded) {
-                ForEach(needsIDGroups) { group in
+            Section {
+                ForEach(needsIDExpanded ? needsIDGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .unidentified,
                         selectionState: blockedGroupSelectionState(group),
@@ -488,7 +500,12 @@ struct LibraryImportScanView: View {
                     }
                 }
             } header: {
-                Text("Needs Identification (\(needsIDGroups.count))")
+                LibraryImportDisclosureHeader(
+                    title: "Needs Identification (\(needsIDGroups.count))",
+                    isExpanded: $needsIDExpanded,
+                    identifier: "library-import-needs-id-disclosure",
+                    noun: "files needing identification"
+                )
             }
         }
     }
@@ -497,45 +514,34 @@ struct LibraryImportScanView: View {
     private var blockedSection: some View {
         if !blockedGroups.isEmpty {
             Section {
-                if blockedExpanded {
-                    ForEach(blockedGroups) { group in
-                        LibraryImportGroupRow(
-                            group: group, style: .blocked,
-                            selectionState: blockedGroupSelectionState(group),
-                            isSelectingMode: isSelectingMode,
-                            onToggle: {
-                                if isSelectingMode {
-                                    withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
-                                } else { reviewingBlockedGroup = group }
-                            }
-                        )
-                        .contextMenu {
-                            Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
-                            if !group.isIdentified {
-                                Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }
-                            }
+                ForEach(blockedExpanded ? blockedGroups : []) { group in
+                    LibraryImportGroupRow(
+                        group: group, style: .blocked,
+                        selectionState: blockedGroupSelectionState(group),
+                        isSelectingMode: isSelectingMode,
+                        onToggle: {
+                            if isSelectingMode {
+                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
+                            } else { reviewingBlockedGroup = group }
                         }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button { reviewingBlockedGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
+                    )
+                    .contextMenu {
+                        Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
+                        if !group.isIdentified {
+                            Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }
                         }
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button { reviewingBlockedGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
                     }
                 }
             } header: {
-                Button {
-                    withAnimation(.snappy) { blockedExpanded.toggle() }
-                } label: {
-                    HStack {
-                        Text("Blocked (\(blockedGroups.count))")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .rotationEffect(.degrees(blockedExpanded ? 90 : 0))
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("library-import-blocked-disclosure")
-                .accessibilityValue(blockedExpanded ? "Expanded" : "Collapsed")
-                .accessibilityHint(blockedExpanded ? "Collapses blocked files" : "Expands blocked files")
+                LibraryImportDisclosureHeader(
+                    title: "Blocked (\(blockedGroups.count))",
+                    isExpanded: $blockedExpanded,
+                    identifier: "library-import-blocked-disclosure",
+                    noun: "blocked files"
+                )
             }
         }
     }
@@ -543,11 +549,13 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var inLibrarySection: some View {
         if !inLibraryGroups.isEmpty {
-            Section(isExpanded: $inLibraryExpanded) {
-                Text("Untracked files for movies you already own — import only to replace or upgrade the existing file.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(inLibraryGroups) { group in
+            Section {
+                if inLibraryExpanded {
+                    Text("Untracked files for movies you already own - import only to replace or upgrade the existing file.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(inLibraryExpanded ? inLibraryGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
@@ -565,7 +573,12 @@ struct LibraryImportScanView: View {
                     .opacity(0.65)
                 }
             } header: {
-                Text("Extra Copies (\(inLibraryGroups.count))")
+                LibraryImportDisclosureHeader(
+                    title: "Extra Copies (\(inLibraryGroups.count))",
+                    isExpanded: $inLibraryExpanded,
+                    identifier: "library-import-extra-copies-disclosure",
+                    noun: "extra copies"
+                )
             }
         }
     }
@@ -573,17 +586,58 @@ struct LibraryImportScanView: View {
     @ViewBuilder
     private var ownedImportedSection: some View {
         if !ownedImportedTitles.isEmpty {
-            Section(isExpanded: $importedExpanded) {
-                Text("Already imported into \(viewModel.service.displayName) from this folder. Nothing to do here — shown so you can see what's already handled.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(ownedImportedTitles) { title in
-                    OwnedImportedRow(title: title)
+            Section {
+                if importedExpanded {
+                    Text("Already imported into \(viewModel.service.displayName) from this folder. Nothing to do here - shown so you can see what's already handled.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ForEach(ownedImportedTitles) { title in
+                        OwnedImportedRow(title: title)
+                    }
                 }
             } header: {
-                Text("In Library (\(ownedImportedTitles.count))")
+                LibraryImportDisclosureHeader(
+                    title: "In Library (\(ownedImportedTitles.count))",
+                    isExpanded: $importedExpanded,
+                    identifier: "library-import-in-library-disclosure",
+                    noun: "titles already in your library"
+                )
             }
         }
+    }
+}
+
+/// The header every collapsible Library Import section uses.
+///
+/// `Section(isExpanded:)` hides a section's content in this list style but renders no
+/// control to bring it back, so sections built on it had a binding the user could never
+/// operate: the Owned tab counted titles under "In Library" with no way to open the
+/// section and see them, and the queue-resolution sheet hid "Still Blocked" the same way.
+/// This is the disclosure the blocked section already hand-rolled, now shared, so every
+/// `...Expanded` flag is something the user can actually toggle.
+struct LibraryImportDisclosureHeader: View {
+    let title: String
+    @Binding var isExpanded: Bool
+    let identifier: String
+    /// Names the content in the accessibility hint, e.g. "blocked files".
+    let noun: String
+
+    var body: some View {
+        Button {
+            withAnimation(.snappy) { isExpanded.toggle() }
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .rotationEffect(.degrees(isExpanded ? 90 : 0))
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(identifier)
+        .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+        .accessibilityHint(isExpanded ? "Collapses \(noun)" : "Expands \(noun)")
     }
 }
 
@@ -623,6 +677,8 @@ private struct OwnedImportedRow: View {
         }
         .padding(.vertical, 4)
         .opacity(0.75)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("library-import-owned-\(title.id)")
     }
 }
 
@@ -741,8 +797,8 @@ struct ArrQueueImportIssueResolutionSheet: View {
                 }
 
                 if !readyItems.isEmpty {
-                    Section(isExpanded: $readyExpanded) {
-                        ForEach(readyItems) { item in
+                    Section {
+                        ForEach(readyExpanded ? readyItems : []) { item in
                             NavigationLink {
                                 LibraryImportIdentifySheet(
                                     target: identifyTarget(for: item),
@@ -756,13 +812,18 @@ struct ArrQueueImportIssueResolutionSheet: View {
                             }
                         }
                     } header: {
-                        Text("Ready to Import (\(readyItems.count))")
+                        LibraryImportDisclosureHeader(
+                            title: "Ready to Import (\(readyItems.count))",
+                            isExpanded: $readyExpanded,
+                            identifier: "library-import-resolution-ready-disclosure",
+                            noun: "files ready to import"
+                        )
                     }
                 }
 
                 if !viewModel.groupedUnidentifiedFiles.isEmpty {
-                    Section(isExpanded: $needsIDExpanded) {
-                        ForEach(viewModel.groupedUnidentifiedFiles) { group in
+                    Section {
+                        ForEach(needsIDExpanded ? viewModel.groupedUnidentifiedFiles : []) { group in
                             NavigationLink {
                                 LibraryImportIdentifySheet(
                                     target: identifyTarget(for: group),
@@ -776,13 +837,18 @@ struct ArrQueueImportIssueResolutionSheet: View {
                             }
                         }
                     } header: {
-                        Text("Needs Identification (\(viewModel.groupedUnidentifiedFiles.count))")
+                        LibraryImportDisclosureHeader(
+                            title: "Needs Identification (\(viewModel.groupedUnidentifiedFiles.count))",
+                            isExpanded: $needsIDExpanded,
+                            identifier: "library-import-resolution-needs-id-disclosure",
+                            noun: "files needing identification"
+                        )
                     }
                 }
 
                 if !viewModel.groupedBlockedFiles.isEmpty {
-                    Section(isExpanded: $blockedExpanded) {
-                        ForEach(viewModel.groupedBlockedFiles) { group in
+                    Section {
+                        ForEach(blockedExpanded ? viewModel.groupedBlockedFiles : []) { group in
                             NavigationLink {
                                 LibraryImportBlockedGroupInlineView(group: group, viewModel: viewModel)
                             } label: {
@@ -790,7 +856,12 @@ struct ArrQueueImportIssueResolutionSheet: View {
                             }
                         }
                     } header: {
-                        Text("Still Blocked (\(viewModel.groupedBlockedFiles.count))")
+                        LibraryImportDisclosureHeader(
+                            title: "Still Blocked (\(viewModel.groupedBlockedFiles.count))",
+                            isExpanded: $blockedExpanded,
+                            identifier: "library-import-resolution-blocked-disclosure",
+                            noun: "blocked files"
+                        )
                     }
                 }
             }
@@ -941,7 +1012,7 @@ struct LibraryImportItem: Identifiable, Sendable {
             // Always force the embedded movie's id to the current match. A re-identified
             // file otherwise carries the previous match's movie object (or an empty `{}`
             // left from an "Unknown Movie" scan), and the ManualImport command keys off
-            // that — importing to the wrong movie or failing as "Movie with id 0…".
+            // that - importing to the wrong movie or failing as "Movie with id 0…".
             if case .object(var movieDict) = dict["movie"] {
                 movieDict["id"] = .number(Double(id))
                 dict["movie"] = .object(movieDict)
@@ -951,7 +1022,7 @@ struct LibraryImportItem: Identifiable, Sendable {
         case .sonarr:
             dict["seriesId"] = .number(Double(id))
             dict["seasonFolder"] = .bool(seasonFolder)
-            // episodeIds must be a non-null array — Sonarr throws ArgumentNullException if absent
+            // episodeIds must be a non-null array - Sonarr throws ArgumentNullException if absent
             if case .array(_) = dict["episodeIds"] {
                 // already present, keep it
             } else if case .array(let eps) = dict["episodes"] {
@@ -1185,7 +1256,7 @@ struct LibraryImportItem: Identifiable, Sendable {
 enum GroupSelectionState { case none, partial, all }
 
 /// A library title (movie/series) already imported from the scanned folder. Informational
-/// only — shown under the Owned tab so the user can see what's already handled.
+/// only - shown under the Owned tab so the user can see what's already handled.
 struct OwnedLibraryTitle: Identifiable, Sendable {
     let id: Int
     let title: String
@@ -1600,7 +1671,7 @@ struct LibraryImportGroupSheet: View {
         initialGroup.items.compactMap { item in
             viewModel.importableFiles.first { $0.id == item.id }
         }
-        // Drop files that were re-identified to a different title — they belong to another
+        // Drop files that were re-identified to a different title - they belong to another
         // group now and shouldn't linger here under this group's (stale) heading.
         .filter { initialGroup.mediaID == nil || $0.mediaID == initialGroup.mediaID }
     }
@@ -2162,7 +2233,7 @@ private struct LibraryImportIdentifySheet: View {
 
     @ViewBuilder
     private var libraryRadarrSections: some View {
-        // Auto-suggestions based on filename — shown when not actively searching
+        // Auto-suggestions based on filename - shown when not actively searching
         if searchText.isEmpty {
             let suggestions = viewModel.autoSuggestionMovies.prefix(5)
             if viewModel.isLoadingAutoSuggestions {
@@ -2188,7 +2259,7 @@ private struct LibraryImportIdentifySheet: View {
             }
         }
 
-        // Search results — library matches shown inline alongside new items
+        // Search results - library matches shown inline alongside new items
         if viewModel.isSearchingCatalog {
             Section("Results") {
                 HStack {
@@ -2228,7 +2299,7 @@ private struct LibraryImportIdentifySheet: View {
 
     @ViewBuilder
     private var librarySonarrSections: some View {
-        // Auto-suggestions based on filename — shown when not actively searching
+        // Auto-suggestions based on filename - shown when not actively searching
         if searchText.isEmpty {
             let suggestions = viewModel.autoSuggestionSeries.prefix(5)
             if viewModel.isLoadingAutoSuggestions {
@@ -2254,7 +2325,7 @@ private struct LibraryImportIdentifySheet: View {
             }
         }
 
-        // Search results — library matches shown inline alongside new items
+        // Search results - library matches shown inline alongside new items
         if viewModel.isSearchingCatalog {
             Section("Results") {
                 HStack {
@@ -2283,13 +2354,13 @@ private struct LibraryImportIdentifySheet: View {
         }
     }
 
-    // MARK: Manual import — existing library titles only
+    // MARK: Manual import - existing library titles only
 
     private var addLabel: String { viewModel.importKind == .manual ? "Match" : "Add" }
     private var addAndImportLabel: String { viewModel.importKind == .manual ? "Match & Import" : "Add and Import" }
     private var searchPrompt: String { viewModel.importKind == .manual ? "Search your library" : "Search your library or Discover" }
 
-    /// Library movies whose filename-derived suggestion matched — shown before the user searches.
+    /// Library movies whose filename-derived suggestion matched - shown before the user searches.
     private var manualMovieSuggestions: [RadarrMovie] {
         let suggested = Set(viewModel.autoSuggestionMovies.compactMap(\.tmdbId))
         return viewModel.libraryMovies.filter { movie in

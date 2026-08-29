@@ -7,8 +7,8 @@ import OSLog
 /// Which Arr import flow a screen drives. Library Import bulk-adopts an existing
 /// organized library (adding titles as needed); Manual Import brings files into
 /// titles that are already in the library. Both run on the same scan/identify
-/// engine — this just toggles the title, copy, and existing-only behaviour.
-enum ArrImportKind: Sendable, Equatable {
+/// engine - this just toggles the title, copy, and existing-only behaviour.
+enum ArrImportKind: Sendable, Hashable {
     case library
     case manual
 
@@ -91,7 +91,7 @@ struct ArrImportLocationView: View {
         return serviceManager.rootFolders(for: instance.id)
     }
 
-    /// The profile holding this server's custom import folders — bookmarks are
+    /// The profile holding this server's custom import folders - bookmarks are
     /// stored per server, because the paths only exist on that server.
     private var currentProfile: ArrServiceProfile? {
         guard let instance = selectedInstance else { return nil }
@@ -224,7 +224,7 @@ struct ArrImportLocationView: View {
             Section {
                 VStack(alignment: .leading, spacing: 12) {
                     importTip("Make sure your files include the quality in their filenames, e.g. \(qualityExample).")
-                    importTip("Point \(selectedService.displayName) at the folder containing all of your \(plural), not a specific one — e.g. \(singleFolder), not \(specificFolder). Each \(perItem) must be in its own folder within the root.")
+                    importTip("Point \(selectedService.displayName) at the folder containing all of your \(plural), not a specific one - e.g. \(singleFolder), not \(specificFolder). Each \(perItem) must be in its own folder within the root.")
                     importTip("Don’t use this for unsorted downloads from your download client. It’s only for libraries that are already organized.")
                 }
                 .padding(.vertical, 4)
@@ -238,7 +238,7 @@ struct ArrImportLocationView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     importTip("Use this to import files for \(plural) that are already in \(selectedService.displayName). To add new \(plural), use Library Import instead.")
                     importTip("Point \(selectedService.displayName) at the folder holding the files you want to import.")
-                    importTip("Each file is matched to an existing \(perItem) — correct any match, and choose Move or Copy, before importing.")
+                    importTip("Each file is matched to an existing \(perItem) - correct any match, and choose Move or Copy, before importing.")
                 }
                 .padding(.vertical, 4)
             } header: {

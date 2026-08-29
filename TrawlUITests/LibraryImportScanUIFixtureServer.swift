@@ -29,6 +29,11 @@ final class LibraryImportScanUIFixtureServer: @unchecked Sendable {
     enum Scenario: Sendable {
         case groupedSelection
         case blockedCatalogSearch
+        /// One scanned file Sonarr rejected only as an unknown series - the exact
+        /// shape Auto Match exists to resolve. The catalog lookup answers with a
+        /// series that is *not* in the fixture library, so the match lands in the
+        /// "identified, will be added on import" bucket.
+        case autoMatchPersistence
     }
 
     static let rootFolderPath = "/fixture/import-library"
@@ -38,6 +43,7 @@ final class LibraryImportScanUIFixtureServer: @unchecked Sendable {
     static let readyFileName = "Fixture.Import.Series.S01E02.1080p.mkv"
     static let existingFileName = "Fixture.Import.Series.S01E01.1080p.mkv"
     static let blockedFileName = "Fixture.Catalog.Candidate.S01E01.1080p.mkv"
+    static let autoMatchFileName = "Fixture.Catalog.Match.S01E01.1080p.mkv"
 
     private let listener: NWListener
     private let queue: DispatchQueue
@@ -174,6 +180,10 @@ final class LibraryImportScanUIFixtureServer: @unchecked Sendable {
         case .blockedCatalogSearch:
             return #"""
             [{"path":"\#(Self.rootFolderPath)/\#(Self.blockedFileName)","name":"\#(Self.blockedFileName)","size":512,"rejections":["Fixture requires identification"],"seasonNumber":1,"episodes":[{"id":2001,"episodeNumber":1,"title":"Unknown"}]}]
+            """#
+        case .autoMatchPersistence:
+            return #"""
+            [{"path":"\#(Self.rootFolderPath)/\#(Self.autoMatchFileName)","name":"\#(Self.autoMatchFileName)","size":512,"rejections":["Unknown Series"],"seasonNumber":1,"episodes":[{"id":3001,"episodeNumber":1,"title":"Unknown"}]}]
             """#
         }
     }

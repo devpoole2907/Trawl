@@ -89,7 +89,7 @@ private nonisolated enum ScanFixture {
         try! JSONDecoder().decode(SonarrSeries.self, from: Data(json.utf8))
     }
 
-    /// A rejection Sonarr/Radarr emits when the title itself is unknown — the
+    /// A rejection Sonarr/Radarr emits when the title itself is unknown - the
     /// scan view model treats these as auto-matchable rather than blocked.
     static let resolvableRejection = "Unknown Movie"
     /// A rejection nothing in the identify flow can fix.
@@ -1088,5 +1088,147 @@ struct LibraryImportScanIdentificationTests {
         let promoted = try #require(viewModel.importableFiles.first)
         #expect(promoted.mediaID == 7)
         #expect(viewModel.groupedNewImportableFiles.map(\.id) == ["id-7"])
+    }
+}
+
+// MARK: - Session store
+
+/// A scan's grouped files and Auto Match results were held in the scan view's
+/// `@State`, so popping the view destroyed them and returning re-scanned from
+/// scratch. These pin the store that now owns them for the app session.
+@Suite("Library import scan session store")
+@MainActor
+struct LibraryImportScanSessionStoreTests {
+
+    private func makeStore(limit: Int = 6) -> LibraryImportScanSessionStore {
+        LibraryImportScanSessionStore(limit: limit)
+    }
+
+    private func requestModel(
+        from store: LibraryImportScanSessionStore,
+        manager: ArrServiceManager,
+        path: String = "/data/Movies",
+        service: ArrServiceType = .radarr,
+        instanceID: UUID? = nil,
+        libraryItemID: Int? = nil,
+        kind: ArrImportKind = .library
+    ) -> LibraryImportScanViewModel {
+        store.viewModel(
+            path: path,
+            service: service,
+            serviceManager: manager,
+            instanceID: instanceID,
+            libraryItemID: libraryItemID,
+            kind: kind
+        )
+    }
+
+    @Test("Re-opening a folder returns the same scan, with its matches intact")
+    func reopeningAFolderKeepsItsScan() {
+        let store = makeStore()
+        let manager = ArrServiceManager()
+
+        let first = requestModel(from: store, manager: manager)
+        first.autoIdentifyEnabled = false
+        first.hasPerformedInitialScan = true
+        first.importableFiles = [
+            ScanFixture.item(path: "/data/Movies/Matched.2019.mkv", media: .movie(title: "Matched", id: 11))
+        ]
+        first.recomputeGroups()
+
+        let second = requestModel(from: store, manager: manager)
+
+        #expect(second === first)
+        #expect(second.hasPerformedInitialScan)
+        #expect(second.groupedImportableFiles.count == 1)
+        #expect(store.retainedScanCount == 1)
+    }
+
+    @Test("Each scanned folder gets its own view model")
+    func differentFoldersAreSeparateScans() {
+        let store = makeStore()
+        let manager = ArrServiceManager()
+
+        let movies = requestModel(from: store, manager: manager, path: "/data/Movies")
+        let shows = requestModel(from: store, manager: manager, path: "/data/Shows")
+
+        #expect(movies !== shows)
+        #expect(store.retainedScanCount == 2)
+    }
+
+    /// An HD/4K pair can expose the same path on two servers with different
+    /// libraries, and Library Import and Manual Import scan a folder with
+    /// different server-side filtering - so neither may share a cached scan.
+    @Test("Service, instance, library item and import kind each split the cache")
+    func everyIdentityComponentSplitsTheCache() {
+        let store = makeStore()
+        let manager = ArrServiceManager()
+        let hd = UUID()
+        let uhd = UUID()
+
+        let radarr = requestModel(from: store, manager: manager, service: .radarr)
+        let sonarr = requestModel(from: store, manager: manager, service: .sonarr)
+        let onHD = requestModel(from: store, manager: manager, instanceID: hd)
+        let onUHD = requestModel(from: store, manager: manager, instanceID: uhd)
+        let forItem = requestModel(from: store, manager: manager, libraryItemID: 7)
+        let manual = requestModel(from: store, manager: manager, kind: .manual)
+
+        #expect(radarr !== sonarr)
+        #expect(onHD !== onUHD)
+        #expect(radarr !== onHD)
+        #expect(radarr !== forItem)
+        #expect(radarr !== manual)
+        #expect(store.retainedScanCount == 6)
+    }
+
+    @Test("Retained scans are capped, dropping the least recently opened first")
+    func retainedScansAreCapped() {
+        let store = makeStore(limit: 2)
+        let manager = ArrServiceManager()
+
+        let first = requestModel(from: store, manager: manager, path: "/data/A")
+        _ = requestModel(from: store, manager: manager, path: "/data/B")
+        _ = requestModel(from: store, manager: manager, path: "/data/C")
+
+        #expect(store.retainedScanCount == 2)
+        #expect(requestModel(from: store, manager: manager, path: "/data/A") !== first)
+    }
+
+    @Test("Re-opening a folder keeps it from being the next one evicted")
+    func reopeningAFolderRefreshesItsPlaceInTheCache() {
+        let store = makeStore(limit: 2)
+        let manager = ArrServiceManager()
+
+        let a = requestModel(from: store, manager: manager, path: "/data/A")
+        let b = requestModel(from: store, manager: manager, path: "/data/B")
+        _ = requestModel(from: store, manager: manager, path: "/data/A")
+        _ = requestModel(from: store, manager: manager, path: "/data/C")
+
+        #expect(requestModel(from: store, manager: manager, path: "/data/A") === a)
+        #expect(requestModel(from: store, manager: manager, path: "/data/B") !== b)
+    }
+
+    @Test("Clearing the store drops every retained scan")
+    func clearingDropsEveryScan() {
+        let store = makeStore()
+        let manager = ArrServiceManager()
+
+        let movies = requestModel(from: store, manager: manager, path: "/data/Movies")
+        _ = requestModel(from: store, manager: manager, path: "/data/Shows")
+        store.removeAll()
+
+        #expect(store.retainedScanCount == 0)
+        #expect(requestModel(from: store, manager: manager, path: "/data/Movies") !== movies)
+    }
+
+    @Test("A limit below one still retains the folder being viewed")
+    func aDegenerateLimitStillRetainsTheCurrentFolder() {
+        let store = makeStore(limit: 0)
+        let manager = ArrServiceManager()
+
+        let movies = requestModel(from: store, manager: manager, path: "/data/Movies")
+
+        #expect(store.retainedScanCount == 1)
+        #expect(requestModel(from: store, manager: manager, path: "/data/Movies") === movies)
     }
 }
