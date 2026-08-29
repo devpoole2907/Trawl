@@ -2220,6 +2220,19 @@ private struct DownloadClientsManagementView: View {
         arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
     }
 
+    /// Changes whenever a server appears or its connection settles — exactly when
+    /// this screen's answer could become knowable, or become wrong.
+    private var arrConnectionSignature: String {
+        [
+            arrServiceManager.hasSonarrInstance,
+            arrServiceManager.sonarrConnected,
+            arrServiceManager.hasRadarrInstance,
+            arrServiceManager.radarrConnected
+        ]
+        .map(String.init)
+        .joined(separator: "-")
+    }
+
     var body: some View {
         List {
             if !hasSonarrOrRadarr {
@@ -2262,19 +2275,19 @@ private struct DownloadClientsManagementView: View {
         .refreshable {
             await statusModel.load(arrServiceManager: arrServiceManager)
         }
-        .task {
+        // Keyed on the servers' connection state rather than run once on appear.
+        //
+        // Instances populate as each server finishes connecting, so a screen opened
+        // early asks about a service whose instances have not landed yet and is told
+        // there are none — a configured Radarr with two working download clients,
+        // reported as "Not set up", and never re-checked because nothing asked
+        // again. Re-running when connections settle lets that answer correct itself
+        // instead of needing a manual pull-to-refresh.
+        .task(id: arrConnectionSignature) {
             #if DEBUG
             guard !skipsStatusRefresh else { return }
             #endif
             await statusModel.load(arrServiceManager: arrServiceManager)
-        }
-        .onAppear {
-            #if DEBUG
-            guard !skipsStatusRefresh else { return }
-            #endif
-            Task {
-                await statusModel.load(arrServiceManager: arrServiceManager)
-            }
         }
     }
 }
@@ -2340,13 +2353,27 @@ private final class DownloadClientsStatusViewModel {
     }
     #endif
 
-    func load(arrServiceManager: ArrServiceManager) async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+    /// Generation of the load currently allowed to publish. A plain `isLoading`
+    /// bail dropped the *newer* request, which is the wrong one to lose: loads are
+    /// now re-triggered when the servers' connection state settles, and that change
+    /// can easily land while the first load — the one asking too early, and getting
+    /// the wrong answer — is still in flight.
+    private var loadGeneration = 0
 
-        sonarrStatus = await loadStatus(for: .sonarr, arrServiceManager: arrServiceManager)
-        radarrStatus = await loadStatus(for: .radarr, arrServiceManager: arrServiceManager)
+    func load(arrServiceManager: ArrServiceManager) async {
+        loadGeneration += 1
+        let generation = loadGeneration
+        isLoading = true
+        defer { if generation == loadGeneration { isLoading = false } }
+
+        let sonarr = await loadStatus(for: .sonarr, arrServiceManager: arrServiceManager)
+        let radarr = await loadStatus(for: .radarr, arrServiceManager: arrServiceManager)
+
+        // A superseded load must not publish: its answers describe servers as they
+        // were before the connection state that superseded it.
+        guard generation == loadGeneration else { return }
+        sonarrStatus = sonarr
+        radarrStatus = radarr
     }
 
     /// The state of *every* server configured for this service, not whichever one
@@ -2386,7 +2413,16 @@ private final class DownloadClientsStatusViewModel {
 
             do {
                 let clients = try await client.getDownloadClients()
-                if !clients.isEmpty { sawDownloadClient = true }
+                guard !clients.isEmpty else {
+                    // This server answered and has no download client, so it cannot
+                    // grab anything. Contributing nothing here would let its healthy
+                    // partner speak for the pair — which is the half-truth this row
+                    // exists to stop: a 4K server with no client reads as
+                    // "Connected" on the strength of the default server's.
+                    states.append(.notConnected)
+                    continue
+                }
+                sawDownloadClient = true
                 for downloadClient in clients {
                     guard downloadClient.enable else {
                         states.append(.disabled)
