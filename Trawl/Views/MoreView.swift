@@ -2349,45 +2349,68 @@ private final class DownloadClientsStatusViewModel {
         radarrStatus = await loadStatus(for: .radarr, arrServiceManager: arrServiceManager)
     }
 
+    /// The state of *every* server configured for this service, not whichever one
+    /// happens to be resolved.
+    ///
+    /// This asked `arrServiceManager.sonarrClient` — the single active client —
+    /// which predates the service having more than one server. With an HD/4K pair
+    /// it reported on one of the two and silently ignored the other, so a second
+    /// server with no download client, or a broken one, read as "Connected".
+    /// Download clients are configured per server, so the row has to speak for
+    /// both.
     private func loadStatus(for serviceType: ArrServiceType, arrServiceManager: ArrServiceManager) async -> IntegrationRelationshipStatus {
         switch serviceType {
-        case .sonarr:
-            guard arrServiceManager.hasSonarrInstance else { return .notConfigured }
-            guard arrServiceManager.sonarrConnected, let apiClient = arrServiceManager.sonarrClient else { return .error }
-            return await loadStatus(client: apiClient)
-        case .radarr:
-            guard arrServiceManager.hasRadarrInstance else { return .notConfigured }
-            guard arrServiceManager.radarrConnected, let apiClient = arrServiceManager.radarrClient else { return .error }
-            return await loadStatus(client: apiClient)
+        case .sonarr, .radarr:
+            break
         case .prowlarr, .bazarr:
             return .notConfigured
         }
-    }
 
-    private func loadStatus<Client: SharedArrClient>(client: Client) async -> IntegrationRelationshipStatus {
-        do {
-            let clients = try await client.getDownloadClients()
-            guard !clients.isEmpty else { return .notConfigured }
+        let refs = arrServiceManager.refs(for: serviceType)
+        guard !refs.isEmpty else { return .notConfigured }
 
-            var states: [IntegrationTargetState] = []
-            for downloadClient in clients {
-                guard downloadClient.enable else {
-                    states.append(.disabled)
-                    continue
-                }
+        var states: [IntegrationTargetState] = []
+        var reachedAnyServer = false
+        var sawDownloadClient = false
 
-                do {
-                    try await client.testDownloadClient(downloadClient)
-                    states.append(.connected)
-                } catch {
-                    states.append(.notConnected)
-                }
+        for ref in refs {
+            guard arrServiceManager.isConnected(serviceType, profileID: ref.id),
+                  let client = arrServiceManager.sharedClient(for: ref) else {
+                // A server Trawl cannot reach may hold a perfectly good download
+                // client or none at all — either way the row must not claim
+                // everything is fine on its behalf.
+                states.append(.notConnected)
+                continue
             }
+            reachedAnyServer = true
 
-            return Self.aggregate(states)
-        } catch {
-            return .error
+            do {
+                let clients = try await client.getDownloadClients()
+                if !clients.isEmpty { sawDownloadClient = true }
+                for downloadClient in clients {
+                    guard downloadClient.enable else {
+                        states.append(.disabled)
+                        continue
+                    }
+                    do {
+                        try await client.testDownloadClient(downloadClient)
+                        states.append(.connected)
+                    } catch {
+                        states.append(.notConnected)
+                    }
+                }
+            } catch {
+                states.append(.notConnected)
+            }
         }
+
+        guard reachedAnyServer else { return .error }
+        // Reached the servers, and not one of them has a download client. That is
+        // a real problem — neither server can grab anything — but it is not the
+        // same as the service being unconfigured, which is what this used to say.
+        guard sawDownloadClient else { return .warning("No Clients") }
+
+        return Self.aggregate(states)
     }
 
     private static func aggregate(_ states: [IntegrationTargetState]) -> IntegrationRelationshipStatus {

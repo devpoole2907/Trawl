@@ -228,7 +228,7 @@ struct ArrQualityProfileDetailView: View {
             Section {
                 if let instance {
                     LabeledContent("Server") {
-                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                        ArrInstanceBadge(label: instance.qualifiedLabel, ordinal: instance.ordinal)
                     }
                 }
 

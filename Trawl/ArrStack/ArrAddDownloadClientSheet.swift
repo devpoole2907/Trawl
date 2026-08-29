@@ -201,7 +201,7 @@ struct ArrDownloadClientEditorSheet: View {
                    serviceManager.showsInstanceProvenance(for: serviceType) {
                     Section {
                         LabeledContent("Server") {
-                            ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                            ArrInstanceBadge(label: instance.qualifiedLabel, ordinal: instance.ordinal)
                         }
                     }
                 }

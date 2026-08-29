@@ -162,24 +162,26 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
 
                 Button(action: navigateToSonarrSettings) {
-                    serviceRow(
-                        icon: ServiceIdentity.sonarr.systemImage, color: ServiceIdentity.sonarr.brandColor,
-                        name: serviceRowTitle(defaultName: "Sonarr", profile: sonarrProfile, count: sonarrProfiles.count),
-                        url: serviceRowSubtitle(profile: sonarrProfile, count: sonarrProfiles.count),
-                        isConnected: arrServiceManager.sonarrConnected,
-                        isConfigured: sonarrProfile != nil
+                    arrServiceRow(
+                        identity: .sonarr,
+                        defaultName: "Sonarr",
+                        serviceType: .sonarr,
+                        profiles: sonarrProfiles,
+                        resolved: sonarrProfile,
+                        isConnected: arrServiceManager.sonarrConnected
                     )
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
 
                 Button(action: navigateToRadarrSettings) {
-                    serviceRow(
-                        icon: ServiceIdentity.radarr.systemImage, color: ServiceIdentity.radarr.brandColor,
-                        name: serviceRowTitle(defaultName: "Radarr", profile: radarrProfile, count: radarrProfiles.count),
-                        url: serviceRowSubtitle(profile: radarrProfile, count: radarrProfiles.count),
-                        isConnected: arrServiceManager.radarrConnected,
-                        isConfigured: radarrProfile != nil
+                    arrServiceRow(
+                        identity: .radarr,
+                        defaultName: "Radarr",
+                        serviceType: .radarr,
+                        profiles: radarrProfiles,
+                        resolved: radarrProfile,
+                        isConnected: arrServiceManager.radarrConnected
                     )
                     .contentShape(Rectangle())
                 }
@@ -198,12 +200,13 @@ struct SettingsView: View {
                 .buttonStyle(.plain)
 
                 Button(action: navigateToBazarrSettings) {
-                    serviceRow(
-                        icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
-                        name: serviceRowTitle(defaultName: "Bazarr", profile: bazarrProfile, count: bazarrProfiles.count),
-                        url: serviceRowSubtitle(profile: bazarrProfile, count: bazarrProfiles.count),
-                        isConnected: arrServiceManager.hasAnyConnectedBazarrInstance,
-                        isConfigured: bazarrProfile != nil
+                    arrServiceRow(
+                        identity: .bazarr,
+                        defaultName: "Bazarr",
+                        serviceType: .bazarr,
+                        profiles: bazarrProfiles,
+                        resolved: bazarrProfile,
+                        isConnected: arrServiceManager.hasAnyConnectedBazarrInstance
                     )
                     .contentShape(Rectangle())
                 }
@@ -378,16 +381,91 @@ struct SettingsView: View {
         }
     }
 
-    private func serviceRowTitle(defaultName: String, profile: ArrServiceProfile?, count: Int) -> String {
-        let baseName = profile?.displayName ?? defaultName
-        guard count > 1 else { return baseName }
-        return "\(baseName) (\(count) instances)"
+    /// One row per *service*, listing every server configured for it.
+    ///
+    /// A pair of servers is one library split across two boxes, not one server
+    /// with a spare. This row used to say "Sonarr 4K (2 instances)" over
+    /// "Active: <url>", which asserted three wrong things: that the pair is named
+    /// after whichever server happened to be selected, that one of them is the
+    /// real one, and — by omission — that the other one's address and health are
+    /// not worth showing. There is no active instance any more; the app talks to
+    /// both. So both are listed, each with its tier and its own connection state.
+    private func arrServiceRow(
+        identity: ServiceIdentity,
+        defaultName: String,
+        serviceType: ArrServiceType,
+        profiles: [ArrServiceProfile],
+        resolved: ArrServiceProfile?,
+        isConnected: Bool
+    ) -> some View {
+        // Ordered by tier, not by the order they were added, so Default is always
+        // the line above 4K — the same ordering the badges use everywhere else.
+        let ordered = profiles.sorted { $0.qualityTier.ordinalForDisplay < $1.qualityTier.ordinalForDisplay }
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: identity.systemImage)
+                .font(.title2)
+                .foregroundStyle(identity.brandColor)
+                .frame(width: 32)
+
+            if ordered.count > 1 {
+                VStack(alignment: .leading, spacing: 6) {
+                    // The service, not a server: with two configured, neither
+                    // server's display name can stand for the pair.
+                    Text(defaultName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+
+                    ForEach(ordered) { profile in
+                        HStack(spacing: 8) {
+                            ArrInstanceBadge(
+                                label: profile.qualityTier.label,
+                                ordinal: profile.qualityTier.ordinalForDisplay
+                            )
+                            Text(profile.hostURL)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                            Spacer(minLength: 4)
+                            // Per line, because an aggregate dot cannot say which
+                            // of the two is down — and one server being unreachable
+                            // is exactly what you open this screen to find out.
+                            statusDot(isConfigured: true, isConnected: arrServiceManager.isConnected(serviceType, profileID: profile.id))
+                        }
+                        .accessibilityElement(children: .combine)
+                    }
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(resolved?.displayName ?? defaultName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                    if let resolved {
+                        Text(resolved.hostURL)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    } else {
+                        Text("Not set up")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+
+                Spacer()
+
+                statusDot(isConfigured: resolved != nil, isConnected: isConnected)
+            }
+        }
     }
 
-    private func serviceRowSubtitle(profile: ArrServiceProfile?, count: Int) -> String? {
-        guard let profile else { return nil }
-        guard count > 1 else { return profile.hostURL }
-        return "Active: \(profile.hostURL)"
+    private func statusDot(isConfigured: Bool, isConnected: Bool) -> some View {
+        Image(systemName: isConfigured ? "circle.fill" : "plus.circle")
+            .font(.caption)
+            .foregroundStyle(isConfigured ? (isConnected ? Color.green : Color.red) : Color.secondary.opacity(0.5))
+            .accessibilityLabel(isConfigured ? (isConnected ? "Connected" : "Not connected") : "Not set up")
     }
 
     private func settingsInfoRow(label: String, value: String) -> some View {

@@ -91,6 +91,16 @@ nonisolated public enum ArrQualityTier: String, Codable, CaseIterable, Identifia
         }
     }
 
+    /// Position in a badge row, a palette, or any ordered list of the two tiers.
+    /// Default first, 4K second, always — so "the blue one" is the same server on
+    /// every screen, whatever order the pair was added in.
+    public var ordinalForDisplay: Int {
+        switch self {
+        case .hd: 0
+        case .uhd: 1
+        }
+    }
+
     /// Spelled out for pickers and confirmations, where the extra words earn
     /// their place.
     public var longLabel: String {

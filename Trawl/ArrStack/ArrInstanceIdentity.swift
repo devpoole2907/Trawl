@@ -25,15 +25,18 @@ nonisolated struct ArrInstanceRef: Identifiable, Hashable, Sendable {
     /// blended library is actually organised around.
     var shortLabel: String { tier.label }
 
-    /// Position in the badge row and the palette. HD first, 4K second, always —
-    /// so "the blue one" is the same server on every screen, whatever order the
-    /// two were added in.
-    var ordinal: Int {
-        switch tier {
-        case .hd: 0
-        case .uhd: 1
-        }
-    }
+    /// The server named in full — "Sonarr Default", "Radarr 4K".
+    ///
+    /// `shortLabel` is for badges *on* something that already says what it is: a
+    /// library row, a queue entry, a calendar item. Where the label is the whole
+    /// answer to "which server is this?" — a `Server` field on a form — a bare
+    /// "Default" or "4K" names a tier rather than a server and leaves the reader
+    /// to supply the service themselves.
+    var qualifiedLabel: String { "\(serviceType.displayName) \(tier.label)" }
+
+    /// Position in the badge row and the palette, from the tier itself so a ref
+    /// and a bare profile can never disagree about which server sorts first.
+    var ordinal: Int { tier.ordinalForDisplay }
 }
 
 nonisolated extension ArrInstanceRef {
