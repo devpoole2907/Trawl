@@ -66,6 +66,81 @@ struct SABnzbdServiceManagerConcurrencyTests {
         }
     }
 
+    /// The Downloads tab asks for polling from its `.task`, which runs while the
+    /// SABnzbd connection is still being established at launch. `startPolling()`
+    /// used to require a client to already exist and silently returned when it
+    /// didn't — so a cold launch straight into Downloads never polled at all, and
+    /// nothing retried it: the queue stayed frozen for the whole session until a
+    /// manual pull-to-refresh. The request now outlives the missing client.
+    @Test("Polling asked for before the client exists starts once connected")
+    @MainActor
+    func pollingRequestedBeforeConnectStartsOnConnect() async throws {
+        // The loop is never advanced here: this test is about whether it starts at
+        // all. `unauthorizedPollDisconnectsAndPreventsFurtherRequests` above drives
+        // it for real.
+        let clock = ManualSABnzbdPollClock()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UnauthorizedSABnzbdURLProtocol.self]
+        let manager = SABnzbdServiceManager(
+            sessionConfiguration: configuration,
+            waitForPollingInterval: { _ in await clock.wait() }
+        )
+        defer { manager.stopPolling() }
+        let profile = SABnzbdServiceProfile(
+            displayName: "Late SABnzbd",
+            hostURL: "https://sabnzbd.unauthorized.test"
+        )
+
+        await UnauthorizedSABnzbdRemote.shared.reset()
+        try await withSavedAPIKey(for: profile) {
+            // The view appears first: there is no client to poll yet.
+            manager.startPolling()
+            #expect(!manager.isPolling)
+
+            await manager.connectService(profile)
+
+            #expect(manager.isConnected)
+            #expect(
+                manager.isPolling,
+                "A polling request made before the connection existed should be honoured once it does."
+            )
+        }
+    }
+
+    /// The mirror of the above. `stopPolling()` means the view that wanted the
+    /// queue is gone, so a later connection must not quietly start polling for a
+    /// screen nobody is looking at.
+    @Test("Polling stopped by the view does not resume on a later connection")
+    @MainActor
+    func pollingStoppedByViewDoesNotResumeOnConnect() async throws {
+        let clock = ManualSABnzbdPollClock()
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [UnauthorizedSABnzbdURLProtocol.self]
+        let manager = SABnzbdServiceManager(
+            sessionConfiguration: configuration,
+            waitForPollingInterval: { _ in await clock.wait() }
+        )
+        defer { manager.stopPolling() }
+        let profile = SABnzbdServiceProfile(
+            displayName: "Unwatched SABnzbd",
+            hostURL: "https://sabnzbd.unauthorized.test"
+        )
+
+        await UnauthorizedSABnzbdRemote.shared.reset()
+        try await withSavedAPIKey(for: profile) {
+            manager.startPolling()
+            manager.stopPolling()
+
+            await manager.connectService(profile)
+
+            #expect(manager.isConnected)
+            #expect(
+                !manager.isPolling,
+                "Connecting must not resume polling the view already withdrew."
+            )
+        }
+    }
+
     private func withSavedAPIKey(
         for profile: SABnzbdServiceProfile,
         operation: () async throws -> Void

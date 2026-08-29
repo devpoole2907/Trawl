@@ -18,6 +18,13 @@ final class SABnzbdServiceManager {
     private(set) var history: SABnzbdHistory?
 
     private var pollingTask: Task<Void, Never>?
+    /// Whether a view has asked for polling, as distinct from whether polling is
+    /// currently possible. `startPolling()` used to be a silent no-op when it ran
+    /// before the client existed — which is exactly what a cold launch into the
+    /// Downloads tab does — leaving the queue stale for the whole session with
+    /// nothing to retry it. The request is remembered so the connection can start
+    /// the poll the moment it is able to.
+    private var pollingRequested = false
     private var pollingGeneration = 0
     /// Bumped whenever the manager commits to a different connection — a new
     /// `connectService` attempt, or an explicit `disconnect`. Every async
@@ -136,6 +143,9 @@ final class SABnzbdServiceManager {
             profile.serverVersion = version
             profile.lastSynced = .now
 
+            // A view may have asked for polling before this connection existed.
+            startPollingIfPossible()
+
             await refresh()
         } catch {
             guard connectionGeneration == generation else { return }
@@ -149,7 +159,11 @@ final class SABnzbdServiceManager {
         // cleared here because the retired attempt's own `defer` deliberately
         // no longer owns it.
         connectionGeneration += 1
-        stopPolling()
+        // Polling becomes impossible here, not unwanted — a profile switch
+        // disconnects and reconnects while the same view stays on screen, and that
+        // view's request to poll outlives the connection it was made against.
+        // Only the view's own disappearance withdraws the request.
+        cancelPollingTask()
         clearActiveConnection()
         connectionError = nil
         isConnecting = false
@@ -201,7 +215,7 @@ final class SABnzbdServiceManager {
             connectionError = nil
         } catch SABnzbdAPIError.unauthorized {
             guard isCurrentConnection(generation: generation, client: client) else { return }
-            stopPolling()
+            cancelPollingTask()
             clearActiveConnection()
             connectionError = "SABnzbd rejected the API key. Update it in Settings."
         } catch {
@@ -250,7 +264,14 @@ final class SABnzbdServiceManager {
     }
 
     func startPolling() {
-        guard pollingTask == nil, activeClient != nil else { return }
+        pollingRequested = true
+        startPollingIfPossible()
+    }
+
+    /// Starts the poll loop when there is something to poll. Safe to call
+    /// repeatedly: the caller does not have to know whether a client exists yet.
+    private func startPollingIfPossible() {
+        guard pollingRequested, pollingTask == nil, activeClient != nil else { return }
         pollingGeneration += 1
         let generation = pollingGeneration
         isPolling = true
@@ -270,7 +291,17 @@ final class SABnzbdServiceManager {
         }
     }
 
+    /// Stops polling and withdraws the request: the view that wanted it is gone,
+    /// so a later reconnect must not silently resume it.
     func stopPolling() {
+        pollingRequested = false
+        cancelPollingTask()
+    }
+
+    /// Stops the loop but keeps the request standing, for when polling is
+    /// impossible rather than unwanted — a rejected API key clears the client, and
+    /// the view asking for the queue is still on screen. Reconnecting resumes it.
+    private func cancelPollingTask() {
         pollingGeneration += 1
         pollingTask?.cancel()
         pollingTask = nil

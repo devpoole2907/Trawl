@@ -21,25 +21,30 @@
 //  real HTTP requests to the fixture server, and the Downloads tab renders whatever
 //  `SABnzbdAPIClient` actually decoded from those responses.
 //
-//  ## Why the assertion lives in the SABnzbd manager screen, not the unified Downloads
-//  list
+//  ## Where the rejection is surfaced
 //
-//  `Trawl/DownloadsStack/DownloadsView.swift` never reads
-//  `SABnzbdServiceManager.connectionError` at all — an unauthorized SABnzbd simply
-//  makes its jobs vanish from the unified list (the manager clears `queue`/`history`
-//  to `nil`), which reads identically to "nothing downloading right now" there. The
-//  screen that actually surfaces the rejection is `SABnzbdManagerView`
-//  (`Trawl/SABnzbdStack/SABnzbdManagerView.swift:120`): once its job list is empty and
-//  `serviceManager.connectionError != nil`, it renders a `ContentUnavailableView`
-//  titled "SABnzbd Unavailable" with the connection error as its description — the
-//  exact copy `SABnzbdServiceManager.refresh()` sets
-//  (`Trawl/SABnzbdStack/SABnzbdServiceManager.swift:198`): "SABnzbd rejected the API
-//  key. Update it in Settings." That view is reached from Downloads via its overflow
-//  menu: Downloads → "Downloads Options" → "Client Management"
-//  (`DownloadClientManagementView`) → "SABnzbd" → `SABnzbdClientHubView` → "Queue" →
-//  `SABnzbdManagerView`. This suite drives that whole path rather than guessing at a
-//  shortcut, because guessing wrong here would mean testing a screen the audit's
-//  "user-visible" requirement doesn't actually describe.
+//  There is one Downloads screen. Its title menu changes which downloads are listed
+//  rather than pushing another view, so "SABnzbd" scopes the same list to that
+//  client. A scope names one client, so `DownloadsView` renders that client's
+//  `connectionError` as a `ContentUnavailableView` titled "SABnzbd Unavailable" whose
+//  description is the exact copy `SABnzbdServiceManager.refresh()` sets: "SABnzbd
+//  rejected the API key. Update it in Settings." Showing an empty list instead would
+//  report "no downloads" for a server that is merely refusing to answer, and an
+//  expired API key would look identical to an idle queue.
+//
+//  The blended list is covered separately at the end of this test: it keeps other
+//  clients' rows, so it warns in a banner rather than taking the screen over.
+//
+//  ## Why this test is also load-bearing for polling
+//
+//  Every assertion past step 2 depends on the app actually noticing the 401, which
+//  depends on the poll loop actually running. It once wasn't: `startPolling()`
+//  required a client to already exist, and the Downloads tab asks for polling from a
+//  `.task` that runs while the connection is still being established — so a cold
+//  launch into Downloads never polled, and this test failed on the error copy when
+//  the real defect was a frozen queue. See
+//  `TrawlTests/SABnzbdServiceManagerConcurrencyTests.swift` for the deterministic
+//  coverage of that; this suite is what caught it.
 //
 //  ## How SABnzbd's unauthorized state is authentically triggered
 //
@@ -115,47 +120,36 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             "The fixture server should have actually received a queue request over real HTTP — proves the job on screen came from the real client, not stale state."
         )
 
-        // MARK: Navigate to the screen that actually surfaces SABnzbd's connection
-        // state: Downloads → Downloads Options → Client Management → SABnzbd → Queue.
+        // MARK: Scope the list to SABnzbd.
+        //
+        // SABnzbd's queue used to sit two pushes down — Downloads Options → Client
+        // Management → SABnzbd → Queue — which put a client's own downloads behind a
+        // screen about configuring clients. It is now a scope of the Downloads list
+        // itself, chosen from the title menu, and Client Management no longer offers
+        // a Queue row at all.
 
-        let downloadsOptionsButton = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Downloads Options"))
+        let titleMenu = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "change view"))
             .firstMatch
         XCTAssertTrue(
-            downloadsOptionsButton.waitForExistence(in: app, timeout: 10),
-            "Downloads should show its overflow 'Downloads Options' menu once a client is configured."
+            titleMenu.waitForExistence(in: app, timeout: 10),
+            "With a SABnzbd client configured, Downloads should offer its title menu."
         )
-        downloadsOptionsButton.tap()
+        titleMenu.tap()
 
-        let clientManagementButton = app.buttons["Client Management"]
-        XCTAssertTrue(
-            clientManagementButton.waitForExistence(timeout: 5),
-            "The Downloads Options menu should offer 'Client Management'."
-        )
-        clientManagementButton.tap()
-
-        let sabnzbdRowButton = app.buttons
+        let sabnzbdOption = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd"))
             .firstMatch
         XCTAssertTrue(
-            sabnzbdRowButton.waitForExistence(in: app, timeout: 10),
-            "Client Management should list the configured SABnzbd client."
+            sabnzbdOption.waitForExistence(timeout: 10),
+            "The Downloads title menu should list SABnzbd — the scope in which that client's connection state is rendered."
         )
-        sabnzbdRowButton.tap()
+        sabnzbdOption.tap()
 
-        let queueRowButton = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Queue"))
-            .firstMatch
+        let scopedJobRow = app.staticTexts[jobName]
         XCTAssertTrue(
-            queueRowButton.waitForExistence(in: app, timeout: 10),
-            "The SABnzbd client hub should offer a 'Queue' destination — SABnzbdManagerView, where connectionError is actually rendered."
-        )
-        queueRowButton.tap()
-
-        let managerJobRow = app.staticTexts[jobName]
-        XCTAssertTrue(
-            managerJobRow.waitForExistence(in: app, timeout: 15),
-            "SABnzbdManagerView should show the same seeded job while the connection is healthy."
+            scopedJobRow.waitForExistence(in: app, timeout: 15),
+            "The SABnzbd scope should show the same seeded job while the connection is healthy."
         )
 
         // MARK: Step 2 — flip the fixture to unauthorized.
