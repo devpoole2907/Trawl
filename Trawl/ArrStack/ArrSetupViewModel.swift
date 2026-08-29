@@ -40,10 +40,19 @@ final class ArrSetupViewModel {
     }
 
     /// How many instances of a service Trawl will hold, or `nil` when unlimited.
-    /// One per tier, so the cap is a consequence of the model rather than a rule
-    /// bolted onto it.
     static func instanceLimit(for serviceType: ArrServiceType) -> Int? {
-        usesQualityTiers(serviceType) ? ArrQualityTier.allCases.count : nil
+        switch serviceType {
+        // One per tier, so the cap is a consequence of the model rather than a
+        // rule bolted onto it.
+        case .sonarr, .radarr: ArrQualityTier.allCases.count
+        // Bazarr is configured against an *arr pair — one Bazarr for the default
+        // Sonarr/Radarr and one for the 4K pair — so it tops out where they do,
+        // even though it carries no tier of its own. Derived from the tier count
+        // rather than written as `2` so the two cannot drift apart.
+        case .bazarr: ArrQualityTier.allCases.count
+        // One Prowlarr feeds every *arr, so a second has nothing to point at.
+        case .prowlarr: nil
+        }
     }
 
     static func tierTakenMessage(for serviceType: ArrServiceType, tier: ArrQualityTier) -> String {

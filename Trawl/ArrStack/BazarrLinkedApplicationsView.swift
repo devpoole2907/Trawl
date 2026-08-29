@@ -8,14 +8,28 @@ struct BazarrLinkedApplicationsListView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var editorContext: BazarrLinkedApplicationType?
+    /// Which Bazarr is being configured. Linked applications are per-server
+    /// settings — each Bazarr keeps its own Sonarr and Radarr connection — so a
+    /// screen bound to whichever one happened to be active could only ever
+    /// configure half of a pair, and gave no hint the other half existed.
+    @State private var selectedInstanceID: UUID?
     private let loadsOnAppear: Bool
 
     init() {
         loadsOnAppear = true
     }
 
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.bazarrRefs
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
+    }
+
+    /// Every read and write on this screen goes to the selected server.
     private var client: BazarrAPIClient? {
-        serviceManager.activeBazarrEntry?.client
+        selectedInstance.flatMap { serviceManager.bazarrClient(for: $0.id) }
     }
 
     var body: some View {
@@ -79,7 +93,12 @@ struct BazarrLinkedApplicationsListView: View {
             }
         }
         .navigationTitle("Linked Apps")
-        .navigationSubtitle("Bazarr")
+        .navigationSubtitle(navigationSubtitleText)
+        .safeAreaInset(edge: .top) {
+            // Renders only when there is more than one Bazarr, so a single-server
+            // setup sees exactly what it saw before.
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.insetGrouped)
@@ -87,9 +106,18 @@ struct BazarrLinkedApplicationsListView: View {
         .listStyle(.inset)
         #endif
         .refreshable { await load() }
-        .task(id: serviceManager.activeBazarrProfileID) {
+        .task(id: selectedInstance?.id) {
             guard loadsOnAppear else { return }
             await load()
+        }
+        .onChange(of: selectedInstance?.id) { _, _ in
+            // Drop the previous server's settings immediately rather than leaving
+            // them on screen until the next load lands. They are the values the
+            // editor sheet seeds itself from, so saving against a freshly selected
+            // server while they are still showing would write the other server's
+            // host, port and API key into it.
+            settings = [:]
+            errorMessage = nil
         }
         .sheet(item: $editorContext) { appType in
             BazarrLinkedApplicationEditorSheet(
@@ -100,6 +128,13 @@ struct BazarrLinkedApplicationsListView: View {
             }
             .environment(serviceManager)
         }
+    }
+
+    /// Names the server being configured once there is a choice, so a screen full
+    /// of connection settings can't be read as belonging to the wrong one.
+    private var navigationSubtitleText: String {
+        guard availableInstances.count > 1, let selectedInstance else { return "Bazarr" }
+        return ArrInstanceScopeBar.label(for: selectedInstance, in: serviceManager)
     }
 
     private func load() async {

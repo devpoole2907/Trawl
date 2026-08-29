@@ -419,8 +419,16 @@ struct SettingsView: View {
 
                     ForEach(ordered) { profile in
                         HStack(spacing: 8) {
+                            // Tiered services are named by their tier, which is
+                            // what the badges say everywhere else. A tierless one
+                            // reports the default tier for every server, so badging
+                            // by tier would label both halves "Default"; its
+                            // servers are told apart by the names the user gave
+                            // them.
                             ArrInstanceBadge(
-                                label: profile.qualityTier.label,
+                                label: ArrSetupViewModel.usesQualityTiers(serviceType)
+                                    ? profile.qualityTier.label
+                                    : profile.displayName,
                                 ordinal: profile.qualityTier.ordinalForDisplay
                             )
                             Text(profile.hostURL)

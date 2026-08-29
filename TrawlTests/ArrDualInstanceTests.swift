@@ -376,6 +376,22 @@ struct ArrDualInstanceTests {
         #expect(ArrSetupViewModel.instanceLimit(for: .prowlarr) == nil)
     }
 
+    /// Bazarr carries no tier, so its cap cannot be derived from one — but it is
+    /// still configured against an *arr pair, one Bazarr per pair, so it tops out
+    /// where they do. Left as `nil` it meant *unlimited*: a third Bazarr could be
+    /// added with no server left for it to mirror, and the linked-apps screen has
+    /// room for two.
+    @Test("Bazarr is capped at two even though it has no tiers")
+    func bazarrIsCappedAtTwo() {
+        #expect(ArrSetupViewModel.usesQualityTiers(.bazarr) == false)
+        #expect(ArrSetupViewModel.instanceLimit(for: .bazarr) == 2)
+        // Tied to the tier count rather than a literal, so the two cannot drift.
+        #expect(
+            ArrSetupViewModel.instanceLimit(for: .bazarr)
+                == ArrSetupViewModel.instanceLimit(for: .sonarr)
+        )
+    }
+
     @Test("An existing untiered pair is split into HD and 4K by age")
     func migrationAssignsTiersToAnExistingPair() {
         // The tier was added after multi-instance already worked, so a user with

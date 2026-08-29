@@ -42,6 +42,13 @@ struct ArrInstanceScopeBar: View {
         guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
             return ref.serviceType.displayName
         }
+        // A tierless service has no "Default"/"4K" to tell its servers apart —
+        // every one of them reports the default tier, so tier-based labels would
+        // render two identical segments. The name the user gave the server is the
+        // only thing that distinguishes them.
+        guard ArrSetupViewModel.usesQualityTiers(ref.serviceType) else {
+            return ref.displayName
+        }
         return "\(ref.serviceType.displayName) \(ref.shortLabel)"
     }
 }
