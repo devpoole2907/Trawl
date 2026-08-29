@@ -168,7 +168,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
 
         openDownloadsOptions(app)
-        app.buttons["Client Management"].tap()
+        tapMenuItem(app.buttons["Client Management"], named: "Client Management")
         XCTAssertTrue(
             app.navigationBars["Download Clients"].waitForExistence(timeout: 10),
             "Screen: 'Client Management' should push DownloadClientManagementView titled 'Download Clients'."
@@ -446,6 +446,33 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             downloadsTab.waitForExistence(timeout: 15),
             "A launch with configured services should reach the real tab UI, not the welcome screen."
         )
+    }
+
+    /// Taps an item in a just-opened menu, once it is actually hittable.
+    ///
+    /// A menu item exists in the hierarchy before it can receive a tap, and a tap
+    /// synthesized too early is dropped silently — the failure then lands on the
+    /// screen that never appeared rather than on the tap that never took. Retrying
+    /// the tap is not an option either: tapping a `Menu` toggles it, so a retry can
+    /// close a menu that had in fact opened.
+    private func tapMenuItem(
+        _ element: XCUIElement,
+        named name: String,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let hittable = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == true AND isHittable == true"),
+            object: element
+        )
+        XCTAssertEqual(
+            XCTWaiter().wait(for: [hittable], timeout: 10),
+            .completed,
+            "Menu item '\(name)' never became tappable after its menu was opened.",
+            file: file,
+            line: line
+        )
+        element.tap()
     }
 
     private func openDownloadsOptions(_ app: XCUIApplication) {
