@@ -27,7 +27,15 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
         // translucent lower rows still show the glass, which is the intended
         // "black fading to glass".
         ZStack {
+            // Sized *before* `glassEffect`, not by the frame on the ZStack below.
+            // Liquid Glass anchors its render surface to the bounds of the view the
+            // modifier is attached to, so an unconstrained `Color.clear` leaves the
+            // material at its expanded size while everything around it shrinks —
+            // the bubble flashes full-width on dismissal instead of collapsing with
+            // the rest. This is the safeguard the mesh-over-glass change dropped
+            // when it moved the glass inside the stack.
             Color.clear
+                .frame(width: width, height: height)
                 .glassEffect(
                     .clear.tint(.black.opacity(1 - (0.95 * fadeProgress))),
                     in: shape
@@ -43,6 +51,10 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
                 ],
                 colors: topRow + middleRow + bottomRow
             )
+            // Clipped at the animated size for the same reason: the capsule the
+            // mesh is cut to has to be the capsule the glass is drawn in, on every
+            // frame of the collapse.
+            .frame(width: width, height: height)
             .clipShape(shape)
 
             content
