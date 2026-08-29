@@ -10,7 +10,10 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     let titleKeyPath: KeyPath<Item, String>
     var sectionTitle: ((Item) -> String)?
     var usesTitleSections = true
-    let selectedIDs: Set<Item.ID>
+    /// Bound rather than passed by value: the List owns selection now, so it
+    /// needs to write back. The `Bool` handed to `row` stays, since a row may want
+    /// to present itself differently while selected.
+    @Binding var selection: Set<Item.ID>
     let row: (Item, Bool) -> Row
     let retry: (() async -> Void)?
 
@@ -70,11 +73,11 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     private var sectionedList: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            List {
+            List(selection: $selection) {
                 ForEach(sections) { section in
                     Section(section.title) {
                         ForEach(section.items) { item in
-                            row(item, selectedIDs.contains(item.id))
+                            row(item, selection.contains(item.id))
                                 .listRowBackground(Color.clear)
                         }
                     }
@@ -93,11 +96,11 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     }
 
     private var sectionedListWithoutIndex: some View {
-        List {
+        List(selection: $selection) {
             ForEach(sections) { section in
                 Section(section.title) {
                     ForEach(section.items) { item in
-                        row(item, selectedIDs.contains(item.id))
+                        row(item, selection.contains(item.id))
                             .listRowBackground(Color.clear)
                     }
                 }
@@ -108,9 +111,9 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     }
 
     private var flatList: some View {
-        List {
+        List(selection: $selection) {
             ForEach(items) { item in
-                row(item, selectedIDs.contains(item.id))
+                row(item, selection.contains(item.id))
                     .listRowBackground(Color.clear)
             }
         }

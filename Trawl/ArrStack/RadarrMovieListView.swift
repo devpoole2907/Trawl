@@ -120,7 +120,7 @@ struct RadarrMovieListView: View {
                 nounPlural: "Movies",
                 emptyIcon: "film",
                 titleKeyPath: \.primary.title,
-                selectedIDs: [],
+                selection: .constant([]),
                 row: { entry, _ in
                     RadarrMovieRow(entry: entry, hasIssue: false)
                 },

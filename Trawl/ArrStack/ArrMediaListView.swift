@@ -224,7 +224,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 return (item as? any ArrSortable)?.sortTitle ?? (item as? any ArrTitleable)?.title ?? ""
             },
             usesTitleSections: viewModel.sortOrder.rawValue == "Title",
-            selectedIDs: selectedIDs,
+            selection: $selectedIDs,
             row: { entry, _ in itemRow(entry) },
             retry: nil
         )
@@ -232,22 +232,18 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         .animation(.default, value: viewModel.filteredItems)
     }
 
+    /// One row shape in both modes, minus the link while editing.
+    ///
+    /// `List` disables `NavigationLink`s in edit mode so its own tap can select the
+    /// row, and a disabled link dims everything inside its label — every row went
+    /// grey the moment Select was pressed while still being perfectly selectable.
+    /// Dropping the link keeps the row at full strength; selection is the List's
+    /// either way, so there is still no second tap handler and no hand-drawn
+    /// checkmark to keep in step with the system's.
     @ViewBuilder
     private func itemRow(_ entry: Entry) -> some View {
         if editMode.isEditing {
-            Button {
-                toggleSelection(entry)
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: selectedIDs.contains(entry.id) ? "checkmark.circle.fill" : "circle")
-                        .font(.title3)
-                        .foregroundStyle(selectedIDs.contains(entry.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-                    row(entry, true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
+            row(entry, true)
         } else {
             NavigationLink(value: entry.id) {
                 row(entry, false)
@@ -279,16 +275,6 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// swipe offers "Unmonitor" while at least one copy is still being watched.
     private func isMonitored(_ entry: Entry) -> Bool {
         entry.copies.contains { ($0 as? any ArrMonitorable)?.monitored ?? true }
-    }
-
-    private func toggleSelection(_ entry: Entry) {
-        withAnimation {
-            if selectedIDs.contains(entry.id) {
-                selectedIDs.remove(entry.id)
-            } else {
-                selectedIDs.insert(entry.id)
-            }
-        }
     }
 
     private func bulkDeleteItems(deleteFiles: Bool) {

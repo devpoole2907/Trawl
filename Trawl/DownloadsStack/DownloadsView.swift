@@ -57,6 +57,7 @@ struct DownloadsView: View {
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
     @State private var viewModel = DownloadsViewModel()
+    @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     @State private var selectedSection: DownloadSection
     @State private var sortOrder: DownloadSortCriterion = .date
     @State private var isSearchExpanded = false
@@ -73,10 +74,39 @@ struct DownloadsView: View {
     /// rather than by pushing: these are peers, not details of one another, and
     /// reaching a client's own queue by way of Client Management never made sense.
     @State private var titleDestination: DownloadsTitleDestination = .downloads
+    /// What the visible list can do. One toolbar serves all three destinations, so
+    /// the buttons stay put and only their contents flex.
+    @State private var chrome = DownloadsListChrome()
+    /// Multi-select over the blended list. Rows here are of four different kinds —
+    /// a torrent, a SABnzbd job, an *arr queue row, or a history entry — so a batch
+    /// action has to dispatch per row rather than call one API.
+    ///
+    /// Selection is the List's own, not hand-drawn. The earlier version painted its
+    /// own `checkmark.circle` into a `Button` per row, which meant re-deriving every
+    /// piece of chrome the system already provides — and getting one of them wrong
+    /// (a row background that stayed opaque over the gradient) was invisible until
+    /// someone looked at it in dark mode.
+    @State private var editMode: SelectionMode = .inactive
+    @State private var selectedRowIDs: Set<String> = []
+    @State private var showBatchDeleteConfirm = false
 
     init(initialSection: DownloadSection = .active) {
         _selectedSection = State(initialValue: initialSection)
     }
+
+    #if os(iOS)
+    /// `EditMode` is unavailable on macOS and this file compiles into TrawlMac, so
+    /// the app-wide `SelectionMode` shim holds the state and only iOS bridges it
+    /// into the environment. macOS gets `List`'s native click selection instead.
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { newMode in
+                withAnimation { editMode = newMode.isEditing ? .active : .inactive }
+            }
+        )
+    }
+    #endif
 
     /// Applies a pending segment request and clears it, so the same request can
     /// be made again later.
@@ -89,41 +119,39 @@ struct DownloadsView: View {
     /// Applies a pending push and clears it, so the same route can be requested again.
     private func applyRequestedRoute(_ requested: DownloadsManagementRoute?) {
         guard let requested else { return }
-        managementRoute = requested
+        if requested == .torrents {
+            // Torrents is one of this tab's own lists now, not a screen to push. More's
+            // search still offers it, and selecting the list is what that should mean —
+            // pushing a second copy would give the same view two homes, and the pushed
+            // one would need navigation chrome that the embedded one must not have.
+            withAnimation { titleDestination = .torrents }
+        } else {
+            managementRoute = requested
+        }
         downloadsNavigator?.requestedRoute = nil
     }
 
     var body: some View {
-        Group {
-            switch titleDestination {
-            case .downloads:
-                downloadsContent
-            case .sabQueue:
-                SABnzbdManagerView()
-                    .environment(sabnzbdServiceManager)
-                    .environment(syncService)
-                    .environment(torrentService)
-                    // The menu is the title, so these views must not also set one:
-                    // their own `.navigationTitle` renders *underneath* the principal
-                    // item rather than replacing it, which reads as two titles.
-                    .navigationTitle("")
-                    .toolbarTitleDisplayMode(.inline)
-            case .torrents:
-                TorrentListView(title: "qBittorrent")
-                    .environment(syncService)
-                    .environment(torrentService)
-                    .navigationTitle("")
-                    .toolbarTitleDisplayMode(.inline)
-            }
-        }
-        .animation(.snappy, value: titleDestination)
-        .toolbar { titleMenuToolbarItem }
+        // One screen. The title menu changes which downloads are listed — it does
+        // not swap in another view. Every earlier attempt embedded SABnzbdManagerView
+        // and TorrentListView here, and each brought its own list, chrome, lifecycle
+        // and navigation title, so the tab inherited a second of everything: two
+        // titles, two subtitles, and a polling task that stopped itself when the list
+        // it was attached to went away. Those were symptoms of the same mistake.
+        downloadsContent
+            .toolbar { titleMenuToolbarItem }
+            .toolbar { sharedToolbarContent }
     }
 
     /// The title menu replaces the navigation title rather than joining it, so
     /// everything below has to stop drawing one of its own while it is showing.
+    ///
+    /// It stands down while selecting. Switching lists mid-selection is not on
+    /// offer — a scope change clears the selection — so leaving the menu up would
+    /// advertise a move that throws the user's work away, and the title is better
+    /// spent saying how much is selected.
     private var showsTitleMenu: Bool {
-        availableTitleDestinations.count > 1
+        availableTitleDestinations.count > 1 && !editMode.isEditing
     }
 
     /// The title doubles as the switch between this tab's three lists.
@@ -135,7 +163,10 @@ struct DownloadsView: View {
     /// to go, and it carries a chevron to say it opens.
     @ToolbarContentBuilder
     private var titleMenuToolbarItem: some ToolbarContent {
-        if availableTitleDestinations.count > 1 {
+        // `showsTitleMenu`, not the raw count: a `.principal` item *replaces* the
+        // navigation title, so leaving this in place while selecting would draw
+        // the menu over the selection count rather than beside it.
+        if showsTitleMenu {
             ToolbarItem(placement: .principal) {
                 Menu {
                     Picker("View", selection: Binding(
@@ -155,13 +186,122 @@ struct DownloadsView: View {
                         Text(titleDestination.title)
                             .font(.title.bold())
                             .foregroundStyle(.primary)
-                        Image(systemName: "chevron.down")
+                        Image(systemName: "chevron.up.chevron.down")
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.secondary)
                     }
                     .contentShape(Rectangle())
                 }
                 .accessibilityLabel("\(titleDestination.title), change view")
+            }
+        }
+    }
+
+    /// The tab's one toolbar.
+    ///
+    /// Add Download, sort, Select, Client Management and the Blocklist belong to the
+    /// tab and never move. What changes with the scope is only which batch actions
+    /// the selection offers — a SABnzbd queue cannot be rechecked.
+    @ToolbarContentBuilder
+    private var sharedToolbarContent: some ToolbarContent {
+        if chrome.isSelecting {
+            ToolbarItem(placement: platformTopBarLeadingPlacement) {
+                Button(chrome.selectAllTitle) { chrome.toggleSelectAll?() }
+                    .disabled(chrome.totalCount == 0)
+            }
+
+            ToolbarItem(placement: platformTopBarTrailingPlacement) {
+                Button("Done") { chrome.endSelecting?() }
+            }
+
+            ToolbarItemGroup(placement: .bottomBar) {
+                if chrome.supportsPauseResume {
+                    Button {
+                        chrome.pauseSelected?()
+                    } label: {
+                        Label("Pause", systemImage: "pause.fill")
+                    }
+                    .disabled(!chrome.hasSelection)
+
+                    Button {
+                        chrome.resumeSelected?()
+                    } label: {
+                        Label("Resume", systemImage: "play.fill")
+                    }
+                    .disabled(!chrome.hasSelection)
+                }
+
+                if chrome.supportsRecheck {
+                    Button {
+                        chrome.recheckSelected?()
+                    } label: {
+                        Label("Recheck", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(!chrome.hasSelection)
+                }
+
+                Button(role: .destructive) {
+                    chrome.deleteSelected?()
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+                .disabled(!chrome.hasSelection)
+            }
+        } else {
+            if hasQBittorrentServer || hasSABnzbdServer {
+                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                    Button("Add Download", systemImage: "plus") {
+                        showAddTorrent = true
+                    }
+                    .labelStyle(.iconOnly)
+                }
+                ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            }
+
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
+
+                Menu {
+                    // Selection acts on what is on screen, where the two routes at
+                    // the bottom leave it.
+                    if chrome.canSelect {
+                        Button {
+                            chrome.beginSelecting?()
+                        } label: {
+                            Label("Select", systemImage: "checkmark.circle")
+                        }
+                        .disabled(chrome.totalCount == 0)
+                    }
+
+                    ForEach(chrome.extraActions) { action in
+                        if let isOn = action.isOn {
+                            Toggle(isOn: Binding(get: { isOn }, set: { _ in action.perform() })) {
+                                Label(action.title, systemImage: action.systemImage)
+                            }
+                            .disabled(!action.isEnabled)
+                        } else {
+                            Button {
+                                action.perform()
+                            } label: {
+                                Label(action.title, systemImage: action.systemImage)
+                            }
+                            .disabled(!action.isEnabled)
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Client Management", systemImage: "server.rack") {
+                        managementRoute = .clients
+                    }
+
+                    Button("Blocklist", systemImage: "hand.raised.slash.fill") {
+                        managementRoute = .blocklist
+                    }
+                } label: {
+                    Label("Downloads Options", systemImage: "ellipsis")
+                }
             }
         }
     }
@@ -197,11 +337,21 @@ struct DownloadsView: View {
                 applyRequestedRoute(downloadsNavigator?.requestedRoute)
             }
             .background(backgroundGradient)
-            .navigationTitle(showsTitleMenu ? "" : "Downloads")
+            .navigationTitle(navigationTitleText)
             .navigationSubtitle(navigationSubtitle)
             #if os(iOS)
-            .toolbarTitleDisplayMode(showsTitleMenu ? .inline : .inlineLarge)
+            // Inline while selecting: a large "3 Selected" would tower over the
+            // Select All / Done pair it sits between, and it is a transient count
+            // rather than the name of the screen.
+            .toolbarTitleDisplayMode(showsTitleMenu || editMode.isEditing ? .inline : .inlineLarge)
+            // Selecting takes the screen over: its batch actions live in the bottom
+            // bar, which the tab bar and the notification pill would otherwise sit
+            // on top of. This is what the torrent list did before it was folded in.
+            .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
             #endif
+            .onChange(of: editMode.isEditing) { _, isEditing in
+                setTabChromeHidden(isEditing)
+            }
             .safeAreaInset(edge: .top) {
                 TrawlSegmentBar(
                     "Downloads",
@@ -227,36 +377,6 @@ struct DownloadsView: View {
                     withAnimation { selectedSection = .active }
                 }
             }
-            .toolbar {
-                if hasQBittorrentServer || hasSABnzbdServer {
-                    ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                        Button("Add Download", systemImage: "plus") {
-                            showAddTorrent = true
-                        }
-                        .labelStyle(.iconOnly)
-                    }
-                    ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
-                }
-
-                ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                    DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
-
-                    // Client Management and the Blocklist are both "look at the
-                    // plumbing" destinations rather than per-download actions, so
-                    // they share one overflow menu.
-                    Menu {
-                        Button("Client Management", systemImage: "server.rack") {
-                            managementRoute = .clients
-                        }
-
-                        Button("Blocklist", systemImage: "hand.raised.slash.fill") {
-                            managementRoute = .blocklist
-                        }
-                    } label: {
-                        Label("Downloads Options", systemImage: "ellipsis")
-                    }
-                }
-            }
             .navigationDestination(item: $managementRoute) { route in
                 managementDestination(route)
             }
@@ -269,6 +389,10 @@ struct DownloadsView: View {
             .task(id: reloadKey) {
                 await viewModel.refresh(serviceManager: arrServiceManager)
             }
+            // One view, one lifecycle. Polling starts when the tab appears and stops
+            // when it goes, and changing scope touches neither — the earlier design
+            // attached this to whichever list was showing, so switching lists tore
+            // down the poll that the next list depended on.
             .task {
                 await sabnzbdServiceManager.refresh()
                 sabnzbdServiceManager.startPolling()
@@ -277,7 +401,19 @@ struct DownloadsView: View {
             .onDisappear {
                 sabnzbdServiceManager.stopPolling()
                 viewModel.stopPolling(serviceManager: arrServiceManager)
+                setTabChromeHidden(false)
             }
+            .animation(.snappy, value: titleDestination)
+            .animation(.snappy, value: editMode.isEditing)
+            // Changing scope changes which rows exist, so a selection made against
+            // the previous scope cannot survive it.
+            .onChange(of: titleDestination) { _, _ in
+                editMode = .inactive
+                selectedRowIDs.removeAll()
+                publishChrome()
+            }
+            .onAppear { publishChrome() }
+            .onChange(of: publishedChromeSignature) { _, _ in publishChrome() }
             .alert("Delete Torrent?", isPresented: torrentDeletionPresented) {
                 Button("Delete and Remove Files", role: .destructive) {
                     deletePendingTorrent(deleteFiles: true)
@@ -345,9 +481,10 @@ struct DownloadsView: View {
                 ArrBlocklistView()
                     .environment(arrServiceManager)
             case .torrents:
-                TorrentListView(title: "qBittorrent")
-                    .environment(syncService)
-                    .environment(torrentService)
+                // Unreachable: `applyRequestedRoute` diverts this to the tab's own
+                // Torrents list rather than pushing one. Kept so the switch stays
+                // exhaustive if the route is ever requested from somewhere new.
+                EmptyView()
             case .transferStats:
                 TorrentStatsView()
                     .environment(syncService)
@@ -362,9 +499,12 @@ struct DownloadsView: View {
         }
     }
 
+    /// The rows for the chosen section, narrowed to the chosen client. Switching the
+    /// title menu changes this and nothing else — no view is replaced.
     private var items: [DownloadListItem] {
         viewModel.items(
             for: selectedSection,
+            scope: titleDestination.scope,
             serviceManager: arrServiceManager,
             torrents: syncService.torrents,
             sabActiveJobs: sabnzbdServiceManager.activeJobs,
@@ -382,6 +522,19 @@ struct DownloadsView: View {
         if arrServiceManager.isLoadingQueue && !arrServiceManager.hasLoadedQueueOnce && items.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if let scopedFailure, items.isEmpty {
+            // A scope names one client, so when that client is unreachable this list
+            // has to say so. Showing an empty list instead would report "no
+            // downloads" for a server that is simply refusing to answer — and an
+            // expired API key would look exactly like an idle queue.
+            ContentUnavailableView {
+                Label(scopedFailure.title, systemImage: "exclamationmark.triangle")
+            } description: {
+                Text(scopedFailure.message)
+            } actions: {
+                Button("Retry") { scopedFailure.retry() }
+            }
+            .scrollableUnavailableState()
         } else if let errorMessage = arrServiceManager.queueError,
                   items.isEmpty,
                   syncService.torrents.isEmpty,
@@ -447,23 +600,218 @@ struct DownloadsView: View {
         }
     }
 
+    /// The failure to show when the list is scoped to one client and that client
+    /// cannot answer. Nil on the blended list, which still has other clients' rows
+    /// to show and its own empty state to fall back on.
+    private struct ScopedFailure {
+        let title: String
+        let message: String
+        let retry: () -> Void
+    }
+
+    private var scopedFailure: ScopedFailure? {
+        switch titleDestination {
+        case .downloads:
+            return nil
+        case .sabQueue:
+            guard let message = sabnzbdServiceManager.connectionError else { return nil }
+            return ScopedFailure(title: "SABnzbd Unavailable", message: message) {
+                Task { await sabnzbdServiceManager.refresh() }
+            }
+        case .torrents:
+            guard let error = syncService.lastError else { return nil }
+            return ScopedFailure(title: "qBittorrent Unavailable", message: error.localizedDescription) {
+                Task { await syncService.refreshNow() }
+            }
+        }
+    }
+
     private var list: some View {
-        List {
+        // Rows drop their `NavigationLink` while editing (see `rowLink`), so
+        // selecting never fights with pushing and there is no second tap handler to
+        // keep in step.
+        List(selection: $selectedRowIDs) {
             ForEach(items) { item in
                 row(for: item)
-                    .listRowBackground(Color.clear)
+                    // A row that names no client cannot be acted on — a history
+                    // entry, or an *arr queue row whose download Trawl can't reach.
+                    // Making those unselectable is stricter than the hand-rolled
+                    // version, which let them be ticked and then dropped them from
+                    // the batch without saying so.
+                    .selectionDisabled(item.batchTarget == nil)
             }
+            // The list draws over the services gradient with its own background
+            // hidden, so a row that keeps the default `systemBackground` punches an
+            // opaque block through it — black in dark mode.
+            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
+        #if os(iOS)
+        .environment(\.editMode, swiftUIEditMode)
+        #endif
         .animation(.default, value: items.map(\.id))
+        .animation(.snappy, value: editMode.isEditing)
+    }
+
+    // MARK: - Batch actions across mixed rows
+
+    /// Resolution lives on `DownloadListItem` so it can be tested without a view:
+    /// which rows a batch can act on is the load-bearing part of the mixed
+    /// selection, and getting it wrong means silently skipping downloads or acting
+    /// on the wrong client.
+    private var selectedTargets: [DownloadBatchTarget] {
+        selectedItems.compactMap(\.batchTarget)
+    }
+
+    private var selectedTorrentHashes: [String] {
+        selectedTargets.compactMap {
+            if case .torrent(let torrent) = $0 { return torrent.hash }
+            return nil
+        }
+    }
+
+    private var selectedSABJobs: [SABnzbdJob] {
+        selectedTargets.compactMap {
+            if case .sab(let job) = $0 { return job }
+            return nil
+        }
+    }
+
+    /// Runs a batch across both clients and reports once. A selection that mixes a
+    /// torrent, a SABnzbd job and an *arr row pointing at either is one action to
+    /// the user, so it reads as one result — including when part of it could not be
+    /// acted on at all.
+    private func performBatch(
+        verb: String,
+        torrents: @escaping ([String]) async throws -> Void,
+        sab: ((SABnzbdJob) async throws -> Void)?
+    ) {
+        let hashes = selectedTorrentHashes
+        let jobs = sab == nil ? [] : selectedSABJobs
+        let skipped = selectedItems.count - (hashes.count + jobs.count)
+        guard !hashes.isEmpty || !jobs.isEmpty else { return }
+
+        Task { @MainActor in
+            var failures: [String] = []
+            if !hashes.isEmpty {
+                do { try await torrents(hashes) } catch { failures.append(error.localizedDescription) }
+            }
+            if let sab {
+                for job in jobs {
+                    do { try await sab(job) } catch { failures.append(error.localizedDescription) }
+                }
+            }
+            await syncService.refreshNow()
+            await sabnzbdServiceManager.refresh()
+
+            if let first = failures.first {
+                notificationCenter.showError(title: "\(verb) Failed", message: first)
+            } else {
+                let acted = hashes.count + jobs.count
+                notificationCenter.showSuccess(
+                    title: verb,
+                    message: skipped > 0
+                        ? "\(acted) of \(selectedItems.count) — \(skipped) could not be \(verb.lowercased())."
+                        : (acted == 1 ? "1 download." : "\(acted) downloads.")
+                )
+            }
+            editMode = .inactive
+            selectedRowIDs.removeAll()
+        }
+    }
+
+    /// The rows a batch could actually act on. `Select All` and the toolbar's
+    /// enablement are counted over these rather than over every row, so a list of
+    /// nothing but history doesn't offer a selection that can't do anything.
+    private var selectableItems: [DownloadListItem] {
+        items.filter { $0.batchTarget != nil }
+    }
+
+    /// Everything the shared toolbar reads.
+    private var publishedChromeSignature: String {
+        [
+            String(editMode.isEditing),
+            String(selectedRowIDs.count),
+            String(items.count),
+            String(selectableItems.count),
+            String(selectedTorrentHashes.count)
+        ].joined(separator: "|")
+    }
+
+    private func publishChrome() {
+        chrome.canSelect = true
+        chrome.isSelecting = editMode.isEditing
+        chrome.selectedCount = selectedRowIDs.count
+        chrome.totalCount = selectableItems.count
+        // Recheck is a qBittorrent concept, so it appears only when the selection
+        // actually contains torrents rather than sitting permanently greyed.
+        chrome.supportsRecheck = !selectedTorrentHashes.isEmpty
+        chrome.supportsPauseResume = true
+        chrome.beginSelecting = { withAnimation { editMode = .active } }
+        chrome.endSelecting = {
+            withAnimation {
+                editMode = .inactive
+                selectedRowIDs.removeAll()
+            }
+        }
+        chrome.toggleSelectAll = {
+            let all = Set(selectableItems.map(\.id))
+            withAnimation { selectedRowIDs = selectedRowIDs == all ? [] : all }
+        }
+        chrome.pauseSelected = {
+            performBatch(
+                verb: "Paused",
+                torrents: { try await torrentService.pauseTorrents(hashes: $0) },
+                sab: { try await sabnzbdServiceManager.pause(job: $0) }
+            )
+        }
+        chrome.resumeSelected = {
+            performBatch(
+                verb: "Resumed",
+                torrents: { try await torrentService.resumeTorrents(hashes: $0) },
+                sab: { try await sabnzbdServiceManager.resume(job: $0) }
+            )
+        }
+        chrome.recheckSelected = {
+            performBatch(
+                verb: "Rechecked",
+                torrents: { try await torrentService.recheckTorrents(hashes: $0) },
+                sab: nil
+            )
+        }
+        chrome.deleteSelected = { showBatchDeleteConfirm = true }
+        chrome.extraActions = []
+    }
+
+    private var selectedItems: [DownloadListItem] {
+        items.filter { selectedRowIDs.contains($0.id) }
+    }
+
+    /// A row that pushes when tapped normally, and is plain content while editing.
+    ///
+    /// `List` disables `NavigationLink`s in edit mode so its own tap can select the
+    /// row — but a disabled link dims everything inside its label, so every row went
+    /// grey the moment Select was pressed while still being perfectly selectable.
+    /// Removing the link rather than letting it be disabled keeps the row at full
+    /// strength; selection is the List's either way.
+    @ViewBuilder
+    private func rowLink<Destination: View, Label: View>(
+        @ViewBuilder destination: () -> Destination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if editMode.isEditing {
+            label()
+        } else {
+            NavigationLink(destination: destination(), label: label)
+        }
     }
 
     @ViewBuilder
     private func row(for item: DownloadListItem) -> some View {
         switch item {
         case .torrent(let torrent):
-            NavigationLink {
+            rowLink {
                 TorrentDetailView(torrentHash: torrent.hash)
                     .environment(syncService)
                     .environment(torrentService)
@@ -516,7 +864,7 @@ struct DownloadsView: View {
             // Mirrors the `.torrent` case: the NavigationLink owns the row, and
             // the context menu / swipe actions hang off the link so they keep
             // working alongside the push.
-            NavigationLink {
+            rowLink {
                 SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
                     .environment(sabnzbdServiceManager)
             } label: {
@@ -583,7 +931,7 @@ struct DownloadsView: View {
 
         Group {
             if let linkedTorrent {
-                NavigationLink {
+                rowLink {
                     TorrentDetailView(torrentHash: linkedTorrent.hash)
                         .environment(syncService)
                         .environment(torrentService)
@@ -595,7 +943,7 @@ struct DownloadsView: View {
                 // torrent — the detail view already exists and the `.sab` rows
                 // use it. This branch was simply missing, so Arr rows backed by
                 // SABnzbd dead-ended in the actions dialog.
-                NavigationLink {
+                rowLink {
                     SABnzbdJobDetailView(jobID: linkedSABJob.id, fallbackName: linkedSABJob.name)
                         .environment(sabnzbdServiceManager)
                 } label: {
@@ -607,19 +955,24 @@ struct DownloadsView: View {
                     )
                 }
             } else {
-                Button {
-                    queueActionTarget = target
-                } label: {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ArrInfoRowView(queueItem: item, source: source, instance: badgeInstance(instance, source))
-                        if showsUnlinkedNotice(for: item) {
-                            unlinkedNotice
-                        }
+                let unlinkedContent = VStack(alignment: .leading, spacing: 4) {
+                    ArrInfoRowView(queueItem: item, source: source, instance: badgeInstance(instance, source))
+                    if showsUnlinkedNotice(for: item) {
+                        unlinkedNotice
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                if editMode.isEditing {
+                    unlinkedContent
+                } else {
+                    Button {
+                        queueActionTarget = target
+                    } label: {
+                        unlinkedContent.contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
         .disabled(isInFlight)
@@ -978,6 +1331,15 @@ struct DownloadsView: View {
         }
     }
 
+    /// While selecting, the title counts the selection and the subtitle keeps the
+    /// list's own size, so "how many have I picked, out of how many" reads in one
+    /// glance without a second line of chrome.
+    private var navigationTitleText: String {
+        guard editMode.isEditing else { return showsTitleMenu ? "" : "Downloads" }
+        let selected = selectedRowIDs.count
+        return selected == 1 ? "1 Selected" : "\(selected) Selected"
+    }
+
     private var navigationSubtitle: String {
         let count = items.count
         return count == 1 ? "1 item" : "\(count) items"
@@ -1037,26 +1399,39 @@ struct DownloadsView: View {
         arrServiceManager.arrConnectionKey
     }
 
+    /// The blend of whichever download clients are configured, reusing the same
+    /// mesh the More tab builds from its own services. A qBittorrent-and-SABnzbd
+    /// setup reads as both; one client reads as that one; neither falls back to the
+    /// plain grouped background rather than inventing a colour.
+    ///
+    /// Only the blended list uses this. Switching to SABnzbd or Torrents shows those
+    /// views' own single-service gradients, which is the point — the background says
+    /// which list you are on.
     private var backgroundGradient: some View {
-        ZStack {
-            #if os(macOS)
-            Color(nsColor: .windowBackgroundColor)
-            #else
-            Color(uiColor: .systemGroupedBackground)
-            #endif
-            LinearGradient(
-                colors: [Color.indigo.opacity(0.18), Color.clear],
-                startPoint: .top,
-                endPoint: .center
-            )
-            RadialGradient(
-                colors: [Color.blue.opacity(0.12), Color.clear],
-                center: .topTrailing,
-                startRadius: 20,
-                endRadius: 260
-            )
+        MoreServicesGradientBackground(services: configuredDownloadServices)
+            .animation(.snappy, value: titleDestination)
+    }
+
+    /// The colours behind the list follow what the list is showing.
+    ///
+    /// The blended list mixes both clients, so the background does too. Narrow to one
+    /// client and the background narrows with it — that is the same single-service
+    /// gradient those lists used to carry when they were separate screens, which is
+    /// what makes the switch read as changing *what you are looking at* rather than
+    /// just filtering it. An unconfigured client contributes nothing, so a
+    /// SABnzbd-only setup never shows a qBittorrent tint.
+    private var configuredDownloadServices: [ServiceIdentity] {
+        switch titleDestination {
+        case .downloads:
+            var identities: [ServiceIdentity] = []
+            if hasQBittorrentServer { identities.append(.qbittorrent) }
+            if hasSABnzbdServer { identities.append(.sabnzbd) }
+            return identities
+        case .torrents:
+            return hasQBittorrentServer ? [.qbittorrent] : []
+        case .sabQueue:
+            return hasSABnzbdServer ? [.sabnzbd] : []
         }
-        .ignoresSafeArea()
     }
 }
 
@@ -1096,6 +1471,16 @@ enum DownloadsTitleDestination: String, CaseIterable, Identifiable, Hashable {
     case torrents
 
     var id: String { rawValue }
+
+    /// Which downloads this destination lists. The destination is a filter, not a
+    /// screen — that distinction is the whole point of the tab being one view.
+    var scope: DownloadsViewModel.DownloadScope {
+        switch self {
+        case .downloads: .all
+        case .sabQueue: .sab
+        case .torrents: .torrents
+        }
+    }
 
     var title: String {
         switch self {

@@ -3383,7 +3383,14 @@ private struct JellyfinManagementView: View {
 }
 #endif
 
-private struct MoreServicesGradientBackground: View {
+/// A mesh gradient built from the brand colours of the services that are actually
+/// configured.
+///
+/// Shared with the Downloads tab, which blends whichever download clients exist —
+/// so a qBittorrent-and-SABnzbd setup reads as both, and a setup with one reads as
+/// that one. An unconfigured service contributes no colour, which is what stops the
+/// background implying a service the user has not set up.
+struct MoreServicesGradientBackground: View {
     let services: [ServiceIdentity]
 
     var body: some View {
@@ -3392,7 +3399,7 @@ private struct MoreServicesGradientBackground: View {
 
             if !services.isEmpty {
                 MeshGradient(
-                    width: 3,
+                    width: meshWidth,
                     height: 3,
                     points: meshPoints,
                     colors: meshColors,
@@ -3404,20 +3411,56 @@ private struct MoreServicesGradientBackground: View {
         .ignoresSafeArea()
     }
 
+    /// Four columns for a small palette, three otherwise.
+    ///
+    /// The extra column is what lets the two colours sit near the middle *and* still
+    /// reach the edges. An earlier attempt simply moved the outer points inward,
+    /// which brought the colours together but left the mesh undefined beyond its own
+    /// hull — black bars down both sides of the screen.
+    private var meshWidth: Int { services.count <= 2 ? 4 : 3 }
+
     private var meshPoints: [SIMD2<Float>] {
-        [
-            SIMD2<Float>(0.0, 0.0), SIMD2<Float>(0.5, 0.0), SIMD2<Float>(1.0, 0.0),
-            SIMD2<Float>(0.0, 0.5), SIMD2<Float>(0.5, 0.5), SIMD2<Float>(1.0, 0.5),
-            SIMD2<Float>(0.0, 1.0), SIMD2<Float>(0.5, 1.0), SIMD2<Float>(1.0, 1.0)
-        ]
+        let columns: [Float] = meshWidth == 4 ? [0.0, 0.34, 0.66, 1.0] : [0.0, 0.5, 1.0]
+        return [0.0, 0.5, 1.0].flatMap { row in
+            columns.map { SIMD2<Float>($0, row) }
+        }
     }
 
+    /// With several services, cycling the palette across the mesh reads as a wash of
+    /// the whole stack, which is what the More tab wants.
+    ///
+    /// With one or two it does not. Two colours cycled by `index % 2` land adjacent
+    /// on every edge of the grid, and two brand colours that happen to be opposites —
+    /// qBittorrent's blue and SABnzbd's orange — smear through grey where they meet.
+    /// A small palette therefore gets regions instead: each colour owns a top corner
+    /// and fades down through a clear middle, so they never blend into each other.
     private var meshColors: [Color] {
-        [
-            serviceColor(at: 0, opacity: 0.20), serviceColor(at: 1, opacity: 0.14), serviceColor(at: 2, opacity: 0.18),
-            serviceColor(at: 3, opacity: 0.10), serviceColor(at: 4, opacity: 0.08), serviceColor(at: 5, opacity: 0.10),
-            serviceColor(at: 6, opacity: 0.05), serviceColor(at: 0, opacity: 0.04), serviceColor(at: 1, opacity: 0.05)
-        ]
+        switch services.count {
+        case 1:
+            let color = services[0].brandColor
+            return [
+                color.opacity(0.14), color.opacity(0.26), color.opacity(0.26), color.opacity(0.14),
+                color.opacity(0.06), color.opacity(0.11), color.opacity(0.11), color.opacity(0.06),
+                .clear, .clear, .clear, .clear
+            ]
+        case 2:
+            let leading = services[0].brandColor
+            let trailing = services[1].brandColor
+            // The strong anchors sit on the two inner columns, so the colours meet
+            // near the middle; the outer columns carry the *same* colour faded, which
+            // covers the edges without putting blue next to orange anywhere.
+            return [
+                leading.opacity(0.12), leading.opacity(0.28), trailing.opacity(0.28), trailing.opacity(0.12),
+                leading.opacity(0.05), leading.opacity(0.13), trailing.opacity(0.13), trailing.opacity(0.05),
+                .clear, .clear, .clear, .clear
+            ]
+        default:
+            return [
+                serviceColor(at: 0, opacity: 0.20), serviceColor(at: 1, opacity: 0.14), serviceColor(at: 2, opacity: 0.18),
+                serviceColor(at: 3, opacity: 0.10), serviceColor(at: 4, opacity: 0.08), serviceColor(at: 5, opacity: 0.10),
+                serviceColor(at: 6, opacity: 0.05), serviceColor(at: 0, opacity: 0.04), serviceColor(at: 1, opacity: 0.05)
+            ]
+        }
     }
 
     private func serviceColor(at index: Int, opacity: Double) -> Color {

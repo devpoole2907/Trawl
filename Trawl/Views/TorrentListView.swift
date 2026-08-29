@@ -402,6 +402,11 @@ struct TorrentListView: View {
         }
     }
 
+    /// Trawl supports exactly one qBittorrent server, so this is simply its name.
+    /// A switcher used to live in the title menu, but there was never a way to
+    /// configure a second server for it to switch to — and once this list moved
+    /// into the Downloads tab's own title menu, a nested title menu had nowhere to
+    /// attach anyway.
     private var activeServerName: String {
         servers.first(where: { $0.isActive })?.displayName
             ?? servers.first?.displayName
@@ -452,46 +457,14 @@ struct TorrentListView: View {
         .navigationTitle(activeServerName)
         .navigationSubtitle(navigationSubtitleText)
 
-        if shouldShowServerSwitcher {
-            baseContent.toolbarTitleMenu {
-                ForEach(servers) { server in
-                    Button {
-                        switchToServer(server)
-                    } label: {
-                        if server.isActive {
-                            Label(server.displayName, systemImage: "checkmark")
-                        } else {
-                            Text(server.displayName)
-                        }
-                    }
-                }
-            }
-        } else {
-            baseContent
-        }
+        baseContent
     }
 
     /// Trawl is single-instance for qBittorrent now, so no new install can reach this.
     /// Kept as an escape hatch for anyone still carrying multiple profiles from an
     /// older build — otherwise their second server would be unreachable.
-    private var shouldShowServerSwitcher: Bool {
-        !editMode.isEditing && servers.count > 1
-    }
-
     private var activeServerID: UUID? {
         servers.first(where: { $0.isActive })?.id ?? servers.first?.id
-    }
-
-    private func switchToServer(_ server: ServerProfile) {
-        for s in servers { s.isActive = (s.id == server.id) }
-        do {
-            try modelContext.save()
-        } catch {
-            InAppNotificationCenter.shared.showError(
-                title: "Couldn't Switch Server",
-                message: error.localizedDescription
-            )
-        }
     }
 
     private var navigationSubtitleText: String {

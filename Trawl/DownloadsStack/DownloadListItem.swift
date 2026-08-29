@@ -139,3 +139,34 @@ enum DownloadListItem: Identifiable {
         }
     }
 }
+
+/// What a selected row can actually be acted on as.
+///
+/// The Downloads list mixes four kinds of row, and only two of them name something
+/// a client can pause, resume or delete. An *arr queue row is not itself a
+/// download — it is that service's view of one running in qBittorrent or SABnzbd —
+/// so it resolves to whichever it is linked to. Rows that resolve to `nil` are
+/// skipped by a batch action and counted in its result, rather than being silently
+/// treated as done.
+enum DownloadBatchTarget: Equatable {
+    case torrent(Torrent)
+    case sab(SABnzbdJob)
+}
+
+extension DownloadListItem {
+    var batchTarget: DownloadBatchTarget? {
+        switch self {
+        case .torrent(let torrent):
+            .torrent(torrent)
+        case .sab(let job):
+            .sab(job)
+        case .arrQueue(_, _, let linkedTorrent, let linkedSABJob, _):
+            // The torrent link wins when both are somehow present: qBittorrent is
+            // the client that would be holding the file.
+            linkedTorrent.map { .torrent($0) } ?? linkedSABJob.map { .sab($0) }
+        case .arrHistory:
+            // A record of a finished download, not a download. Nothing to act on.
+            nil
+        }
+    }
+}

@@ -16,6 +16,37 @@ struct SABnzbdManagerView: View {
     /// same reasoning as `categoriesAndScripts()` itself.
     @State private var availableCategories: [String] = []
 
+    /// Suppressed when this view is one of the Downloads tab's lists rather than a
+    /// screen of its own: there the title is the switcher menu, and a
+    /// `.navigationTitle` set here renders *underneath* that principal item instead
+    /// of replacing it, so the user sees two titles. An outer `.navigationTitle("")`
+    /// cannot fix it — the innermost one wins — so the view has to not set one.
+
+    /// Multi-select over queue and history jobs. SABnzbd had none — Select existed
+    /// only on the torrent list — so pausing or removing several jobs meant swiping
+    /// each one. The rows already knew how to act individually; this batches them.
+    @State private var isSelecting = false
+    @State private var selectedJobIDs: Set<String> = []
+    @State private var showBatchDeleteConfirm = false
+
+    /// Pause All / Resume All, in whichever toolbar is drawing.
+    @ViewBuilder
+    private var queuePauseResumeButton: some View {
+        if serviceManager.queue?.paused == true {
+            Button("Resume All", systemImage: "play.fill") {
+                perform(successTitle: "Resumed", successMessage: "SABnzbd queue resumed.") {
+                    try await serviceManager.resumeAll()
+                }
+            }
+        } else {
+            Button("Pause All", systemImage: "pause.fill") {
+                perform(successTitle: "Paused", successMessage: "SABnzbd queue paused.") {
+                    try await serviceManager.pauseAll()
+                }
+            }
+        }
+    }
+
     var body: some View {
         content
             .background(backgroundGradient)
@@ -45,6 +76,21 @@ struct SABnzbdManagerView: View {
                     alignment: .leading
                 )
             }
+            .alert("Remove Selected Downloads?", isPresented: $showBatchDeleteConfirm) {
+                Button("Remove and Delete Files", role: .destructive) {
+                    performOnSelection(verb: "Removed") {
+                        try await serviceManager.delete(job: $0, deleteFiles: true)
+                    }
+                }
+                Button("Remove Jobs Only", role: .destructive) {
+                    performOnSelection(verb: "Removed") {
+                        try await serviceManager.delete(job: $0, deleteFiles: false)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("\(selectedJobIDs.count) selected. Removing with files deletes what has already been written to disk.")
+            }
             .toolbar {
                 ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                     Button("Add NZB", systemImage: "plus") {
@@ -57,21 +103,7 @@ struct SABnzbdManagerView: View {
                     DownloadSortMenu(selection: $sortOrder, defaultSelection: .date)
 
                     Menu {
-                        if serviceManager.queue?.paused == true {
-                            Button("Resume All", systemImage: "play.fill") {
-                                perform(
-                                    successTitle: "Resumed",
-                                    successMessage: "SABnzbd queue resumed."
-                                ) { try await serviceManager.resumeAll() }
-                            }
-                        } else {
-                            Button("Pause All", systemImage: "pause.fill") {
-                                perform(
-                                    successTitle: "Paused",
-                                    successMessage: "SABnzbd queue paused."
-                                ) { try await serviceManager.pauseAll() }
-                            }
-                        }
+                        queuePauseResumeButton
                     } label: {
                         Label("SABnzbd Actions", systemImage: "ellipsis")
                     }
@@ -155,6 +187,25 @@ struct SABnzbdManagerView: View {
     private var jobsList: some View {
         List {
             ForEach(filteredJobs) { job in
+                // While selecting, a row picks itself rather than pushing: a tap
+                // that navigates away mid-selection loses the selection.
+                if isSelecting {
+                    Button {
+                        toggleSelection(of: job)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: selectedJobIDs.contains(job.id) ? "checkmark.circle.fill" : "circle")
+                                .foregroundStyle(selectedJobIDs.contains(job.id) ? Color.accentColor : .secondary)
+                                .accessibilityHidden(true)
+                            sabRow(for: job)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color.clear)
+                    .accessibilityLabel(Text(job.name))
+                    .accessibilityValue(Text(selectedJobIDs.contains(job.id) ? "Selected" : "Not selected"))
+                } else {
                 NavigationLink {
                     SABnzbdJobDetailView(jobID: job.id, fallbackName: job.name)
                 } label: {
@@ -193,12 +244,62 @@ struct SABnzbdManagerView: View {
                             jobPendingDeletion = job
                         }
                     }
+                }
             }
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
         .animation(.default, value: filteredJobs.map(\.id))
+        .animation(.snappy, value: isSelecting)
     }
+
+    private func toggleSelection(of job: SABnzbdJob) {
+        if selectedJobIDs.contains(job.id) {
+            selectedJobIDs.remove(job.id)
+        } else {
+            selectedJobIDs.insert(job.id)
+        }
+    }
+
+    /// Runs one action over every selected job, reporting once rather than per job.
+    /// A partial failure still names how many succeeded — "3 of 5 paused" is more
+    /// use than a single error that hides the three that worked.
+    private func performOnSelection(
+        verb: String,
+        _ action: @escaping (SABnzbdJob) async throws -> Void
+    ) {
+        let jobs = filteredJobs.filter { selectedJobIDs.contains($0.id) }
+        guard !jobs.isEmpty else { return }
+        Task {
+            var succeeded = 0
+            var firstError: String?
+            for job in jobs {
+                do {
+                    try await action(job)
+                    succeeded += 1
+                } catch {
+                    if firstError == nil { firstError = error.localizedDescription }
+                }
+            }
+            await serviceManager.refresh()
+            if let firstError, succeeded < jobs.count {
+                InAppNotificationCenter.shared.showError(
+                    title: "\(verb) Failed",
+                    message: succeeded == 0
+                        ? firstError
+                        : "\(succeeded) of \(jobs.count) \(verb.lowercased()). \(firstError)"
+                )
+            } else {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: verb,
+                    message: jobs.count == 1 ? jobs[0].name : "\(jobs.count) downloads."
+                )
+            }
+            isSelecting = false
+            selectedJobIDs.removeAll()
+        }
+    }
+
 
     private var allJobs: [SABnzbdJob] {
         switch selectedFilter {

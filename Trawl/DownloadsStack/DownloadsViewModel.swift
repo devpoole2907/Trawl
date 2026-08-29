@@ -39,13 +39,111 @@ final class DownloadsViewModel {
         pruneRemovedQueueItems(serviceManager: serviceManager)
     }
 
+    /// Which client's downloads the list is showing.
+    ///
+    /// The tab used to swap in a whole SABnzbd screen and a whole qBittorrent screen
+    /// for these, each with its own list, chrome and lifecycle. They are not
+    /// different screens: they are the same rows this already builds, narrowed to one
+    /// client — and narrowing here is what lets the tab stay one view.
+    ///
+    /// `.all` folds a download into its *arr queue row when one claims it, because
+    /// the blended list is about titles. A single-client scope does not fold: asking
+    /// for qBittorrent's downloads and being shown fewer than qBittorrent has, because
+    /// Sonarr happens to be importing one, would be a lie about that client.
+    enum DownloadScope: Hashable {
+        case all
+        case torrents
+        case sab
+    }
+
+    private func searchFiltered(_ items: [DownloadListItem]) -> [DownloadListItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return items }
+        return items.filter { $0.searchableText.localizedStandardContains(query) }
+    }
+
+    /// Every torrent the client holds, filtered by the same sections the blended
+    /// list uses, so switching scope changes *which* downloads are listed and never
+    /// what the segments mean.
+    static func torrentItems(for section: DownloadSection, torrents: [Torrent]) -> [DownloadListItem] {
+        let sorted = torrents.sorted { $0.addedOn > $1.addedOn }
+        switch section {
+        case .active:
+            return sorted.filter { isActive($0) }.map(DownloadListItem.torrent)
+        case .queue:
+            return sorted.filter { isWaiting($0) }.map(DownloadListItem.torrent)
+        case .completed:
+            return sorted
+                .filter { $0.state.isCompleted && $0.state.filterCategory == .paused }
+                .map(DownloadListItem.torrent)
+        case .seeding:
+            return sorted
+                .filter { $0.state.filterCategory == .seeding }
+                .map(DownloadListItem.torrent)
+        case .history:
+            // qBittorrent keeps no history of its own — a removed torrent is gone.
+            return []
+        case .issues:
+            return sorted
+                .filter { $0.state.filterCategory == .errored }
+                .map(DownloadListItem.torrent)
+        }
+    }
+
+    static func sabItems(
+        for section: DownloadSection,
+        activeJobs: [SABnzbdJob],
+        historyJobs: [SABnzbdJob]
+    ) -> [DownloadListItem] {
+        switch section {
+        case .active:
+            return activeJobs.filter { isActive($0) }.map(DownloadListItem.sab)
+        case .queue:
+            return activeJobs.filter { isWaiting($0) }.map(DownloadListItem.sab)
+        case .completed:
+            return historyJobs
+                .filter { $0.normalizedStatus == .completed }
+                .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+                .map(DownloadListItem.sab)
+        case .seeding:
+            // Usenet does not seed.
+            return []
+        case .history:
+            return historyJobs
+                .sorted { ($0.completedAt ?? .distantPast) > ($1.completedAt ?? .distantPast) }
+                .map(DownloadListItem.sab)
+        case .issues:
+            return (activeJobs + historyJobs)
+                .filter { $0.normalizedStatus == .failed }
+                .map(DownloadListItem.sab)
+        }
+    }
+
     func items(
         for section: DownloadSection,
+        scope: DownloadScope = .all,
         serviceManager: ArrServiceManager,
         torrents: [String: Torrent],
         sabActiveJobs: [SABnzbdJob],
         sabHistoryJobs: [SABnzbdJob]
     ) -> [DownloadListItem] {
+        switch scope {
+        case .all:
+            break
+        case .torrents:
+            return searchFiltered(
+                Self.torrentItems(for: section, torrents: Array(torrents.values))
+            )
+        case .sab:
+            return searchFiltered(
+                Self.sabItems(
+                    for: section,
+                    activeJobs: sabActiveJobs,
+                    historyJobs: sabHistoryJobs
+                )
+            )
+        }
+
         let matched = Self.match(
             queueRecords: arrQueueRecords(serviceManager: serviceManager),
             torrents: torrents,
@@ -136,9 +234,7 @@ final class DownloadsViewModel {
             result = Self.issueItems(matched)
         }
 
-        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return result }
-        return result.filter { $0.searchableText.localizedStandardContains(query) }
+        return searchFiltered(result)
     }
 
     // MARK: - App-wide failures
@@ -356,7 +452,7 @@ final class DownloadsViewModel {
         return state == "downloading" || state == "importing" || state == "moving"
     }
 
-    private static func isActive(_ torrent: Torrent) -> Bool {
+    static func isActive(_ torrent: Torrent) -> Bool {
         switch torrent.state {
         case .downloading, .forcedDL, .metaDL, .stalledDL, .checkingDL, .allocating, .moving:
             true
@@ -365,7 +461,7 @@ final class DownloadsViewModel {
         }
     }
 
-    private static func isWaiting(_ torrent: Torrent) -> Bool {
+    static func isWaiting(_ torrent: Torrent) -> Bool {
         switch torrent.state {
         case .queuedDL, .pausedDL, .stoppedDL, .checkingResumeData:
             true
@@ -374,7 +470,7 @@ final class DownloadsViewModel {
         }
     }
 
-    private static func isActive(_ job: SABnzbdJob) -> Bool {
+    static func isActive(_ job: SABnzbdJob) -> Bool {
         switch job.normalizedStatus {
         case .downloading, .repairing, .unpacking, .processing:
             true
@@ -383,7 +479,7 @@ final class DownloadsViewModel {
         }
     }
 
-    private static func isWaiting(_ job: SABnzbdJob) -> Bool {
+    static func isWaiting(_ job: SABnzbdJob) -> Bool {
         switch job.normalizedStatus {
         case .waiting, .paused:
             true
