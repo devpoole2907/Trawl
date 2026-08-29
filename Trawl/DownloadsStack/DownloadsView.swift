@@ -168,31 +168,12 @@ struct DownloadsView: View {
         // the menu over the selection count rather than beside it.
         if showsTitleMenu {
             ToolbarItem(placement: .principal) {
-                Menu {
-                    Picker("View", selection: Binding(
-                        get: { titleDestination },
-                        set: { newDestination in
-                            withAnimation(.snappy) { titleDestination = newDestination }
-                        }
-                    )) {
-                        ForEach(availableTitleDestinations) { destination in
-                            Label(destination.title, systemImage: destination.systemImage)
-                                .tag(destination)
-                        }
-                    }
-                    .pickerStyle(.inline)
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(titleDestination.title)
-                            .font(.title.bold())
-                            .foregroundStyle(.primary)
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                    }
-                    .contentShape(Rectangle())
-                }
-                .accessibilityLabel("\(titleDestination.title), change view")
+                TrawlTitleMenu(
+                    options: availableTitleDestinations.map {
+                        TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)
+                    },
+                    selection: $titleDestination
+                )
             }
         }
     }

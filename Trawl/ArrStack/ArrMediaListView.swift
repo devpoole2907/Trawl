@@ -58,10 +58,11 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             .navigationTitle(navigationTitleText)
             .navigationSubtitle(navigationSubtitleText)
             #if os(iOS)
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(showsTitleMenu || editMode.isEditing ? .inline : .inlineLarge)
             .environment(\.editMode, swiftUIEditMode)
             .toolbarVisibility(editMode.isEditing ? .hidden : .visible, for: .tabBar)
             #endif
+            .toolbar { titleMenuToolbarItem }
             .toolbar { toolbarContent }
             .animation(.spring(response: 0.28, dampingFraction: 0.88), value: editMode.isEditing)
             .onChange(of: editMode.isEditing) { _, isEditing in
@@ -291,6 +292,15 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     @ToolbarContentBuilder
+    private var titleMenuToolbarItem: some ToolbarContent {
+        if showsTitleMenu {
+            ToolbarItem(placement: .principal) {
+                TrawlTitleMenu(options: titleMenuOptions, selection: titleMenuSelection)
+            }
+        }
+    }
+
+    @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
         if editMode.isEditing {
             ToolbarItem(placement: platformTopBarLeadingPlacement) {
@@ -379,10 +389,6 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     private var navigationSubtitleText: String {
-        if editMode.isEditing {
-            let count = selectedIDs.count
-            return count == 1 ? "1 selected" : "\(count) selected"
-        }
         let count = viewModel.filteredItems.count
         return count == 1 ? "1 \(nounSingular.lowercased())" : "\(count) \(nounPlural.lowercased())"
     }
@@ -439,7 +445,94 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// Always the library's own name. Titling the screen after one server made
     /// sense when the list showed one server; the list is now the union of both,
     /// and naming either of them would misdescribe it.
-    private var navigationTitleText: String { nounPlural }
+    /// Which servers this tab is showing: every one, or exactly one.
+    ///
+    /// Derived from `ArrServiceManager.instanceFilter` rather than held
+    /// separately — the filter is what every unified surface already reads, so a
+    /// second copy here could disagree with the library it is meant to describe.
+    private enum InstanceScope: Hashable {
+        case all
+        case only(UUID)
+    }
+
+    private var instanceScope: InstanceScope {
+        guard !serviceManager.instanceFilter.isShowingAll(serviceType) else { return .all }
+        let visible = availableInstanceRefs.filter {
+            serviceManager.instanceFilter.isIncluded($0.id, serviceType: serviceType)
+        }
+        // The filter refuses to hide the last server, so "not showing all" with a
+        // single survivor is the only narrowed state the menu can produce.
+        return visible.count == 1 ? .only(visible[0].id) : .all
+    }
+
+    private var availableInstanceRefs: [ArrInstanceRef] {
+        serviceManager.refs(for: serviceType)
+    }
+
+    /// Only worth a menu when there is a choice to make, and never while
+    /// selecting — the title has a count to show, and a `.principal` toolbar item
+    /// would replace it.
+    private var showsTitleMenu: Bool {
+        availableInstanceRefs.count > 1 && !editMode.isEditing
+    }
+
+    private var titleMenuOptions: [TrawlTitleMenuOption<InstanceScope>] {
+        [TrawlTitleMenuOption(value: .all, title: nounPlural, systemImage: emptyIcon)]
+            + availableInstanceRefs.map {
+                // The server's own name, as the user typed it in setup — this menu
+                // is about which box to look at, and "Default"/"4K" names a tier
+                // rather than a server.
+                TrawlTitleMenuOption(value: .only($0.id), title: $0.displayName, systemImage: "server.rack")
+            }
+    }
+
+    private var titleMenuSelection: Binding<InstanceScope> {
+        Binding(
+            get: { instanceScope },
+            set: { newScope in
+                switch newScope {
+                case .all:
+                    serviceManager.showAllInstances(of: serviceType)
+                case .only(let id):
+                    serviceManager.showOnlyInstance(id, serviceType: serviceType)
+                }
+                rebuildAfterInstanceFilterChange()
+            }
+        )
+    }
+
+    /// Re-derives the list for the servers the filter now admits.
+    ///
+    /// Driven from the menu rather than by observing `instanceFilter`, because
+    /// that state also settles during launch — pruned of servers that no longer
+    /// exist — and a rebuild triggered then runs before the servers have
+    /// connected, so the union comes back empty and blanks a list that had just
+    /// loaded. Only a user changing the scope should rebuild.
+    ///
+    /// The cached adoption is what makes the change feel immediate: changing the
+    /// filter drops cache freshness but keeps the items, so the narrowed union is
+    /// already in hand and the refetch behind it only restores freshness.
+    private func rebuildAfterInstanceFilterChange() {
+        withAnimation { viewModel.adoptCachedLibraryItems() }
+        Task { [viewModel] in
+            await viewModel.loadLibraryItems(maxAge: ArrLibraryCachePolicy.appearMaxAge)
+        }
+    }
+
+    /// The title carries the selection count while editing, matching Downloads,
+    /// so the subtitle is free to keep saying how big the list is.
+    private var navigationTitleText: String {
+        if editMode.isEditing {
+            let count = selectedIDs.count
+            return count == 1 ? "1 Selected" : "\(count) Selected"
+        }
+        guard !showsTitleMenu else { return "" }
+        if case .only(let id) = instanceScope,
+           let ref = availableInstanceRefs.first(where: { $0.id == id }) {
+            return ref.displayName
+        }
+        return nounPlural
+    }
 
     private var isShowingConnectingState: Bool {
         activeProfile != nil && (serviceManager.isInitializing || serviceManager.isConnecting(serviceType))

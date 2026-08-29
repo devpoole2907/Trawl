@@ -43,6 +43,14 @@ struct TrawlApp: App {
                 fatalError("Failed to initialize in-memory ModelContainer for UI tests: \(error)")
             }
 
+            // The in-memory store covers SwiftData, but not `UserDefaults`, which
+            // survives every launch on the simulator. The instance filter lives
+            // there and the seeded profiles use fixed UUIDs, so a test that
+            // narrows the library to one server leaves every later launch — of
+            // every other test — starting with the other server hidden. Cleared
+            // here so each UI-test launch begins showing the whole library.
+            UserDefaults.standard.removeObject(forKey: ArrInstanceFilterState.defaultsKey)
+
             Self.seedUITestArrServiceIfRequested(into: modelContainer)
             Self.seedUITestRadarrServiceIfRequested(into: modelContainer)
             Self.seedUITestSABnzbdServiceIfRequested(into: modelContainer)

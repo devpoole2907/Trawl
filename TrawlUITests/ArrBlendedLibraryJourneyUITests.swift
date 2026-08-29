@@ -150,17 +150,84 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
             "The second fixture server should have received its own series request — regression: a configured server that is never asked for its library is exactly how half a library goes missing silently."
         )
 
-        // MARK: The per-instance switcher must not come back.
+        // MARK: The title menu filters the union — it does not switch servers.
 
-        // Neither fixture title contains "Instance", so this cannot match a series
-        // row: a NavigationLink renders as a button labelled with its own title, and
-        // an earlier draft of this test caught its own fixtures instead of the menu.
-        let instanceMenuButton = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", "Instance"))
+        // An earlier draft offered a per-instance *switcher*: it changed which
+        // server was "active", so the list showed one server at a time while
+        // presenting itself as the library. That concept is gone from the app.
+        // What replaced it is a filter over the union — it opens on everything,
+        // and narrowing is an explicit choice the same menu undoes. The
+        // distinction is the whole point, so it is asserted rather than assumed:
+        // a filter that defaulted to one server would be the old switcher wearing
+        // a new name.
+        let titleMenu = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "change view"))
             .firstMatch
-        XCTAssertFalse(
-            instanceMenuButton.exists,
-            "ArrMediaListView must not offer an 'Instance' switcher: the library is the union of both servers, so a control that picks one of them contradicts the list it sits above."
+        XCTAssertTrue(
+            titleMenu.waitForExistence(timeout: 10),
+            "With two Sonarr servers configured, the Series tab should offer its title menu."
         )
+        XCTAssertTrue(
+            titleMenu.label.hasPrefix("Series"),
+            "The menu must open on the union rather than on a server: a tab that starts filtered shows half a library while looking like all of it."
+        )
+
+        // Narrow to the second server. Its own series stays; the first server's goes.
+        titleMenu.tap()
+        let alternateOption = app.buttons["Alternate Sonarr"]
+        XCTAssertTrue(
+            alternateOption.waitForExistence(timeout: 10),
+            "The title menu should list each configured server by the name the user gave it — 'Default'/'4K' names a tier, not a server."
+        )
+        alternateOption.tap()
+
+        XCTAssertTrue(
+            waitForDisappearance(of: seriesFromOne, timeout: 10),
+            "Filtering to the second server should drop the first server's series — regression: the menu changes its own label but the library ignores the filter."
+        )
+        XCTAssertTrue(
+            seriesFromTwo.exists,
+            "Filtering to a server must keep that server's own series."
+        )
+
+        // And back: the filter has to be undoable from the same control, or a
+        // user who narrows the library has no way to widen it again.
+        let narrowedMenu = app.buttons
+            .matching(NSPredicate(format: "label CONTAINS[c] %@", "change view"))
+            .firstMatch
+        XCTAssertTrue(
+            narrowedMenu.label.hasPrefix("Alternate Sonarr"),
+            "While filtered, the title should name the server being shown."
+        )
+        narrowedMenu.tap()
+
+        // "Series" is also the tab bar's label, so the union option is identified
+        // by position rather than by label alone: the menu is presented above the
+        // tab bar, so the match that is not the tab is the one higher up the screen.
+        let tabBarTop = app.tabBars.firstMatch.frame.minY
+        let unionOption = app.buttons
+            .matching(NSPredicate(format: "label == %@", "Series"))
+            .allElementsBoundByIndex
+            .first { $0.frame.minY < tabBarTop }
+        let union = try XCTUnwrap(
+            unionOption,
+            "The menu should offer the union as an option — without it a narrowed library cannot be widened again."
+        )
+        union.tap()
+
+        XCTAssertTrue(
+            seriesFromOne.waitForExistence(timeout: 10),
+            "Clearing the filter should bring the other server's library back."
+        )
+    }
+
+    /// Bounded wait for an element to go away. Uses a predicate expectation rather
+    /// than polling `exists` in a loop, which would spin the CPU rather than wait.
+    private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) -> Bool {
+        let gone = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "exists == false"),
+            object: element
+        )
+        return XCTWaiter().wait(for: [gone], timeout: timeout) == .completed
     }
 }
