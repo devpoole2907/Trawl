@@ -19,6 +19,66 @@ import Testing
 @Suite("Sonarr API client HTTP contracts", .serialized)
 @MainActor
 struct SonarrAPIClientContractTests {
+    /// The Add button on the quality-profiles screen depends entirely on this
+    /// call: a profile's `items` have to mirror the server's own quality
+    /// definitions, so a blank profile cannot be built client-side and has to come
+    /// from the schema. Two things could break it silently — the path (a 404 here
+    /// would surface as "could not start" with no hint why) and the shape, since
+    /// unlike every neighbouring endpoint this one returns a single object rather
+    /// than an array, and a nested `items` tree that the editor renders directly.
+    @Test("Quality profile schema is fetched as a single object with its nested quality tree intact")
+    func qualityProfileSchemaRequestAndDecoding() async throws {
+        // Trimmed from a real Sonarr v4 response: an ungrouped quality, then a
+        // group holding two of them, which is the structure the editor walks.
+        let payload = """
+        {
+          "name": "",
+          "upgradeAllowed": false,
+          "cutoff": 0,
+          "items": [
+            {"quality":{"id":0,"name":"Unknown","source":"unknown","resolution":0},"items":[],"allowed":false},
+            {"id":1000,"name":"WEB 1080p","allowed":false,"items":[
+              {"quality":{"id":3,"name":"WEBDL-1080p","source":"web","resolution":1080},"items":[],"allowed":false},
+              {"quality":{"id":15,"name":"WEBRip-1080p","source":"webRip","resolution":1080},"items":[],"allowed":false}
+            ]}
+          ],
+          "minFormatScore": 0,
+          "cutoffFormatScore": 0,
+          "formatItems": [],
+          "id": 0
+        }
+        """
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-qualityprofile-schema",
+            routes: ["/api/v3/qualityprofile/schema": .json(payload)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        let schema = try await client.getQualityProfileSchema()
+
+        let requests = server.requests
+        #expect(requests.count == 1)
+        #expect(requests.first?.method == "GET")
+        // The sibling path `/api/v3/qualityprofile` lists existing profiles, so a
+        // missing `/schema` suffix would quietly return real profiles instead.
+        #expect(requests.first?.path == "/api/v3/qualityprofile/schema")
+        #expect(requests.first?.header("X-Api-Key") == "sonarr-contract-key")
+
+        // Unsaved: the editor keys "create vs update" off this being absent.
+        #expect(schema.id == 0)
+        #expect(schema.name.isEmpty)
+        #expect(schema.items?.count == 2)
+        // The nested group has to survive decoding — flattening it would strip
+        // every grouped quality out of the new profile.
+        #expect(schema.items?[1].name == "WEB 1080p")
+        #expect(schema.items?[1].items?.count == 2)
+        #expect(schema.items?[1].items?.map { $0.quality?.name } == ["WEBDL-1080p", "WEBRip-1080p"])
+        #expect(schema.items?[0].quality?.name == "Unknown")
+        // Nothing is preselected, so the user's first choice is theirs.
+        #expect(schema.items?.allSatisfy { $0.allowed == false } == true)
+    }
+
     @Test("Series list sends GET with the default X-Api-Key header and tolerates missing and unknown fields")
     func seriesListRequestAndDecoding() async throws {
         let payload = """

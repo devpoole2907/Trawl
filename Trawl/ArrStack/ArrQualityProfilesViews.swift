@@ -9,6 +9,9 @@ struct ArrQualityProfilesListView: View {
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
     @State private var isSaving = false
+    /// Add has to ask the server what qualities it has before it can offer a
+    /// blank profile, so the button spins rather than opening an empty sheet.
+    @State private var isLoadingSchema = false
 
     private var availableInstances: [ArrInstanceRef] {
         serviceManager.visibleArrInstances.map(\.ref)
@@ -110,15 +113,30 @@ struct ArrQualityProfilesListView: View {
             ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
         }
         .toolbar {
-            if let firstProfile = sortedProfiles.first {
-                ToolbarItem(placement: platformTopBarTrailingPlacement) {
+            ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
+                if let firstProfile = sortedProfiles.first {
+                    // Duplicate keeps its own affordance and its own icon. It used
+                    // to wear the `plus` and stand in for Add, which is why its
+                    // sheet opened titled "Duplicate Profile" with "<name> Copy"
+                    // already in the name field.
                     Button {
                         editorSession = .duplicate(from: firstProfile)
                     } label: {
-                        Label("Duplicate Profile", systemImage: "plus")
+                        Label("Duplicate Profile", systemImage: "plus.square.on.square")
                     }
-                    .disabled(isSaving)
+                    .disabled(isSaving || isLoadingSchema)
                 }
+
+                Button {
+                    Task { await beginNewProfile() }
+                } label: {
+                    if isLoadingSchema {
+                        ProgressView()
+                    } else {
+                        Label("New Profile", systemImage: "plus")
+                    }
+                }
+                .disabled(isSaving || isLoadingSchema || scopedClient == nil)
             }
         }
         .sheet(item: $editorSession) { session in
@@ -153,6 +171,28 @@ struct ArrQualityProfilesListView: View {
         }
         .onAppear {
             selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+        }
+    }
+
+    /// Asks the selected server for a blank profile shaped by its own quality
+    /// definitions, then opens the editor on it.
+    ///
+    /// The round trip is why this is a button action rather than a plain sheet
+    /// presentation: the qualities belong to the server, and the two halves of an
+    /// HD/4K pair do not necessarily have the same ones.
+    private func beginNewProfile() async {
+        guard !isLoadingSchema, let client = scopedClient else { return }
+        isLoadingSchema = true
+        defer { isLoadingSchema = false }
+
+        do {
+            let schema = try await client.getQualityProfileSchema()
+            editorSession = .new(from: schema)
+        } catch {
+            inAppNotificationCenter.showError(
+                title: "Could Not Start",
+                message: "\(selectedLabel) did not return its quality options. \(error.localizedDescription)"
+            )
         }
     }
 
@@ -421,15 +461,51 @@ private struct ArrQualityProfileQuality: Identifiable, Hashable {
 }
 
 private struct ArrQualityProfileEditorSession: Identifiable {
+    /// Why the sheet is open. Previously inferred from `apiID == nil`, which
+    /// cannot tell a new profile from a duplicate — so everything that wasn't an
+    /// edit was titled "Duplicate Profile".
+    enum Kind {
+        case new
+        case duplicate
+        case edit
+
+        var title: String {
+            switch self {
+            case .new: "New Profile"
+            case .duplicate: "Duplicate Profile"
+            case .edit: "Edit Profile"
+            }
+        }
+    }
+
     let id = UUID()
+    let kind: Kind
     let draft: ArrQualityProfileDraft
 
     static func edit(_ profile: ArrQualityProfile) -> ArrQualityProfileEditorSession {
-        .init(draft: ArrQualityProfileDraft(profile: profile))
+        .init(kind: .edit, draft: ArrQualityProfileDraft(profile: profile))
+    }
+
+    /// Built from the server's own `/qualityprofile/schema`, so the draft carries
+    /// exactly the qualities this server knows about — the reason a blank profile
+    /// cannot simply be constructed here.
+    static func new(from schema: ArrQualityProfile) -> ArrQualityProfileEditorSession {
+        .init(kind: .new, draft: ArrQualityProfileDraft(
+            apiID: nil,
+            name: "",
+            upgradeAllowed: schema.upgradeAllowed ?? true,
+            cutoff: schema.cutoff,
+            items: schema.items ?? [],
+            minFormatScore: schema.minFormatScore,
+            cutoffFormatScore: schema.cutoffFormatScore,
+            minUpgradeFormatScore: schema.minUpgradeFormatScore,
+            formatItems: schema.formatItems,
+            language: schema.language
+        ))
     }
 
     static func duplicate(from profile: ArrQualityProfile) -> ArrQualityProfileEditorSession {
-        .init(draft: ArrQualityProfileDraft(
+        .init(kind: .duplicate, draft: ArrQualityProfileDraft(
             apiID: nil,
             name: "\(profile.name) Copy",
             upgradeAllowed: profile.upgradeAllowed ?? true,
@@ -592,7 +668,7 @@ private struct ArrQualityProfileEditorView: View {
                 Text("Allowed Qualities")
             }
         }
-        .navigationTitle(session.draft.apiID == nil ? "Duplicate Profile" : "Edit Profile")
+        .navigationTitle(session.kind.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

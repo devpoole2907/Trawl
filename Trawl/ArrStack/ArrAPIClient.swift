@@ -21,6 +21,13 @@ extension SharedArrClient {
     func getSystemStatus() async throws -> ArrSystemStatus { try await base.get("\(apiPath)/system/status") }
     func getHealth() async throws -> [ArrHealthCheck] { try await base.get("\(apiPath)/health") }
     func getQualityProfiles() async throws -> [ArrQualityProfile] { try await base.get("\(apiPath)/qualityprofile") }
+    /// A blank profile shaped by *this* server's quality definitions.
+    ///
+    /// A profile's `items` have to mirror the qualities the server actually knows
+    /// about, so a new one cannot be built client-side from nothing — this is the
+    /// same call Sonarr and Radarr's own UI makes when you press Add. Returns a
+    /// single resource, not a list, and its `id` is 0 until it is created.
+    func getQualityProfileSchema() async throws -> ArrQualityProfile { try await base.get("\(apiPath)/qualityprofile/schema") }
     func createQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.postCodable("\(apiPath)/qualityprofile", body: profile) }
     func updateQualityProfile(_ profile: ArrQualityProfile) async throws -> ArrQualityProfile { try await base.putCodable("\(apiPath)/qualityprofile/\(profile.id)", body: profile) }
     func deleteQualityProfile(id: Int) async throws { try await base.delete("\(apiPath)/qualityprofile/\(id)") }
