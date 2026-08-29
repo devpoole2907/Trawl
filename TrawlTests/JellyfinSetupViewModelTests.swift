@@ -480,7 +480,7 @@ private nonisolated struct JellyfinConnectCase: Sendable, CustomStringConvertibl
             label: "userPass/whitespace-only-password-is-accepted",
             authMode: .userPass,
             username: "sam",
-            // The password is deliberately not trimmed — spaces are legal in a
+            // The password is deliberately not trimmed - spaces are legal in a
             // Jellyfin password, so only emptiness disqualifies it.
             password: "   ",
             expected: true

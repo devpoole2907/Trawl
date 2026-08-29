@@ -95,12 +95,12 @@ struct SonarrAddSeriesSheet: View {
                     } footer: {
                         VStack(alignment: .leading, spacing: 6) {
                             Text("**Monitor** controls which episodes Sonarr tracks and downloads:")
-                            Text("• **All** — every episode, past and future")
-                            Text("• **Future** — only episodes that haven't aired yet")
-                            Text("• **Missing** — existing episodes without files")
-                            Text("• **First Season** — only the first season")
-                            Text("• **Latest Season** — only the most recent season")
-                            Text("• **None** — nothing is monitored automatically")
+                            Text("• **All** - every episode, past and future")
+                            Text("• **Future** - only episodes that haven't aired yet")
+                            Text("• **Missing** - existing episodes without files")
+                            Text("• **First Season** - only the first season")
+                            Text("• **Latest Season** - only the most recent season")
+                            Text("• **None** - nothing is monitored automatically")
                             Text("**Search for Missing** triggers an immediate search for any monitored episodes that don't have a file yet.")
                         }
                         .font(.caption)

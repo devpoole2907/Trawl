@@ -191,7 +191,7 @@ struct JellyfinActivityLogView: View {
             }
             details.append(entry.name)
             if let overview = entry.shortOverview ?? entry.overview, !overview.isEmpty {
-                details.append("— \(overview)")
+                details.append("- \(overview)")
             }
             return details.joined(separator: " ")
         }

@@ -19,7 +19,7 @@ struct ArrDownloadClientListView: View {
     @State private var isCheckingIDs: Set<Int> = []
     /// Which server's download clients are on screen. Download clients are
     /// configured per server, and an HD/4K pair usually has different categories
-    /// pointed at different folders — so "the Sonarr download clients" is two
+    /// pointed at different folders - so "the Sonarr download clients" is two
     /// lists once a pair exists.
     @State private var selectedInstanceID: UUID?
 

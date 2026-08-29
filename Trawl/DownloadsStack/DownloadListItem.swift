@@ -144,7 +144,7 @@ enum DownloadListItem: Identifiable {
 ///
 /// The Downloads list mixes four kinds of row, and only two of them name something
 /// a client can pause, resume or delete. An *arr queue row is not itself a
-/// download — it is that service's view of one running in qBittorrent or SABnzbd —
+/// download - it is that service's view of one running in qBittorrent or SABnzbd -
 /// so it resolves to whichever it is linked to. Rows that resolve to `nil` are
 /// skipped by a batch action and counted in its result, rather than being silently
 /// treated as done.

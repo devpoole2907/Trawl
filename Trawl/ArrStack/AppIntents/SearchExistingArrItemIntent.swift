@@ -3,7 +3,7 @@ import Foundation
 
 /// Triggers a search for an item already in the library: a Radarr movie search or a
 /// Sonarr series search. This explicitly tells the service to look for releases for
-/// something you've already added — it does not add anything new.
+/// something you've already added - it does not add anything new.
 struct SearchExistingArrItemIntent: AppIntent {
     static let title: LocalizedStringResource = "Search for Existing Item"
     static let description = IntentDescription(

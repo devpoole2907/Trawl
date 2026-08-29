@@ -3,7 +3,7 @@ import SwiftUI
 struct HistoryItem: Identifiable {
     let record: ArrHistoryRecord
     let source: ArrServiceType
-    /// The server this history row came from. Always populated for live rows —
+    /// The server this history row came from. Always populated for live rows -
     /// it is part of the row's identity, since both instances of a service number
     /// their history from the same sequence.
     var instance: ArrInstanceRef?
@@ -16,7 +16,7 @@ struct HistoryItem: Identifiable {
 
     /// Parsed once at construction rather than on every read. This is the sort key
     /// for the whole history list, so a computed version was re-parsing the date
-    /// twice per comparison — thousands of parses per sort.
+    /// twice per comparison - thousands of parses per sort.
     let sortDate: Date
 
     init(

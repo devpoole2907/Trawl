@@ -55,7 +55,7 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
     /// Deliberately not surfaced in the UI. `SearchProwlarrIntent` is the only current
     /// consumer of Prowlarr release search and it calls the API client directly, so this
     /// (with `performSearch()` / `clearSearch()`) has no view attached today. Kept for a
-    /// possible manual-search screen — do not delete as dead code.
+    /// possible manual-search screen - do not delete as dead code.
     private(set) var searchResults: [ProwlarrSearchResult] = []
     private(set) var isSearching: Bool = false
     private var searchTracker = StreamingSearchTracker<ProwlarrSearchResult>()
@@ -360,7 +360,7 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
 
     // MARK: - Search
 
-    /// Not wired to any view — see the note on `searchResults`. Retained for a future
+    /// Not wired to any view - see the note on `searchResults`. Retained for a future
     /// manual release-search screen.
     func performSearch() async {
         guard let client else {
@@ -404,7 +404,7 @@ final class ProwlarrViewModel: ArrLibraryViewModel<ProwlarrIndexer, ProwlarrAPIC
         isSearching = false
     }
 
-    /// Not wired to any view — see the note on `searchResults`. Retained for a future
+    /// Not wired to any view - see the note on `searchResults`. Retained for a future
     /// manual release-search screen.
     func clearSearch() {
         searchQuery = ""

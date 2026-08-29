@@ -4,7 +4,7 @@
 //
 //  UI journey #6 from TRAWL_RELIABILITY_TEST_AUDIT.md's "test system Trawl needs":
 //  a SABnzbd API key rejected mid-session must actually stop polling, actually clear
-//  the connection, and actually tell the user — not just internally, which is what
+//  the connection, and actually tell the user - not just internally, which is what
 //  H-05/H-06's unit coverage (`TrawlTests/SABnzbdServiceManagerConcurrencyTests.swift`,
 //  `TrawlTests/SABnzbdProfileSwitchTests.swift`) already proves at the manager level.
 //  This suite proves the same regression can't reappear in the UI: that a user looking
@@ -40,7 +40,7 @@
 //  Every assertion past step 2 depends on the app actually noticing the 401, which
 //  depends on the poll loop actually running. It once wasn't: `startPolling()`
 //  required a client to already exist, and the Downloads tab asks for polling from a
-//  `.task` that runs while the connection is still being established — so a cold
+//  `.task` that runs while the connection is still being established - so a cold
 //  launch into Downloads never polled, and this test failed on the error copy when
 //  the real defect was a frozen queue. See
 //  `TrawlTests/SABnzbdServiceManagerConcurrencyTests.swift` for the deterministic
@@ -49,7 +49,7 @@
 //  ## How SABnzbd's unauthorized state is authentically triggered
 //
 //  `SABnzbdFixtureServer.setUnauthorized()` flips every subsequent response to a real
-//  HTTP 401 — see that file's header comment for why 401/403 status codes, not a
+//  HTTP 401 - see that file's header comment for why 401/403 status codes, not a
 //  `{"status":false}` 200 body, are the actual production trigger for
 //  `SABnzbdAPIError.unauthorized` (`SABnzbdAPIClient.init`'s
 //  `unauthorizedStatusCodes: [401, 403]`, applied in
@@ -59,13 +59,13 @@
 //
 //  `SABnzbdServiceManager.refresh()` calls `stopPolling()` and clears
 //  `connectionError` synchronously, inside the same `catch SABnzbdAPIError.unauthorized`
-//  branch — by the time the UI has actually repainted with the "SABnzbd Unavailable"
+//  branch - by the time the UI has actually repainted with the "SABnzbd Unavailable"
 //  text, `pollingTask` is already `nil` and cancelled, so no further poll can ever
 //  fire. `assertPollingStopped` below still doesn't take that on faith: it settles on
 //  a stable request count (any queue/history requests already in flight when the 401
 //  landed need a moment to arrive), then samples the fixture's request count
-//  repeatedly for several seconds — comfortably longer than the manager's 4-second
-//  polling interval — using bounded `waitForExistence` calls against an element that
+//  repeatedly for several seconds - comfortably longer than the manager's 4-second
+//  polling interval - using bounded `waitForExistence` calls against an element that
 //  never exists as the "tick" (never `sleep()`/`Thread.sleep`), asserting the count
 //  after every tick.
 
@@ -85,7 +85,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
 
     /// Regressions this catches: H-05 (an unauthorized SABnzbd refresh leaving
     /// polling running and the invalid client reachable for mutations) surviving in
-    /// the UI even after the manager-level fix — a stale client rendered as still
+    /// the UI even after the manager-level fix - a stale client rendered as still
     /// "connected," a missing or generic error message that doesn't actually tell the
     /// user their key was rejected, polling that keeps hammering the server after the
     /// key is gone, or a "Pause All" action that still reaches the network with no
@@ -101,7 +101,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SABNZBD_BASE_URL"] = server.baseURL
         app.launch()
 
-        // MARK: Step 1 — real connection: Downloads tab shows the seeded job.
+        // MARK: Step 1 - real connection: Downloads tab shows the seeded job.
 
         let downloadsTab = app.tabBars.buttons["Downloads"]
         XCTAssertTrue(
@@ -113,17 +113,17 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         let downloadsJobRow = app.staticTexts[jobName]
         XCTAssertTrue(
             downloadsJobRow.waitForExistence(in: app, timeout: 15),
-            "The seeded queue job should appear in the Downloads tab once the real SABnzbd connection finishes — proves the connect path actually works before the unauthorized transition is tested."
+            "The seeded queue job should appear in the Downloads tab once the real SABnzbd connection finishes - proves the connect path actually works before the unauthorized transition is tested."
         )
         XCTAssertTrue(
             server.requestCount(forMode: "queue") > 0,
-            "The fixture server should have actually received a queue request over real HTTP — proves the job on screen came from the real client, not stale state."
+            "The fixture server should have actually received a queue request over real HTTP - proves the job on screen came from the real client, not stale state."
         )
 
         // MARK: Scope the list to SABnzbd.
         //
-        // SABnzbd's queue used to sit two pushes down — Downloads Options → Client
-        // Management → SABnzbd → Queue — which put a client's own downloads behind a
+        // SABnzbd's queue used to sit two pushes down - Downloads Options → Client
+        // Management → SABnzbd → Queue - which put a client's own downloads behind a
         // screen about configuring clients. It is now a scope of the Downloads list
         // itself, chosen from the title menu, and Client Management no longer offers
         // a Queue row at all.
@@ -142,7 +142,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(
             sabnzbdOption.waitForExistence(timeout: 10),
-            "The Downloads title menu should list SABnzbd — the scope in which that client's connection state is rendered."
+            "The Downloads title menu should list SABnzbd - the scope in which that client's connection state is rendered."
         )
         sabnzbdOption.tap()
 
@@ -152,11 +152,11 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             "The SABnzbd scope should show the same seeded job while the connection is healthy."
         )
 
-        // MARK: Step 2 — flip the fixture to unauthorized.
+        // MARK: Step 2 - flip the fixture to unauthorized.
 
         server.setUnauthorized()
 
-        // MARK: Step 3 — wait for the app to notice (its next poll), and assert the
+        // MARK: Step 3 - wait for the app to notice (its next poll), and assert the
         // real user-visible consequence.
 
         // This is the load-bearing assertion: `SABnzbdManagerView`'s description is a
@@ -172,7 +172,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
 
         // Corroborating assertion: the ContentUnavailableView's title is built from a
         // `Label(_:systemImage:)`, whose accessibility element type SwiftUI doesn't
-        // guarantee is `.staticText` the way a plain `Text` is — so this matches any
+        // guarantee is `.staticText` the way a plain `Text` is - so this matches any
         // element type by label rather than assuming `staticTexts`, since the point
         // here is only to confirm presence, not to interact with it.
         let unavailableTitle = app.descendants(matching: .any)
@@ -188,7 +188,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             "H-05 regression: the previously-connected job should not still be on screen once the client has been cleared after an unauthorized response."
         )
 
-        // MARK: Step 4 — polling stopped.
+        // MARK: Step 4 - polling stopped.
 
         assertPollingStopped(server, app: app)
 
@@ -197,7 +197,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         // request. It was removed because it could not be made reliable: it passes
         // consistently in isolation and fails intermittently in a full-suite run,
         // where the extra load delays the menu's presentation. Retrying the tap made
-        // it worse rather than better — tapping a `Menu` toggles it, so a retry can
+        // it worse rather than better - tapping a `Menu` toggles it, so a retry can
         // close a menu that had in fact opened, and an even number of attempts leaves
         // it shut.
         //
@@ -209,7 +209,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         // being reachable while disconnected, which is not worth an intermittently
         // red suite.
 
-        // MARK: Step 6 — the Downloads tab itself must say something.
+        // MARK: Step 6 - the Downloads tab itself must say something.
 
         // The unified Downloads list is where a user actually lives. Before this was
         // surfaced there, a rejected API key simply made SABnzbd's jobs disappear from
@@ -231,8 +231,8 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
 
     /// Waits for the fixture's request count to stop changing (letting any
     /// queue/history requests already in flight when the 401 landed finish
-    /// arriving), then samples it repeatedly for several seconds — comfortably
-    /// longer than `SABnzbdServiceManager`'s 4-second polling interval — asserting it
+    /// arriving), then samples it repeatedly for several seconds - comfortably
+    /// longer than `SABnzbdServiceManager`'s 4-second polling interval - asserting it
     /// never grows. Never `sleep()`/`Thread.sleep`: each "tick" is a bounded
     /// `waitForExistence` against an element that never exists, which waits close to
     /// its timeout via the run loop rather than blocking the thread.

@@ -4,7 +4,7 @@ import Foundation
 ///
 /// This file is deliberately Foundation-only. It sits in `Share/` but, unlike
 /// `ShareViewController.swift` and `ShareAddTorrentView.swift`, it is in no
-/// target's `membershipExceptions`, so every target compiles it — including
+/// target's `membershipExceptions`, so every target compiles it - including
 /// TrawlMac and TrawlWidgets. Importing UIKit or SwiftUI here breaks the macOS
 /// build. It also means `TrawlTests` can reach these types via `@testable
 /// import Trawl`, which is the whole point: the rules below used to be buried
@@ -26,7 +26,7 @@ nonisolated enum ShareFileBranch: Sendable, Equatable {
 /// What a single `NSItemProvider.loadItem` callback resolved to.
 ///
 /// Every `(loaded, error)` pair a provider can hand back maps onto exactly one
-/// of these — including the pairs that used to fall through the old code's
+/// of these - including the pairs that used to fall through the old code's
 /// guards and return without ending the extension request.
 nonisolated enum ShareInputResolution: Sendable, Equatable {
     /// A magnet link, ready to hand to the share sheet.
@@ -35,7 +35,7 @@ nonisolated enum ShareInputResolution: Sendable, Equatable {
     case nzbLink(String)
     /// A file URL that still has to be read off disk.
     case fileToRead(URL, branch: ShareFileBranch)
-    /// Nothing this extension can act on. Not an error — just not for us.
+    /// Nothing this extension can act on. Not an error - just not for us.
     case nothingUsable
     /// The provider itself failed. The message is the provider's own.
     case providerFailed(message: String)
@@ -75,7 +75,7 @@ nonisolated enum ShareInputResolver {
 
     // MARK: Providers
 
-    /// The URL branch. Magnet links only — a magnet's scheme is "magnet", and
+    /// The URL branch. Magnet links only - a magnet's scheme is "magnet", and
     /// arbitrary shared web URLs must not be treated as torrents. The one
     /// exception is an http(s) link ending in `.nzb`: that is the realistic way
     /// an NZB URL reaches an app, because indexers publish those and no iOS app
@@ -106,7 +106,7 @@ nonisolated enum ShareInputResolver {
     }
 
     /// The plain-text branch, for magnet links pasted as text. Text that is not
-    /// a magnet link is nothing to act on, but it is still a decision — the old
+    /// a magnet link is nothing to act on, but it is still a decision - the old
     /// code had no `else` here at all and simply stranded the sheet.
     static func resolvePlainText(loaded: Any?, error: (any Error)?) -> ShareInputResolution {
         if let failure = providerFailure(error) { return failure }
@@ -130,7 +130,7 @@ nonisolated enum ShareInputResolver {
         }
     }
 
-    /// Mirrors `AddTorrentSheet.isNZBFileName` — SABnzbd also serves gzipped NZBs.
+    /// Mirrors `AddTorrentSheet.isNZBFileName` - SABnzbd also serves gzipped NZBs.
     static func isNZBFileName(_ fileName: String) -> Bool {
         let lowercased = fileName.lowercased()
         return lowercased.hasSuffix(".nzb") || lowercased.hasSuffix(".nzb.gz")
@@ -161,7 +161,7 @@ nonisolated enum ShareInputResolver {
 /// How the extension request should end.
 nonisolated enum ShareTermination: Sendable, Equatable {
     /// Complete the request. Used for success and for input that simply isn't
-    /// actionable — which is what the URL path has always done.
+    /// actionable - which is what the URL path has always done.
     case complete
     /// Cancel the request so the host surfaces the provider's own message.
     case cancel(message: String)
@@ -172,7 +172,7 @@ nonisolated enum ShareTermination: Sendable, Equatable {
 /// `NSItemProvider` makes no promise that a completion handler fires only once,
 /// and a single extension item can hold several providers that all resolve, so
 /// the request has to be end-able exactly once however many times we get there
-/// — a second `completeRequest` is a programmer error as far as UIKit is
+/// - a second `completeRequest` is a programmer error as far as UIKit is
 /// concerned. The first claim hands back the termination to perform; every
 /// claim after that hands back `nil`.
 ///

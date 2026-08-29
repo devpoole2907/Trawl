@@ -105,7 +105,7 @@ struct QBittorrentAPIClientContractTests {
     // The most destructive call in a download manager: `deleteFiles` is the difference
     // between removing a torrent from the list and erasing the downloaded media from
     // disk. Both the flag and the hash list ride in the form body, and the hashes are
-    // joined with `|` — qBittorrent's own separator. Joining with a comma instead would
+    // joined with `|` - qBittorrent's own separator. Joining with a comma instead would
     // not error; it would send one unmatched hash string, so the wrong thing (or
     // nothing) gets deleted while the app reports success.
 
@@ -189,7 +189,7 @@ private final class QBittorrentContractURLProtocol: URLProtocol, @unchecked Send
 
         /// The form body decoded into its pairs. qBittorrent joins multi-value
         /// parameters with `|` inside a single value rather than repeating the field,
-        /// so a dictionary is the right shape here — unlike Bazarr's settings form.
+        /// so a dictionary is the right shape here - unlike Bazarr's settings form.
         var formFields: [String: String] {
             guard !body.isEmpty else { return [:] }
             var fields: [String: String] = [:]
@@ -260,7 +260,7 @@ private final class QBittorrentContractURLProtocol: URLProtocol, @unchecked Send
     override func stopLoading() {}
 
     /// `URLSession` converts a request body into `httpBodyStream` before a `URLProtocol`
-    /// sees it, leaving `httpBody` nil — reading only `httpBody` here silently records
+    /// sees it, leaving `httpBody` nil - reading only `httpBody` here silently records
     /// every request as having sent nothing, and every body assertion would then pass
     /// against an empty string. The stream is drained as the fallback.
     private static func bodyString(of request: URLRequest) -> String {

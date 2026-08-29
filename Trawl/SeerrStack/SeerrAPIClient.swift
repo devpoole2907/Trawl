@@ -223,7 +223,7 @@ actor SeerrAPIClient {
 
     /// One combined trending feed, tagged per item.
     ///
-    /// `/discover/movies/trending` and `/discover/tv/trending` do not exist —
+    /// `/discover/movies/trending` and `/discover/tv/trending` do not exist -
     /// both 404 on 3.3.0. The per-type calls that used to live here always
     /// failed, and the caller quietly fell back to hitting TMDb directly.
     func discoverTrending() async throws -> [SeerrDiscoverItem] {

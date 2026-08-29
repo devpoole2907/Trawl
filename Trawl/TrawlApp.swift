@@ -31,8 +31,8 @@ struct TrawlApp: App {
         #if DEBUG
         // UI tests need a deterministic, empty starting state, but the simulator's
         // on-disk App Group container may already hold the developer's real service
-        // profiles. Rather than wiping and reusing that real store — which would risk
-        // destroying actual user data if this flag were ever passed by accident — hand
+        // profiles. Rather than wiping and reusing that real store - which would risk
+        // destroying actual user data if this flag were ever passed by accident - hand
         // tests an in-memory store instead: it's inherently empty and can't touch
         // anything on disk. DEBUG-only so this can never exist in a Release build.
         if ProcessInfo.processInfo.arguments.contains("-TrawlUITestInMemoryStore") {
@@ -46,8 +46,8 @@ struct TrawlApp: App {
             // The in-memory store covers SwiftData, but not `UserDefaults`, which
             // survives every launch on the simulator. The instance filter lives
             // there and the seeded profiles use fixed UUIDs, so a test that
-            // narrows the library to one server leaves every later launch — of
-            // every other test — starting with the other server hidden. Cleared
+            // narrows the library to one server leaves every later launch - of
+            // every other test - starting with the other server hidden. Cleared
             // here so each UI-test launch begins showing the whole library.
             UserDefaults.standard.removeObject(forKey: ArrInstanceFilterState.defaultsKey)
 
@@ -141,7 +141,7 @@ struct TrawlApp: App {
     /// `ContentView` will query this profile, `ArrServiceManager.initialize(from:)` will
     /// call the real `connectService(_:)`, and the real `SonarrAPIClient` will make real
     /// HTTP requests to the fixture server. Nothing about the connect path itself is
-    /// stubbed — only the external Sonarr server is faked, which is the whole point.
+    /// stubbed - only the external Sonarr server is faked, which is the whole point.
     ///
     /// A second, optional Sonarr profile can be seeded alongside the first through
     /// `TRAWL_UITEST_SONARR_B_BASE_URL`, for journeys that need two live instances to
@@ -169,7 +169,7 @@ struct TrawlApp: App {
         // asynchronously arrives after the app has already committed to the welcome
         // screen. And `connectService` reads the API key as its first step, so an
         // asynchronous key write races the first connection attempt. Doing both before
-        // `init()` returns removes both races — and note an earlier attempt to await the
+        // `init()` returns removes both races - and note an earlier attempt to await the
         // async path from `init()` under a semaphore hung the main thread at launch.
         seedUITestKeychainValue("uitest-api-key", forKey: profile.apiKeyKeychainKey)
 
@@ -184,7 +184,7 @@ struct TrawlApp: App {
         // Second instance, only when a journey asks for one. Seeded strictly after the
         // first profile's insert+save has already committed, so the two profiles have a
         // stable, ordered insertion sequence for the unsorted `@Query private var
-        // arrProfiles: [ArrServiceProfile]` in ContentView to return them in — the first
+        // arrProfiles: [ArrServiceProfile]` in ContentView to return them in - the first
         // profile connects first and becomes `activeSonarrProfileID` by default
         // (`ArrServiceManager.connectService` only sets it `if activeSonarrProfileID ==
         // nil`), which is what lets a test assert which instance is active immediately
@@ -217,15 +217,15 @@ struct TrawlApp: App {
 
     /// Same treatment as `seedUITestArrServiceIfRequested(into:)`, for UI journeys
     /// (`RadarrJourneyUITests`) that need a real Radarr connection rather than a
-    /// stubbed one. Sonarr has several journeys already; Radarr — specifically
-    /// `RadarrMovieDetailView`, the largest untested view in the project — had none,
+    /// stubbed one. Sonarr has several journeys already; Radarr - specifically
+    /// `RadarrMovieDetailView`, the largest untested view in the project - had none,
     /// which is what this hook exists to fix. `TRAWL_UITEST_RADARR_BASE_URL` points
     /// at `RadarrFixtureServer`, a real loopback HTTP server the test process hosts;
     /// from there `ArrServiceManager.connectService(_:)` and the real
     /// `RadarrAPIClient` run entirely unmodified against it, exactly like the Sonarr
     /// seeding above.
     ///
-    /// Entirely additive alongside the Sonarr seeding above — this reads its own
+    /// Entirely additive alongside the Sonarr seeding above - this reads its own
     /// environment variable, seeds its own profile type (`serviceType: .radarr`)
     /// with its own fixed UUID, and leaves the Sonarr seeding path untouched whether
     /// or not this variable is set.
@@ -241,7 +241,7 @@ struct TrawlApp: App {
             serviceType: .radarr
         )
         // Fixed, hardcoded UUID distinct from the four already in use (Sonarr x2,
-        // SABnzbd, qBittorrent) — see the comment on the Sonarr seeding above for why
+        // SABnzbd, qBittorrent) - see the comment on the Sonarr seeding above for why
         // a random UUID would orphan a Keychain entry on every run.
         profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000005")!
 
@@ -290,7 +290,7 @@ struct TrawlApp: App {
     /// .initialize(from:)`, `connectService(_:)`, and the real `SABnzbdAPIClient` run
     /// unmodified against it.
     ///
-    /// Entirely additive alongside the Sonarr seeding above — this reads its own
+    /// Entirely additive alongside the Sonarr seeding above - this reads its own
     /// environment variable, seeds its own profile type with its own fixed UUID, and
     /// leaves the Sonarr seeding path untouched whether or not this variable is set.
     private static func seedUITestSABnzbdServiceIfRequested(into modelContainer: ModelContainer) {
@@ -303,7 +303,7 @@ struct TrawlApp: App {
             displayName: "Fixture SABnzbd",
             hostURL: sabnzbdBaseURL
         )
-        // Fixed, hardcoded UUID distinct from the Sonarr fixtures' — see the comment
+        // Fixed, hardcoded UUID distinct from the Sonarr fixtures' - see the comment
         // on that seeding above for why a random UUID would orphan a Keychain entry
         // on every run.
         profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000003")!
@@ -334,14 +334,14 @@ struct TrawlApp: App {
     /// unmodified against it.
     ///
     /// Unlike the Sonarr/SABnzbd profiles above, `ContentView.initializeServices()`
-    /// does not read credentials off the profile itself — it reads them from the
+    /// does not read credentials off the profile itself - it reads them from the
     /// Keychain via `server.usernameKey`/`server.passwordKey` (see
     /// `ContentView.swift`'s `initializeServices()`), which is exactly what gets
     /// seeded here. `ServerProfile.init(displayName:hostURL:allowsUntrustedTLS:)` sets
     /// `isActive = true` itself, so this profile becomes `ContentView.activeServer`
     /// (`servers.first(where: { $0.isActive })`) as soon as it's inserted.
     ///
-    /// Entirely additive alongside the Sonarr and SABnzbd seeding above — this reads
+    /// Entirely additive alongside the Sonarr and SABnzbd seeding above - this reads
     /// its own environment variable, seeds its own profile type with its own fixed
     /// UUID, and leaves the other two seeding paths untouched whether or not this
     /// variable is set.
@@ -355,7 +355,7 @@ struct TrawlApp: App {
             displayName: "Fixture qBittorrent",
             hostURL: qbittorrentBaseURL
         )
-        // Fixed, hardcoded UUID distinct from the Sonarr and SABnzbd fixtures' — see
+        // Fixed, hardcoded UUID distinct from the Sonarr and SABnzbd fixtures' - see
         // the comment on the Sonarr seeding above for why a random UUID would orphan
         // a Keychain entry on every run.
         profile.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000004")!
@@ -473,7 +473,7 @@ struct TrawlApp: App {
     ///
     /// `KeychainHelper` is an actor, so its `save` cannot be called from a synchronous
     /// `init()` without either racing or blocking. The Keychain is external state, so
-    /// seeding it directly is legitimate here — the production *read* path
+    /// seeding it directly is legitimate here - the production *read* path
     /// (`KeychainHelper.read`) is still the one under test. The query mirrors
     /// `KeychainHelper`'s: same class, same service, same account, and the same access
     /// group derived from `AppIdentifierPrefix`, so the production read finds it.

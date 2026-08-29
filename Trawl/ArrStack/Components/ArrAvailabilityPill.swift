@@ -3,8 +3,8 @@ import SwiftUI
 /// What the library actually has, said in one pill.
 ///
 /// With a single server this is just "Available" or the item's own status. With
-/// an HD/4K pair it also says *which* copies exist — "Available HD & 4K",
-/// "Available HD", "Available 4K" — because that gap is the entire reason to run
+/// an HD/4K pair it also says *which* copies exist - "Available HD & 4K",
+/// "Available HD", "Available 4K" - because that gap is the entire reason to run
 /// two servers, and it should be readable from the row without opening anything.
 ///
 /// This deliberately replaced a sentence ("Downloaded on HD only"). A status is a
@@ -16,7 +16,7 @@ struct ArrAvailabilityPill: View {
     /// Whether to name the tiers. False when only one server is configured, where
     /// "Available HD" would imply a 4K library that does not exist.
     let showsTiers: Bool
-    /// What to say when nothing is downloaded yet — the item's own status, like
+    /// What to say when nothing is downloaded yet - the item's own status, like
     /// "Missing" or "Announced".
     let unavailableStatus: String
 
@@ -51,8 +51,8 @@ struct ArrAvailabilityPill: View {
         guard !availableTiers.isEmpty else { return unavailableStatus }
         guard showsTiers else { return "Available" }
         let ordered = ArrQualityTier.allCases.filter { availableTiers.contains($0) }
-        // Plain "Available" already means the default server — that is how Seerr
-        // words it — so naming that tier would be both redundant and, as
+        // Plain "Available" already means the default server - that is how Seerr
+        // words it - so naming that tier would be both redundant and, as
         // "Available Default", not English. Only 4K earns a name.
         if ordered == [.hd] { return "Available" }
         return "Available \(ordered.map(\.label).joined(separator: " & "))"

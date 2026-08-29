@@ -4,14 +4,14 @@ import SwiftUI
 /// Lets callers outside the Downloads tab steer its segment bar on an
 /// already-mounted `DownloadsView`. `initialSection` can only ever be read once,
 /// at init, and re-initialising the view with `.id()` would wipe the tab's
-/// navigation stack — so the request travels as shared observable state that
+/// navigation stack - so the request travels as shared observable state that
 /// `DownloadsView` consumes via `.onChange` and then clears.
 @Observable
 @MainActor
 final class DownloadsNavigator {
     /// Set by a caller, cleared by `DownloadsView` once it has been applied.
     var requestedSection: DownloadSection?
-    /// A push to perform on arrival — used by More's search results, which link to
+    /// A push to perform on arrival - used by More's search results, which link to
     /// tools that now live in this tab.
     var requestedRoute: DownloadsManagementRoute?
 
@@ -77,13 +77,13 @@ struct DownloadsView: View {
     /// What the visible list can do. One toolbar serves all three destinations, so
     /// the buttons stay put and only their contents flex.
     @State private var chrome = DownloadsListChrome()
-    /// Multi-select over the blended list. Rows here are of four different kinds —
-    /// a torrent, a SABnzbd job, an *arr queue row, or a history entry — so a batch
+    /// Multi-select over the blended list. Rows here are of four different kinds -
+    /// a torrent, a SABnzbd job, an *arr queue row, or a history entry - so a batch
     /// action has to dispatch per row rather than call one API.
     ///
     /// Selection is the List's own, not hand-drawn. The earlier version painted its
     /// own `checkmark.circle` into a `Button` per row, which meant re-deriving every
-    /// piece of chrome the system already provides — and getting one of them wrong
+    /// piece of chrome the system already provides - and getting one of them wrong
     /// (a row background that stayed opaque over the gradient) was invisible until
     /// someone looked at it in dark mode.
     @State private var editMode: SelectionMode = .inactive
@@ -121,7 +121,7 @@ struct DownloadsView: View {
         guard let requested else { return }
         if requested == .torrents {
             // Torrents is one of this tab's own lists now, not a screen to push. More's
-            // search still offers it, and selecting the list is what that should mean —
+            // search still offers it, and selecting the list is what that should mean -
             // pushing a second copy would give the same view two homes, and the pushed
             // one would need navigation chrome that the embedded one must not have.
             withAnimation { titleDestination = .torrents }
@@ -132,7 +132,7 @@ struct DownloadsView: View {
     }
 
     var body: some View {
-        // One screen. The title menu changes which downloads are listed — it does
+        // One screen. The title menu changes which downloads are listed - it does
         // not swap in another view. Every earlier attempt embedded SABnzbdManagerView
         // and TorrentListView here, and each brought its own list, chrome, lifecycle
         // and navigation title, so the tab inherited a second of everything: two
@@ -147,7 +147,7 @@ struct DownloadsView: View {
     /// everything below has to stop drawing one of its own while it is showing.
     ///
     /// It stands down while selecting. Switching lists mid-selection is not on
-    /// offer — a scope change clears the selection — so leaving the menu up would
+    /// offer - a scope change clears the selection - so leaving the menu up would
     /// advertise a move that throws the user's work away, and the title is better
     /// spent saying how much is selected.
     private var showsTitleMenu: Bool {
@@ -182,7 +182,7 @@ struct DownloadsView: View {
     ///
     /// Add Download, sort, Select, Client Management and the Blocklist belong to the
     /// tab and never move. What changes with the scope is only which batch actions
-    /// the selection offers — a SABnzbd queue cannot be rechecked.
+    /// the selection offers - a SABnzbd queue cannot be rechecked.
     @ToolbarContentBuilder
     private var sharedToolbarContent: some ToolbarContent {
         if chrome.isSelecting {
@@ -353,7 +353,7 @@ struct DownloadsView: View {
             .onChange(of: visibleSections) { _, sections in
                 // The selected segment keeps itself visible while it's selected, so
                 // this only fires when the segment goes away for a reason the user
-                // can't see around — the torrent client being removed.
+                // can't see around - the torrent client being removed.
                 if !sections.contains(selectedSection) {
                     withAnimation { selectedSection = .active }
                 }
@@ -371,7 +371,7 @@ struct DownloadsView: View {
                 await viewModel.refresh(serviceManager: arrServiceManager)
             }
             // One view, one lifecycle. Polling starts when the tab appears and stops
-            // when it goes, and changing scope touches neither — the earlier design
+            // when it goes, and changing scope touches neither - the earlier design
             // attached this to whichever list was showing, so switching lists tore
             // down the poll that the next list depended on.
             .task {
@@ -437,8 +437,8 @@ struct DownloadsView: View {
     private func managementDestination(_ route: DownloadsManagementRoute) -> some View {
         if route.requiresQBittorrent && !hasQBittorrentServer {
             // Reachable from More's search even with no torrent client configured, so
-            // it points at Client Management — the place in *this* tab where you'd add
-            // one — rather than at Settings.
+            // it points at Client Management - the place in *this* tab where you'd add
+            // one - rather than at Settings.
             ContentUnavailableView {
                 Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.systemImage)
             } description: {
@@ -481,7 +481,7 @@ struct DownloadsView: View {
     }
 
     /// The rows for the chosen section, narrowed to the chosen client. Switching the
-    /// title menu changes this and nothing else — no view is replaced.
+    /// title menu changes this and nothing else - no view is replaced.
     private var items: [DownloadListItem] {
         viewModel.items(
             for: selectedSection,
@@ -499,14 +499,14 @@ struct DownloadsView: View {
     @ViewBuilder
     private var content: some View {
         // Gated on the first load rather than on `isLoadingQueue`, which flips true on
-        // every poll — an empty queue would otherwise flicker spinner/empty each cycle.
+        // every poll - an empty queue would otherwise flicker spinner/empty each cycle.
         if arrServiceManager.isLoadingQueue && !arrServiceManager.hasLoadedQueueOnce && items.isEmpty {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let scopedFailure, items.isEmpty {
             // A scope names one client, so when that client is unreachable this list
             // has to say so. Showing an empty list instead would report "no
-            // downloads" for a server that is simply refusing to answer — and an
+            // downloads" for a server that is simply refusing to answer - and an
             // expired API key would look exactly like an idle queue.
             ContentUnavailableView {
                 Label(scopedFailure.title, systemImage: "exclamationmark.triangle")
@@ -552,8 +552,8 @@ struct DownloadsView: View {
         }
     }
 
-    /// A failing SABnzbd must not blank this screen — it is a unified view and
-    /// qBittorrent may still be perfectly healthy — but it must not fail silently
+    /// A failing SABnzbd must not blank this screen - it is a unified view and
+    /// qBittorrent may still be perfectly healthy - but it must not fail silently
     /// either. Before this, a rejected API key simply made SABnzbd's jobs vanish
     /// from the list with no explanation anywhere on the Downloads tab; the only
     /// place that surfaced `connectionError` was the SABnzbd manager screen, four
@@ -614,7 +614,7 @@ struct DownloadsView: View {
         List(selection: $selectedRowIDs) {
             ForEach(items) { item in
                 row(for: item)
-                    // A row that names no client cannot be acted on — a history
+                    // A row that names no client cannot be acted on - a history
                     // entry, or an *arr queue row whose download Trawl can't reach.
                     // Making those unselectable is stricter than the hand-rolled
                     // version, which let them be ticked and then dropped them from
@@ -623,7 +623,7 @@ struct DownloadsView: View {
             }
             // The list draws over the services gradient with its own background
             // hidden, so a row that keeps the default `systemBackground` punches an
-            // opaque block through it — black in dark mode.
+            // opaque block through it - black in dark mode.
             .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
@@ -661,7 +661,7 @@ struct DownloadsView: View {
 
     /// Runs a batch across both clients and reports once. A selection that mixes a
     /// torrent, a SABnzbd job and an *arr row pointing at either is one action to
-    /// the user, so it reads as one result — including when part of it could not be
+    /// the user, so it reads as one result - including when part of it could not be
     /// acted on at all.
     private func performBatch(
         verb: String,
@@ -693,7 +693,7 @@ struct DownloadsView: View {
                 notificationCenter.showSuccess(
                     title: verb,
                     message: skipped > 0
-                        ? "\(acted) of \(selectedItems.count) — \(skipped) could not be \(verb.lowercased())."
+                        ? "\(acted) of \(selectedItems.count) - \(skipped) could not be \(verb.lowercased())."
                         : (acted == 1 ? "1 download." : "\(acted) downloads.")
                 )
             }
@@ -772,7 +772,7 @@ struct DownloadsView: View {
     /// A row that pushes when tapped normally, and is plain content while editing.
     ///
     /// `List` disables `NavigationLink`s in edit mode so its own tap can select the
-    /// row — but a disabled link dims everything inside its label, so every row went
+    /// row - but a disabled link dims everything inside its label, so every row went
     /// grey the moment Select was pressed while still being perfectly selectable.
     /// Removing the link rather than letting it be disabled keeps the row at full
     /// strength; selection is the List's either way.
@@ -889,7 +889,7 @@ struct DownloadsView: View {
     // MARK: - Arr queue row
 
     /// Arr queue rows used to render as bare, untappable text whenever no torrent
-    /// was linked — which is exactly the stuck-import case the Issues segment
+    /// was linked - which is exactly the stuck-import case the Issues segment
     /// exists for. Every variant now leads somewhere: the torrent detail when a
     /// torrent is behind it, otherwise a tap opens the same actions the context
     /// menu offers.
@@ -921,7 +921,7 @@ struct DownloadsView: View {
                 }
             } else if let linkedSABJob {
                 // A matched Usenet job is every bit as navigable as a matched
-                // torrent — the detail view already exists and the `.sab` rows
+                // torrent - the detail view already exists and the `.sab` rows
                 // use it. This branch was simply missing, so Arr rows backed by
                 // SABnzbd dead-ended in the actions dialog.
                 rowLink {
@@ -985,7 +985,7 @@ struct DownloadsView: View {
 
     /// An Arr says this is downloading right now, but neither client Trawl is
     /// connected to has it. Usually that means the Arr is pointed at a download
-    /// client Trawl can't see — the same disconnect `DownloadClientLinkChecker`
+    /// client Trawl can't see - the same disconnect `DownloadClientLinkChecker`
     /// reports over in Client Management.
     ///
     /// Deliberately narrow. Only "downloading" qualifies: an importing or moving
@@ -1126,7 +1126,7 @@ struct DownloadsView: View {
     }
 
     /// Whether to badge a row with its server. Suppressed when only one instance
-    /// of that service is configured — the badge would then label every Sonarr row
+    /// of that service is configured - the badge would then label every Sonarr row
     /// "Sonarr" and say nothing. Routing still uses the real instance either way.
     private func badgeInstance(_ instance: ArrInstanceRef?, _ source: ArrServiceType) -> ArrInstanceRef? {
         guard arrServiceManager.showsInstanceProvenance(for: source) else { return nil }
@@ -1333,7 +1333,7 @@ struct DownloadsView: View {
     /// The segment the user is currently *on* always stays, even once it empties.
     /// Pausing the last seeding torrent while sitting on Seeding would otherwise
     /// yank the tab out from under them mid-action; instead the segment holds with
-    /// its empty state and only disappears — animated, with the selection change —
+    /// its empty state and only disappears - animated, with the selection change -
     /// once they move somewhere else.
     ///
     /// The counts are taken straight from the client caches rather than through the
@@ -1386,7 +1386,7 @@ struct DownloadsView: View {
     /// plain grouped background rather than inventing a colour.
     ///
     /// Only the blended list uses this. Switching to SABnzbd or Torrents shows those
-    /// views' own single-service gradients, which is the point — the background says
+    /// views' own single-service gradients, which is the point - the background says
     /// which list you are on.
     private var backgroundGradient: some View {
         MoreServicesGradientBackground(services: configuredDownloadServices)
@@ -1396,7 +1396,7 @@ struct DownloadsView: View {
     /// The colours behind the list follow what the list is showing.
     ///
     /// The blended list mixes both clients, so the background does too. Narrow to one
-    /// client and the background narrows with it — that is the same single-service
+    /// client and the background narrows with it - that is the same single-service
     /// gradient those lists used to carry when they were separate screens, which is
     /// what makes the switch read as changing *what you are looking at* rather than
     /// just filtering it. An unconfigured client contributes nothing, so a
@@ -1454,7 +1454,7 @@ enum DownloadsTitleDestination: String, CaseIterable, Identifiable, Hashable {
     var id: String { rawValue }
 
     /// Which downloads this destination lists. The destination is a filter, not a
-    /// screen — that distinction is the whole point of the tab being one view.
+    /// screen - that distinction is the whole point of the tab being one view.
     var scope: DownloadsViewModel.DownloadScope {
         switch self {
         case .downloads: .all

@@ -223,7 +223,7 @@ extension JellyfinSystemInfoView {
         NavigationStack {
             JellyfinSystemInfoView(
                 previewSystemInfo: nil,
-                errorMessage: "Unable to reach Jellyfin server — check your network connection."
+                errorMessage: "Unable to reach Jellyfin server - check your network connection."
             )
         }
     }

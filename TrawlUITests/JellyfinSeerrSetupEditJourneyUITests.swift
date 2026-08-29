@@ -29,13 +29,13 @@
 //  Step 6's "reconnected to B, not still talking to A" is asserted two ways, neither of
 //  which races a background refresh:
 //
-//  * B must have received the manager-only part of the handshake *more than once* —
+//  * B must have received the manager-only part of the handshake *more than once* -
 //    for Jellyfin, a second authenticated `GET /System/Info` and `GET /Users` beyond
 //    the single pair `JellyfinSetupViewModel.authenticate` performs; for Seerr,
 //    `GET /api/v1/auth/me`, which `SeerrSetupViewModel.login` never calls at all.
 //  * A must never have received a request bearing the *replacement* credential. After a
 //    successful save that credential is the only one production holds, so any client
-//    still aimed at A would show up there whenever it next fired — including the
+//    still aimed at A would show up there whenever it next fired - including the
 //    notification accessory's 60-second Seerr poll.
 //
 
@@ -88,7 +88,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         // the original server's name here is the baseline the repoint is measured against.
         XCTAssertTrue(
             staticText("Server, Fixture Jellyfin Server", in: app).waitForExistence(in: app, timeout: 15),
-            "Jellyfin Settings should show the originally connected server's name before any edit — if this fails, the baseline connect is broken, not the repoint."
+            "Jellyfin Settings should show the originally connected server's name before any edit - if this fails, the baseline connect is broken, not the repoint."
         )
 
         XCTAssertTrue(tap(app.buttons["Edit Server"], in: app, timeout: 10), "A configured Jellyfin profile should offer Edit Server.")
@@ -113,8 +113,8 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         replace(replacement.baseURL, into: host, in: app, deleting: original.baseURL.count)
         let apiKey = secureField(placeholder: "API Key", in: app)
         XCTAssertTrue(apiKey.waitForExistence(timeout: 10), "API-key mode should expose the API Key field.")
-        // `seed(from:)` deliberately leaves the key blank on edit — the stored token is
-        // never read back into the form — so there is nothing to delete first.
+        // `seed(from:)` deliberately leaves the key blank on edit - the stored token is
+        // never read back into the form - so there is nothing to delete first.
         replace("wrong-api-key", into: apiKey, in: app, deleting: 0)
 
         let save = app.buttons["Save Connection"]
@@ -201,7 +201,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         )
         XCTAssertFalse(
             original.hasReceivedRequestCarrying(jellyfinToken: replacementKey),
-            "The original Jellyfin fixture must never see the replacement API key — receiving it means a client or manager is still aimed at the old host after the repoint."
+            "The original Jellyfin fixture must never see the replacement API key - receiving it means a client or manager is still aimed at the old host after the repoint."
         )
 
         assertNoUnexpectedRoutes(original, replacement, service: "Jellyfin")
@@ -367,7 +367,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
         )
         XCTAssertFalse(
             original.hasReceivedRequestCarrying(seerrCookie: replacementCookie),
-            "The original Seerr fixture must never see the replacement session cookie — receiving it means a client or manager is still aimed at the old host after the repoint."
+            "The original Seerr fixture must never see the replacement session cookie - receiving it means a client or manager is still aimed at the old host after the repoint."
         )
 
         assertNoUnexpectedRoutes(original, replacement, service: "Seerr")
@@ -410,7 +410,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             let unexpected = server.unexpectedRequests.map { "\($0.method) \($0.path)" }
             XCTAssertTrue(
                 unexpected.isEmpty,
-                "\(service) production code called routes this journey never traced: \(unexpected.joined(separator: ", ")). The fixture answered 404 rather than inventing a success — extend the traced route set deliberately."
+                "\(service) production code called routes this journey never traced: \(unexpected.joined(separator: ", ")). The fixture answered 404 rather than inventing a success - extend the traced route set deliberately."
             )
         }
     }
@@ -434,7 +434,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     }
 
     /// SwiftUI `TextField`/`SecureField` inside a `Form` publish their title as the
-    /// element's *placeholder*, not its accessibility label — a probe of the real
+    /// element's *placeholder*, not its accessibility label - a probe of the real
     /// hierarchy shows `label` empty on every field in both editors. Matching on
     /// `placeholderValue` is therefore the identity that actually exists, and it stays
     /// stable once the field holds a value.
@@ -465,7 +465,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     // Keeping each editor at the large detent, and dropping the keyboard after every
     // entry, removes both problems without in-sheet scrolling.
 
-    /// Drags the presented editor up to its large detent — what a user does with a
+    /// Drags the presented editor up to its large detent - what a user does with a
     /// cramped sheet. A no-op once the sheet is already large.
     @MainActor
     private func expandSheet(titled title: String, in app: XCUIApplication) {

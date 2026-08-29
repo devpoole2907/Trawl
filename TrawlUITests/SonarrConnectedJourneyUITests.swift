@@ -9,7 +9,7 @@
 //  `TrawlUITests.swift` documents why an unconfigured launch can only ever reach
 //  WelcomeFlowView: every setup sheet requires a live `testConnection` to succeed
 //  before it persists a profile, which a UI test has no deterministic way to satisfy
-//  by driving the UI alone. This test gets past that wall a different way — it seeds
+//  by driving the UI alone. This test gets past that wall a different way - it seeds
 //  one real `ArrServiceProfile` (see `TrawlApp.seedUITestArrServiceIfRequested(into:)`,
 //  gated behind the `TRAWL_UITEST_SONARR_BASE_URL` launch environment variable) and
 //  points it at `SonarrFixtureServer`, a real loopback HTTP server this test process
@@ -65,8 +65,8 @@ final class SonarrConnectedJourneyUITests: XCTestCase {
         seriesTab.tap()
 
         // The real connect path (ArrServiceManager.connectService -> SonarrAPIClient)
-        // has to complete several real HTTP round-trips over loopback — system
-        // status, quality profiles, root folders, tags, then the series library —
+        // has to complete several real HTTP round-trips over loopback - system
+        // status, quality profiles, root folders, tags, then the series library -
         // before the Series tab renders the real library instead of its
         // "Connecting to Sonarr" placeholder. Loopback is fast, but this allows
         // generous time rather than assuming near-instant completion.

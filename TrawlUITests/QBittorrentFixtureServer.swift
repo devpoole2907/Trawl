@@ -11,16 +11,16 @@
 //
 //  Every response shape here is taken from `TrawlTests/LiveCapturedShapeContractTests
 //  .swift`, itself captured verbatim from a live **qBittorrent v5.2.3** on 23 August
-//  2026 — not from reading `Trawl/Services/AuthService.swift` /
+//  2026 - not from reading `Trawl/Services/AuthService.swift` /
 //  `QBittorrentAPIClient.swift` and guessing:
 //
 //  - `POST /api/v2/auth/login` answers **204 with an empty body** (not v4's `200` +
 //    `"Ok."`), carrying `Set-Cookie: QBT_SID_<port>=<sid>; HttpOnly; SameSite=Lax;
-//    path=/`. A 204 has **no `Content-Type`** — `AuthService.performLogin` doesn't
+//    path=/`. A 204 has **no `Content-Type`** - `AuthService.performLogin` doesn't
 //    read the body either way, only the status code and the cookie header.
 //  - `GET /api/v2/sync/maindata` returns `full_update: true` plus a `torrents` object
 //    keyed by hash, matching the real 68-field torrent object's shape (trimmed here to
-//    the fields the app's `SyncTorrentData`/`Torrent` models actually read — every
+//    the fields the app's `SyncTorrentData`/`Torrent` models actually read - every
 //    other field on the real model is optional and defaults sensibly, per
 //    `Trawl/Models/Torrent.swift`'s `fromDelta`).
 //
@@ -35,7 +35,7 @@
 //  resuming, and deleting the seeded torrent actually change what the next
 //  `/api/v2/sync/maindata` poll reports, so `DownloadsJourneyUITests` can assert both
 //  the recorded server-side mutation *and* the resulting on-screen state change (the
-//  torrent moving between the Active/Queue segments, or disappearing once deleted) —
+//  torrent moving between the Active/Queue segments, or disappearing once deleted) -
 //  exactly the "server actually changed, not just local state" proof the audit's UI
 //  journey #2 asks for.
 
@@ -65,7 +65,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
 
     /// - Parameters:
     ///   - torrentHash: the seeded torrent's 40-character hex hash. Real qBittorrent
-    ///     hashes are lowercase hex, so this defaults to one shaped the same way —
+    ///     hashes are lowercase hex, so this defaults to one shaped the same way -
     ///     a test that only pattern-matches on a plausible hash won't be misled by an
     ///     obviously-fake value.
     ///   - torrentName: the seeded torrent's display name, distinctive enough for a
@@ -111,7 +111,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         return "http://127.0.0.1:\(port.rawValue)"
     }
 
-    /// The seeded torrent's hash — exposed so a test can assert a mutation's body
+    /// The seeded torrent's hash - exposed so a test can assert a mutation's body
     /// named it, without hardcoding the default a second time.
     var hash: String { torrentHash }
 
@@ -149,8 +149,8 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         receive(on: connection, buffer: Data())
     }
 
-    /// Accumulates received bytes until a full HTTP request — headers plus a body
-    /// exactly as long as its declared `Content-Length` — has arrived, since nothing
+    /// Accumulates received bytes until a full HTTP request - headers plus a body
+    /// exactly as long as its declared `Content-Length` - has arrived, since nothing
     /// guarantees a `POST /api/v2/torrents/stop|start|delete` body arrives in the same
     /// `receive` callback as its headers. Modeled on `ArrSearchAddFixtureServer`'s
     /// buffering, which this fixture needs for the same reason: it has to record
@@ -203,7 +203,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         switch (request.method, request.path) {
         case ("POST", "/api/v2/auth/login"):
             // Verbatim from a real qBittorrent v5.2.3 login: 204, empty body, no
-            // Content-Type, and a port-suffixed `QBT_SID_<port>` cookie — see
+            // Content-Type, and a port-suffixed `QBT_SID_<port>` cookie - see
             // `LiveCapturedShapeContractTests.qBittorrentV5LoginIsAcceptedAndItsCookieReused`.
             // `AuthService.performLogin` only accepts 204 or a 200 containing "Ok.";
             // it then requires a parseable Set-Cookie or it throws `.authFailed`.
@@ -224,7 +224,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
 
         case ("GET", "/api/v2/app/preferences"):
             // Called best-effort by `AppServices.build(from:username:password:)`
-            // (`try? await apiClient.getPreferences()`) — an empty object is enough,
+            // (`try? await apiClient.getPreferences()`) - an empty object is enough,
             // since a missing `save_path` just leaves `syncService.defaultSavePath`
             // unset.
             return Self.httpResponse(
@@ -270,7 +270,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
         }
     }
 
-    /// `QBT_SID_<port>=<sid>; HttpOnly; SameSite=Lax; path=/` — the exact shape
+    /// `QBT_SID_<port>=<sid>; HttpOnly; SameSite=Lax; path=/` - the exact shape
     /// captured live. The cookie **name** carries the server's own port (qBittorrent
     /// binds one session cookie name per instance), which is why this can't be a
     /// static string: `AuthService.extractSessionCookie` parses whatever prefix comes
@@ -286,7 +286,7 @@ final class QBittorrentFixtureServer: @unchecked Sendable {
 
     /// A snapshot of the seeded torrent's current sync state as qBittorrent's
     /// `/api/v2/sync/maindata` would report it. Always answers `full_update: true`
-    /// with the complete state, never a delta — `SyncService.applyDelta` treats a full
+    /// with the complete state, never a delta - `SyncService.applyDelta` treats a full
     /// update as authoritative (it rebuilds `torrents` from scratch), so this sidesteps
     /// ever having to reason about partial-update merge semantics.
     private func torrentsSnapshotJSON() -> String {

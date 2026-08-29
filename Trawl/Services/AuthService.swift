@@ -18,7 +18,7 @@ actor AuthService {
     ///   as in onboarding, which builds a throwaway `AuthService` purely to validate
     ///   typed credentials. On the shared instance a login can have several waiters
     ///   (`QBittorrentAPIClient.reauthenticate`), and letting any one of them abort it
-    ///   would fail the others and send them all back to retry — the login storm this
+    ///   would fail the others and send them all back to retry - the login storm this
     ///   coalescing exists to prevent. Defaults to false, so shared instances keep
     ///   today's behavior.
     init(

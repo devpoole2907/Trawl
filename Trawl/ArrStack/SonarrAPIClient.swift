@@ -255,7 +255,7 @@ struct SonarrWantedPage: Codable, Sendable {
 #if DEBUG
 extension SonarrAPIClient {
     static func preview() -> SonarrAPIClient {
-        // preview.invalid is RFC 2606 unroutable — accidental requests fail immediately.
+        // preview.invalid is RFC 2606 unroutable - accidental requests fail immediately.
         SonarrAPIClient(baseURL: "http://preview.invalid", apiKey: "preview-key")
     }
 }

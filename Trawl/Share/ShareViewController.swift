@@ -5,8 +5,8 @@ import UniformTypeIdentifiers
 
 /// The UIKit half of the share extension: it picks a provider, hands the raw
 /// callback pair to `ShareInputResolver`, and performs whatever that decides.
-/// All of the actual rules — what counts as a magnet link, an NZB link, an NZB
-/// filename, or a dead end, and whether the request may still be ended — live in
+/// All of the actual rules - what counts as a magnet link, an NZB link, an NZB
+/// filename, or a dead end, and whether the request may still be ended - live in
 /// `ShareInputResolution.swift`, which is Foundation-only and testable.
 @MainActor
 final class ShareViewController: UIViewController {
@@ -23,7 +23,7 @@ final class ShareViewController: UIViewController {
 
     /// There is no system UTType for NZB, so the app declares `org.newzbin.nzb`
     /// in both Info.plists. Hosts that never saw the declaration hand the file
-    /// over as plain XML instead, hence the fallback — the filename is what
+    /// over as plain XML instead, hence the fallback - the filename is what
     /// actually decides, matching `AddTorrentSheet`.
     nonisolated private static var nzbType: UTType { UTType("org.newzbin.nzb") ?? UTType(filenameExtension: "nzb") ?? .xml }
 
@@ -87,7 +87,7 @@ final class ShareViewController: UIViewController {
     ///
     /// The resolution is computed inside the provider's own callback, on
     /// whatever thread that arrives on, so only a `Sendable` value crosses onto
-    /// the main actor — never a bare `any Error`.
+    /// the main actor - never a bare `any Error`.
     private func load(
         _ typeIdentifier: String,
         from provider: NSItemProvider,

@@ -226,7 +226,7 @@ struct BazarrMovieDetailView: View {
         await load()
         if let apiError {
             if case ArrError.serverError(500, _) = apiError {
-                inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated (server hiccup — it's set).")
+                inAppNotificationCenter.showSuccess(title: "Updated", message: "Language profile updated (server hiccup - it's set).")
             } else {
                 inAppNotificationCenter.showError(title: "Failed", message: apiError.localizedDescription)
             }

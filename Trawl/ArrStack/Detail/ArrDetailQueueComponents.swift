@@ -19,7 +19,7 @@ func arrDetailLinkedSABJob(for downloadId: String?, in jobs: [SABnzbdJob]) -> SA
     return jobs.first { $0.id.caseInsensitiveCompare(downloadId) == .orderedSame }
 }
 
-/// Queue jobs, post-processing history entries, and terminal history entries — a
+/// Queue jobs, post-processing history entries, and terminal history entries - a
 /// grab can be sitting in any of the three while Arr still lists it in the queue.
 func arrDetailSABJobs(from serviceManager: SABnzbdServiceManager?) -> [SABnzbdJob] {
     guard let serviceManager else { return [] }
@@ -395,7 +395,7 @@ struct ArrDetailQueueItemRow: View {
 // MARK: - SABnzbd job panel
 
 /// Live SABnzbd status for a Usenet-backed queue item. The inline summary is
-/// kept — it is the at-a-glance parity for the torrent card's speed line — and
+/// kept - it is the at-a-glance parity for the torrent card's speed line - and
 /// the whole panel now also pushes `SABnzbdJobDetailView`, so Usenet grabs get
 /// the same "there is more behind this" affordance torrents have. The link is
 /// only offered when the SABnzbd manager is actually in the environment, since
@@ -479,7 +479,7 @@ struct ArrDetailQueueIssueRow: View {
     let rootFolderPath: String?
     let service: ArrServiceType
     let libraryItemID: Int?
-    /// "Series" or "Movie" — used in accessibility labels and hint text.
+    /// "Series" or "Movie" - used in accessibility labels and hint text.
     let editNoun: String
     let isRemoving: Bool
     let isInLibrary: Bool

@@ -9,7 +9,7 @@
 //  `ArrRepointJourneyUITests` (a host edit that works first time).
 //
 //  What was missing is the path a user actually hits: a key the server rejects. This
-//  journey proves the rejection is visible, non-destructive, and recoverable —
+//  journey proves the rejection is visible, non-destructive, and recoverable -
 //  the exact production error appears, the editor stays open, the profile is not
 //  repointed behind the user's back, and a corrected key then persists and reconnects.
 //
@@ -19,7 +19,7 @@
 //  is presented for every `ArrServiceType`, its fields and Save action are built once,
 //  and `ArrSetupViewModel.validateAndSave` is the only path any of them takes.
 //  The service type selects which client `ArrServiceManager.testConnection` builds
-//  (`ArrServiceManager.swift:981`) — the failure handling under test here is above
+//  (`ArrServiceManager.swift:981`) - the failure handling under test here is above
 //  that switch, in the shared view model. Duplicating this journey per service would
 //  re-run the same production code against a different fixture port.
 //
@@ -32,7 +32,7 @@
 //  `errorDescription` is "Invalid API key. Check your *arr service settings."
 //  (`ArrSharedModels.swift:1503`). `validateAndSave`'s `catch let error as ArrError`
 //  assigns that to `validationError` and returns false, which `ArrSetupSheet` renders
-//  through `ValidationErrorSection` and — critically — returns false to the Save task,
+//  through `ValidationErrorSection` and - critically - returns false to the Save task,
 //  so `dismiss()` is never called.
 //
 //  The rejection happens *before* any persistence: `testConnection` is the first
@@ -41,7 +41,7 @@
 //
 //  On the corrected retry the same call succeeds, the API key is written to the
 //  Keychain, the profile's host is updated in place, `modelContext.save()` runs, and
-//  `serviceManager.connectService(profile)` reconnects — so the settings screen shows
+//  `serviceManager.connectService(profile)` reconnects - so the settings screen shows
 //  the new host and server B, not server A, receives the library traffic afterward.
 
 import Foundation
@@ -78,7 +78,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
 
         // Server A stands in for the already-configured Sonarr and accepts whatever key
         // the seeded profile carries. Server B is the replacement, and it accepts
-        // exactly one key — so a wrong key produces a real 401 from a real socket
+        // exactly one key - so a wrong key produces a real 401 from a real socket
         // rather than a stubbed error.
         let a = try await SonarrFixtureServer(seriesJSON: seriesJSONA)
         serverA = a
@@ -92,7 +92,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SONARR_BASE_URL"] = a.baseURL
         app.launch()
 
-        // MARK: Baseline — connected to server A
+        // MARK: Baseline - connected to server A
 
         let seriesTab = app.tabBars.buttons["Series"]
         XCTAssertTrue(
@@ -103,7 +103,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             app.staticTexts["Series From Server A"].waitForExistence(timeout: 15),
-            "The Series tab should show server A's library before any edit — if this fails the baseline connect is broken, not the edit path under test."
+            "The Series tab should show server A's library before any edit - if this fails the baseline connect is broken, not the edit path under test."
         )
 
         // MARK: Reach the real editor
@@ -116,12 +116,12 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
             "Tapping the configured server row should present ArrSetupSheet titled 'Edit Sonarr' for that profile."
         )
         // `ModalFormStyle` declares `.presentationDetents([.medium, .large])`, so this
-        // editor opens at medium — with the keyboard up, the ValidationErrorSection
+        // editor opens at medium - with the keyboard up, the ValidationErrorSection
         // that this journey asserts on sits below the fold. Expanding first is what a
         // user does with a cramped sheet, and it keeps the form's layout static for the
         // rest of the journey. (The Seerr editor could not be handled this way: its
         // form was too short to scroll while its primary button sat off-screen, which
-        // was a production defect rather than a harness problem — see 5a90128.)
+        // was a production defect rather than a harness problem - see 5a90128.)
         expandSheet(titled: "Edit Sonarr", in: app)
 
         // MARK: Pre-fill
@@ -168,26 +168,26 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             app.staticTexts["Invalid API key. Check your *arr service settings."].waitForExistence(timeout: 20),
-            "The exact ArrError.invalidAPIKey description should be shown in the editor's ValidationErrorSection — regression: the 401 was swallowed, mapped to a different case, or replaced with a generic 'connection failed' message."
+            "The exact ArrError.invalidAPIKey description should be shown in the editor's ValidationErrorSection - regression: the 401 was swallowed, mapped to a different case, or replaced with a generic 'connection failed' message."
         )
 
         XCTAssertTrue(
             editSheetTitle.exists,
-            "The editor must stay open after a rejected key so the user can correct it — regression: validateAndSave returned true, or the Save task dismissed without checking its result."
+            "The editor must stay open after a rejected key so the user can correct it - regression: validateAndSave returned true, or the Save task dismissed without checking its result."
         )
 
         XCTAssertTrue(
             b.hasReceivedRequest(method: "GET", path: "/api/v3/system/status", apiKey: rejectedKeyForB),
-            "Server B should have received the real system-status request carrying exactly the rejected key — proves the typed key reached the socket through the production client rather than being validated locally."
+            "Server B should have received the real system-status request carrying exactly the rejected key - proves the typed key reached the socket through the production client rather than being validated locally."
         )
 
         XCTAssertEqual(
             a.requests.count,
             serverARequestsBeforeRejectedSave,
-            "A failed validation must not touch the existing server A connection — regression: the profile was repointed or reconnected before the connection test succeeded."
+            "A failed validation must not touch the existing server A connection - regression: the profile was repointed or reconnected before the connection test succeeded."
         )
 
-        // MARK: Correct the key — the same editor, no reopening
+        // MARK: Correct the key - the same editor, no reopening
 
         replace(acceptedKeyForB, in: keyField, deleting: rejectedKeyForB.count, in: app)
 
@@ -198,7 +198,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         waitForDisappearance(of: editSheetTitle, timeout: 20)
         XCTAssertFalse(
             editSheetTitle.exists,
-            "The editor should dismiss once the corrected key validates against server B — regression: validateAndSave never completed, or B's fixture responses don't satisfy the real Sonarr connect sequence."
+            "The editor should dismiss once the corrected key validates against server B - regression: validateAndSave never completed, or B's fixture responses don't satisfy the real Sonarr connect sequence."
         )
 
         XCTAssertTrue(
@@ -210,18 +210,18 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 15) { b.hasReceivedRequest(method: "GET", path: "/api/v3/series") },
-            "After a successful edit the service manager should reconnect and load the library from server B — regression: connectService was never called, or a stale client kept serving the old host."
+            "After a successful edit the service manager should reconnect and load the library from server B - regression: connectService was never called, or a stale client kept serving the old host."
         )
 
         XCTAssertEqual(
             a.requests.count,
             serverARequestsBeforeAcceptedSave,
-            "Server A received \(a.requests.count - serverARequestsBeforeAcceptedSave) request(s) after the profile was repointed to B — a retained view model or service-manager entry is still talking to the old server."
+            "Server A received \(a.requests.count - serverARequestsBeforeAcceptedSave) request(s) after the profile was repointed to B - a retained view model or service-manager entry is still talking to the old server."
         )
 
         XCTAssertTrue(
             app.staticTexts[b.baseURL].waitForExistence(timeout: 10),
-            "The Sonarr settings screen should display the persisted replacement host — regression: modelContext.save() didn't run, or the screen is still bound to the old profile values."
+            "The Sonarr settings screen should display the persisted replacement host - regression: modelContext.save() didn't run, or the screen is still bound to the old profile values."
         )
     }
 
@@ -256,7 +256,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
             "Tapping the Settings row should push the Sonarr service screen before its own rows are queried."
         )
 
-        // The configured server row *is* the editor entry point — there is no
+        // The configured server row *is* the editor entry point - there is no
         // separate "Edit Server" button. A row that shows a server and does nothing
         // when tapped, next to a button that edits it, was the redundancy this
         // replaced.
@@ -282,7 +282,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
     //
     // These mirror the helpers already proven in `ArrRepointJourneyUITests` and
     // `ServiceSetupEditJourneyUITests`. This suite keeps its own copies because every
-    // journey file here does — there is no shared harness to extend, and introducing
+    // journey file here does - there is no shared harness to extend, and introducing
     // one would rewrite files owned by other coverage stacks.
 
     /// Finds the first *button* whose accessibility label contains `text`. List rows
@@ -350,7 +350,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
     }
 
     /// Taps once the element is present and hittable, so a tap is never dropped on an
-    /// element that has not settled — a dropped tap fails a later, unrelated assertion.
+    /// element that has not settled - a dropped tap fails a later, unrelated assertion.
     @MainActor
     @discardableResult
     private func tap(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
@@ -373,7 +373,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter().wait(for: [matched], timeout: timeout),
             .completed,
-            "Expected the field to hold \(expected) — regression: ArrSetupViewModel.loadExisting isn't pre-filling it."
+            "Expected the field to hold \(expected) - regression: ArrSetupViewModel.loadExisting isn't pre-filling it."
         )
     }
 

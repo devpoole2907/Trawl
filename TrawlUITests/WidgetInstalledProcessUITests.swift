@@ -5,7 +5,7 @@ import XCTest
 ///
 /// It deliberately asserts on SpringBoard-owned elements only. A home-screen widget's
 /// content is rendered by `com.apple.chrono.WidgetRenderer`, a separate process, and
-/// XCTest cannot read into it — driving the earlier version of this test, every query
+/// XCTest cannot read into it - driving the earlier version of this test, every query
 /// for the widget's inner labels logged `Error getting main window kAXErrorServerNotFound`
 /// and timed out. SpringBoard does expose the widget itself: an icon element carrying
 /// `value: Widget`, which the plain app icon does not have. That element is the honest

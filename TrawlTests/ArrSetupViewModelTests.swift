@@ -7,7 +7,7 @@ import Testing
 /// Coverage for `ArrSetupViewModel.validateAndSave(modelContext:)`, which had none.
 /// Jellyfin and Seerr each have a setup-view-model suite; the Arr equivalent did not
 /// exist, and the only things exercising this ~200-line method were
-/// `ArrSetupEditJourneyUITests` and `ArrRepointJourneyUITests` — both of which drive
+/// `ArrSetupEditJourneyUITests` and `ArrRepointJourneyUITests` - both of which drive
 /// the **edit** path exclusively.
 ///
 /// The add path is not a variation on editing, it is different code:
@@ -28,7 +28,7 @@ import Testing
 ///
 /// `ArrServiceManager.testConnection` builds its own client per service type
 /// (`ArrServiceManager.swift:981`) with no injectable `URLSession` reaching the
-/// caller, so there is no `URLProtocol` seam — these tests drive the real view model
+/// caller, so there is no `URLProtocol` seam - these tests drive the real view model
 /// over the real loopback `ArrIndexerFixtureServer` already used by the indexer
 /// suites, rather than adding another fixture. Pure-validation paths never reach the
 /// network; where a test claims "no request was made", a live server is pointed at
@@ -268,7 +268,7 @@ struct ArrSetupViewModelTests {
             // Which of the two enabled profiles is adopted is deliberately not
             // asserted. Production picks `first(where: { $0.isEnabled })` over an
             // unordered `modelContext.fetch`, so the choice is an accident of fetch
-            // order, not a contract — pinning it makes this test pass alone and fail
+            // order, not a contract - pinning it makes this test pass alone and fail
             // when another suite runs first. What *is* the contract is asserted here:
             // exactly one Prowlarr stays enabled, it points at the new host, and the
             // other is left disabled on its original host.
@@ -297,8 +297,8 @@ struct ArrSetupViewModelTests {
     /// (`HTTPTransport.swift:152-157`), which is not an `ArrError`, so it lands in
     /// `validateAndSave`'s general `catch` alongside genuine connection failures.
     ///
-    /// The user did not experience a failure — they dismissed the sheet, or asked for
-    /// a fresh attempt — so nothing should be reported, and the newer attempt's state
+    /// The user did not experience a failure - they dismissed the sheet, or asked for
+    /// a fresh attempt - so nothing should be reported, and the newer attempt's state
     /// must not be overwritten by the older one unwinding.
     @Test("A cancelled attempt reports no error to the user")
     func cancelledAttemptReportsNoError() async throws {
@@ -340,7 +340,7 @@ struct ArrSetupViewModelTests {
     }
 
     /// Runs `body`, then deletes the API-key entry for every profile in `profiles` on
-    /// both the success and failure path — mirrors
+    /// both the success and failure path - mirrors
     /// `SeerrSetupViewModelTests.cleaningUpKeychain`. `TrawlTests` uses the real
     /// Keychain, so a suite that throws mid-test must not leave entries behind.
     private func cleaningUpKeychain(for profiles: [ArrServiceProfile], body: () async throws -> Void) async throws {

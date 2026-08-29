@@ -14,7 +14,7 @@ enum BazarrSubtitleStatus {
 /// Bazarr is authoritative when it has a language profile assigned to the item
 /// (only then does it track wanted-vs-missing). Otherwise we fall back to the
 /// embedded subtitle tracks reported by Radarr/Sonarr media info. Note the
-/// fallback only sees *embedded* tracks — external `.srt` sidecars are invisible
+/// fallback only sees *embedded* tracks - external `.srt` sidecars are invisible
 /// to the Arr apps and only show up once Bazarr is managing the item.
 enum SubtitleCoverage: Equatable, Sendable {
     case unknown                 // no file, or no information available
@@ -138,7 +138,7 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
             // Resolve the client on every access rather than snapshotting it here.
             // Without this a retained view model keeps issuing requests against the
             // client it was born with, so an in-place profile reconnect silently
-            // keeps talking to the old host — the same stale-client bug already
+            // keeps talking to the old host - the same stale-client bug already
             // fixed for Sonarr and Radarr, which both pass a provider.
             clientProvider: { [weak serviceManager] in serviceManager?.activeBazarrEntry?.client }
         )
@@ -178,7 +178,7 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
 
     static func subtitleStatus(for series: BazarrSeries) -> BazarrSubtitleStatus {
         // With no language profile assigned, Bazarr requests no languages, so
-        // `episodeMissingCount` is always 0 — that means "not tracked", not "complete".
+        // `episodeMissingCount` is always 0 - that means "not tracked", not "complete".
         if series.profileId == nil { return .unknown }
         if series.episodeFileCount == 0 { return .unknown }
         if series.episodeMissingCount == 0 { return .allPresent }
@@ -188,7 +188,7 @@ final class BazarrViewModel: ArrLibraryViewModel<BazarrSeries, BazarrAPIClient> 
 
     static func subtitleStatus(for movie: BazarrMovie) -> BazarrSubtitleStatus {
         // With no language profile assigned, `missingSubtitles` is always empty
-        // because Bazarr isn't tracking any languages — not because subtitles exist.
+        // because Bazarr isn't tracking any languages - not because subtitles exist.
         if movie.profileId == nil { return .unknown }
         if movie.missingSubtitles.isEmpty { return .allPresent }
         return movie.subtitles.isEmpty ? .none : .partial

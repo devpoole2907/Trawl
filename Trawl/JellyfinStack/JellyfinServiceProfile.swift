@@ -58,6 +58,6 @@ public final class JellyfinServiceProfile {
 
     /// Keychain key for the access token (user/pass mode) or API key (apiKey mode).
     /// Both share storage because Jellyfin treats them identically in the
-    /// `Authorization` header — only the issuance flow differs.
+    /// `Authorization` header - only the issuance flow differs.
     public var accessTokenKey: String { "jellyfin_\(id.uuidString)_token" }
 }

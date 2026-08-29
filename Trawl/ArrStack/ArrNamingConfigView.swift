@@ -5,8 +5,8 @@ struct ArrNamingConfigView: View {
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
     /// Which *server* this screen is editing. Naming formats are per-server
-    /// configuration and an HD/4K pair usually differs — the 4K server writes into
-    /// a different folder tree — so "the Sonarr naming config" was never a single
+    /// configuration and an HD/4K pair usually differs - the 4K server writes into
+    /// a different folder tree - so "the Sonarr naming config" was never a single
     /// thing once a pair was configured.
     @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr

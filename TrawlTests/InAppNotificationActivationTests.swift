@@ -3,7 +3,7 @@ import Testing
 
 /// What happens when a user taps an in-app notification.
 ///
-/// Trawl presents banners two ways — the Dynamic Island toast on devices that have
+/// Trawl presents banners two ways - the Dynamic Island toast on devices that have
 /// one, and the legacy top banner everywhere else. Both must navigate identically:
 /// a banner carrying an action performs it, and a banner without one opens the
 /// notification history. The two presentations previously each held their own copy

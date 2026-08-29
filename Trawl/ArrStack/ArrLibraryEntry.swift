@@ -22,7 +22,7 @@ nonisolated protocol ArrMergeableLibraryItem: ArrInstanceScoped, Identifiable, S
     ///
     /// Prefer a metadata-database ID (TMDb, TVDb, IMDb): those are what both
     /// servers looked the title up by, so they agree. Only fall back to
-    /// title+year when an item carries no external ID at all — a lookup result
+    /// title+year when an item carries no external ID at all - a lookup result
     /// the user hasn't added yet, or a fixture.
     var mergeKey: ArrMergeKey { get }
 }
@@ -38,8 +38,8 @@ nonisolated struct ArrLibraryEntry<Item: ArrMergeableLibraryItem>: Identifiable,
     /// Every server's copy of this title, ordered by instance position.
     let copies: [Item]
 
-    /// The copy the list renders from. Shared metadata — title, year, overview,
-    /// cast, artwork — is identical across servers, so any copy will do; taking
+    /// The copy the list renders from. Shared metadata - title, year, overview,
+    /// cast, artwork - is identical across servers, so any copy will do; taking
     /// the first keeps it deterministic.
     var primary: Item { copies[0] }
 
@@ -83,7 +83,7 @@ nonisolated extension Array where Element: ArrMergeableLibraryItem {
     ///
     /// Callers hand this the union already ordered by instance position, so the
     /// copies inside each entry inherit that order and the entries themselves
-    /// come out in first-seen order — which is then re-sorted by the list's own
+    /// come out in first-seen order - which is then re-sorted by the list's own
     /// sort mode. Merging here rather than in the list keeps the flat union
     /// available for anything that needs per-server truth (counts, disk usage,
     /// routing a command).

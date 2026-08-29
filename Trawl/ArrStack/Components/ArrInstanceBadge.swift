@@ -5,7 +5,7 @@ import SwiftUI
 /// The blended library deliberately has no per-instance screens, so this badge is
 /// the *only* place server identity is visible. It appears wherever an item, a
 /// queue row, a calendar entry, a health check or a command outcome belongs to
-/// one specific server — and is suppressed entirely when only one instance of
+/// one specific server - and is suppressed entirely when only one instance of
 /// that service is configured, because then it distinguishes nothing and is pure
 /// noise on every row in the app.
 struct ArrInstanceBadge: View {
@@ -20,7 +20,7 @@ struct ArrInstanceBadge: View {
     /// server's library with nothing on disk yet. Folding availability into the
     /// badge is what lets the row drop its separate availability pill: "Default,
     /// 4K" beside "Available Default & 4K" said the same thing twice in the common
-    /// case, and differed only when a title was in a library but not downloaded —
+    /// case, and differed only when a title was in a library but not downloaded -
     /// which is exactly what the fill now shows.
     var isDownloaded: Bool = true
     var style: Style = .compact
@@ -95,7 +95,7 @@ struct ArrInstanceBadge: View {
 ///
 /// `downloadedTiers` marks which of those servers actually has a file; anything
 /// else renders hollow. Passing nothing keeps every badge filled, which is right
-/// for the places that describe membership only — a detail header, say — and have
+/// for the places that describe membership only - a detail header, say - and have
 /// no availability to express.
 struct ArrInstanceBadgeRow: View {
     let refs: [ArrInstanceRef]
@@ -129,7 +129,7 @@ struct ArrInstanceBadgeRow: View {
         // nothing on disk".
         ArrInstanceBadgeRow(refs: refs, downloadedTiers: [refs[0].tier])
         ArrInstanceBadgeRow(refs: refs, downloadedTiers: [refs[0].tier], style: .prominent)
-        // Nothing downloaded anywhere — the case that still shows a status pill.
+        // Nothing downloaded anywhere - the case that still shows a status pill.
         ArrInstanceBadgeRow(refs: refs, downloadedTiers: [])
     }
     .padding()

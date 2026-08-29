@@ -20,7 +20,7 @@ import XCTest
 /// state: `WelcomeFlowView.serviceSelectionScreen` disables its "Go" button
 /// until at least one service is configured, and every setup sheet
 /// (`ArrSetupSheet`, `SABnzbdSetupSheet`, etc.) only saves a profile after a
-/// live `testConnection` call succeeds — something a UI test has no
+/// live `testConnection` call succeeds - something a UI test has no
 /// deterministic way to satisfy. So the tab bar, Downloads/Series/Movies/
 /// Search/More, and everything under them (including the four
 /// newly-labeled accessibility controls this suite was asked to check) are
@@ -61,7 +61,7 @@ final class TrawlUITests: XCTestCase {
     }
 
     /// With no services configured, "Choose Your Services" must not let the
-    /// user proceed into the tab UI — `WelcomeFlowView.serviceSelectionScreen`
+    /// user proceed into the tab UI - `WelcomeFlowView.serviceSelectionScreen`
     /// disables "Go" via `isDisabled: !configuredServices.hasAny`. This is
     /// this app's actual "unconfigured state degrades gracefully" behavior:
     /// rather than dropping a user with no services into an empty/broken tab

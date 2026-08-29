@@ -202,7 +202,7 @@ struct WidgetTimelineAndDataTests {
         #expect(qbAllStopped.statusLabel == "Paused")
 
         // A live SABnzbd queue makes the blended stack running even with every
-        // torrent stopped — this is the case a qBittorrent-only control gets wrong.
+        // torrent stopped - this is the case a qBittorrent-only control gets wrong.
         let soleLiveSAB = DownloadControlState(
             runningTorrentCount: 0,
             stoppedTorrentCount: 4,

@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 
 /// A selectable backup provider in the segment bar. The Arr services and Jellyfin
 /// have different capabilities (e.g. Jellyfin can't download, upload or delete), so
-/// the view branches on this and hides unsupported actions — the same way Bazarr
+/// the view branches on this and hides unsupported actions - the same way Bazarr
 /// already hides the upload button.
 private enum BackupSource: Hashable, Sendable, Identifiable {
     /// One *server*, not one service. Each half of an HD/4K pair keeps its own
@@ -888,7 +888,7 @@ struct ArrBackupsView: View {
         return iso.date(from: value)
     }
 
-    /// The client for one specific server — every backup read, create, upload,
+    /// The client for one specific server - every backup read, create, upload,
     /// delete and restore on this screen goes through it.
     private func client(for instance: ArrInstanceRef) -> (any SharedArrClient)? {
         switch instance.serviceType {

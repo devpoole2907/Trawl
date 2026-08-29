@@ -50,7 +50,7 @@ enum ServiceIdentity: String, CaseIterable {
         }
     }
 
-    /// Filled glyph — use for rows, badges, and service-identity contexts.
+    /// Filled glyph - use for rows, badges, and service-identity contexts.
     nonisolated var systemImage: String {
         switch self {
         case .qbittorrent: "arrow.down.circle.fill"
@@ -65,7 +65,7 @@ enum ServiceIdentity: String, CaseIterable {
         }
     }
 
-    /// Non-filled glyph — use for tab bar items and empty states.
+    /// Non-filled glyph - use for tab bar items and empty states.
     nonisolated var tabSystemImage: String {
         switch self {
         case .qbittorrent: "arrow.down.circle"

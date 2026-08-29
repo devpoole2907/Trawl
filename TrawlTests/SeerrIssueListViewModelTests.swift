@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// Coverage for `SeerrIssueListViewModel` — pagination, dedup, request versioning,
+/// Coverage for `SeerrIssueListViewModel` - pagination, dedup, request versioning,
 /// filter switching, and the cross-filter search sweep. Previously untested.
 ///
 /// `SeerrIssueListViewModel` takes a real `SeerrAPIClient` directly, so these drive
@@ -131,7 +131,7 @@ struct SeerrIssueListViewModelTests {
         await viewModel.loadMore()
         #expect(SeerrIssueListStubURLProtocol.recordedRequests[1].queryPairs.contains("skip=20"))
 
-        // selectedFilter's didSet spawns an unstructured, unawaited Task to reload —
+        // selectedFilter's didSet spawns an unstructured, unawaited Task to reload -
         // there is no handle to await directly, so poll the observable state it
         // produces rather than sleeping on the clock.
         viewModel.selectedFilter = .resolved
@@ -157,7 +157,7 @@ struct SeerrIssueListViewModelTests {
         viewModel.selectedFilter = .open // already .open, the default
 
         // Give any (incorrectly) spawned reload a bounded chance to fire before
-        // asserting it did not — there is nothing to await for an event that
+        // asserting it did not - there is nothing to await for an event that
         // should never happen.
         for _ in 0..<200 { await Task.yield() }
         #expect(SeerrIssueListStubURLProtocol.recordedRequests.count == 1)
@@ -230,7 +230,7 @@ struct SeerrIssueListViewModelTests {
 
         await viewModel.updateSearchIssues(for: "ghost")
 
-        // Exactly one request per filter — the empty results array must break the
+        // Exactly one request per filter - the empty results array must break the
         // while loop before it can ask for a second page.
         #expect(SeerrIssueListStubURLProtocol.recordedRequests.count == 2)
         #expect(viewModel.searchIssues.isEmpty)
@@ -342,7 +342,7 @@ struct SeerrIssueListViewModelTests {
 
     /// selectedFilter's didSet spawns `Task { await loadIssues() }` with no handle
     /// this test can await directly. Poll the resulting observable state instead of
-    /// sleeping on the clock — mirrors `OnboardingViewModelTests.awaitCondition`,
+    /// sleeping on the clock - mirrors `OnboardingViewModelTests.awaitCondition`,
     /// built for the identical "unstructured, unawaited Task" problem.
     private func awaitCondition(maxYields: Int = 5_000, _ condition: () -> Bool) async -> Bool {
         for _ in 0..<maxYields {

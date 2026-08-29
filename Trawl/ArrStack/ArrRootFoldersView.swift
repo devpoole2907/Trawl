@@ -35,7 +35,7 @@ struct ArrRootFoldersView: View {
             } else {
                 // One section per server rather than per service. Root folders are
                 // per-server configuration, and an HD/4K pair almost never shares
-                // one — grouping by service showed a single server's folders and
+                // one - grouping by service showed a single server's folders and
                 // left the other's invisible.
                 List {
                     ForEach(populatedGroups, id: \.ref.id) { group in
@@ -169,13 +169,13 @@ struct ArrRootFoldersView: View {
         }
     }
 
-    /// "Sonarr" with one server of that type, "Sonarr — 4K" with two, so the
+    /// "Sonarr" with one server of that type, "Sonarr - 4K" with two, so the
     /// section header answers which server without the user counting rows.
     private func sectionTitle(for ref: ArrInstanceRef) -> String {
         guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
             return ref.serviceType.displayName
         }
-        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
+        return "\(ref.serviceType.displayName) - \(ref.shortLabel)"
     }
 
     private func refreshRootFolders() async {
@@ -295,7 +295,7 @@ private struct AddRootFolderSheet: View {
         guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
             return ref.serviceType.displayName
         }
-        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
+        return "\(ref.serviceType.displayName) - \(ref.shortLabel)"
     }
 
     private var canSave: Bool {
@@ -378,7 +378,7 @@ private struct AddRootFolderSheet: View {
         }
     }
 
-    /// Browses the filesystem of the selected server — the paths only that
+    /// Browses the filesystem of the selected server - the paths only that
     /// server can see.
     private var browserSource: RemotePathBrowserSource? {
         guard let instance = selectedInstance,

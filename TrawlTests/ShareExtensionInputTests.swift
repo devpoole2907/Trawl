@@ -9,7 +9,7 @@ import Testing
 // in `ShareViewController`, which compiles only into the extension targets and
 // is therefore unreachable from `TrawlTests`. They now live in
 // `Share/ShareInputResolution.swift`, a Foundation-only file that every target
-// compiles — including the `Trawl` app that hosts this test bundle.
+// compiles - including the `Trawl` app that hosts this test bundle.
 
 /// Stands in for the error an `NSItemProvider` hands back. `LocalizedError`
 /// makes `localizedDescription` return `errorDescription`, which is exactly the
@@ -30,7 +30,7 @@ private nonisolated func fixtureURL(_ string: String) -> URL {
 
 // MARK: - URL provider
 
-@Suite("Share input resolution — URL provider")
+@Suite("Share input resolution - URL provider")
 struct ShareURLProviderResolutionTests {
 
     /// Pre-fix: the URL branch bound the error to `_` and called `close()`, so
@@ -115,7 +115,7 @@ struct ShareURLProviderResolutionTests {
 
     /// The `.nzb` has to be in the path. An indexer link that only mentions one
     /// in its query string is an ordinary web link, and completing quietly is
-    /// the honest outcome — pinning it so the path rule cannot loosen silently.
+    /// the honest outcome - pinning it so the path rule cannot loosen silently.
     @Test("An https link with .nzb only in its query string is not an NZB link")
     func nzbInQueryStringOnlyCompletes() {
         let link = "https://indexer.example/api?t=get&id=99/Example.Release.nzb"
@@ -158,11 +158,11 @@ struct ShareURLProviderResolutionTests {
 
 // MARK: - File providers
 
-@Suite("Share input resolution — file providers")
+@Suite("Share input resolution - file providers")
 struct ShareFileProviderResolutionTests {
 
     /// M-04 scenario 1. Pre-fix the NZB branch was
-    /// `guard let url = item as? URL else { return }` — a bare `return` that
+    /// `guard let url = item as? URL else { return }` - a bare `return` that
     /// never called `close()`, so the share sheet stayed on screen forever.
     /// Every assertion here fails against that code: there was no resolution
     /// value at all, and nothing terminated.
@@ -202,7 +202,7 @@ struct ShareFileProviderResolutionTests {
         #expect(resolution.termination == .cancel(message: "Torrent attachment failed to load."))
     }
 
-    /// Pre-fix: bare `return` — hang.
+    /// Pre-fix: bare `return` - hang.
     @Test("A torrent provider handing back Data instead of a URL completes")
     func torrentProviderDataInsteadOfURLCompletes() {
         let resolution = ShareInputResolver.resolveTorrentFile(
@@ -235,7 +235,7 @@ struct ShareFileProviderResolutionTests {
 
 // MARK: - Plain text
 
-@Suite("Share input resolution — plain text")
+@Suite("Share input resolution - plain text")
 struct SharePlainTextResolutionTests {
 
     /// M-04 scenario 3. Pre-fix the plain-text branch was a bare `if` with no
@@ -271,7 +271,7 @@ struct SharePlainTextResolutionTests {
         #expect(resolution.termination == .cancel(message: "Text attachment failed to load."))
     }
 
-    /// M-04 scenario 4 — the happy path, which passed before the fix and must
+    /// M-04 scenario 4 - the happy path, which passed before the fix and must
     /// keep passing after it.
     @Test("A pasted magnet link resolves and does not terminate")
     func magnetTextResolves() {
@@ -330,7 +330,7 @@ struct ShareFileClassificationTests {
     }
 
     /// The NZB branch asked for a specific type, so anything else is a dead end
-    /// — and a dead end has to complete the request, not fall through.
+    /// - and a dead end has to complete the request, not fall through.
     @Test("The NZB branch rejects a file that is not named like an NZB")
     func nzbBranchRejectsOtherNames() {
         #expect(ShareInputResolver.classify(fileName: "Example.torrent", advertisedAs: .nzb) == .unusable)
@@ -393,7 +393,7 @@ struct ShareTerminationGateTests {
 
     /// M-04 scenario 5. `NSItemProvider` makes no promise that a completion
     /// handler runs once. Pre-fix, `close()` had no guard, so a provider firing
-    /// twice called `completeRequest` twice — a UIKit programmer error. The
+    /// twice called `completeRequest` twice - a UIKit programmer error. The
     /// `count == 1` assertion fails against that code.
     @Test("A provider that fires its completion handler twice terminates exactly once")
     func providerFiringTwiceTerminatesOnce() {
@@ -473,7 +473,7 @@ struct ShareInputTerminationSweepTests {
 
     /// Walks every shape a provider callback can take through the real
     /// resolvers and the real gate, and asserts each one lands on exactly one
-    /// terminal decision — or is explicitly a carry-on case.
+    /// terminal decision - or is explicitly a carry-on case.
     ///
     /// Against the pre-fix code, six of these produced no termination at all
     /// (both file branches × error and × `Data`, plus plain text × non-magnet

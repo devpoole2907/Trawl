@@ -14,7 +14,7 @@ enum MagnetLinkHandler {
 
     /// Async rather than completion-handler based: AppKit calls back on an arbitrary
     /// thread, and hopping to the main actor from there meant sending a caller's
-    /// closure across isolation domains — which callers do capture view state in.
+    /// closure across isolation domains - which callers do capture view state in.
     @MainActor
     static func setAsDefault() async throws {
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in

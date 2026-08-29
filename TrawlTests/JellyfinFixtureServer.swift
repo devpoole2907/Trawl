@@ -8,9 +8,9 @@ import Network
 ///
 /// `JellyfinAPIClient.init` builds its own `URLSessionConfiguration.ephemeral`
 /// and exposes no session seam, so a `URLProtocol` stub cannot be injected. A
-/// real socket is therefore the only way to drive the production request path —
+/// real socket is therefore the only way to drive the production request path -
 /// `JellyfinAPIClient` → `JellyfinAuthHeader` → `HTTPTransport` → `JSONDecoder`
-/// → `HTTPErrorMapper` — with controlled payloads.
+/// → `HTTPErrorMapper` - with controlled payloads.
 ///
 /// This is a deliberate copy of `JellyfinContractTests`' private
 /// `JellyfinContractServer` (that type is file-private and cannot be shared),
@@ -21,7 +21,7 @@ import Network
 /// * `releaseParked(_:)`, which answers connections the handler parked, so a
 ///   test can let a request that was in flight during `invalidate` complete;
 /// * `waitForClosedConnections(_:)`, which resumes when the *client* tears a
-///   parked connection down — the observable proof that a `Task.cancel()`
+///   parked connection down - the observable proof that a `Task.cancel()`
 ///   really reached the socket, with no sleeping or polling involved.
 ///
 /// Nothing here uses time-based synchronisation: every barrier is a
@@ -203,7 +203,7 @@ nonisolated final class JellyfinFixtureServer: @unchecked Sendable {
     /// Resumes once `count` parked connections have been closed *by the client*
     /// (EOF or a read error on a connection this server never answered). That
     /// only happens when `URLSession` tears the request down, which in turn only
-    /// happens when the owning `Task` is cancelled — so this is a real, non-timing
+    /// happens when the owning `Task` is cancelled - so this is a real, non-timing
     /// barrier proving cancellation propagated all the way to the socket.
     func waitForClosedConnections(_ count: Int) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -402,7 +402,7 @@ func jellyfinSettledItems(
 }
 
 /// As `jellyfinSettledItems`, but resolves once the state is anything other than
-/// `.loading` — used by tests that expect a failure.
+/// `.loading` - used by tests that expect a failure.
 @MainActor
 func jellyfinSettledState(
     _ resolver: JellyfinAvailabilityResolver,
@@ -440,7 +440,7 @@ func jellyfinSettledEpisodeState(
 ///
 /// The resolver's expiry windows are 60 and 300 seconds. Waiting them out is not
 /// an option, and shortening them for tests would mean the shipped values were
-/// never the ones exercised — so the resolver takes an injectable `now` and this
+/// never the ones exercised - so the resolver takes an injectable `now` and this
 /// drives it directly. Time only moves when a test says so, which also means the
 /// expiry assertions cannot flake under load.
 @MainActor

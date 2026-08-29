@@ -7,7 +7,7 @@ import Foundation
 ///
 /// Deliberately not fanned out across an HD/4K pair. These are *catalog* lookups
 /// used to open a cast member's other work, and both servers proxy the same TMDb
-/// metadata — asking the second one costs a round trip and returns the same
+/// metadata - asking the second one costs a round trip and returns the same
 /// answer. This is the one place an instance-scoped client is left alone on
 /// purpose rather than by omission.
 @MainActor

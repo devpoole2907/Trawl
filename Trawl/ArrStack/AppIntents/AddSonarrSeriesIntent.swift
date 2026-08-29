@@ -67,7 +67,7 @@ struct AddSonarrSeriesIntent: AppIntent {
             throw ArrIntentError.requestFailed("That series is missing the details Sonarr needs to add it.")
         }
 
-        // Duplicate guard. A failed read is not the same as an empty library — swallowing
+        // Duplicate guard. A failed read is not the same as an empty library - swallowing
         // it here would let a real duplicate through, so surface the failure and stop
         // before any add mutation is sent.
         let existing: [SonarrSeries]
@@ -80,7 +80,7 @@ struct AddSonarrSeriesIntent: AppIntent {
             return .result(dialog: IntentDialog(stringLiteral: ArrIntentError.itemAlreadyExists(lookup.title).message))
         }
 
-        // Live defaults — never hardcoded.
+        // Live defaults - never hardcoded.
         let profiles = try await client.getQualityProfiles()
         let qualityProfileId = try ArrIntentSupport.defaultQualityProfileId(from: profiles)
         let rootFolders = try await client.getRootFolders()

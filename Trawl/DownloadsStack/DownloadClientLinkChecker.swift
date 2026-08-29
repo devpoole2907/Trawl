@@ -3,7 +3,7 @@ import Foundation
 /// Trawl knowing about a download client and Sonarr/Radarr knowing about the same
 /// client are completely independent facts. Nothing in either app reconciles them, so
 /// a user can finish setup in Trawl, see a healthy SABnzbd queue, and still have every
-/// Arr grab fail with "no download client available" — silently, from Trawl's side.
+/// Arr grab fail with "no download client available" - silently, from Trawl's side.
 ///
 /// This walks each connected Arr and reports whether it is actually pointed at the
 /// client Trawl is talking to.
@@ -33,8 +33,8 @@ enum DownloadClientLinkState: Hashable, Sendable {
     /// The Arr has no enabled client of this kind at all. Unambiguous: grabs of this
     /// protocol cannot reach the client Trawl is showing.
     case missing
-    /// The Arr has one, but it points somewhere else. Often *correct* — a Docker
-    /// hostname and a LAN IP can be the same box — so this is reported as a note
+    /// The Arr has one, but it points somewhere else. Often *correct* - a Docker
+    /// hostname and a LAN IP can be the same box - so this is reported as a note
     /// rather than a fault.
     case differentHost(String)
 }
@@ -118,7 +118,7 @@ enum DownloadClientLinkChecker {
         }
 
         // Every server of this service, unioned. A download client attached only to
-        // the 4K server is still linked — asking the active server alone reports it
+        // the 4K server is still linked - asking the active server alone reports it
         // as unlinked and sends the user looking for a problem that isn't there.
         let instances = serviceManager.visibleArrInstances.filter { $0.ref.serviceType == service }
         guard !instances.isEmpty else { return nil }
@@ -131,7 +131,7 @@ enum DownloadClientLinkChecker {
             clients += fetched
         }
         // Nil means "could not tell", which suppresses the warning. An empty array
-        // means "asked, and there are none" — a real answer, and a different one.
+        // means "asked, and there are none" - a real answer, and a different one.
         return reachedAny ? clients : nil
     }
 
@@ -145,7 +145,7 @@ enum DownloadClientLinkChecker {
         if let url = URL(string: host), let urlHost = url.host {
             host = urlHost.lowercased()
         } else {
-            // Not parseable as a URL — strip a scheme, then any port/path by hand.
+            // Not parseable as a URL - strip a scheme, then any port/path by hand.
             if let schemeRange = host.range(of: "://") {
                 host = String(host[schemeRange.upperBound...])
             }

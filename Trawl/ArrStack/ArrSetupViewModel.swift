@@ -45,8 +45,8 @@ final class ArrSetupViewModel {
         // One per tier, so the cap is a consequence of the model rather than a
         // rule bolted onto it.
         case .sonarr, .radarr: ArrQualityTier.allCases.count
-        // Bazarr is configured against an *arr pair — one Bazarr for the default
-        // Sonarr/Radarr and one for the 4K pair — so it tops out where they do,
+        // Bazarr is configured against an *arr pair - one Bazarr for the default
+        // Sonarr/Radarr and one for the 4K pair - so it tops out where they do,
         // even though it carries no tier of its own. Derived from the tier count
         // rather than written as `2` so the two cannot drift apart.
         case .bazarr: ArrQualityTier.allCases.count
@@ -106,7 +106,7 @@ final class ArrSetupViewModel {
 
             // One server per quality tier. Enforced here rather than at the UI so
             // the rule holds however setup is reached, and expressed as "that tier
-            // is taken" rather than "you have too many servers" — the second is
+            // is taken" rather than "you have too many servers" - the second is
             // true but tells the user nothing about what to do next.
             if Self.usesQualityTiers(serviceType) {
                 let conflict = allProfiles.first {
@@ -248,7 +248,7 @@ final class ArrSetupViewModel {
                             try await KeychainHelper.shared.delete(key: keychainKey)
                         }
                     } catch {
-                        // Best-effort rollback — log but don't mask the original save error.
+                        // Best-effort rollback - log but don't mask the original save error.
                         logger.error("Keychain rollback failed after SwiftData save error: \(error.localizedDescription, privacy: .public)")
                     }
                 } else {
@@ -277,8 +277,8 @@ final class ArrSetupViewModel {
             // sheet cancels this task in `onDisappear`, and again on every Save tap
             // while one is in flight. `HTTPTransport` converts a cancelled request
             // into `CancellationError`, which would otherwise fall to the general
-            // `catch` below and put the raw description of a Swift error — literally
-            // "(Swift.CancellationError error 1.)" — into the editor's error section.
+            // `catch` below and put the raw description of a Swift error - literally
+            // "(Swift.CancellationError error 1.)" - into the editor's error section.
             // `isValidating` is still cleared so a cancelled attempt cannot leave the
             // form stuck showing "Testing connection...".
             isValidating = false

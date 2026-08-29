@@ -117,7 +117,7 @@ struct DownloadsBatchSelectionTests {
         #expect(viaSAB.batchTarget == .sab(job))
     }
 
-    /// An unlinked queue row names a download Trawl cannot reach — the client that
+    /// An unlinked queue row names a download Trawl cannot reach - the client that
     /// holds it is not configured, or the link could not be made. Resolving it to
     /// *something* would send the action to the wrong client.
     @Test("An unlinked Arr queue row resolves to nothing")

@@ -2,18 +2,18 @@ import Foundation
 import Network
 @testable import Trawl
 
-/// A loopback HTTP/1.1 server for `ArrIndexerManagementViewModel` — the
+/// A loopback HTTP/1.1 server for `ArrIndexerManagementViewModel` - the
 /// Sonarr/Radarr indexer manager at the bottom of `ProwlarrViewModel.swift`.
 ///
 /// That view model resolves a real `SonarrAPIClient` / `RadarrAPIClient` per
 /// `(profileID, serviceType)` via `ArrServiceManager.sonarrClient(for:)` /
 /// `.radarrClient(for:)`, both of which speak the shared `/api/v3` surface and
-/// have no session-injection seam — so, as with `ProwlarrFixtureServer`, a
+/// have no session-injection seam - so, as with `ProwlarrFixtureServer`, a
 /// real socket is the only faithful way to exercise the request path, and the
 /// only way to prove an operation for one connected instance never reaches
 /// another instance's socket. This is a parallel copy of that file's plumbing
 /// rather than a shared one, because it fronts a structurally different API
-/// surface (`/api/v3` indexer endpoints, not Prowlarr's `/api/v1`) — the same
+/// surface (`/api/v3` indexer endpoints, not Prowlarr's `/api/v1`) - the same
 /// reasoning `ProwlarrFixtureServer` itself gives for not sharing
 /// `ArrClientLifecycleTests`' server.
 nonisolated struct ArrIndexerFixtureRequest: Sendable, Equatable {
@@ -251,7 +251,7 @@ nonisolated func arrJSONArray(_ elements: [String]) -> String {
     "[\(elements.joined(separator: ","))]"
 }
 
-/// Builds an in-memory `ArrManagedIndexer` for POST/PUT/test request bodies —
+/// Builds an in-memory `ArrManagedIndexer` for POST/PUT/test request bodies -
 /// the counterpart to `arrManagedIndexerJSON`, which builds the server's
 /// response shape.
 nonisolated func makeTestArrManagedIndexer(

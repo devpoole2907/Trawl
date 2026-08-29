@@ -6,7 +6,7 @@
 //  not cosmetic: `ArrSetupViewModel.validateAndSave` inserts a new profile and unwinds
 //  through `modelContext.rollback()` plus a Keychain delete, where the edit path mutates
 //  in place and restores field by field. `TrawlTests/ArrSetupViewModelTests` covers that
-//  logic directly; this journey covers the half a view model test cannot see — that the
+//  logic directly; this journey covers the half a view model test cannot see - that the
 //  entry point exists, that the sheet arrives in *add* mode rather than prefilled from
 //  some other profile, and that a second instance genuinely joins the running service
 //  manager instead of replacing the first.
@@ -17,7 +17,7 @@
 //  `initialServiceType == nil && existingProfile == nil`. No reachable call site
 //  satisfies that. `ArrServiceEditorContext.create` carries a non-optional
 //  `ArrServiceType`, so every create passes one, and every edit passes a profile. The
-//  one call site that passes neither is `ArrServicesSettingsView.swift:55` — a file
+//  one call site that passes neither is `ArrServicesSettingsView.swift:55` - a file
 //  nothing outside its own SwiftUI previews references. The picker, and the
 //  `availableServiceTypes`/`canCreateProwlarr` logic feeding it, are therefore
 //  unreachable from the running app and are deliberately not covered here; writing a
@@ -27,7 +27,7 @@
 //  The reachable add entry points come from `ArrServiceSettingsDetailView`:
 //  "Add <Service> Server" when none is configured (line ~102), and "Add Another
 //  <Service> Server" once one is configured. This drives the latter, because multi-instance state
-//  is where the manager can go wrong — `sonarrInstances` is a list, and an add that
+//  is where the manager can go wrong - `sonarrInstances` is a list, and an add that
 //  clobbered an existing entry rather than appending would still look correct on one
 //  screen.
 //  The entry point disappears once the HD and 4K slots are both occupied, enforcing
@@ -107,7 +107,7 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         let addSheetTitle = app.navigationBars["Add Sonarr"]
         XCTAssertTrue(
             addSheetTitle.waitForExistence(timeout: 10),
-            "The sheet should present as 'Add Sonarr' — a title of 'Edit Sonarr' would mean .create was routed as an edit."
+            "The sheet should present as 'Add Sonarr' - a title of 'Edit Sonarr' would mean .create was routed as an edit."
         )
         expandSheet(titled: "Add Sonarr", in: app)
 
@@ -128,7 +128,7 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         XCTAssertTrue(save.waitForExistence(timeout: 5), "The add sheet should have a Save action.")
         XCTAssertFalse(
             save.isEnabled,
-            "Save must be disabled while the form is empty — ArrSetupSheet gates it on a non-empty host and key."
+            "Save must be disabled while the form is empty - ArrSetupSheet gates it on a non-empty host and key."
         )
 
         // MARK: Fill it in and save
@@ -157,12 +157,12 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             firstStaticText(labelContains: "Second Sonarr", in: app).waitForExistence(timeout: 15),
-            "The Instances section should list the newly added server under the instance name it reported — regression: the profile was not inserted, or the screen is not observing the new instance."
+            "The Instances section should list the newly added server under the instance name it reported - regression: the profile was not inserted, or the screen is not observing the new instance."
         )
 
         XCTAssertTrue(
             firstStaticText(labelContains: "Fixture Sonarr", in: app).exists,
-            "The originally configured instance must still be listed — regression: the add replaced an existing profile instead of appending to the list."
+            "The originally configured instance must still be listed - regression: the add replaced an existing profile instead of appending to the list."
         )
 
         waitForDisappearance(of: addButton, timeout: 10)

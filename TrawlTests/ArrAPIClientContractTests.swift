@@ -22,7 +22,7 @@ struct SonarrAPIClientContractTests {
     /// The Add button on the quality-profiles screen depends entirely on this
     /// call: a profile's `items` have to mirror the server's own quality
     /// definitions, so a blank profile cannot be built client-side and has to come
-    /// from the schema. Two things could break it silently — the path (a 404 here
+    /// from the schema. Two things could break it silently - the path (a 404 here
     /// would surface as "could not start" with no hint why) and the shape, since
     /// unlike every neighbouring endpoint this one returns a single object rather
     /// than an array, and a nested `items` tree that the editor renders directly.
@@ -69,7 +69,7 @@ struct SonarrAPIClientContractTests {
         #expect(schema.id == 0)
         #expect(schema.name.isEmpty)
         #expect(schema.items?.count == 2)
-        // The nested group has to survive decoding — flattening it would strip
+        // The nested group has to survive decoding - flattening it would strip
         // every grouped quality out of the new profile.
         #expect(schema.items?[1].name == "WEB 1080p")
         #expect(schema.items?[1].items?.count == 2)
@@ -266,7 +266,7 @@ struct SonarrAPIClientContractTests {
         // Compared as parsed JSON, not raw bytes: `JSONEncoder` gives no key-order
         // guarantee, so a byte assertion here fails intermittently on an encoder
         // detail rather than on a contract change. The key set is still exact, so
-        // a stray or missing field still fails — and the trimmed guid is the point.
+        // a stray or missing field still fails - and the trimmed guid is the point.
         let body = try #require(request.jsonObjectBody)
         let expected: NSDictionary = ["guid": "sonarr-guid-1", "indexerId": 7]
         #expect(body == expected)
@@ -329,7 +329,7 @@ struct SonarrAPIClientContractTests {
         )
         #expect(
             pairs["addImportListExclusion"] == nil,
-            "Not excluding is expressed by omitting the parameter — sending it as \"false\" is a different request."
+            "Not excluding is expressed by omitting the parameter - sending it as \"false\" is a different request."
         )
     }
 
@@ -452,7 +452,7 @@ struct SonarrAPIClientContractTests {
         await #expect(throws: ArrError.self) {
             try await client.deleteQueueItem(id: 42)
         }
-        // The request still went out — this is a server rejection, not a client-side
+        // The request still went out - this is a server rejection, not a client-side
         // refusal to send.
         #expect(server.requests.contains { $0.method == "DELETE" && $0.path == "/api/v3/queue/42" })
     }

@@ -174,7 +174,7 @@ final class AddTorrentViewModel {
         }
     }
 
-    /// Move the selection onto a source the user can actually use — a SABnzbd-only
+    /// Move the selection onto a source the user can actually use - a SABnzbd-only
     /// setup has no magnet source to land on.
     func normalizeSourceForAvailableClients() {
         let sources = availableSources
@@ -319,7 +319,7 @@ final class AddTorrentViewModel {
     /// SABnzbd exposes no category listing endpoint, so offer the categories that
     /// already appear on the server's own jobs.
     /// Asks the server for its categories and scripts, falling back to whatever the
-    /// queue and history happen to show if the call fails — a fresh install with an
+    /// queue and history happen to show if the call fails - a fresh install with an
     /// empty queue has nothing to infer from, which is exactly when this matters.
     private func loadSABnzbdOptions() async {
         guard let sabnzbdManager else {

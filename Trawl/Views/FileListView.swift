@@ -141,7 +141,7 @@ private struct FileRow: View {
         (file.name as NSString).lastPathComponent
     }
 
-    /// The file's full on-disk directory — the torrent's save path plus any
+    /// The file's full on-disk directory - the torrent's save path plus any
     /// subfolder from the file's relative name within the torrent. `file.name`
     /// alone has no directory component for single-file torrents, so this is
     /// needed to show a meaningful path rather than nothing.
@@ -242,7 +242,7 @@ private struct FileRow: View {
 }
 
 #Preview("Error") {
-    let vm = TorrentDetailViewModel(files: [], error: "Failed to load files — connection refused.")
+    let vm = TorrentDetailViewModel(files: [], error: "Failed to load files - connection refused.")
     PreviewHost(profiles: .qBittorrentOnly) {
         NavigationStack {
             FileListView(viewModel: vm)

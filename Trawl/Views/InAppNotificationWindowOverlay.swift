@@ -45,7 +45,7 @@ final class PassthroughNotificationWindow: UIWindow {
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         // Only intercept touches inside the visible banner frame. Transparent
-        // SwiftUI subviews would otherwise claim taps in empty areas — bannerFrame
+        // SwiftUI subviews would otherwise claim taps in empty areas - bannerFrame
         // is the source of truth for what should swallow input.
         guard let center = notificationCenter,
               center.currentBanner != nil,

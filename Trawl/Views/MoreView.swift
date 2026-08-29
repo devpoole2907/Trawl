@@ -600,7 +600,7 @@ struct MoreView: View {
                         .environment(arrServiceManager)
                         .moreDestinationTitleStyle()
                 case .calendar:
-                    // Search-reachable only — no permanent More row. The primary,
+                    // Search-reachable only - no permanent More row. The primary,
                     // correctly media-scoped entry points are the Series and Movies
                     // toolbars (ArrMediaListView); this unscoped copy stays for search.
                     ArrCalendarView()
@@ -2220,7 +2220,7 @@ private struct DownloadClientsManagementView: View {
         arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
     }
 
-    /// Changes whenever a server appears or its connection settles — exactly when
+    /// Changes whenever a server appears or its connection settles - exactly when
     /// this screen's answer could become knowable, or become wrong.
     private var arrConnectionSignature: String {
         [
@@ -2279,7 +2279,7 @@ private struct DownloadClientsManagementView: View {
         //
         // Instances populate as each server finishes connecting, so a screen opened
         // early asks about a service whose instances have not landed yet and is told
-        // there are none — a configured Radarr with two working download clients,
+        // there are none - a configured Radarr with two working download clients,
         // reported as "Not set up", and never re-checked because nothing asked
         // again. Re-running when connections settle lets that answer correct itself
         // instead of needing a manual pull-to-refresh.
@@ -2356,8 +2356,8 @@ private final class DownloadClientsStatusViewModel {
     /// Generation of the load currently allowed to publish. A plain `isLoading`
     /// bail dropped the *newer* request, which is the wrong one to lose: loads are
     /// now re-triggered when the servers' connection state settles, and that change
-    /// can easily land while the first load — the one asking too early, and getting
-    /// the wrong answer — is still in flight.
+    /// can easily land while the first load - the one asking too early, and getting
+    /// the wrong answer - is still in flight.
     private var loadGeneration = 0
 
     func load(arrServiceManager: ArrServiceManager) async {
@@ -2379,7 +2379,7 @@ private final class DownloadClientsStatusViewModel {
     /// The state of *every* server configured for this service, not whichever one
     /// happens to be resolved.
     ///
-    /// This asked `arrServiceManager.sonarrClient` — the single active client —
+    /// This asked `arrServiceManager.sonarrClient` - the single active client -
     /// which predates the service having more than one server. With an HD/4K pair
     /// it reported on one of the two and silently ignored the other, so a second
     /// server with no download client, or a broken one, read as "Connected".
@@ -2404,7 +2404,7 @@ private final class DownloadClientsStatusViewModel {
             guard arrServiceManager.isConnected(serviceType, profileID: ref.id),
                   let client = arrServiceManager.sharedClient(for: ref) else {
                 // A server Trawl cannot reach may hold a perfectly good download
-                // client or none at all — either way the row must not claim
+                // client or none at all - either way the row must not claim
                 // everything is fine on its behalf.
                 states.append(.notConnected)
                 continue
@@ -2416,7 +2416,7 @@ private final class DownloadClientsStatusViewModel {
                 guard !clients.isEmpty else {
                     // This server answered and has no download client, so it cannot
                     // grab anything. Contributing nothing here would let its healthy
-                    // partner speak for the pair — which is the half-truth this row
+                    // partner speak for the pair - which is the half-truth this row
                     // exists to stop: a 4K server with no client reads as
                     // "Connected" on the strength of the default server's.
                     states.append(.notConnected)
@@ -2442,7 +2442,7 @@ private final class DownloadClientsStatusViewModel {
 
         guard reachedAnyServer else { return .error }
         // Reached the servers, and not one of them has a download client. That is
-        // a real problem — neither server can grab anything — but it is not the
+        // a real problem - neither server can grab anything - but it is not the
         // same as the service being unconfigured, which is what this used to say.
         guard sawDownloadClient else { return .warning("No Clients") }
 
@@ -2805,7 +2805,7 @@ private struct IntegrationRelationshipRow: View {
 }
 
 /// Tracks whether the "no language profile" tip has been dismissed during the
-/// current app launch. In-memory only, so it resets on every fresh launch —
+/// current app launch. In-memory only, so it resets on every fresh launch -
 /// the tip reappears next launch if profiles are still unconfigured.
 @MainActor
 private enum SubtitleLanguageProfileTipState {
@@ -2945,7 +2945,7 @@ private struct LanguageProfileTipBanner: View {
 #endif
 
 
-/// Requests & Access — Seerr requests and issues plus unified user management.
+/// Requests & Access - Seerr requests and issues plus unified user management.
 /// The children moved here from the former `RequestManagementView` (Requests, Issues)
 /// and the old top-level Users row, so they are not duplicated elsewhere.
 private struct RequestsAndAccessHubView: View {
@@ -3026,7 +3026,7 @@ private struct RequestsAndAccessHubView: View {
 }
 #endif
 
-/// System — the cross-service operational read-outs. Every child owns its own
+/// System - the cross-service operational read-outs. Every child owns its own
 /// unavailable state, so the rows stay visible even with nothing configured
 /// (matching how these rows behaved on the More dashboard before regrouping).
 private struct SystemHubView: View {
@@ -3097,7 +3097,7 @@ private struct SystemHubView: View {
 }
 #endif
 
-/// Automation & Clients — indexers, service wiring, and scheduled work. The three
+/// Automation & Clients - indexers, service wiring, and scheduled work. The three
 /// service-link children (linked applications, download clients, remote path
 /// mappings) moved here from the former `IntegrationsManagementView`, which this
 /// hub replaces rather than duplicates.
@@ -3445,7 +3445,7 @@ private struct JellyfinManagementView: View {
 /// A mesh gradient built from the brand colours of the services that are actually
 /// configured.
 ///
-/// Shared with the Downloads tab, which blends whichever download clients exist —
+/// Shared with the Downloads tab, which blends whichever download clients exist -
 /// so a qBittorrent-and-SABnzbd setup reads as both, and a setup with one reads as
 /// that one. An unconfigured service contributes no colour, which is what stops the
 /// background implying a service the user has not set up.
@@ -3475,7 +3475,7 @@ struct MoreServicesGradientBackground: View {
     /// The extra column is what lets the two colours sit near the middle *and* still
     /// reach the edges. An earlier attempt simply moved the outer points inward,
     /// which brought the colours together but left the mesh undefined beyond its own
-    /// hull — black bars down both sides of the screen.
+    /// hull - black bars down both sides of the screen.
     private var meshWidth: Int { services.count <= 2 ? 4 : 3 }
 
     private var meshPoints: [SIMD2<Float>] {
@@ -3489,8 +3489,8 @@ struct MoreServicesGradientBackground: View {
     /// the whole stack, which is what the More tab wants.
     ///
     /// With one or two it does not. Two colours cycled by `index % 2` land adjacent
-    /// on every edge of the grid, and two brand colours that happen to be opposites —
-    /// qBittorrent's blue and SABnzbd's orange — smear through grey where they meet.
+    /// on every edge of the grid, and two brand colours that happen to be opposites -
+    /// qBittorrent's blue and SABnzbd's orange - smear through grey where they meet.
     /// A small palette therefore gets regions instead: each colour owns a top corner
     /// and fades down through a clear middle, so they never blend into each other.
     private var meshColors: [Color] {

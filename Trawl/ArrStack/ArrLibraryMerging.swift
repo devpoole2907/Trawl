@@ -8,7 +8,7 @@ import Foundation
 // and 4K copies of the same film sit next to each other as unrelated entries.
 
 nonisolated extension RadarrMovie: ArrMergeableLibraryItem {
-    /// TMDb first — it is the ID Radarr itself keys a movie on, so two servers
+    /// TMDb first - it is the ID Radarr itself keys a movie on, so two servers
     /// that added the same film agree on it. IMDb is the fallback for the rare
     /// entry added before a TMDb match existed, and title+year the last resort
     /// for lookup results that carry no external ID at all.
@@ -40,7 +40,7 @@ nonisolated extension SonarrSeries: ArrMergeableLibraryItem {
     }
 }
 
-/// Episodes are not merged — they belong to one server's copy of a series — but
+/// Episodes are not merged - they belong to one server's copy of a series - but
 /// they still need to remember which server returned them so a calendar row can
 /// say where an airing is being tracked.
 nonisolated extension SonarrEpisode: ArrInstanceScoped {}

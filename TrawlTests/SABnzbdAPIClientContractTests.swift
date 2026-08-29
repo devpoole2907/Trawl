@@ -195,7 +195,7 @@ struct SABnzbdAPIClientContractTests {
     // MARK: - Authentication and key rejection
 
     /// SABnzbd's *only* signal that the caller holds the add-only NZB key rather
-    /// than the full API key is `mode=auth` answering `{"auth":"nzbkey"}` — it is
+    /// than the full API key is `mode=auth` answering `{"auth":"nzbkey"}` - it is
     /// a plain HTTP 200 success. The client decodes it and returns it; it does
     /// not translate it into `SABnzbdAPIError.insufficientAPIKey`. That
     /// translation currently happens nowhere: `SABnzbdSetupViewModel` raises its
@@ -251,7 +251,7 @@ struct SABnzbdAPIClientContractTests {
     }
 
     /// The other way SABnzbd rejects a key: HTTP 200 with `status:false`. The
-    /// client maps that to `.api(message:)`, **not** `.unauthorized` — so the
+    /// client maps that to `.api(message:)`, **not** `.unauthorized` - so the
     /// H-05/H-06 lifecycle in `SABnzbdServiceManager`, which keys off
     /// `SABnzbdAPIError.unauthorized`, never fires for a server that answers this
     /// way. This test pins the current mapping so that gap is visible rather than

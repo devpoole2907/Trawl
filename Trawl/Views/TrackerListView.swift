@@ -436,7 +436,7 @@ private var trackerRefreshToolbarPlacement: ToolbarItemPlacement {
 }
 
 #Preview("Error") {
-    let vm = TorrentDetailViewModel(trackers: [], error: "Connection refused — qBittorrent unreachable.")
+    let vm = TorrentDetailViewModel(trackers: [], error: "Connection refused - qBittorrent unreachable.")
     PreviewHost(profiles: .qBittorrentOnly) {
         NavigationStack {
             TrackerListView(viewModel: vm)

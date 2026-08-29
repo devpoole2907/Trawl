@@ -27,7 +27,7 @@ enum ArrMediaDestination: Hashable {
 /// corresponding detail view, sourcing `ArrServiceManager`/`SyncService` from the environment.
 ///
 /// Library-mode cases (`.movie`, `.series`) construct a fresh `RadarrViewModel`/`SonarrViewModel`
-/// per push, preloaded from `ArrServiceManager.calendarViewModel` — the same app-wide, eagerly
+/// per push, preloaded from `ArrServiceManager.calendarViewModel` - the same app-wide, eagerly
 /// loaded library cache `ArrCalendarView` and `MoreView`'s calendar destinations already relied
 /// on before this modifier existed. That avoids an empty-state flash on first render while the
 /// detail view's own self-healing `.task` fetches a fresh copy.

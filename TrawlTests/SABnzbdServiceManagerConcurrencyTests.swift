@@ -69,7 +69,7 @@ struct SABnzbdServiceManagerConcurrencyTests {
     /// The Downloads tab asks for polling from its `.task`, which runs while the
     /// SABnzbd connection is still being established at launch. `startPolling()`
     /// used to require a client to already exist and silently returned when it
-    /// didn't — so a cold launch straight into Downloads never polled at all, and
+    /// didn't - so a cold launch straight into Downloads never polled at all, and
     /// nothing retried it: the queue stayed frozen for the whole session until a
     /// manual pull-to-refresh. The request now outlives the missing client.
     @Test("Polling asked for before the client exists starts once connected")

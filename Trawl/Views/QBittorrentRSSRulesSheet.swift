@@ -205,7 +205,7 @@ private struct RuleRow: View {
     }
 
     private var subtitle: String {
-        guard let rule, !rule.mustContain.isEmpty else { return "Must contain: —" }
+        guard let rule, !rule.mustContain.isEmpty else { return "Must contain: -" }
         return "Must contain: \(rule.mustContain)"
     }
 }

@@ -860,7 +860,7 @@ nonisolated struct SABnzbdCategory: Codable, Identifiable, Sendable {
     ///
     /// Verified against SABnzbd 5.1.1: this comes back as a *string* ("3"), and is
     /// empty on any category that inherits the global setting. `nil` here means
-    /// inherit — writing an explicit level to such a category would silently pin
+    /// inherit - writing an explicit level to such a category would silently pin
     /// it to whatever the editor happened to be showing.
     var postProcessing: Int?
     var script: String?

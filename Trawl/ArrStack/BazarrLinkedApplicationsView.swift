@@ -9,7 +9,7 @@ struct BazarrLinkedApplicationsListView: View {
     @State private var errorMessage: String?
     @State private var editorContext: BazarrLinkedApplicationType?
     /// Which Bazarr is being configured. Linked applications are per-server
-    /// settings — each Bazarr keeps its own Sonarr and Radarr connection — so a
+    /// settings - each Bazarr keeps its own Sonarr and Radarr connection - so a
     /// screen bound to whichever one happened to be active could only ever
     /// configure half of a pair, and gave no hint the other half existed.
     @State private var selectedInstanceID: UUID?

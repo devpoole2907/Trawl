@@ -13,9 +13,9 @@
 //  Sonarr". The app launches seeded against server A (same DEBUG hook as
 //  `SonarrConnectedJourneyUITests`: `-TrawlUITestInMemoryStore` +
 //  `TRAWL_UITEST_SONARR_BASE_URL`), reaches the tab UI showing A's library over real
-//  HTTP, and then the test drives the *real* edit flow — More -> Settings -> the
+//  HTTP, and then the test drives the *real* edit flow - More -> Settings -> the
 //  seeded Sonarr row -> "Edit Server" -> the real `ArrSetupSheet` -> a real
-//  `testConnection` against server B -> Save — to repoint the same profile ID at B.
+//  `testConnection` against server B -> Save - to repoint the same profile ID at B.
 //
 //  ## The UI path (traced, not guessed)
 //
@@ -29,12 +29,12 @@
 //  `Button("Edit Server", systemImage: "pencil") { editorContext = .edit(profile) }`
 //  (line ~97) that presents `ArrSetupSheet(existingProfile: profile, ...)` as a sheet.
 //  `ArrSetupViewModel.loadExisting(_:)` pre-fills `hostURL` from the profile and
-//  `apiKey` from a real Keychain read — since the DEBUG seeding hook in
+//  `apiKey` from a real Keychain read - since the DEBUG seeding hook in
 //  `Trawl/TrawlApp.swift` already wrote `"uitest-api-key"` under this profile's
 //  Keychain key, the API key field arrives pre-filled and does not need re-entry.
 //  Only the host field needs editing. Saving calls the real
 //  `ArrSetupViewModel.validateAndSave`, which runs a real `testConnection` against
-//  whatever host is currently in the field — against fixture server B, that succeeds,
+//  whatever host is currently in the field - against fixture server B, that succeeds,
 //  updates the *same* `ArrServiceProfile.id`, rotates `ArrServiceManager`'s
 //  `clientRevision` for that instance, and invalidates the shared series-library cache
 //  entry for that instance ID (`ArrServiceManager.swift:698`,
@@ -51,7 +51,7 @@
 //
 //  `Trawl/ArrStack/ArrMediaListView.swift`'s `.task(id:
 //  serviceManager.activeInstanceID(serviceType))` is keyed by profile ID, which is
-//  unchanged across a same-ID edit — its own comment notes it "restarts on every
+//  unchanged across a same-ID edit - its own comment notes it "restarts on every
 //  appear, not just the first, so this runs again on each tab switch". Tapping away
 //  to More and back to Series is therefore not incidental UI dressing in this journey:
 //  it is what actually causes `SonarrSeriesListView`'s freshly-recreated view model
@@ -109,7 +109,7 @@ final class ArrRepointJourneyUITests: XCTestCase {
         let seriesFromA = app.staticTexts["Series From Server A"]
         XCTAssertTrue(
             seriesFromA.waitForExistence(timeout: 15),
-            "The Series tab should show server A's library before any edit happens — if this fails, the baseline connect (not the repoint) is broken."
+            "The Series tab should show server A's library before any edit happens - if this fails, the baseline connect (not the repoint) is broken."
         )
 
         // MARK: Navigate to the real edit flow: More -> Settings -> Sonarr -> Edit Server.
@@ -121,28 +121,28 @@ final class ArrRepointJourneyUITests: XCTestCase {
         let settingsRow = firstElement(labelContains: "Settings", in: app)
         XCTAssertTrue(
             settingsRow.waitForExistence(in: app, timeout: 5),
-            "More should show a 'Settings' row (MoreView.swift, MoreDestination.settings) — regression: the row was removed or renamed."
+            "More should show a 'Settings' row (MoreView.swift, MoreDestination.settings) - regression: the row was removed or renamed."
         )
         settingsRow.tap()
 
         let sonarrRow = firstElement(labelContains: "Fixture Sonarr", in: app)
         XCTAssertTrue(
             sonarrRow.waitForExistence(in: app, timeout: 5),
-            "Settings should list the seeded Sonarr profile by its display name 'Fixture Sonarr' (SettingsView.swift serviceRow) — regression: the Sonarr row disappeared or the profile failed to resolve."
+            "Settings should list the seeded Sonarr profile by its display name 'Fixture Sonarr' (SettingsView.swift serviceRow) - regression: the Sonarr row disappeared or the profile failed to resolve."
         )
         sonarrRow.tap()
 
         let editServerButton = app.buttons["Edit Server"]
         XCTAssertTrue(
             editServerButton.waitForExistence(in: app, timeout: 5),
-            "ArrServiceSettingsView should offer an 'Edit Server' button once a Sonarr profile exists (ArrServiceSettingsDetailView.swift) — regression: the edit entry point is missing."
+            "ArrServiceSettingsView should offer an 'Edit Server' button once a Sonarr profile exists (ArrServiceSettingsDetailView.swift) - regression: the edit entry point is missing."
         )
         editServerButton.tap()
 
         let editSheetTitle = app.navigationBars["Edit Sonarr"]
         XCTAssertTrue(
             editSheetTitle.waitForExistence(timeout: 10),
-            "'Edit Server' should present ArrSetupSheet titled 'Edit Sonarr' for the existing profile — regression: the sheet didn't present, or presented as an 'Add' flow instead of an edit."
+            "'Edit Server' should present ArrSetupSheet titled 'Edit Sonarr' for the existing profile - regression: the sheet didn't present, or presented as an 'Add' flow instead of an edit."
         )
 
         // MARK: Edit the host to point at server B.
@@ -153,7 +153,7 @@ final class ArrRepointJourneyUITests: XCTestCase {
         // up-front would race that and report the field itself as missing.
         // `ArrSetupSheet` overrides `ServerURLField`'s title with an example URL
         // ("http://192.168.1.100:<defaultPort>"), so the field is identified by its
-        // placeholder rather than by a fixed label — and by prefix, so the service's
+        // placeholder rather than by a fixed label - and by prefix, so the service's
         // default port can change without breaking this.
         let hostField = app.textFields
             .matching(NSPredicate(format: "placeholderValue BEGINSWITH %@", "http://192.168.1.100:"))
@@ -169,14 +169,14 @@ final class ArrRepointJourneyUITests: XCTestCase {
         XCTAssertEqual(
             XCTWaiter().wait(for: [prefilled], timeout: 10),
             .completed,
-            "The edit sheet's host field should be pre-filled with the profile's current host URL (server A) — regression: ArrSetupViewModel.loadExisting isn't pre-filling hostURL."
+            "The edit sheet's host field should be pre-filled with the profile's current host URL (server A) - regression: ArrSetupViewModel.loadExisting isn't pre-filling hostURL."
         )
 
         clearAndType(b.baseURL, into: hostField)
         XCTAssertEqual(
             hostField.value as? String,
             b.baseURL,
-            "The host field should contain exactly server B's URL after editing — a partial clear or a mistyped '://' would corrupt this and the connection test would fail for the wrong reason."
+            "The host field should contain exactly server B's URL after editing - a partial clear or a mistyped '://' would corrupt this and the connection test would fail for the wrong reason."
         )
 
         let saveButton = app.buttons["Save"]
@@ -187,7 +187,7 @@ final class ArrRepointJourneyUITests: XCTestCase {
         )
 
         // Snapshot server A's traffic immediately before Save triggers the real
-        // reconnect. Everything after this point should go to B, never to A again —
+        // reconnect. Everything after this point should go to B, never to A again -
         // that's the H-01 assertion below.
         let serverARequestCountBeforeSave = a.requests.count
 
@@ -196,16 +196,16 @@ final class ArrRepointJourneyUITests: XCTestCase {
         // Save runs a real `testConnection` against B (a working fixture, so it
         // succeeds), then a real ArrServiceManager.connectService(profile) against B
         // before dismissing. Wait for the sheet to actually close rather than assuming
-        // a fixed delay — this is a bounded poll built only from waitForExistence,
+        // a fixed delay - this is a bounded poll built only from waitForExistence,
         // never sleep()/Thread.sleep(), since XCTest has no built-in
         // "wait for disappearance".
         waitForDisappearance(of: editSheetTitle, timeout: 20)
         XCTAssertFalse(
             editSheetTitle.exists,
-            "The edit sheet should dismiss once the real connection test against server B succeeds — regression: validateAndSave never completed, or server B's fixture responses don't satisfy the real Sonarr connect sequence (system status, quality profiles, root folders, tags)."
+            "The edit sheet should dismiss once the real connection test against server B succeeds - regression: validateAndSave never completed, or server B's fixture responses don't satisfy the real Sonarr connect sequence (system status, quality profiles, root folders, tags)."
         )
 
-        // MARK: Back to Series — should now show B, and never show A again.
+        // MARK: Back to Series - should now show B, and never show A again.
 
         seriesTab.tap()
 
@@ -217,19 +217,19 @@ final class ArrRepointJourneyUITests: XCTestCase {
 
         XCTAssertFalse(
             app.staticTexts["Series From Server A"].exists,
-            "H-01 regression: server A's series title should not still be on screen once the profile has been repointed to server B — a retained view model or an un-invalidated cache entry would keep showing it."
+            "H-01 regression: server A's series title should not still be on screen once the profile has been repointed to server B - a retained view model or an un-invalidated cache entry would keep showing it."
         )
 
         XCTAssertTrue(
             b.hasReceivedRequest(method: "GET", path: "/api/v3/series"),
-            "Server B should have actually received the series library request over real HTTP — proves the new content came from the new server, not from stale state."
+            "Server B should have actually received the series library request over real HTTP - proves the new content came from the new server, not from stale state."
         )
 
         let serverARequestCountAfterEdit = a.requests.count
         XCTAssertEqual(
             serverARequestCountAfterEdit,
             serverARequestCountBeforeSave,
-            "H-01 regression: server A received \(serverARequestCountAfterEdit - serverARequestCountBeforeSave) request(s) after the host was edited to server B — a stale client or a retained view model/service-manager entry is still talking to the old server."
+            "H-01 regression: server A received \(serverARequestCountAfterEdit - serverARequestCountBeforeSave) request(s) after the host was edited to server B - a stale client or a retained view model/service-manager entry is still talking to the old server."
         )
     }
 
@@ -245,7 +245,7 @@ final class ArrRepointJourneyUITests: XCTestCase {
     /// to disambiguate. Searching by substring across every element type is robust to
     /// either behavior without guessing the exact composed label.
     /// These list rows are `Button`s whose accessibility label merges their title and
-    /// subtitle — the More tab's Settings row, for instance, reads
+    /// subtitle - the More tab's Settings row, for instance, reads
     /// "Settings, App and server configuration". Matching `.any` picks up
     /// non-interactive descendants too, and tapping one of those silently does
     /// nothing, so restrict the search to buttons.

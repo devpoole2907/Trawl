@@ -11,7 +11,7 @@ import Testing
 ///
 /// Two ways that goes wrong silently, neither covered before:
 ///
-/// * A field the payload does not carry is dropped from profiles nobody touched — the
+/// * A field the payload does not carry is dropped from profiles nobody touched - the
 ///   `BazarrLanguageProfileSettingsPayload` shape decides what survives, so a profile's
 ///   cutoff or must-contain rules can be reset by editing an unrelated profile.
 /// * A stale or partial list deletes profiles outright. `BazarrLanguageProfilesView`
@@ -43,7 +43,7 @@ struct BazarrLanguageProfileSaveTests {
             try JSONSerialization.jsonObject(with: Data(encoded.utf8)) as? [[String: Any]]
         )
 
-        #expect(sent.count == 2, "The whole collection must be sent — a partial list deletes the missing profiles.")
+        #expect(sent.count == 2, "The whole collection must be sent - a partial list deletes the missing profiles.")
 
         // The profile nobody edited has to survive with all of its rules. These are the
         // fields that decide which subtitles are accepted at all.
@@ -114,7 +114,7 @@ struct BazarrLanguageProfileSaveTests {
         let request = try #require(server.requests.first { $0.method == "POST" && $0.path == "/api/system/settings" })
         #expect(
             request.formValues(named: "languages-enabled") == ["en", "fr", "ja"],
-            "Each enabled language needs its own field — collapsing them is how enabling one language disables the rest."
+            "Each enabled language needs its own field - collapsing them is how enabling one language disables the rest."
         )
     }
 

@@ -65,7 +65,7 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
-    /// Blended-library init — the title, wherever it lives.
+    /// Blended-library init - the title, wherever it lives.
     init(mergeKey: ArrMergeKey, viewModel: SonarrViewModel) {
         self.mergeKey = mergeKey
         self.seriesId = nil
@@ -74,7 +74,7 @@ struct SonarrSeriesDetailView: View {
         self.onAdded = nil
     }
 
-    /// Library init — series lives in the ViewModel's loaded library. Kept for
+    /// Library init - series lives in the ViewModel's loaded library. Kept for
     /// the entry points that only have a library ID: widgets, Siri intents, Seerr
     /// deep links, calendar and wanted rows.
     init(seriesId: Int, viewModel: SonarrViewModel) {
@@ -85,7 +85,7 @@ struct SonarrSeriesDetailView: View {
         self.onAdded = nil
     }
 
-    /// Discover init — series comes from a lookup result, may or may not be in library.
+    /// Discover init - series comes from a lookup result, may or may not be in library.
     init(series: SonarrSeries, viewModel: SonarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverSeries = series
         self.mergeKey = nil
@@ -99,7 +99,7 @@ struct SonarrSeriesDetailView: View {
     /// Every server's copy of this title.
     ///
     /// A library ID identifies a row on one server, so an ID-based entry point is
-    /// resolved to its copy first and then widened to the whole merged entry —
+    /// resolved to its copy first and then widened to the whole merged entry -
     /// arriving from a widget or a Siri intent lands on the same screen as
     /// tapping the row in the library.
     private var entry: ArrLibraryEntry<SonarrSeries>? {
@@ -363,7 +363,7 @@ struct SonarrSeriesDetailView: View {
                         try await Task.sleep(for: .seconds(pollInterval))
                     }
                 } catch is CancellationError {
-                    // task was cancelled — exit cleanly
+                    // task was cancelled - exit cleanly
                 } catch {
                     // ignore transient errors; the .task will restart if id changes
                 }
@@ -516,7 +516,7 @@ struct SonarrSeriesDetailView: View {
     }
 
     /// A toolbar item that has to name a server when there are two. With one
-    /// server it stays a plain button — there is nothing to disambiguate and a
+    /// server it stays a plain button - there is nothing to disambiguate and a
     /// submenu would be a tap for nothing.
     @ViewBuilder
     private func serverScopedMenuItem(
@@ -703,7 +703,7 @@ struct SonarrSeriesDetailView: View {
     private func statsCard(_ series: SonarrSeries) -> some View {
         if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
             // Two rows rather than one. A pair needs episode counts, disk usage and
-            // completion *per server* — more cells than a single row can hold, and
+            // completion *per server* - more cells than a single row can hold, and
             // dropping the last two would tell the user less about two servers than
             // this same card tells them about one.
             let pairs = Array(zip(instanceRefs, entry.copies))
@@ -738,7 +738,7 @@ struct SonarrSeriesDetailView: View {
                     ForEach(pairs, id: \.0.id) { ref, copy in
                         let size = copy.statistics?.sizeOnDisk ?? 0
                         statCell(
-                            value: size > 0 ? ByteFormatter.format(bytes: size) : "—",
+                            value: size > 0 ? ByteFormatter.format(bytes: size) : "-",
                             label: "\(ref.shortLabel) on Disk"
                         )
                         cardDivider
@@ -747,7 +747,7 @@ struct SonarrSeriesDetailView: View {
                         let files = pair.1.statistics?.episodeFileCount ?? 0
                         let total = pair.1.statistics?.episodeCount ?? 0
                         statCell(
-                            value: total > 0 ? "\(Int(Double(files) / Double(total) * 100))%" : "—",
+                            value: total > 0 ? "\(Int(Double(files) / Double(total) * 100))%" : "-",
                             label: "\(pair.0.shortLabel) Complete"
                         )
                         if index < pairs.count - 1 { cardDivider }
@@ -782,7 +782,7 @@ struct SonarrSeriesDetailView: View {
     }
 
     /// A series counts as available on a server once that server holds any
-    /// episode file — the 4K library has started it, and the per-server episode
+    /// episode file - the 4K library has started it, and the per-server episode
     /// cells beside the pill carry how far along each one is.
     private var availableTiers: [ArrQualityTier] {
         entry?.availableTiers(from: instanceRefs) { ($0.statistics?.episodeFileCount ?? 0) > 0 } ?? []
@@ -820,7 +820,7 @@ struct SonarrSeriesDetailView: View {
             if !didStart, let error = viewModel.error, !error.isEmpty {
                 InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
             } else if didStart {
-                // This flow has no in-view feedback card, so show the banner here —
+                // This flow has no in-view feedback card, so show the banner here -
                 // the view model itself only logs silently now to avoid duplicate
                 // banners for flows (like the season view) that do have a card.
                 InAppNotificationCenter.shared.showSuccess(
@@ -1263,7 +1263,7 @@ struct SonarrSeriesDetailView: View {
                             title: series.monitored == true ? "Unmonitor" : "Monitor",
                             systemImage: series.monitored == true ? "bookmark.slash" : "bookmark.fill",
                             choiceLabel: { ref, copy in
-                                "\(ref.shortLabel) — \(copy.monitored == true ? "Unmonitor" : "Monitor")"
+                                "\(ref.shortLabel) - \(copy.monitored == true ? "Unmonitor" : "Monitor")"
                             }
                         ) { copy in
                             Task { await viewModel.toggleSeriesMonitored(copy) }
@@ -1360,10 +1360,10 @@ struct SonarrSeriesDetailView: View {
 }
 
 #Preview("Connection Issue") {
-    SonarrPreviewHost(state: .sonarrConnectionError("Unable to reach Sonarr — check host and port.")) { manager in
+    SonarrPreviewHost(state: .sonarrConnectionError("Unable to reach Sonarr - check host and port.")) { manager in
         let viewModel = SonarrViewModel(
             previewSeries: [.preview],
-            error: "Unable to reach Sonarr — check host and port.",
+            error: "Unable to reach Sonarr - check host and port.",
             serviceManager: manager
         )
         NavigationStack {

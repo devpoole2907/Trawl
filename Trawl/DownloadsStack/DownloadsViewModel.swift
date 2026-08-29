@@ -19,7 +19,7 @@ final class DownloadsViewModel {
 
     // MARK: - Polling
 
-    /// The Arr queue is polled centrally by `ArrServiceManager` — Downloads only
+    /// The Arr queue is polled centrally by `ArrServiceManager` - Downloads only
     /// asks it to speed up while the tab is on screen.
     func startPolling(serviceManager: ArrServiceManager) {
         serviceManager.startQueuePolling()
@@ -44,7 +44,7 @@ final class DownloadsViewModel {
     /// The tab used to swap in a whole SABnzbd screen and a whole qBittorrent screen
     /// for these, each with its own list, chrome and lifecycle. They are not
     /// different screens: they are the same rows this already builds, narrowed to one
-    /// client — and narrowing here is what lets the tab stay one view.
+    /// client - and narrowing here is what lets the tab stay one view.
     ///
     /// `.all` folds a download into its *arr queue row when one claims it, because
     /// the blended list is about titles. A single-client scope does not fold: asking
@@ -81,7 +81,7 @@ final class DownloadsViewModel {
                 .filter { $0.state.filterCategory == .seeding }
                 .map(DownloadListItem.torrent)
         case .history:
-            // qBittorrent keeps no history of its own — a removed torrent is gone.
+            // qBittorrent keeps no history of its own - a removed torrent is gone.
             return []
         case .issues:
             return sorted
@@ -186,7 +186,7 @@ final class DownloadsViewModel {
             result = waitingQueue + waitingTorrents + waitingSAB
 
         case .completed:
-            // Finished but not uploading — paused or stopped on the seeding side.
+            // Finished but not uploading - paused or stopped on the seeding side.
             // `isCompleted` alone means "fully downloaded", which is why these used
             // to sit in Seeding alongside torrents that were actually seeding.
             let completedTorrents = unmatchedTorrents
@@ -239,8 +239,8 @@ final class DownloadsViewModel {
 
     // MARK: - App-wide failures
 
-    /// Everything in the app that needs a human right now — Arr import issues,
-    /// errored torrents, failed SABnzbd jobs — composed exactly the way the Downloads
+    /// Everything in the app that needs a human right now - Arr import issues,
+    /// errored torrents, failed SABnzbd jobs - composed exactly the way the Downloads
     /// Issues segment composes them, because it runs the same code. The tab-bar
     /// accessory reads this; a pill that disagrees with the tab it links to would be
     /// worse than no pill at all.
@@ -266,7 +266,7 @@ final class DownloadsViewModel {
 
     // MARK: - Queue actions
 
-    /// Whether "Blocklist & Search Again" can be offered — Sonarr needs an episode
+    /// Whether "Blocklist & Search Again" can be offered - Sonarr needs an episode
     /// (or at least a series) and Radarr needs a movie to search for.
     nonisolated static func canSearchAgain(_ item: ArrQueueItem, source: ArrServiceType) -> Bool {
         switch source {
@@ -322,7 +322,7 @@ final class DownloadsViewModel {
         // is mid-flight and swallows the refresh below. Suppression (rather than a
         // direct edit of the shared cache) is what survives that poll landing.
         // Must match ArrInstanced's own id, which is what `arrQueueRecords`
-        // filters against — a key built any other way would suppress nothing.
+        // filters against - a key built any other way would suppress nothing.
         if let instance {
             removedQueueItemKeys.insert("\(instance.id.uuidString):\(item.id)")
         }
@@ -347,7 +347,7 @@ final class DownloadsViewModel {
     }
 
     /// Stops suppressing rows the shared cache has caught up on. A row the cache
-    /// still reports stays hidden — the delete simply hasn't been picked up yet.
+    /// still reports stays hidden - the delete simply hasn't been picked up yet.
     private func pruneRemovedQueueItems(serviceManager: ArrServiceManager) {
         guard !removedQueueItemKeys.isEmpty else { return }
         let live = Set(serviceManager.queueItemsBySource.map(\.id))
@@ -431,7 +431,7 @@ final class DownloadsViewModel {
 
     /// History is one merged, date-sorted list across both services and both of
     /// their instances, so a row has to say which server imported or grabbed the
-    /// release — otherwise an HD grab and a 4K grab of the same title are two
+    /// release - otherwise an HD grab and a 4K grab of the same title are two
     /// identical-looking lines.
     private func historyItems(
         _ records: [ArrInstanced<ArrHistoryRecord>],

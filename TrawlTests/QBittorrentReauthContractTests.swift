@@ -4,7 +4,7 @@ import Testing
 
 /// Covers `QBittorrentAPIClient`'s HTTP 403 re-authentication contract end to end:
 /// the real request builder, the real `AuthService` login, the real status validator
-/// and the real decoder all run. Only two things are faked — the remote server (via a
+/// and the real decoder all run. Only two things are faked - the remote server (via a
 /// scripting `URLProtocol`) and the credential source (via `QBittorrentCredentialProviding`).
 @Suite("qBittorrent 403 re-authentication contract", .serialized)
 struct QBittorrentReauthContractTests {
@@ -135,7 +135,7 @@ struct QBittorrentReauthContractTests {
 
     @Test("A retry that returns a non-success status surfaces that status instead of decoding the body")
     func retryWithServerErrorSurfacesStatusWithoutDecoding() async throws {
-        // The 500's body is perfectly decodable — status validation must still win.
+        // The 500's body is perfectly decodable - status validation must still win.
         QBittorrentReauthURLProtocol.configure(
             apiResponses: [
                 .status(403),

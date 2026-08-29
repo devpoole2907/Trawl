@@ -387,7 +387,7 @@ struct SettingsView: View {
     /// with a spare. This row used to say "Sonarr 4K (2 instances)" over
     /// "Active: <url>", which asserted three wrong things: that the pair is named
     /// after whichever server happened to be selected, that one of them is the
-    /// real one, and — by omission — that the other one's address and health are
+    /// real one, and - by omission - that the other one's address and health are
     /// not worth showing. There is no active instance any more; the app talks to
     /// both. So both are listed, each with its tier and its own connection state.
     private func arrServiceRow(
@@ -399,7 +399,7 @@ struct SettingsView: View {
         isConnected: Bool
     ) -> some View {
         // Ordered by tier, not by the order they were added, so Default is always
-        // the line above 4K — the same ordering the badges use everywhere else.
+        // the line above 4K - the same ordering the badges use everywhere else.
         let ordered = profiles.sorted { $0.qualityTier.ordinalForDisplay < $1.qualityTier.ordinalForDisplay }
 
         return HStack(alignment: .top, spacing: 12) {
@@ -437,7 +437,7 @@ struct SettingsView: View {
                                 .lineLimit(1)
                             Spacer(minLength: 4)
                             // Per line, because an aggregate dot cannot say which
-                            // of the two is down — and one server being unreachable
+                            // of the two is down - and one server being unreachable
                             // is exactly what you open this screen to find out.
                             statusDot(isConfigured: true, isConnected: arrServiceManager.isConnected(serviceType, profileID: profile.id))
                         }
@@ -803,7 +803,7 @@ struct QBittorrentSettingsView: View {
         isUpdatingDefaultSavePath = true
         defer { isUpdatingDefaultSavePath = false }
 
-        // Step 1: remote write — if this fails the server was never updated, roll back fully.
+        // Step 1: remote write - if this fails the server was never updated, roll back fully.
         do {
             try await torrentService.setDefaultSavePath(path: trimmedPath)
         } catch {
@@ -823,7 +823,7 @@ struct QBittorrentSettingsView: View {
         do {
             try modelContext.save()
         } catch {
-            // Local persistence failed — roll back all in-memory mirrors.
+            // Local persistence failed - roll back all in-memory mirrors.
             appPreferences = previousAppPreferences
             defaultSavePath = previousDefaultSavePath
             syncService.defaultSavePath = previousSyncDefaultSavePath

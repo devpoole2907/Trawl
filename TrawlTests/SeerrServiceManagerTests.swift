@@ -3,12 +3,12 @@ import Network
 import Testing
 @testable import Trawl
 
-/// Coverage for `SeerrServiceManager` — connect/disconnect lifecycle, the pending
+/// Coverage for `SeerrServiceManager` - connect/disconnect lifecycle, the pending
 /// requests cache, and approve/decline. Previously untested.
 ///
 /// `SeerrServiceManager.connectService(_:)` and the login path in
 /// `SeerrSetupViewModel` both build their own internal `SeerrAPIClient` with no
-/// `sessionConfiguration` parameter reaching the caller — unlike `SeerrAPIClient`
+/// `sessionConfiguration` parameter reaching the caller - unlike `SeerrAPIClient`
 /// itself, which accepts one (see `SeerrContractTests`). There is therefore no
 /// `URLProtocol` seam to hang off of here, exactly as `OnboardingViewModelTests`
 /// documents for the analogous `OnboardingViewModel` case. These tests instead drive
@@ -151,7 +151,7 @@ struct SeerrServiceManagerTests {
             // Delete the cookie so the next connectService(_:) call takes the
             // "missing cookie" early-return branch in production code. NOTE (see
             // report): that branch does not itself reset pendingRequests, unlike the
-            // later catch-all failure branch which does — so immediately after this
+            // later catch-all failure branch which does - so immediately after this
             // call pendingRequests is still stale. This test is specifically about
             // refreshPendingRequests()'s own no-client guard, not connectService's.
             try await KeychainHelper.shared.delete(key: profile.sessionCookieKey)
@@ -286,7 +286,7 @@ struct SeerrServiceManagerTests {
             #expect(manager.isConnected == true)
 
             // The Keychain persist happens inside a Task.detached fired from the
-            // client's cookie-update handler — there is no handle to await
+            // client's cookie-update handler - there is no handle to await
             // directly. Poll the real Keychain value with bounded cooperative
             // yields rather than sleeping on the clock.
             let persisted = await awaitCondition {
@@ -300,7 +300,7 @@ struct SeerrServiceManagerTests {
 
     /// Polls a real async condition with bounded cooperative yields instead of a
     /// wall-clock sleep. Used only where production code fires an unstructured,
-    /// unawaited `Task`/`Task.detached` with no seam to await directly — mirrors
+    /// unawaited `Task`/`Task.detached` with no seam to await directly - mirrors
     /// `OnboardingViewModelTests.awaitCondition`, built for the identical problem.
     private func awaitCondition(maxYields: Int = 5_000, _ condition: () async -> Bool) async -> Bool {
         for _ in 0..<maxYields {
@@ -311,7 +311,7 @@ struct SeerrServiceManagerTests {
     }
 
     /// Saves `cookie` to `profile.sessionCookieKey`, runs `body`, then deletes that
-    /// exact key on both the success and failure paths — mirrors
+    /// exact key on both the success and failure paths - mirrors
     /// `OnboardingViewModelTests.cleaningUpKeychain` / `KeychainAppGroupTests.withTestKey`.
     private func withSavedSessionCookie(
         for profile: SeerrServiceProfile,
@@ -360,7 +360,7 @@ private nonisolated struct SeerrManagerFakeResponse: Sendable {
 /// A minimal loopback HTTP server standing in for Seerr's admin API.
 /// `SeerrServiceManager` builds its own `SeerrAPIClient` (and that client its own
 /// ephemeral `URLSession`) internally, with no injectable seam reachable from
-/// outside — see this file's top doc comment — so this drives the real manager over
+/// outside - see this file's top doc comment - so this drives the real manager over
 /// real loopback TCP, following the pattern established by
 /// `ArrClientLifecycleTests.LifecycleArrTestServer` and
 /// `OnboardingViewModelTests.OnboardingFakeQBServer` (both `private` to their own

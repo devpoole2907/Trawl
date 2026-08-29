@@ -16,7 +16,7 @@ final class AppServices {
     }
 
     /// Creates a disconnected placeholder for use when no qBittorrent server is configured.
-    /// All services exist but are idle — no networking is performed.
+    /// All services exist but are idle - no networking is performed.
     static func disconnected() -> AppServices {
         let authService = AuthService(serverProfileID: UUID())
         let apiClient = QBittorrentAPIClient(baseURL: "http://localhost", authService: authService)
@@ -41,7 +41,7 @@ final class AppServices {
         let torrentService = TorrentService(apiClient: apiClient)
         let syncService = SyncService(apiClient: apiClient)
 
-        // Fetch server default save path (best-effort — don't fail startup if this errors)
+        // Fetch server default save path (best-effort - don't fail startup if this errors)
         if let prefs = try? await apiClient.getPreferences(), let path = prefs.savePath, !path.isEmpty {
             syncService.defaultSavePath = path
         }

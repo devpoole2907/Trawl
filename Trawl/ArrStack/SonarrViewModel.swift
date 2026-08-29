@@ -37,7 +37,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     /// The client that owns a copy, falling back to the bound one when no server is
-    /// named — a preview, or a caller that predates the pair.
+    /// named - a preview, or a caller that predates the pair.
     private func client(for instanceID: UUID?) -> SonarrAPIClient? {
         guard let instanceID else { return client }
         return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
@@ -192,7 +192,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     /// Config for one server. The pair do not share quality profiles or root
-    /// folders — an HD profile ID posted to the 4K server names a different profile
+    /// folders - an HD profile ID posted to the 4K server names a different profile
     /// or none at all.
     func qualityProfiles(on instanceID: UUID?) -> [ArrQualityProfile] {
         guard let instanceID else { return qualityProfiles }
@@ -653,7 +653,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             return
         }
 
-        // Only used to name a failure, so the first copy's title is fine — but it
+        // Only used to name a failure, so the first copy's title is fine - but it
         // must not trap: with a pair configured this list is the union of both
         // servers, and they number their libraries from the same sequence.
         let titlesByID = Dictionary(

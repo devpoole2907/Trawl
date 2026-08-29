@@ -7,8 +7,8 @@ import Testing
 /// nothing covered that. `saveEnabledProviders` posts one
 /// `settings-general-enabled_providers` form field per enabled key, so the request that
 /// enables a single provider is also the request that re-states every provider the user
-/// already had. Anything that drops the others — a stale local list, a dictionary
-/// collapsing the repeated field, a "send only what changed" refactor — silently
+/// already had. Anything that drops the others - a stale local list, a dictionary
+/// collapsing the repeated field, a "send only what changed" refactor - silently
 /// disables them, and `BazarrProvidersView` reloads afterwards so the screen would
 /// simply show the new, smaller truth.
 ///

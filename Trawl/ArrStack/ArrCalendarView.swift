@@ -36,8 +36,8 @@ extension ArrServiceManager: ArrCalendarDataSource {
     /// The calendar is the union of both servers' schedules.
     ///
     /// Every fetch is stamped with the server it came from, so an episode that
-    /// both a HD and a 4K Sonarr are tracking shows as two airings — which is the
-    /// truth, since each will grab its own release — each labelled with its
+    /// both a HD and a 4K Sonarr are tracking shows as two airings - which is the
+    /// truth, since each will grab its own release - each labelled with its
     /// server rather than silently collapsing into one.
     func calendarRefreshSnapshot() -> ArrCalendarRefreshSnapshot {
         let sonarr = visibleSonarr
@@ -754,8 +754,8 @@ struct ArrCalendarView: View {
     }
 
     /// The server tracking an airing, shown only when a second instance of that
-    /// service exists. With a pair, the same episode legitimately appears twice —
-    /// each server grabs its own release — and the badge is what tells them apart.
+    /// service exists. With a pair, the same episode legitimately appears twice -
+    /// each server grabs its own release - and the badge is what tells them apart.
     private func badgeInstance(for event: CalendarEvent) -> ArrInstanceRef? {
         guard serviceManager.showsInstanceProvenance(for: event.serviceType) else { return nil }
         return serviceManager.instanceRef(event.serviceType, id: event.instanceID)
@@ -984,8 +984,8 @@ fileprivate enum CalendarEvent: Identifiable {
     }
 
     /// The server segment only appears when there is a server to name, so an
-    /// unstamped event — a fixture, or a single-instance setup that never needed
-    /// disambiguating — keeps the plain "ep-101" form.
+    /// unstamped event - a fixture, or a single-instance setup that never needed
+    /// disambiguating - keeps the plain "ep-101" form.
     private static func instanceSegment(_ instanceID: UUID?) -> String {
         instanceID.map { "\($0.uuidString)-" } ?? ""
     }
@@ -1242,7 +1242,7 @@ private struct ICalSubscribeSheet: View {
     @Environment(\.openURL) private var openURL
 
     /// The server whose feed is being configured. A calendar feed is a URL on one
-    /// server, so an HD/4K pair has two of them — picking a *service* could only
+    /// server, so an HD/4K pair has two of them - picking a *service* could only
     /// ever offer the active one, leaving the other server's airings unsubscribable.
     @State private var selectedInstanceID: UUID?
     @State private var feedLink: ArrICalFeedLink?

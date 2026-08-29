@@ -26,7 +26,7 @@ struct SABnzbdCategoryEditorSheet: View {
     private var isDefaultCategory: Bool { existingCategory?.isDefault == true }
 
     /// The installed scripts, plus whatever this category already points at if
-    /// that script has since been removed from the server — otherwise the picker
+    /// that script has since been removed from the server - otherwise the picker
     /// would have a selection with no matching row and render blank.
     private var scriptOptions: [String] {
         var options = serviceManager.scripts

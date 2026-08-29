@@ -5,7 +5,7 @@ import Foundation
 /// Jellyfin's auth model: every request carries an `Authorization: MediaBrowser ...`
 /// header (see `JellyfinAuthHeader`). After login the header includes a `Token=` field
 /// containing either an access token (from `AuthenticateByName`) or a permanent API key
-/// (from the Jellyfin dashboard). Both are stored under the same Keychain slot — they
+/// (from the Jellyfin dashboard). Both are stored under the same Keychain slot - they
 /// are interchangeable on the wire.
 actor JellyfinAPIClient {
     nonisolated var baseURL: String { transport.baseURL }
@@ -133,7 +133,7 @@ actor JellyfinAPIClient {
     }
 
     /// The set of metadata/image fetchers and savers Jellyfin offers for a given
-    /// content type — used to populate the per-type fetcher enable/order editors.
+    /// content type - used to populate the per-type fetcher enable/order editors.
     /// `contentType` is the library's `CollectionType` (e.g. "movies", "tvshows");
     /// pass `nil` for mixed libraries.
     func getAvailableLibraryOptions(
@@ -147,7 +147,7 @@ actor JellyfinAPIClient {
         return try await get("/Libraries/AvailableOptions", params: params)
     }
 
-    /// `POST /Library/VirtualFolders/LibraryOptions` — replaces the library's
+    /// `POST /Library/VirtualFolders/LibraryOptions` - replaces the library's
     /// scanning/metadata/image configuration. Jellyfin applies the whole object,
     /// so callers should mutate a freshly-fetched `JellyfinLibraryOptions`.
     func updateLibraryOptions(id: String, options: JellyfinLibraryOptions) async throws {
@@ -236,7 +236,7 @@ actor JellyfinAPIClient {
         return response.items
     }
 
-    /// `GET /Shows/{seriesId}/Episodes` — returns every episode item Jellyfin
+    /// `GET /Shows/{seriesId}/Episodes` - returns every episode item Jellyfin
     /// has for a given Series. Episodes carry `IndexNumber` (episode number) and
     /// `ParentIndexNumber` (season number), used to match against Sonarr's
     /// season/episode numbering.
@@ -446,7 +446,7 @@ actor JellyfinAPIClient {
         try await get("/Backup")
     }
 
-    /// `POST /Backup/Create`. Returns a manifest on success, which we ignore —
+    /// `POST /Backup/Create`. Returns a manifest on success, which we ignore -
     /// the caller re-lists backups once the task completes. Creating a backup runs
     /// synchronously on the server and can take minutes (metadata, trickplay, etc.),
     /// so callers should pass a `requestTimeout` longer than the default 30s budget.

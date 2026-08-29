@@ -9,7 +9,7 @@ import Testing
 /// `TrawlApp`, `TrawlWidgets`, and `TrawlShare` (via `ArrIntentSupport.makeModelContainer()`).
 ///
 /// `TrawlTests` is hosted inside `Trawl.app`, so these run with the app's real entitlements
-/// against the real Keychain and the real App Group container — genuine integration tests,
+/// against the real Keychain and the real App Group container - genuine integration tests,
 /// not simulations. Every key/record this suite writes is namespaced with a test-only prefix
 /// that cannot collide with production key/data shapes (see `keyPrefix` and
 /// `uniqueMarkerPath()` below), and every test deletes exactly what it created, on both the
@@ -24,7 +24,7 @@ struct KeychainAppGroupTests {
         "Save then read returns the exact value, including non-ASCII and long values",
         arguments: [
             "trawl-tests-plain-value",
-            "héllo wörld 🐟🍣 — accénted & emoji",
+            "héllo wörld 🐟🍣 - accénted & emoji",
             "日本語のテスト文字列。空白　全角も含む。",
             "e\u{0301}toile-with-combining-accent",
             String(repeating: "Trawl-long-value-🐠-", count: 1_000)
@@ -50,7 +50,7 @@ struct KeychainAppGroupTests {
             // KeychainHelper's own `read` uses kSecMatchLimitOne, so it cannot itself prove
             // there isn't a second, shadowed item left behind by the overwrite. Query the raw
             // Keychain (matching KeychainHelper's own service name and no access group, exactly
-            // as KeychainHelper does in this build — see the audit's AppIdentifierPrefix note)
+            // as KeychainHelper does in this build - see the audit's AppIdentifierPrefix note)
             // with kSecMatchLimitAll to prove there is genuinely one item, not two.
             let matchCount = try Self.rawKeychainItemCount(account: key)
             #expect(matchCount == 1)
@@ -141,7 +141,7 @@ struct KeychainAppGroupTests {
         try writingContext.save()
 
         // Always remove exactly the marker record this test created, even if an assertion
-        // below fails — never touches any other RecentSavePath row.
+        // below fails - never touches any other RecentSavePath row.
         defer {
             if let cleanupContainer = try? ArrIntentSupport.makeModelContainer() {
                 let cleanupContext = ModelContext(cleanupContainer)
@@ -170,7 +170,7 @@ struct KeychainAppGroupTests {
     // It does not hold: `ModelContainer(for:configurations:)` **crashes the process**
     // rather than throwing when the build is not entitled to the group. The `catch`
     // around the App Group container in `TrawlApp.init` therefore cannot rescue an
-    // entitlement mismatch — only a store that fails for a catchable reason. The test was
+    // entitlement mismatch - only a store that fails for a catchable reason. The test was
     // removed rather than weakened, because a crashing test takes its whole process with
     // it. The identifier is hardcoded and correct today, so this is a latent sharp edge,
     // not a live defect.

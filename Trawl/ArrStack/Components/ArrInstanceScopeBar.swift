@@ -2,8 +2,8 @@ import SwiftUI
 
 /// Picks which server an admin screen is showing.
 ///
-/// The per-server settings — download clients, naming formats, quality
-/// definitions, scheduled tasks, backups — are configured on one server and an
+/// The per-server settings - download clients, naming formats, quality
+/// definitions, scheduled tasks, backups - are configured on one server and an
 /// HD/4K pair rarely agrees on any of them. These screens used to offer a
 /// Sonarr/Radarr choice, which silently meant "whichever of the two happened to
 /// be active"; they now offer the servers themselves.
@@ -42,7 +42,7 @@ struct ArrInstanceScopeBar: View {
         guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
             return ref.serviceType.displayName
         }
-        // A tierless service has no "Default"/"4K" to tell its servers apart —
+        // A tierless service has no "Default"/"4K" to tell its servers apart -
         // every one of them reports the default tier, so tier-based labels would
         // render two identical segments. The name the user gave the server is the
         // only thing that distinguishes them.
@@ -61,7 +61,7 @@ extension ArrServiceManager {
     }
 
     /// The selection an admin screen should fall back to when its stored one is
-    /// gone — the first connected server, preferring one that is actually up.
+    /// gone - the first connected server, preferring one that is actually up.
     func defaultScopeInstanceID(preferring current: UUID?) -> UUID? {
         let available = visibleArrInstances.map(\.ref)
         if let current, available.contains(where: { $0.id == current }) { return current }

@@ -729,7 +729,7 @@ nonisolated struct JellyfinNowPlayingItem: Decodable, Sendable {
         var parts: [String] = []
         if let season = seasonName { parts.append(season) }
         if let episode = indexNumber { parts.append("Episode \(episode)") }
-        return parts.isEmpty ? nil : parts.joined(separator: " — ")
+        return parts.isEmpty ? nil : parts.joined(separator: " - ")
     }
 
     /// Human-readable duration like "1h 23m". Ticks are 100-nanosecond intervals.

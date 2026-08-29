@@ -306,7 +306,7 @@ struct BazarrSubtitleStatusCard: View {
     private var loadedContent: some View {
         VStack(alignment: .leading, spacing: 12) {
             // Let users assign/change a Bazarr profile whenever Bazarr is connected
-            // and tracking this item — this is how you start managing subtitles.
+            // and tracking this item - this is how you start managing subtitles.
             if serviceManager.hasAnyConnectedBazarrInstance && hasLoadedMedia {
                 profileButton
             }

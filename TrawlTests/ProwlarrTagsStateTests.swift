@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// `ProwlarrTagsViewModel` — the plain tag CRUD half of
+/// `ProwlarrTagsViewModel` - the plain tag CRUD half of
 /// `ProwlarrViewModel.swift`. `updateIndexerTags`, which is how a tag actually
 /// gets attached to an indexer, is already covered in
 /// `ProwlarrIndexerStateTests`; this suite only exercises tag list load/create/

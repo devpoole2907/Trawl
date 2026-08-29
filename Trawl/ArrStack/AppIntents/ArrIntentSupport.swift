@@ -20,7 +20,7 @@ nonisolated struct ArrServiceSnapshot: Sendable, Identifiable {
 /// Deliberately independent of `ArrServiceManager` (which is `@MainActor` and view-oriented).
 /// It reads `ArrServiceProfile` records from the App Group SwiftData store, loads API keys from
 /// the shared Keychain, and constructs the existing `RadarrAPIClient` / `SonarrAPIClient` /
-/// `ProwlarrAPIClient` actors directly — the same pattern the widgets use in `WidgetDataFetcher`.
+/// `ProwlarrAPIClient` actors directly - the same pattern the widgets use in `WidgetDataFetcher`.
 nonisolated enum ArrIntentSupport {
 
     // MARK: - Model container

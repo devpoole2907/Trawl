@@ -9,11 +9,11 @@ struct WidgetCalendarEvent: Codable, Identifiable, Sendable {
     let title: String
     let subtitle: String?
     let posterURL: URL?
-    /// SF Symbol name — "tv" for episodes, "film" for movies
+    /// SF Symbol name - "tv" for episodes, "film" for movies
     let placeholderIcon: String
-    /// Color name string — "purple", "blue", "indigo", "orange"
+    /// Color name string - "purple", "blue", "indigo", "orange"
     let accentColorName: String
-    /// Release-kind label shown as a chip — nil for episodes
+    /// Release-kind label shown as a chip - nil for episodes
     let badgeLabel: String?
     let isDownloaded: Bool
     /// Local file path to a pre-downloaded poster thumbnail in the shared App

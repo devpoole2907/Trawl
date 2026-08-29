@@ -135,7 +135,7 @@ actor QBittorrentAPIClient {
 
     /// Lightweight, fault-tolerant variant of `/api/v2/torrents/info` for consumers
     /// (e.g. widgets) that only need a few fields. Every field is optional so a
-    /// server that omits a column never fails the whole decode — unlike the strict
+    /// server that omits a column never fails the whole decode - unlike the strict
     /// `Torrent` model, which the live app fills via `syncMainData` instead.
     func getTorrentSummaries(filter: String? = nil) async throws -> [TorrentInfoSummary] {
         var queryItems: [URLQueryItem] = []
@@ -557,7 +557,7 @@ actor QBittorrentAPIClient {
             }
 
             if httpResponse.statusCode == 403 {
-                // SID expired — attempt re-authentication
+                // SID expired - attempt re-authentication
                 try await reAuthenticate()
                 await authService.authorize(&mutableRequest)
                 let (retryData, retryResponse) = try await session.data(for: mutableRequest)
@@ -600,7 +600,7 @@ actor QBittorrentAPIClient {
             }
 
             if httpResponse.statusCode == 403 {
-                // SID expired — attempt re-authentication and retry once.
+                // SID expired - attempt re-authentication and retry once.
                 try await reAuthenticate()
                 await authService.authorize(&mutableRequest)
                 let (retryData, retryResponse) = try await session.upload(for: mutableRequest, from: body)
@@ -735,7 +735,7 @@ actor QBittorrentAPIClient {
             throw error
         } catch {
             // Failing to *resolve* credentials (e.g. a keychain read error) means we
-            // cannot authenticate. Surface that plainly — otherwise `performRequest`'s
+            // cannot authenticate. Surface that plainly - otherwise `performRequest`'s
             // catch-all reports it as a network failure, which is actively misleading.
             throw QBError.authFailed
         }

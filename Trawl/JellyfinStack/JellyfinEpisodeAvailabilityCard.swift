@@ -3,7 +3,7 @@ import SwiftUI
 /// Per-episode Jellyfin availability card used on the Sonarr episode detail
 /// screen. Reuses `JellyfinAvailabilityResolver`'s series cache (the series
 /// detail card primes it) and the new episode cache, then surfaces just the
-/// matching episode item — path, file size, runtime, refresh — instead of the
+/// matching episode item - path, file size, runtime, refresh - instead of the
 /// whole series.
 struct JellyfinEpisodeAvailabilityCard: View {
     let media: JellyfinMediaAvailabilityCard.Media
@@ -327,7 +327,7 @@ struct JellyfinEpisodeAvailabilityCard: View {
     }
 
     /// Triggers a full Jellyfin library scan when the series or episode wasn't
-    /// found — covers the case where a file downloaded after Jellyfin's last scan.
+    /// found - covers the case where a file downloaded after Jellyfin's last scan.
     private func rescanLibrary() async {
         guard let client = serviceManager.activeClient else { return }
         do {

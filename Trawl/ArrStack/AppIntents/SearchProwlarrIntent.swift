@@ -8,7 +8,7 @@ import Foundation
 struct SearchProwlarrIntent: AppIntent {
     static let title: LocalizedStringResource = "Search Prowlarr"
     static let description = IntentDescription(
-        "Search Prowlarr indexers for releases. Read-only — results are summarised, not downloaded.",
+        "Search Prowlarr indexers for releases. Read-only - results are summarised, not downloaded.",
         categoryName: "Prowlarr"
     )
 

@@ -8,7 +8,7 @@ struct AddTorrentSheet: View {
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     /// Optional so the sheet still works when it's presented from a host that
-    /// doesn't inject the SABnzbd manager — it then degrades to torrent-only.
+    /// doesn't inject the SABnzbd manager - it then degrades to torrent-only.
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager: SABnzbdServiceManager?
     @Query private var servers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
@@ -281,7 +281,7 @@ struct AddTorrentSheet: View {
         Section {
             // Categories come from SABnzbd's own `get_cats`, falling back to the ones
             // seen on existing jobs if that call fails. The free-text field is the last
-            // resort — typing a category that doesn't exist is silently ignored by the
+            // resort - typing a category that doesn't exist is silently ignored by the
             // server, so a picker is worth having wherever we can build one.
             if vm.sabCategories.isEmpty {
                 LabeledContent("Category") {
@@ -312,7 +312,7 @@ struct AddTorrentSheet: View {
                 }
             }
 
-            // Only offered when the server actually reports scripts — most setups
+            // Only offered when the server actually reports scripts - most setups
             // have none, and an empty picker reads as something being broken.
             if !vm.sabScripts.isEmpty {
                 Picker("Script", selection: $vm.sabScript) {
@@ -386,7 +386,7 @@ struct AddTorrentSheet: View {
         switch source {
         case .nzbFile:
             // There's no system UTType for NZB, so declare one from the extension
-            // and keep XML/data as a fallback — the pick is validated by extension.
+            // and keep XML/data as a fallback - the pick is validated by extension.
             [UTType(filenameExtension: "nzb") ?? .xml, .xml, .data]
         default:
             [UTType(filenameExtension: "torrent") ?? .data]

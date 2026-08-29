@@ -20,13 +20,13 @@ final class SABnzbdServiceManager {
     private var pollingTask: Task<Void, Never>?
     /// Whether a view has asked for polling, as distinct from whether polling is
     /// currently possible. `startPolling()` used to be a silent no-op when it ran
-    /// before the client existed — which is exactly what a cold launch into the
-    /// Downloads tab does — leaving the queue stale for the whole session with
+    /// before the client existed - which is exactly what a cold launch into the
+    /// Downloads tab does - leaving the queue stale for the whole session with
     /// nothing to retry it. The request is remembered so the connection can start
     /// the poll the moment it is able to.
     private var pollingRequested = false
     private var pollingGeneration = 0
-    /// Bumped whenever the manager commits to a different connection — a new
+    /// Bumped whenever the manager commits to a different connection - a new
     /// `connectService` attempt, or an explicit `disconnect`. Every async
     /// operation stamps it on entry and re-checks it before touching shared
     /// state, so a slow response addressed to the previous server can never
@@ -132,7 +132,7 @@ final class SABnzbdServiceManager {
 
             // A newer connection (or a disconnect) happened while this server was
             // answering. Its client, queue, and version belong to a profile the
-            // user has already navigated away from — drop the whole result.
+            // user has already navigated away from - drop the whole result.
             guard connectionGeneration == generation else { return }
 
             activeClient = client
@@ -159,7 +159,7 @@ final class SABnzbdServiceManager {
         // cleared here because the retired attempt's own `defer` deliberately
         // no longer owns it.
         connectionGeneration += 1
-        // Polling becomes impossible here, not unwanted — a profile switch
+        // Polling becomes impossible here, not unwanted - a profile switch
         // disconnects and reconnects while the same view stays on screen, and that
         // view's request to poll outlives the connection it was made against.
         // Only the view's own disappearance withdraws the request.
@@ -202,7 +202,7 @@ final class SABnzbdServiceManager {
             guard isCurrentConnection(generation: generation, client: client) else { return }
             queue = fetchedQueue
             // A `nil` result means SABnzbd's `{ "history": false }` shape-changing
-            // response — history hasn't changed since `lastHistoryUpdate`, so keep it.
+            // response - history hasn't changed since `lastHistoryUpdate`, so keep it.
             if let fetchedHistory {
                 history = fetchedHistory
                 announceCompletions(
@@ -299,7 +299,7 @@ final class SABnzbdServiceManager {
     }
 
     /// Stops the loop but keeps the request standing, for when polling is
-    /// impossible rather than unwanted — a rejected API key clears the client, and
+    /// impossible rather than unwanted - a rejected API key clears the client, and
     /// the view asking for the queue is still on screen. Reconnecting resumes it.
     private func cancelPollingTask() {
         pollingGeneration += 1
@@ -372,7 +372,7 @@ final class SABnzbdServiceManager {
 
     // MARK: - Server configuration
 
-    /// Fetched on demand by the add sheet rather than polled — categories and scripts
+    /// Fetched on demand by the add sheet rather than polled - categories and scripts
     /// change when the user edits SABnzbd's config, not while downloads run.
     func categoriesAndScripts() async -> (categories: [String], scripts: [String]) {
         guard let client = activeClient else { return ([], []) }

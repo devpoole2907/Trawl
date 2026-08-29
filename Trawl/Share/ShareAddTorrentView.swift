@@ -122,7 +122,7 @@ struct ShareAddTorrentView: View {
     // MARK: - NZB
 
     /// SABnzbd's own defaults cover category, priority and post-processing, so the
-    /// share sheet stays a confirm-and-send — the full option set lives in the
+    /// share sheet stays a confirm-and-send - the full option set lives in the
     /// app's Add Download sheet.
     private var nzbForm: some View {
         Form {
@@ -212,8 +212,8 @@ struct ShareAddTorrentView: View {
                     return
                 }
 
-                // The share extension is a separate process, so — exactly as the
-                // qBittorrent path does — it talks to the server itself rather than
+                // The share extension is a separate process, so - exactly as the
+                // qBittorrent path does - it talks to the server itself rather than
                 // through the app's service manager. `SABnzbdAPIClient` isn't compiled
                 // into this target, so the two add calls are issued over the shared
                 // `HTTPTransport` directly.
@@ -337,7 +337,7 @@ struct ShareAddTorrentView: View {
                 }
             }
         } catch {
-            // Non-critical — categories just won't be available
+            // Non-critical - categories just won't be available
         }
     }
 

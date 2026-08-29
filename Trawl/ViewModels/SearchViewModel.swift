@@ -230,7 +230,7 @@ final class SearchViewModel {
 
     /// Pulls both libraries from `ArrServiceManager`'s shared cache.
     ///
-    /// `maxAge` of 0 — the default — refetches, which is what the callers that run
+    /// `maxAge` of 0 - the default - refetches, which is what the callers that run
     /// straight after adding or re-monitoring something need. The appear-time
     /// caller passes a window so opening Search doesn't re-download libraries the
     /// Series and Movies tabs already have.
@@ -495,7 +495,7 @@ final class SearchViewModel {
 
     /// Keyed on every configured server rather than the active one. These lookup
     /// view models read the blended library, so a second server connecting has to
-    /// rebuild them — keyed on the active instance alone it never changed, and the
+    /// rebuild them - keyed on the active instance alone it never changed, and the
     /// second server's titles stayed absent from search.
     private func sonarrLookupKey(isConnected: Bool, connectionKey: String) -> String {
         guard isConnected else { return "disconnected" }

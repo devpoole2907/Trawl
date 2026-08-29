@@ -368,7 +368,7 @@ struct JellyfinMediaAvailabilityCard: View {
         }
     }
 
-    /// Triggers a full Jellyfin library scan when no matching item was found —
+    /// Triggers a full Jellyfin library scan when no matching item was found -
     /// covers the case where a file downloaded after Jellyfin's last scan.
     private func rescanLibrary() async {
         guard let client = serviceManager.activeClient, let key else { return }

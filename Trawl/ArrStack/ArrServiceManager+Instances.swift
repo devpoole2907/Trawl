@@ -67,7 +67,7 @@ extension ArrServiceManager {
         return refs(for: serviceType).first { $0.id == id }
     }
 
-    /// True when more than one server of this type is configured — the condition
+    /// True when more than one server of this type is configured - the condition
     /// under which a provenance badge earns its place. With a single instance the
     /// badge distinguishes nothing and is noise on every row in the app.
     func showsInstanceProvenance(for serviceType: ArrServiceType) -> Bool {
@@ -87,7 +87,7 @@ extension ArrServiceManager {
 
     /// How many more servers of this type the user may add.
     ///
-    /// Sonarr and Radarr are capped at two — the HD/4K pair the blended library is
+    /// Sonarr and Radarr are capped at two - the HD/4K pair the blended library is
     /// designed around. Prowlarr stays at one (a second replaces the first, as it
     /// always has) and Bazarr is uncapped, since it is matched to its own Sonarr
     /// and Radarr rather than merged into the library.
@@ -156,7 +156,7 @@ extension ArrServiceManager {
     /// The Radarr server that owns a given movie. Every mutation in a merged list
     /// goes through here: without it a delete issued from a merged row would land
     /// on whichever instance happened to be active, which in an HD/4K pair means
-    /// deleting the wrong copy — or a different film entirely, since the two
+    /// deleting the wrong copy - or a different film entirely, since the two
     /// servers reuse the same integer IDs.
     func radarrClient(owning movie: RadarrMovie) -> RadarrAPIClient? {
         guard let instanceID = movie.instanceID else { return radarrClient }
@@ -175,7 +175,7 @@ extension ArrServiceManager {
     ///
     /// Each instance keeps its own cache entry, so a slow second server doesn't
     /// re-fetch the first, and one server failing yields a partial library rather
-    /// than none — a broken 4K instance should not empty the HD library off the
+    /// than none - a broken 4K instance should not empty the HD library off the
     /// screen. The first error is reported so the failure is still visible.
     @discardableResult
     func loadSeriesUnion(maxAge: TimeInterval = 0) async throws -> [SonarrSeries] {
@@ -211,7 +211,7 @@ extension ArrServiceManager {
             do {
                 let items = try await cache.load(instanceID: ref.id, maxAge: maxAge) {
                     // Stamped inside the cache's fetch so the cached copy carries
-                    // provenance too — a cache hit must be indistinguishable from
+                    // provenance too - a cache hit must be indistinguishable from
                     // a fresh load, or a merged row would lose its badges the
                     // second time it renders.
                     try await fetch(client).stamped(with: ref.id)
@@ -242,7 +242,7 @@ extension ArrServiceManager {
 
     /// The flat union of what is currently cached for every visible Radarr server,
     /// in configured order. Kept alongside the merged view because per-server
-    /// truth — disk usage, counts, which server to send a command to — cannot be
+    /// truth - disk usage, counts, which server to send a command to - cannot be
     /// recovered once titles are collapsed into rows.
     var cachedMovieUnion: [RadarrMovie] {
         visibleRadarr.flatMap { movieLibrary.items(for: $0.ref.id) }
@@ -255,7 +255,7 @@ extension ArrServiceManager {
     // MARK: - Instance filter
 
     /// Shows or hides one server across every unified surface at once.
-    /// No UI calls this yet — the picker is the next piece of work.
+    /// No UI calls this yet - the picker is the next piece of work.
     @discardableResult
     func setInstanceIncluded(
         _ included: Bool,
@@ -329,7 +329,7 @@ extension ArrServiceManager {
     /// including its `clientRevision`.
     ///
     /// `sonarrConnected`/`radarrConnected` report only the **active** entry, so a
-    /// second server coming up leaves them unchanged — and a `.task(id:)` keyed on
+    /// second server coming up leaves them unchanged - and a `.task(id:)` keyed on
     /// them never re-runs. That is how a freshly connected 4K server stays missing
     /// from a list whose whole job is to be the union of both. Every unified surface
     /// keys on this instead.
@@ -363,7 +363,7 @@ extension ArrServiceManager {
     }
 
     /// The same fan-out for reads that return a single value per server rather
-    /// than a list — naming config, media management, host config.
+    /// than a list - naming config, media management, host config.
     func fanOutSingleAcrossArrInstances<T: Sendable>(
         _ fetch: @Sendable (any SharedArrClient) async throws -> T
     ) async -> (items: [(ref: ArrInstanceRef, value: T)], errors: [String]) {
@@ -389,7 +389,7 @@ extension ArrServiceManager {
     ///
     /// Already cached per instance by `connectService`, so this is a regrouping
     /// rather than a fetch. The screens that read it used to show "the Sonarr
-    /// root folders", which meant one server's — and an HD/4K pair almost never
+    /// root folders", which meant one server's - and an HD/4K pair almost never
     /// shares a root folder, so the other server's were simply invisible.
     var rootFoldersByInstance: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
         configurationByInstance({ $0.rootFolders }, { $0.rootFolders })

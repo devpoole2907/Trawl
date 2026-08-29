@@ -38,7 +38,7 @@ struct ArrUpdatesView: View {
         availableServices.first { !serviceManager.isConnected($0) } ?? availableServices.first
     }
 
-    /// Every server that reports a version — both halves of each pair, plus
+    /// Every server that reports a version - both halves of each pair, plus
     /// Prowlarr.
     private var availableInstances: [ArrInstanceRef] {
         serviceManager.visibleArrInstances.map(\.ref) + serviceManager.refs(for: .prowlarr)

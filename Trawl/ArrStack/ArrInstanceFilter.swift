@@ -3,7 +3,7 @@ import Foundation
 /// Which instances of each service the blended library is currently showing.
 ///
 /// The library is unified by default: every configured server contributes, and
-/// this filter narrows it. No UI surfaces it yet — the plumbing is wired through
+/// this filter narrows it. No UI surfaces it yet - the plumbing is wired through
 /// every instance-aware surface first so that adding a picker later is a view
 /// change rather than another pass over the data layer.
 ///
@@ -71,7 +71,7 @@ nonisolated struct ArrInstanceFilterState: Equatable, Sendable, Codable {
     }
 
     /// Drops exclusions for servers that no longer exist, so deleting and
-    /// re-adding a profile can't leave a stale hide in place — and so a removed
+    /// re-adding a profile can't leave a stale hide in place - and so a removed
     /// server's UUID doesn't accumulate in preferences forever.
     mutating func prune(keeping available: Set<UUID>, serviceType: ArrServiceType) {
         let current = excludedInstanceIDs(for: serviceType)

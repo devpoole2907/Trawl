@@ -37,7 +37,7 @@ struct SyncMainData: Codable, Sendable {
     }
 }
 
-/// Partial torrent data from sync — all fields optional because deltas only include changed fields
+/// Partial torrent data from sync - all fields optional because deltas only include changed fields
 struct SyncTorrentData: Codable, Sendable {
     let name: String?
     let size: Int64?

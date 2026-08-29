@@ -3,7 +3,7 @@ import SwiftUI
 /// Compact Jellyfin presence badge shown inline in episode rows next to the
 /// downloaded checkmark / subtitle icons. Renders nothing unless the series
 /// has resolved in Jellyfin AND its episode list contains a matching
-/// season + episode number — keeping the row free of noise for shows that
+/// season + episode number - keeping the row free of noise for shows that
 /// aren't in Jellyfin at all.
 struct JellyfinEpisodePresenceIcon: View {
     let media: JellyfinMediaAvailabilityCard.Media

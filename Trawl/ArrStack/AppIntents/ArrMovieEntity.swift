@@ -17,7 +17,7 @@ nonisolated struct ArrMediaPayload: Codable, Sendable {
     var hasFile: Bool?
 }
 
-/// A Radarr movie — either a lookup result from a search or an item already in the library.
+/// A Radarr movie - either a lookup result from a search or an item already in the library.
 ///
 /// Conforms to `IndexedEntity` so it can be added to the app's Spotlight index and become
 /// discoverable by Apple Intelligence / Siri (see `ArrSpotlightIndexer`).

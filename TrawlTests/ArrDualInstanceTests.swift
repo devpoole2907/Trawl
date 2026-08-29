@@ -93,7 +93,7 @@ struct ArrDualInstanceTests {
     @Test("Availability is matched by server, not by position")
     func availabilityTiersAreMatchedByInstance() throws {
         // A filtered or partially-loaded library hands back fewer refs than
-        // copies. Zipping them would then label a copy with the wrong server — and
+        // copies. Zipping them would then label a copy with the wrong server - and
         // "Available 4K" on a film that only exists in HD is the worst kind of
         // wrong, because it looks right.
         let hd = ArrInstanceRef.preview(.radarr, tier: .hd)
@@ -114,7 +114,7 @@ struct ArrDualInstanceTests {
     func movieIdentityIncludesTheServer() throws {
         // This is the correctness core of the whole change. Both Radarr servers
         // number their libraries from 1, so ID-only equality makes the HD copy of
-        // one film compare equal to the 4K copy of a different one — and a merged
+        // one film compare equal to the 4K copy of a different one - and a merged
         // list then renders, selects and deletes the wrong rows.
         let hd = UUID()
         let uhd = UUID()
@@ -185,7 +185,7 @@ struct ArrDualInstanceTests {
         let dune = try #require(entries.first { $0.primary.title == "Dune" })
         #expect(dune.copies.count == 2)
         // Copies keep the order the union arrived in, which is configured server
-        // order — that is what makes `primary`, and so the rendered row, stable
+        // order - that is what makes `primary`, and so the rendered row, stable
         // across refreshes.
         #expect(dune.copies.map(\.instanceID) == [hd, uhd])
         #expect(dune.isOnMultipleInstances == true)
@@ -251,8 +251,8 @@ struct ArrDualInstanceTests {
             try Self.movie(id: 4, title: "Dune", tmdbId: 438_631).stamped(with: uhd)
         ].mergedByTitle().first)
 
-        // This is how an ID-only entry point — a widget, a Siri intent, a Seerr
-        // deep link — lands on the same screen as tapping the merged row.
+        // This is how an ID-only entry point - a widget, a Siri intent, a Seerr
+        // deep link - lands on the same screen as tapping the merged row.
         #expect(entry.copy(withLibraryID: 4)?.instanceID == uhd)
         #expect(entry.copy(on: hd)?.id == 1)
         #expect(entry.copy(withLibraryID: 99) == nil)
@@ -376,7 +376,7 @@ struct ArrDualInstanceTests {
         #expect(ArrSetupViewModel.instanceLimit(for: .prowlarr) == nil)
     }
 
-    /// Bazarr carries no tier, so its cap cannot be derived from one — but it is
+    /// Bazarr carries no tier, so its cap cannot be derived from one - but it is
     /// still configured against an *arr pair, one Bazarr per pair, so it tops out
     /// where they do. Left as `nil` it meant *unlimited*: a third Bazarr could be
     /// added with no server left for it to mirror, and the linked-apps screen has
@@ -427,7 +427,7 @@ struct ArrDualInstanceTests {
     // MARK: - Fixtures
 
     /// Decoded rather than constructed, so every fixture goes through the real
-    /// decoder — which is where `instanceID` has to start out nil.
+    /// decoder - which is where `instanceID` has to start out nil.
     private static func movie(
         id: Int,
         title: String,
@@ -454,7 +454,7 @@ struct ArrDualInstanceTests {
 /// The manager and view-model half, driven against two loopback Radarr servers.
 ///
 /// The unit tests above pin the merge and identity rules; these pin the thing that
-/// actually breaks a user's library — which server a command is sent to. Both
+/// actually breaks a user's library - which server a command is sent to. Both
 /// servers here deliberately reuse the same library IDs for different films, which
 /// is exactly what a real HD/4K pair does.
 @Suite("Arr dual instance routing", .serialized)
@@ -651,7 +651,7 @@ struct ArrDualInstanceRoutingTests {
             manager.showOnlyInstance(hdID, serviceType: .radarr)
             let narrowed = try await manager.loadMovieLibrary()
             #expect(narrowed.map(\.title) == ["Dune"])
-            // Hidden, not disconnected — the server is still there to come back to.
+            // Hidden, not disconnected - the server is still there to come back to.
             #expect(manager.connectedRadarr.count == 2)
             #expect(manager.visibleRadarr.map(\.ref.id) == [hdID])
 

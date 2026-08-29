@@ -9,7 +9,7 @@ import Testing
 /// even though the service *type* as a whole already has a healthy active instance.
 ///
 /// Uses real loopback HTTP servers (`NWListener`) and drives the real
-/// `ArrServiceManager.initialize(from:)` / `retryDisconnected()` — no stubbing of
+/// `ArrServiceManager.initialize(from:)` / `retryDisconnected()` - no stubbing of
 /// `connectService` itself. Follows the pattern established by
 /// `ArrClientLifecycleTests.swift`.
 @Suite("Arr retry disconnected", .serialized)
@@ -29,7 +29,7 @@ struct ArrRetryDisconnectedTests {
         try await withSavedAPIKey(for: healthyProfile) {
             try await withSavedAPIKey(for: failingProfile) {
                 // `initialize(from:)` is the real production entry point that populates
-                // `storedProfiles` and attempts to connect every enabled profile — the
+                // `storedProfiles` and attempts to connect every enabled profile - the
                 // same seam a real app launch or profile-list edit goes through.
                 await manager.initialize(from: [healthyProfile, failingProfile])
 
@@ -40,7 +40,7 @@ struct ArrRetryDisconnectedTests {
                 // prefetch against the connected client, so the healthy server's
                 // total request list keeps growing on its own timeline. What the
                 // retry must not do is re-run the connection handshake, and every
-                // connect attempt starts with a system-status GET — so count those.
+                // connect attempt starts with a system-status GET - so count those.
                 let healthyStatusRequestsAfterInitialize = healthyServer.statusRequestCount
                 let failingRequestsAfterInitialize = failingServer.requests
                 #expect(!failingRequestsAfterInitialize.isEmpty)
@@ -50,7 +50,7 @@ struct ArrRetryDisconnectedTests {
                 // The failed profile's server must have received a fresh connection
                 // attempt from the retry. This is the assertion that fails against the
                 // unfixed code: retryDisconnected() used to check
-                // `isConnected(.sonarr)`, which reads the *active* instance only — and
+                // `isConnected(.sonarr)`, which reads the *active* instance only - and
                 // the active instance (the healthy profile) was connected, so the whole
                 // Sonarr type was skipped and the failing profile was never retried.
                 // Exactly one more request: the retry's system-status call, which 401s
@@ -58,7 +58,7 @@ struct ArrRetryDisconnectedTests {
                 #expect(failingServer.requests == failingRequestsAfterInitialize + [.init(method: "GET", path: "/api/v3/system/status")])
 
                 // The already-connected profile must not be reconnected by the
-                // retry — no redundant handshake, no needless client churn.
+                // retry - no redundant handshake, no needless client churn.
                 #expect(healthyServer.statusRequestCount == healthyStatusRequestsAfterInitialize)
 
                 #expect(manager.isConnected(.sonarr, profileID: healthyProfile.id) == true)

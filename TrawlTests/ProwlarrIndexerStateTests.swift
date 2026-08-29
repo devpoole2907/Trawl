@@ -8,14 +8,14 @@ import Testing
 ///
 /// As in `ProwlarrSearchStateTests`, everything runs through the real
 /// `ProwlarrAPIClient` resolved by a real `ArrServiceManager`, against a
-/// loopback fixture server — so the mutation tests can assert on the JSON the
+/// loopback fixture server - so the mutation tests can assert on the JSON the
 /// app actually put on the wire rather than on a mock's call log. Bodies are
 /// always compared as parsed JSON, never as encoder bytes.
 @Suite("Prowlarr indexer state", .serialized)
 @MainActor
 struct ProwlarrIndexerStateTests {
     // Alpha: enabled torrent, tagged. Beta: disabled usenet. Gamma: enabled,
-    // protocol absent (Prowlarr omits it for some definitions) — the input for
+    // protocol absent (Prowlarr omits it for some definitions) - the input for
     // `otherIndexers`. Returned unsorted so the sort is observable.
     private static var indexerListJSON: String {
         prowlarrJSONArray([
@@ -171,7 +171,7 @@ struct ProwlarrIndexerStateTests {
             #expect(body["enable"] as? Bool == false)
             #expect(body["name"] as? String == "Alpha")
 
-            // The server's returned record — not the optimistic local copy — is
+            // The server's returned record - not the optimistic local copy - is
             // what the list must end up holding.
             let updated = try indexer(1, in: viewModel)
             #expect(updated.enable == false)

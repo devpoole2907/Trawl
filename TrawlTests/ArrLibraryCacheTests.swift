@@ -171,7 +171,7 @@ struct ArrLibraryCacheTests {
     }
 }
 
-/// Main-actor call counter — the cache is `@MainActor`, so every fetch closure
+/// Main-actor call counter - the cache is `@MainActor`, so every fetch closure
 /// runs there and a plain counter is enough.
 @MainActor
 private final class Counter {

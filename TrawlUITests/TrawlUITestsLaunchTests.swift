@@ -22,7 +22,7 @@ final class TrawlUITestsLaunchTests: XCTestCase {
     }
 
     /// Fails if the welcome screen doesn't render its real content on this
-    /// configuration — a blank window, a crash, or a stuck spinner would all
+    /// configuration - a blank window, a crash, or a stuck spinner would all
     /// fail this, whereas a bare screenshot attachment would not.
     @MainActor
     func testLaunchShowsWelcomeContent() throws {

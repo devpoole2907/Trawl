@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// `ProwlarrApplicationsViewModel` — the linked-applications (Sonarr/Radarr)
+/// `ProwlarrApplicationsViewModel` - the linked-applications (Sonarr/Radarr)
 /// half of `ProwlarrViewModel.swift`. Same rules as the other two Prowlarr
 /// suites: real client, real `ArrServiceManager`, loopback fixture server, and
 /// request bodies asserted as parsed JSON.
@@ -239,7 +239,7 @@ struct ProwlarrApplicationsStateTests {
         let handler = Self.standardHandler { request in
             guard request.method == "POST", request.path == "/api/v1/command" else { return nil }
             // No `id` in the response, so `postCommandAndWait` returns without
-            // entering its polling loop — the command is already terminal.
+            // entering its polling loop - the command is already terminal.
             return calls.next("command") == 1
                 ? .json(#"{"name":"ApplicationIndexerSync","status":"completed"}"#)
                 : .json(#"{"name":"ApplicationIndexerSync","status":"failed","exception":"Sonarr refused the indexer push"}"#)

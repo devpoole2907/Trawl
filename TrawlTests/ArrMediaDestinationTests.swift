@@ -126,7 +126,7 @@ struct ArrMediaDestinationTests {
 // MARK: - Test fixtures
 
 private extension RadarrMovie {
-    /// Minimal, distinctly-titled `RadarrMovie` for exercising `ArrMediaDestination` equality —
+    /// Minimal, distinctly-titled `RadarrMovie` for exercising `ArrMediaDestination` equality -
     /// deliberately independent of the `#if DEBUG` preview fixtures so these tests don't depend
     /// on their specific ids.
     static func makeLookupResult(id: Int, title: String) -> RadarrMovie {

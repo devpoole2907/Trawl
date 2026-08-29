@@ -6,8 +6,8 @@ import Testing
 /// `SearchViewModel` sits directly on the M-05 / N-01 defect classes: a stale
 /// Arr lookup overwriting a newer one, or a cancelled query leaving the UI
 /// stuck loading. These tests drive the real view model (never a stub) against
-/// real loopback Sonarr servers, using checked-continuation gates — never
-/// `Task.sleep` — to control which HTTP response lands first.
+/// real loopback Sonarr servers, using checked-continuation gates - never
+/// `Task.sleep` - to control which HTTP response lands first.
 @Suite("SearchViewModel behavior", .serialized)
 @MainActor
 struct SearchViewModelTests {

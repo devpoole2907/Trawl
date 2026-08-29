@@ -44,7 +44,7 @@ final class CastPersonSheetViewModel {
 
             person = detail
 
-            // Dedup by media type + id — cast and crew credits can reference the
+            // Dedup by media type + id - cast and crew credits can reference the
             // same title (e.g. an actor who also directed), and a movie/tv id can
             // coincidentally collide across the two TMDb id namespaces.
             var seenIDs = Set<String>()

@@ -151,7 +151,7 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
 
     /// The availability that answers a given request. A 4K request is satisfied by
     /// the 4K server, and reading `status` for it reports the default server's
-    /// availability instead — a 4K request whose file exists reads as unavailable,
+    /// availability instead - a 4K request whose file exists reads as unavailable,
     /// and one whose default-quality copy exists reads as done when it is not.
     func mediaStatus(is4k: Bool) -> SeerrMediaStatus? {
         guard is4k else { return mediaStatus }
@@ -317,7 +317,7 @@ nonisolated struct SeerrDiscoverItem: Codable, Sendable {
 
     /// Seerr re-serialises TMDb in camelCase rather than passing TMDb's own
     /// snake_case through. These keys were snake_case, so every field but the
-    /// handful that happen to match decoded as nil — confirmed against a live
+    /// handful that happen to match decoded as nil - confirmed against a live
     /// 3.3.0 server. Same trap as the cast payload.
     enum CodingKeys: String, CodingKey {
         case id, title, name, overview

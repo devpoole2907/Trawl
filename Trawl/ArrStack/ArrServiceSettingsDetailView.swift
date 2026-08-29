@@ -12,7 +12,7 @@ struct ArrServiceSettingsView: View {
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
     /// Each configured server's status, when this service has more than one. The
-    /// pair share a row rather than a section each — two full status cards is a lot
+    /// pair share a row rather than a section each - two full status cards is a lot
     /// of screen for what is usually the same version twice.
     @State private var pairedStatuses: [(ref: ArrInstanceRef, status: ArrSystemStatus)] = []
     @State private var isStatusExpanded = false
@@ -38,7 +38,7 @@ struct ArrServiceSettingsView: View {
     }
     #endif
 
-    /// System Status describes one server, not the pair — it is read from the
+    /// System Status describes one server, not the pair - it is read from the
     /// default server chosen in the Servers section above. With two configured,
     /// the header has to say which one, or the version and OS on screen look like
     /// facts about both.
@@ -87,8 +87,8 @@ struct ArrServiceSettingsView: View {
     var body: some View {
         List {
             // Only when there is nothing to list below: with a pair configured the
-            // Servers section already shows this server, and showing it twice —
-            // same name, same host, same status — read as two more servers.
+            // Servers section already shows this server, and showing it twice -
+            // same name, same host, same status - read as two more servers.
             if serviceProfiles.count <= 1 {
                 Section {
                     if let profile {
@@ -123,7 +123,7 @@ struct ArrServiceSettingsView: View {
                                 .foregroundStyle(.tertiary)
                         }
                         // Without this the row's midpoint is the Spacer, which a
-                        // plain button does not hit-test — the row looks tappable
+                        // plain button does not hit-test - the row looks tappable
                         // and silently ignores taps that land between its ends.
                         .contentShape(Rectangle())
                         }
@@ -313,7 +313,7 @@ struct ArrServiceSettingsView: View {
 
                 // One row per configured server. A webhook is a record *on* a
                 // server, so a single row could only ever configure one half of a
-                // pair — the other server's grabs and imports would never reach the
+                // pair - the other server's grabs and imports would never reach the
                 // device, with nothing on screen to say why.
                 if serviceType.supportsWebhookNotifications, !notifiableProfiles.isEmpty {
                     Section("Notifications") {

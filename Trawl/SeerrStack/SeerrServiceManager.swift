@@ -126,7 +126,7 @@ final class SeerrServiceManager {
                 cachedUserCount = results
             }
         } catch {
-            // Non-fatal — the user management screen will load fully on appear.
+            // Non-fatal - the user management screen will load fully on appear.
         }
     }
 

@@ -5,7 +5,7 @@
 //  UI journey #2 from TRAWL_RELIABILITY_TEST_AUDIT.md's "test system Trawl needs":
 //  pause/resume/delete a torrent through the real UI and verify both the on-screen
 //  state and the recorded server-side mutation. `Trawl/Views/TorrentListView.swift`
-//  is 1,145 executable lines at 0% coverage — the app's core surface — and reaching
+//  is 1,145 executable lines at 0% coverage - the app's core surface - and reaching
 //  any of it needs a connected qBittorrent, which every setup sheet can only reach
 //  through a live `testConnection` a UI test can't satisfy deterministically by
 //  driving the UI alone (see `TrawlUITests.swift`).
@@ -23,14 +23,14 @@
 //
 //  ## Why this drives `DownloadsView`, not `TorrentListView` directly
 //
-//  `RootTab.downloads` (the app's default startup tab —
+//  `RootTab.downloads` (the app's default startup tab -
 //  `ContentView.tabContent`/`AppStorage("startupTab")`) renders
 //  `Trawl/DownloadsStack/DownloadsView.swift`, which is the unified list a real user
 //  actually lands on. `TorrentListView` itself is one navigation deeper, behind
 //  Downloads' overflow menu ("Downloads Options" → "Client Management" → qBittorrent
 //  → torrents), and its row/action code (`.contextMenu`, `.swipeActions` for
 //  pause/resume/recheck/delete) is functionally identical to `DownloadsView`'s own
-//  torrent row — both ultimately call the same `TorrentService`/`QBittorrentAPIClient`
+//  torrent row - both ultimately call the same `TorrentService`/`QBittorrentAPIClient`
 //  methods this suite asserts against. Testing the mutation through the screen a user
 //  actually starts on is the more faithful journey, and it's also the one the audit's
 //  "pause/resume/delete a torrent" line describes without requiring an extra,
@@ -41,10 +41,10 @@
 //  Each torrent row (`DownloadsView.row(for:)`, the `.torrent` case) is a
 //  `NavigationLink` carrying `TorrentRowView`, with:
 //  - `.swipeActions(edge: .leading, allowsFullSwipe: true)` offering "Resume" (tint
-//    .green) when paused/stopped, else "Pause" (tint .orange) — revealed by swiping
+//    .green) when paused/stopped, else "Pause" (tint .orange) - revealed by swiping
 //    the row *right*.
 //  - `.swipeActions(edge: .trailing, allowsFullSwipe: false)` offering "Delete"
-//    (role: .destructive) and "Recheck" — revealed by swiping the row *left*.
+//    (role: .destructive) and "Recheck" - revealed by swiping the row *left*.
 //  - `.contextMenu` offering the same actions, for a long-press alternative.
 //
 //  This suite drives the swipe actions: XCTest's built-in `swipeLeft()`/`swipeRight()`
@@ -53,17 +53,17 @@
 //
 //  `TorrentRowView`'s `TorrentSummaryView` carries `.accessibilityElement(children:
 //  .combine)`, merging the torrent's name, status badge, percentage, and size into one
-//  label — so this suite matches the row with `label CONTAINS[c] <name>`, never an
+//  label - so this suite matches the row with `label CONTAINS[c] <name>`, never an
 //  exact `staticTexts` lookup, per the established pattern in this test target.
 //
 //  ## Why pausing moves the row out of Active
 //
 //  `DownloadsViewModel.isWaiting(_:)` routes `.stoppedDL` (qBittorrent v5's paused-
-//  while-downloading state — `LiveCapturedShapeContractTests.realTorrentObjectDecodes`)
+//  while-downloading state - `LiveCapturedShapeContractTests.realTorrentObjectDecodes`)
 //  to the Queue segment, not Active. `QBittorrentFixtureServer` is stateful: a real
 //  `POST /api/v2/torrents/stop` flips what its `/api/v2/sync/maindata` reports next, so
 //  once the app's next poll lands, the row should actually disappear from Active and
-//  reappear in Queue — proof the mutation changed real server state, not just a local
+//  reappear in Queue - proof the mutation changed real server state, not just a local
 //  optimistic flag.
 
 import XCTest
@@ -96,13 +96,13 @@ final class DownloadsJourneyUITests: XCTestCase {
         app.launchArguments += ["-TrawlUITestInMemoryStore"]
         app.launchEnvironment["TRAWL_UITEST_QBITTORRENT_BASE_URL"] = server.baseURL
         // This journey never opens TorrentDetailView, but a real TMDb lookup on a
-        // detail screen sits out a 15s timeout with no fixture — set unconditionally
+        // detail screen sits out a 15s timeout with no fixture - set unconditionally
         // so this suite can never regress into that trap if the journey grows to
         // cover the detail screen later.
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        // MARK: Step 1 — real connection: Downloads tab shows the seeded torrent.
+        // MARK: Step 1 - real connection: Downloads tab shows the seeded torrent.
 
         let downloadsTab = app.tabBars.buttons["Downloads"]
         XCTAssertTrue(
@@ -118,10 +118,10 @@ final class DownloadsJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(
             server.hasReceivedRequest(method: "GET", path: "/api/v2/sync/maindata"),
-            "The fixture server should have actually received a sync/maindata request over real HTTP — proves the row on screen came from the real client, not stale state."
+            "The fixture server should have actually received a sync/maindata request over real HTTP - proves the row on screen came from the real client, not stale state."
         )
 
-        // MARK: Step 2 — pause through the real UI (leading swipe action).
+        // MARK: Step 2 - pause through the real UI (leading swipe action).
 
         let pausedBeforeSwipe = server.hasReceivedRequest(
             method: "POST", path: "/api/v2/torrents/stop", bodyContains: server.hash
@@ -138,27 +138,27 @@ final class DownloadsJourneyUITests: XCTestCase {
         }
         XCTAssertTrue(
             pauseSwiped,
-            "Swiping the torrent row right should reveal and let a 'Pause' action be tapped (DownloadsView.swift's leading swipeActions) — regression: the swipe action disappeared or the row is no longer swipeable."
+            "Swiping the torrent row right should reveal and let a 'Pause' action be tapped (DownloadsView.swift's leading swipeActions) - regression: the swipe action disappeared or the row is no longer swipeable."
         )
 
         // This is the load-bearing assertion: proves the pause actually reached the
         // server, at the exact qBittorrent v5 path with the torrent's own hash in the
-        // body — not just a local state flip in TorrentService/SyncService.
+        // body - not just a local state flip in TorrentService/SyncService.
         XCTAssertTrue(
             waitForCondition(app: app, timeout: 10) {
                 server.hasReceivedRequest(method: "POST", path: "/api/v2/torrents/stop", bodyContains: server.hash)
             },
-            "Pausing the torrent should send POST /api/v2/torrents/stop with the torrent's hash in the body (QBittorrentAPIClient.pauseTorrents) — regression: the pause action stopped reaching the real server, or v5's /stop path regressed back to v4's /pause."
+            "Pausing the torrent should send POST /api/v2/torrents/stop with the torrent's hash in the body (QBittorrentAPIClient.pauseTorrents) - regression: the pause action stopped reaching the real server, or v5's /stop path regressed back to v4's /pause."
         )
 
-        // MARK: Corroborating UI-state assertion — the row should actually move,
+        // MARK: Corroborating UI-state assertion - the row should actually move,
         // proving the server's state (not just a client-side flag) changed: a paused
         // torrent is `stoppedDL`, which `DownloadsViewModel.isWaiting` routes to the
         // Queue segment, not Active.
 
         // `exists` is deliberately not used here. `DownloadsView` keeps its `List`
         // mounted even when the current segment filters down to nothing, so the
-        // segment-bar search field does not lose keyboard focus — which leaves a
+        // segment-bar search field does not lose keyboard focus - which leaves a
         // filtered-out row in the accessibility tree, invisible and untappable but
         // still `exists == true`. The empty-state copy is the positive proof, and
         // `isHittable` is the property that tracks what the user can actually reach.
@@ -169,17 +169,17 @@ final class DownloadsJourneyUITests: XCTestCase {
         waitForUnreachable(activeRow, timeout: 10)
         XCTAssertFalse(
             activeRow.isHittable,
-            "Once paused, the torrent's state becomes stoppedDL, which DownloadsViewModel.isWaiting routes to the Queue segment — it should no longer be reachable under Active."
+            "Once paused, the torrent's state becomes stoppedDL, which DownloadsViewModel.isWaiting routes to the Queue segment - it should no longer be reachable under Active."
         )
 
         selectSegment("Queue", app: app)
         let queueRow = torrentRow(in: app, named: server.name)
         XCTAssertTrue(
             queueRow.waitForExistence(in: app, timeout: 10),
-            "The paused torrent should now be listed in the Queue segment — regression: the fixture's next sync/maindata poll didn't actually report the stoppedDL state, or DownloadsViewModel stopped routing it there."
+            "The paused torrent should now be listed in the Queue segment - regression: the fixture's next sync/maindata poll didn't actually report the stoppedDL state, or DownloadsViewModel stopped routing it there."
         )
 
-        // MARK: Step 3 — resume through the real UI.
+        // MARK: Step 3 - resume through the real UI.
 
         let resumeSwiped = performSwipeAction(
             on: queueRow,
@@ -191,13 +191,13 @@ final class DownloadsJourneyUITests: XCTestCase {
         }
         XCTAssertTrue(
             resumeSwiped,
-            "Swiping the paused row right should reveal and let a 'Resume' action be tapped — regression: DownloadsView's isPaused(_:) branch stopped recognizing stoppedDL, so the leading action never switched from 'Pause' to 'Resume'."
+            "Swiping the paused row right should reveal and let a 'Resume' action be tapped - regression: DownloadsView's isPaused(_:) branch stopped recognizing stoppedDL, so the leading action never switched from 'Pause' to 'Resume'."
         )
         XCTAssertTrue(
             waitForCondition(app: app, timeout: 10) {
                 server.hasReceivedRequest(method: "POST", path: "/api/v2/torrents/start", bodyContains: server.hash)
             },
-            "Resuming the torrent should send POST /api/v2/torrents/start with the torrent's hash in the body (QBittorrentAPIClient.resumeTorrents) — regression: the resume action stopped reaching the real server, or v5's /start path regressed back to v4's /resume."
+            "Resuming the torrent should send POST /api/v2/torrents/start with the torrent's hash in the body (QBittorrentAPIClient.resumeTorrents) - regression: the resume action stopped reaching the real server, or v5's /start path regressed back to v4's /resume."
         )
 
         selectSegment("Active", app: app)
@@ -207,7 +207,7 @@ final class DownloadsJourneyUITests: XCTestCase {
             "Once resumed, the torrent's state goes back to downloading, which should route it back into the Active segment."
         )
 
-        // MARK: Step 4 — delete through the real UI, including the confirmation flow.
+        // MARK: Step 4 - delete through the real UI, including the confirmation flow.
 
         let deleteSwiped = performSwipeAction(
             on: activeRowAgain,
@@ -216,7 +216,7 @@ final class DownloadsJourneyUITests: XCTestCase {
             app: app
         ) {
             // Trailing swipe actions here use allowsFullSwipe: false, so unlike the
-            // leading actions above, a full swipe can never auto-trigger this one —
+            // leading actions above, a full swipe can never auto-trigger this one -
             // the confirmation alert always has to appear first.
             false
         }
@@ -230,7 +230,7 @@ final class DownloadsJourneyUITests: XCTestCase {
         let deleteTorrentOnlyButton = app.buttons["Delete Torrent Only"]
         XCTAssertTrue(
             deleteTorrentOnlyButton.waitForExistence(timeout: 5),
-            "Tapping 'Delete' should present the confirmation alert (DownloadsView's 'Delete Torrent?' alert, offering 'Delete and Remove Files' / 'Delete Torrent Only' / 'Cancel') before anything is sent to the server — regression: the alert stopped appearing, or delete now fires immediately without confirmation."
+            "Tapping 'Delete' should present the confirmation alert (DownloadsView's 'Delete Torrent?' alert, offering 'Delete and Remove Files' / 'Delete Torrent Only' / 'Cancel') before anything is sent to the server - regression: the alert stopped appearing, or delete now fires immediately without confirmation."
         )
         XCTAssertTrue(
             app.buttons["Delete and Remove Files"].exists && app.buttons["Cancel"].exists,
@@ -242,15 +242,15 @@ final class DownloadsJourneyUITests: XCTestCase {
             waitForCondition(app: app, timeout: 10) {
                 server.hasReceivedRequest(method: "POST", path: "/api/v2/torrents/delete", bodyContains: server.hash)
             },
-            "Confirming deletion should send POST /api/v2/torrents/delete with the torrent's hash in the body (QBittorrentAPIClient.deleteTorrents) — regression: the delete action stopped reaching the real server."
+            "Confirming deletion should send POST /api/v2/torrents/delete with the torrent's hash in the body (QBittorrentAPIClient.deleteTorrents) - regression: the delete action stopped reaching the real server."
         )
         XCTAssertTrue(
             server.hasReceivedRequest(method: "POST", path: "/api/v2/torrents/delete", bodyContains: "deleteFiles=false"),
-            "'Delete Torrent Only' should send deleteFiles=false — regression: DownloadsView.deletePendingTorrent(deleteFiles:) mismapped which alert button sends which value."
+            "'Delete Torrent Only' should send deleteFiles=false - regression: DownloadsView.deletePendingTorrent(deleteFiles:) mismapped which alert button sends which value."
         )
 
         // Scoped to the list rather than `app.buttons`, which would also match the
-        // success banner InAppNotificationCenter raises after a delete — that banner
+        // success banner InAppNotificationCenter raises after a delete - that banner
         // names the torrent, so an app-wide match would fail on the confirmation of
         // the very thing being asserted.
         // Asserted as the *positive* empty state the user actually sees, rather than
@@ -267,7 +267,7 @@ final class DownloadsJourneyUITests: XCTestCase {
         // server request asserted just above, not this.
         XCTAssertTrue(
             app.staticTexts["No Active Downloads"].waitForExistence(timeout: 15),
-            "Once the only torrent is deleted and the next sync lands, Downloads should show its empty state — regression: the deletion never reached the torrent list, or a full_update with no torrents key stopped clearing local state."
+            "Once the only torrent is deleted and the next sync lands, Downloads should show its empty state - regression: the deletion never reached the torrent list, or a full_update with no torrents key stopped clearing local state."
         )
     }
 
@@ -278,7 +278,7 @@ final class DownloadsJourneyUITests: XCTestCase {
     /// down to nothing, so a filtered-out row stays in the accessibility tree with
     /// `exists == true` while being invisible and untappable. `isHittable` is the
     /// property that tracks what the user can actually see and reach. Built only from
-    /// `waitForExistence` ticks — no sleeps.
+    /// `waitForExistence` ticks - no sleeps.
     private func waitForUnreachable(_ element: XCUIElement, timeout: TimeInterval) {
         let deadline = Date().addingTimeInterval(timeout)
         while element.isHittable && Date() < deadline {
@@ -301,8 +301,8 @@ final class DownloadsJourneyUITests: XCTestCase {
 
     /// Reveals a row's swipe action and taps it, retrying the swipe itself a bounded
     /// number of times. A tap dispatched on a button that `exists` but isn't yet
-    /// `isHittable` (still mid-reveal animation) is silently dropped — bitten
-    /// elsewhere in this suite — so this only taps once the button reports hittable,
+    /// `isHittable` (still mid-reveal animation) is silently dropped - bitten
+    /// elsewhere in this suite - so this only taps once the button reports hittable,
     /// and re-swipes if it doesn't appear in time.
     ///
     /// `alreadySucceeded` covers the leading actions' `allowsFullSwipe: true`: a fast,

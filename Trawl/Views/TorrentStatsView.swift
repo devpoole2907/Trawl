@@ -287,7 +287,7 @@ extension Array where Element == SyncService.SpeedSample {
                 TorrentStatsView(previewServerState: nil, previewSpeedHistory: [])
                 VStack {
                     Label(
-                        "Unable to connect to qBittorrent — check your server settings.",
+                        "Unable to connect to qBittorrent - check your server settings.",
                         systemImage: "exclamationmark.triangle"
                     )
                     .font(.footnote)

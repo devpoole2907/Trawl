@@ -12,7 +12,7 @@ struct SearchView: View {
     @State private var navigationPath = NavigationPath()
     @State private var trendingLookupTask: Task<Void, Never>? = nil
     /// A quick-add waiting on the user to say which server it lands on. Only ever
-    /// set when the service actually has two — with one server the add stays one
+    /// set when the service actually has two - with one server the add stays one
     /// tap, which is the whole point of the control.
     @State private var pendingQuickAdd: PendingQuickAdd?
 
@@ -359,7 +359,7 @@ struct SearchView: View {
                         guard !Task.isCancelled else { return }
                         navigationPath.append(ArrMediaDestination.seriesLookup(series))
                     } else if !Task.isCancelled {
-                        // Arr not configured or lookup failed — fall back to text search
+                        // Arr not configured or lookup failed - fall back to text search
                         viewModel.searchText = item.year.map { "\(item.displayTitle) \($0)" } ?? item.displayTitle
                         viewModel.isSearchPresented = true
                         viewModel.scope = .arr

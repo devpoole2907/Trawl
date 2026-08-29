@@ -56,7 +56,7 @@ actor SABnzbdAPIClient {
 
     // MARK: - Server configuration
 
-    /// SABnzbd absolutely does list its categories — `mode=get_cats` — and its
+    /// SABnzbd absolutely does list its categories - `mode=get_cats` - and its
     /// post-processing scripts alongside them. Deriving categories from whatever
     /// happened to be in the queue meant a fresh install offered none at all.
     func getCategories() async throws -> [String] {
@@ -131,7 +131,7 @@ actor SABnzbdAPIClient {
     // MARK: - News servers
 
     /// SABnzbd's news servers, as configured in its own settings. The response
-    /// includes each server's password in plain text — it is the only way SABnzbd
+    /// includes each server's password in plain text - it is the only way SABnzbd
     /// offers to read this section, so an editor that prefills has no alternative.
     func getNewsServers() async throws -> [SABnzbdNewsServer] {
         let envelope: SABnzbdServersEnvelope = try await request(
@@ -193,7 +193,7 @@ actor SABnzbdAPIClient {
     }
 
     /// Asks SABnzbd to open a real connection with these settings. Verified
-    /// against 5.1.1: replies `{"value":{"result":Bool,"message":String}}` — a
+    /// against 5.1.1: replies `{"value":{"result":Bool,"message":String}}` - a
     /// failed test is a successful request, so the message is returned rather
     /// than thrown.
     func testNewsServer(_ server: SABnzbdNewsServer) async throws -> (succeeded: Bool, message: String) {

@@ -2,7 +2,7 @@ import Foundation
 import Network
 
 /// A loopback server that accepts a connection, reads the request, and then never
-/// replies — so an in-flight request stays genuinely in flight until the test cancels
+/// replies - so an in-flight request stays genuinely in flight until the test cancels
 /// the task awaiting it.
 ///
 /// Shared by the setup-view-model suites, which each need to prove what a *cancelled*

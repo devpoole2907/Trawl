@@ -49,10 +49,10 @@ struct ArrBlocklistView: View {
 
     /// A blocklist row plus the server that holds it. Both instances of a service
     /// contribute to one list, and their row IDs overlap, so the entry is keyed by
-    /// instance — and a delete reaches the right server for the same reason.
+    /// instance - and a delete reaches the right server for the same reason.
     /// A blocklist row plus the server that holds it. Both instances of a service
     /// contribute to one list, and their row IDs overlap, so the entry is keyed by
-    /// instance — and a delete reaches the right server for the same reason.
+    /// instance - and a delete reaches the right server for the same reason.
     struct BlocklistEntry: Identifiable {
         let instanced: ArrInstanced<ArrBlocklistItem>
         let source: ArrServiceType

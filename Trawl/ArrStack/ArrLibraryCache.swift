@@ -29,7 +29,7 @@ final class ArrLibraryCache<Item: Sendable> {
     private var lastStartedSequence = 0
     private var lastStoredSequence: [UUID: Int] = [:]
 
-    /// Last-known library for an instance. Empty when nothing has loaded yet —
+    /// Last-known library for an instance. Empty when nothing has loaded yet -
     /// use `hasItems(for:)` to tell "not loaded" apart from "genuinely empty".
     func items(for instanceID: UUID?) -> [Item] {
         guard let instanceID else { return [] }
@@ -51,7 +51,7 @@ final class ArrLibraryCache<Item: Sendable> {
     /// Returns the library for `instanceID`, fetching only when the cached copy is
     /// older than `maxAge`.
     ///
-    /// `maxAge` defaults to 0, which always issues a fresh request — that keeps
+    /// `maxAge` defaults to 0, which always issues a fresh request - that keeps
     /// every mutation-driven reload (delete, monitor toggle, add, quality edit)
     /// seeing post-mutation state, as it did before this cache existed. Appear-time
     /// callers pass a window instead, and those are the ones that share a request
@@ -86,7 +86,7 @@ final class ArrLibraryCache<Item: Sendable> {
         // cache warm for the next visit.
         let task = Task<[Item], Error> { @MainActor in
             defer {
-                // Only retract our own registration — a newer forced request may
+                // Only retract our own registration - a newer forced request may
                 // already have replaced it.
                 if self.inFlight[instanceID]?.sequence == sequence {
                     self.inFlight[instanceID] = nil

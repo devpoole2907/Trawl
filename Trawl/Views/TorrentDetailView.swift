@@ -314,7 +314,7 @@ struct TorrentDetailView: View {
     // MARK: - Helpers
 
     private func dateString(from timestamp: Int) -> String {
-        guard timestamp > 0 else { return "—" }
+        guard timestamp > 0 else { return "-" }
         let date = Date(timeIntervalSince1970: TimeInterval(timestamp))
         return date.formatted(date: .abbreviated, time: .shortened)
     }

@@ -4,8 +4,8 @@ import Testing
 
 /// These tests drive the real `SABnzbdServiceManager` against the real
 /// `SABnzbdAPIClient` request path. Two fake SABnzbd servers answer on distinct
-/// hosts through an injected `URLProtocol`, and the *server* — never Trawl's own
-/// code — is what the test stalls. Ordering is owned entirely by checked
+/// hosts through an injected `URLProtocol`, and the *server* - never Trawl's own
+/// code - is what the test stalls. Ordering is owned entirely by checked
 /// continuations: a response is parked until the test releases it, and the test
 /// only proceeds once the server confirms the parked requests have arrived.
 @Suite("SABnzbd profile switching", .serialized)
@@ -81,7 +81,7 @@ struct SABnzbdProfileSwitchTests {
             #expect(modesB.sorted() == ["history", "queue", "queue", "version"])
 
             // Server A saw exactly its connect, its first refresh, and the parked
-            // second refresh — and nothing after the switch.
+            // second refresh - and nothing after the switch.
             let modesA = await SABnzbdSwitchRemote.shared.requestedModes(host: SABnzbdSwitchRemote.hostA)
             #expect(modesA.sorted() == ["history", "history", "queue", "queue", "queue", "version"])
         }

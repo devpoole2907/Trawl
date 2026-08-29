@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// Coverage for `SeerrIssueDetailViewModel` — the resolve/reopen routing, comment
+/// Coverage for `SeerrIssueDetailViewModel` - the resolve/reopen routing, comment
 /// adoption rules, and reply flow. Previously untested.
 ///
 /// `SeerrIssueDetailViewModel` takes a real `SeerrAPIClient` directly, so these drive
@@ -221,7 +221,7 @@ private nonisolated struct SeerrIssueDetailRecordedRequest: Sendable, Equatable 
 
 /// Recording `URLProtocol` stub for `SeerrIssueDetailViewModelTests`, copied from the
 /// pattern in `SeerrContractTests.SeerrContractURLProtocol` under a distinct name and
-/// host so the two — and `SeerrIssueListViewModelTests`' own stub — cannot collide.
+/// host so the two - and `SeerrIssueListViewModelTests`' own stub - cannot collide.
 private final class SeerrIssueDetailStubURLProtocol: URLProtocol, @unchecked Sendable {
     struct Stub: Sendable {
         var statusCode: Int = 200

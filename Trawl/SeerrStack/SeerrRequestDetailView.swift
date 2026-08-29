@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The media behind a request, presented the way Sonarr and Radarr present theirs
-/// — same shell, same hero, same overview card, same cast shelf — with the
+/// - same shell, same hero, same overview card, same cast shelf - with the
 /// request's own facts and the approve/decline decision added on top.
 ///
 /// It reuses `ArrItemDetailView` and friends rather than hand-rolling artwork and
@@ -10,7 +10,7 @@ import SwiftUI
 /// made twice.
 ///
 /// The media detail is fetched rather than passed in. A request payload carries
-/// only a title, a poster path and a TMDb id — enough to label a row, nowhere near
+/// only a title, a poster path and a TMDb id - enough to label a row, nowhere near
 /// enough to judge on.
 struct SeerrRequestDetailView: View {
     let request: SeerrMediaRequest
@@ -28,7 +28,7 @@ struct SeerrRequestDetailView: View {
     @State private var detailError: String?
     @State private var selectedCastMember: CastPersonRoute?
     /// Picking a credit inside the person sheet can't push while the sheet is up,
-    /// so it's held and resolved on dismiss — the same handoff the Arr detail
+    /// so it's held and resolved on dismiss - the same handoff the Arr detail
     /// screens use.
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
@@ -312,7 +312,7 @@ struct SeerrRequestDetailView: View {
 
     /// Seerr proxies TMDb but re-serialises it in camelCase, so `TMDbCastMember`
     /// can't decode this payload directly. The shelf's own item type is the shared
-    /// seam instead — same cell, same person sheet, different decode.
+    /// seam instead - same cell, same person sheet, different decode.
     private static func castShelfItem(_ member: SeerrCastMember) -> CastShelfItem {
         let personID = member.id ?? 0
         return CastShelfItem(
@@ -330,7 +330,7 @@ struct SeerrRequestDetailView: View {
 
     /// Resolves the tapped credit into something Trawl can actually show. Seerr has
     /// no standalone media screen, so a credit lands on the Radarr or Sonarr detail
-    /// via the shared lookup — the same resolver and failure message the Arr detail
+    /// via the shared lookup - the same resolver and failure message the Arr detail
     /// screens use, rather than a second way of doing it.
     private func completeCastCreditNavigation() {
         guard let credit = pendingCastCredit else { return }

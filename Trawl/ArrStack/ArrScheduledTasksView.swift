@@ -5,8 +5,8 @@ struct ArrScheduledTasksView: View {
 
     @State private var vm = ArrTasksViewModel()
     /// Which server's task list is on screen. Scheduled tasks and the command
-    /// queue are per-server — a refresh running on the HD box says nothing about
-    /// the 4K one — so the selector picks a server, not a service.
+    /// queue are per-server - a refresh running on the HD box says nothing about
+    /// the 4K one - so the selector picks a server, not a service.
     @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr
     @State private var showSettings = false
@@ -271,7 +271,7 @@ struct ArrScheduledTasksView: View {
         }
     }
 
-    /// Searches every server, not every service — with a pair configured the same
+    /// Searches every server, not every service - with a pair configured the same
     /// task name exists twice and each hit has to run on its own box.
     private func taskSearchSections(matching query: String) -> [TaskSearchSection] {
         availableInstances.flatMap { instance -> [TaskSearchSection] in

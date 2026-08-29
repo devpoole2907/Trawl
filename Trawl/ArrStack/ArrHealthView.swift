@@ -93,7 +93,7 @@ struct ArrHealthView: View {
 
     /// The same warning raised by both halves of an HD/4K pair is two problems,
     /// not one, so each check keeps the server that raised it. The instance is
-    /// attached only when a second server of that type exists — otherwise the
+    /// attached only when a second server of that type exists - otherwise the
     /// badge would label every row with the only server there is.
     private func healthItems(
         _ checks: [ArrInstanced<ArrHealthCheck>],

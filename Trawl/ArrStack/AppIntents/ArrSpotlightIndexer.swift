@@ -22,7 +22,7 @@ enum ArrSpotlightIndexer {
 
     // MARK: - Services
 
-    /// Indexes the configured Radarr/Sonarr/Prowlarr services. Cheap — reads SwiftData only —
+    /// Indexes the configured Radarr/Sonarr/Prowlarr services. Cheap - reads SwiftData only -
     /// so it's safe to call on every launch.
     static func indexConfiguredServices() async {
         do {
@@ -58,7 +58,7 @@ enum ArrSpotlightIndexer {
         }
     }
 
-    /// Indexes the full Radarr/Sonarr libraries. Network-heavy — call deliberately (e.g. from a
+    /// Indexes the full Radarr/Sonarr libraries. Network-heavy - call deliberately (e.g. from a
     /// pull-to-refresh or a manual "re-index" action), not on every launch.
     static func indexLibraries() async {
         let services = (try? await ArrIntentSupport.loadServices(ofTypes: [.radarr, .sonarr])) ?? []

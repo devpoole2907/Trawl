@@ -17,15 +17,15 @@
 //  This exists to seed only *external* state for
 //  `SABnzbdUnauthorizedJourneyUITests`: it answers exactly the calls
 //  `SABnzbdServiceManager.connectService(_:)` and `refresh()` make against `.sabnzbd`
-//  (version, queue, history — see `SABnzbdServiceManager.swift`), and can flip to
+//  (version, queue, history - see `SABnzbdServiceManager.swift`), and can flip to
 //  rejecting every request with an HTTP 401 at runtime, which is exactly how SABnzbd
 //  itself signals an invalid API key: `HTTPTransport.validate(_:data:path:urlString:)`
-//  maps any status in `errorMapper.unauthorizedStatusCodes` — `[401, 403]` for SABnzbd,
-//  set in `SABnzbdAPIClient.init` — to `SABnzbdAPIError.unauthorized` *before* the
+//  maps any status in `errorMapper.unauthorizedStatusCodes` - `[401, 403]` for SABnzbd,
+//  set in `SABnzbdAPIClient.init` - to `SABnzbdAPIError.unauthorized` *before* the
 //  response body is ever decoded. A `200` with a `{"status":false,...}` error body, by
 //  contrast, is real SABnzbd behavior too but maps to `.api(message:)`, not
 //  `.unauthorized` (see `SABnzbdAPIClientContractTests`'s "delivered as a 200 error
-//  body" test) — so this fixture uses the status-code path deliberately, because that
+//  body" test) - so this fixture uses the status-code path deliberately, because that
 //  is the one `SABnzbdServiceManager.refresh()` actually treats as an authorization
 //  failure.
 
@@ -34,7 +34,7 @@ import Network
 
 /// Loopback fixture standing in for a real SABnzbd server. Answers `mode=version`,
 /// `mode=queue`, `mode=history`, `mode=get_cats`, `mode=get_scripts`, `mode=pause`,
-/// and `mode=resume` — the calls the connect path, the polling refresh, the manager
+/// and `mode=resume` - the calls the connect path, the polling refresh, the manager
 /// view's on-appear category fetch, and its queue-level mutation actions make. Any
 /// other `mode` gets a harmless empty-object `200 OK`, since it isn't relevant to what
 /// this journey asserts.
@@ -46,7 +46,7 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
         let query: String
 
         /// The `mode=` query parameter, which is how SABnzbd's API distinguishes
-        /// operations — there is no per-operation path to key off of.
+        /// operations - there is no per-operation path to key off of.
         var mode: String? {
             query
                 .split(separator: "&")
@@ -71,12 +71,12 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
     private var recordedRequests: [RecordedRequest] = []
     /// Flipped at runtime by the test to simulate a revoked API key. Every request
     /// while this is `true` answers `401` instead of its normal `200` body,
-    /// regardless of `mode` — matching a real SABnzbd server rejecting every call
+    /// regardless of `mode` - matching a real SABnzbd server rejecting every call
     /// once its API key no longer matches, not just the next poll.
     private var isUnauthorized = false
 
     /// - Parameter queueJobName: the `filename` of the single queue slot this fixture
-    ///   serves for `mode=queue` while authorized — the job the journey's first
+    ///   serves for `mode=queue` while authorized - the job the journey's first
     ///   assertion looks for on screen.
     init(queueJobName: String) async throws {
         self.queue = DispatchQueue(label: "SABnzbdFixtureServer")
@@ -130,7 +130,7 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
     }
 
     /// Flips the fixture into rejecting every subsequent request with a real HTTP
-    /// 401 — the same status `HTTPTransport` maps to `SABnzbdAPIError.unauthorized`
+    /// 401 - the same status `HTTPTransport` maps to `SABnzbdAPIError.unauthorized`
     /// in production, which is what makes this an *authentic* regression test for
     /// H-05 rather than a stubbed error path.
     func setUnauthorized() {
@@ -148,7 +148,7 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
     /// Each inbound connection is handled independently and closed after one
     /// response (`Connection: close`), matching how `URLSession` issues one
     /// connection per request. The app polls repeatedly, so this can and does get
-    /// invoked many times concurrently — every mutation of `recordedRequests` and
+    /// invoked many times concurrently - every mutation of `recordedRequests` and
     /// `isUnauthorized` is serialized by `lock`.
     private func respond(to connection: NWConnection) {
         connection.start(queue: queue)
@@ -177,7 +177,7 @@ final class SABnzbdFixtureServer: @unchecked Sendable {
         }
     }
 
-    /// Route table, keyed by `mode` — SABnzbd's API has one path and dispatches
+    /// Route table, keyed by `mode` - SABnzbd's API has one path and dispatches
     /// entirely on this query parameter. Bodies are the minimal shape each envelope
     /// needs; every other field on `SABnzbdQueue`/`SABnzbdHistory`/etc. has a lossy
     /// default (see `SABnzbdModels.swift`), so this only needs to supply what the

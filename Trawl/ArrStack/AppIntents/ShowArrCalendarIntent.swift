@@ -68,7 +68,7 @@ struct ShowArrCalendarIntent: AppIntent {
                     let seriesTitle = episode.series?.title ?? "Series"
                     let epTitle = episode.title ?? ""
                     let code = String(format: "S%02dE%02d", episode.seasonNumber, episode.episodeNumber)
-                    let title = "\(seriesTitle) — \(code)\(epTitle.isEmpty ? "" : " \(epTitle)")"
+                    let title = "\(seriesTitle) - \(code)\(epTitle.isEmpty ? "" : " \(epTitle)")"
                     return (ArrIntentSupport.parseDate(episode.airDateUtc),
                             ArrCalendarItemEntity(payload: .init(serviceName: service.displayName, title: title, dateISO: episode.airDateUtc)))
                 }

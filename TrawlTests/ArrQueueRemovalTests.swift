@@ -5,20 +5,20 @@ import Testing
 @testable import Trawl
 
 /// What the queue screen *shows* after a removal, as opposed to what
-/// `deleteQueueItem` puts on the wire — the contract for that lives in
+/// `deleteQueueItem` puts on the wire - the contract for that lives in
 /// `ArrAPIClientContractTests`' "Queue deletion" section.
 ///
 /// The property under test is that the list cannot lie about what happened.
 /// `ArrLibraryViewModel.removeQueueItem` drops the item from its local `queue` array
 /// after the delete returns, so if a rejection were treated as success the row would
-/// vanish from the screen while the download carried on in the client — the user is
+/// vanish from the screen while the download carried on in the client - the user is
 /// then told something was removed that was not. That is the same failure shape as
 /// N-03 (a rejected SABnzbd key silently emptying the Downloads tab), which is why it
 /// is worth pinning here rather than trusting the happy path.
 ///
 /// `queue` is `private(set)`, so these tests cannot install it: it is populated by
 /// running the real `loadQueue()` against the fixture, which is the intended way round
-/// — the removal is then exercised against state the production path produced.
+/// - the removal is then exercised against state the production path produced.
 @Suite("Arr queue removal", .serialized)
 @MainActor
 struct ArrQueueRemovalTests {
@@ -49,7 +49,7 @@ struct ArrQueueRemovalTests {
             #expect(removed == false)
             #expect(
                 viewModel.queue.map(\.id) == [42, 43],
-                "A rejected removal must leave the queue exactly as it was — dropping the row would tell the user a download was removed while it is still running in the client."
+                "A rejected removal must leave the queue exactly as it was - dropping the row would tell the user a download was removed while it is still running in the client."
             )
             #expect(
                 viewModel.error != nil,
@@ -85,7 +85,7 @@ struct ArrQueueRemovalTests {
             #expect(removed == true)
             #expect(
                 viewModel.queue.map(\.id) == [43],
-                "Only the removed item should leave the queue — clearing more would blank rows whose downloads are untouched."
+                "Only the removed item should leave the queue - clearing more would blank rows whose downloads are untouched."
             )
             #expect(viewModel.error == nil)
         }

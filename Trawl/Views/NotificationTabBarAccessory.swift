@@ -21,7 +21,7 @@ struct NotificationTabBarAccessory: View {
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
 
     /// Downloads that need a human, using the exact rule the Downloads Issues
-    /// segment renders — see `DownloadsViewModel.attentionItems(…)`.
+    /// segment renders - see `DownloadsViewModel.attentionItems(…)`.
     private var attentionItems: [DownloadListItem] {
         DownloadsViewModel.attentionItems(
             serviceManager: arrServiceManager,
@@ -568,7 +568,7 @@ struct RecentNotificationsSheet: View {
                     // fully expanded it buried the notification log underneath it.
                     // The count lives in the label so it still reads while shut.
                     //
-                    // DisclosureGroup rather than Section(isExpanded:) — the latter
+                    // DisclosureGroup rather than Section(isExpanded:) - the latter
                     // compiles fine but renders without a chevron under this list
                     // style, so the section was permanently open.
                     Section {
@@ -673,7 +673,7 @@ struct RecentNotificationsSheet: View {
 
     // MARK: - Actions Segment
 
-    /// Global service commands — verbs that need no specific object. Each one fans
+    /// Global service commands - verbs that need no specific object. Each one fans
     /// out to every configured instance of its backing service instead of asking
     /// the user to pick one, and reports a single summary banner when it lands.
     /// Per-item verbs (retry this grab, blocklist this release) belong on the rows
@@ -711,7 +711,7 @@ struct RecentNotificationsSheet: View {
         }
     }
 
-    /// Only actions whose backing service is actually connected are offered —
+    /// Only actions whose backing service is actually connected are offered -
     /// every integration in Trawl is optional, so an unconfigured service simply
     /// drops its row rather than showing a dead-end button.
     private var availableActions: [NotificationQuickAction] {
@@ -888,7 +888,7 @@ struct RecentNotificationsSheet: View {
         }
     }
 
-    /// One summary banner per action rather than one per service — on a partial
+    /// One summary banner per action rather than one per service - on a partial
     /// failure the successes and the failure reasons share a single line.
     private func report(_ action: NotificationQuickAction, outcome: NotificationQuickActionOutcome) {
         guard !outcome.isEmpty else {
@@ -1582,7 +1582,7 @@ private enum NotificationQuickActionGroup: String, CaseIterable, Identifiable {
     }
 }
 
-/// A global service verb. Everything here is object-free — it acts on whole
+/// A global service verb. Everything here is object-free - it acts on whole
 /// services, never on a single queue item, grab, or release.
 private enum NotificationQuickAction: String, CaseIterable, Identifiable {
     case refreshLibrary
@@ -1756,7 +1756,7 @@ private extension DownloadListItem {
 #if DEBUG
 /// Previews live next to the sheet rather than in `MoreView`, where they used to
 /// sit alongside `MorePreviewFixtures`. The sheet reads five service
-/// environments, and only `PreviewHost` supplies all of them — so the fixtures
+/// environments, and only `PreviewHost` supplies all of them - so the fixtures
 /// are inlined here instead of reaching back into another file's private enum.
 private enum NotificationSheetPreviewFixtures {
     static func notificationCenter() -> InAppNotificationCenter {

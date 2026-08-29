@@ -24,7 +24,7 @@ extension SharedArrClient {
     /// A blank profile shaped by *this* server's quality definitions.
     ///
     /// A profile's `items` have to mirror the qualities the server actually knows
-    /// about, so a new one cannot be built client-side from nothing — this is the
+    /// about, so a new one cannot be built client-side from nothing - this is the
     /// same call Sonarr and Radarr's own UI makes when you press Add. Returns a
     /// single resource, not a list, and its `id` is 0 until it is created.
     func getQualityProfileSchema() async throws -> ArrQualityProfile { try await base.get("\(apiPath)/qualityprofile/schema") }
@@ -418,10 +418,10 @@ actor ArrAPIClient {
             } catch is CancellationError {
                 throw CancellationError()
             } catch {
-                // Transient network error — continue polling until deadline
+                // Transient network error - continue polling until deadline
             }
         }
-        // Timed out — fetch final state and throw if non-terminal
+        // Timed out - fetch final state and throw if non-terminal
         let finalCommand = (try? await getCommand(id: commandId, apiPath: apiPath)) ?? command
         if !finalCommand.isTerminal {
             throw ArrError.commandTimeout(commandId: commandId, lastKnownCommand: finalCommand)

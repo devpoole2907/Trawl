@@ -126,7 +126,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             // Repointing a profile at a different server keeps its ID, so the ID alone
             // never changes and this task was not restarted. The list view recreates
             // its view model for the new client, but on re-appear this task had
-            // already started against the *previous* one — leaving a freshly created,
+            // already started against the *previous* one - leaving a freshly created,
             // empty view model that nothing ever asked to load, and a library list
             // stuck on "No Series" while the app was correctly connected to the new
             // server. Identity changes exactly when the view model is swapped, and
@@ -236,7 +236,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// One row shape in both modes, minus the link while editing.
     ///
     /// `List` disables `NavigationLink`s in edit mode so its own tap can select the
-    /// row, and a disabled link dims everything inside its label — every row went
+    /// row, and a disabled link dims everything inside its label - every row went
     /// grey the moment Select was pressed while still being perfectly selectable.
     /// Dropping the link keeps the row at full strength; selection is the List's
     /// either way, so there is still no second tap handler and no hand-drawn
@@ -448,7 +448,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// Which servers this tab is showing: every one, or exactly one.
     ///
     /// Derived from `ArrServiceManager.instanceFilter` rather than held
-    /// separately — the filter is what every unified surface already reads, so a
+    /// separately - the filter is what every unified surface already reads, so a
     /// second copy here could disagree with the library it is meant to describe.
     private enum InstanceScope: Hashable {
         case all
@@ -470,7 +470,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     /// Only worth a menu when there is a choice to make, and never while
-    /// selecting — the title has a count to show, and a `.principal` toolbar item
+    /// selecting - the title has a count to show, and a `.principal` toolbar item
     /// would replace it.
     private var showsTitleMenu: Bool {
         availableInstanceRefs.count > 1 && !editMode.isEditing
@@ -479,7 +479,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     private var titleMenuOptions: [TrawlTitleMenuOption<InstanceScope>] {
         [TrawlTitleMenuOption(value: .all, title: nounPlural, systemImage: emptyIcon)]
             + availableInstanceRefs.map {
-                // The server's own name, as the user typed it in setup — this menu
+                // The server's own name, as the user typed it in setup - this menu
                 // is about which box to look at, and "Default"/"4K" names a tier
                 // rather than a server.
                 TrawlTitleMenuOption(value: .only($0.id), title: $0.displayName, systemImage: "server.rack")
@@ -504,8 +504,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// Re-derives the list for the servers the filter now admits.
     ///
     /// Driven from the menu rather than by observing `instanceFilter`, because
-    /// that state also settles during launch — pruned of servers that no longer
-    /// exist — and a rebuild triggered then runs before the servers have
+    /// that state also settles during launch - pruned of servers that no longer
+    /// exist - and a rebuild triggered then runs before the servers have
     /// connected, so the union comes back empty and blanks a list that had just
     /// loaded. Only a user changing the scope should rebuild.
     ///

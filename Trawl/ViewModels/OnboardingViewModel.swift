@@ -120,7 +120,7 @@ final class OnboardingViewModel {
             }
             // Create a temporary API client to test the connection
             // A throwaway instance with exactly one caller, so cancelling this
-            // attempt can safely cancel its login — nothing else is waiting on it.
+            // attempt can safely cancel its login - nothing else is waiting on it.
             let tempAuth = AuthService(
                 serverProfileID: UUID(),
                 allowsUntrustedTLS: allowsUntrustedTLS,
@@ -135,7 +135,7 @@ final class OnboardingViewModel {
             try await tempClient.login(username: username, password: password)
             _ = try await tempClient.getAppVersion()
 
-            // Connection successful — save the profile
+            // Connection successful - save the profile
             let name = displayName.isEmpty ? trimmedURL : displayName
 
             if let editingServer {
@@ -197,8 +197,8 @@ final class OnboardingViewModel {
         } catch {
             // A cancelled attempt is not a failure to report: the sheet was dismissed,
             // or Connect was tapped again and a newer attempt now owns this state.
-            // The error type varies by transport — `CancellationError` through
-            // `HTTPTransport`, `URLError.cancelled` from `AuthService`'s own session —
+            // The error type varies by transport - `CancellationError` through
+            // `HTTPTransport`, `URLError.cancelled` from `AuthService`'s own session -
             // so the question asked here is simply whether this attempt was cancelled.
             if Task.isCancelled {
                 isValidating = false

@@ -96,7 +96,7 @@ struct SABnzbdSettingsView: View {
                         Task { await updateSpeedLimit(speedLimitPercent) }
                     }
                     // The picker is the only thing showing this value now, so it
-                    // has to follow the server rather than only local edits —
+                    // has to follow the server rather than only local edits -
                     // otherwise a change made in SABnzbd's own UI leaves it stale.
                     .onChange(of: serviceManager.queue?.speedLimit) { _, serverValue in
                         guard let serverValue, didLoadSpeedLimit, !isUpdatingSpeedLimit else { return }
@@ -212,7 +212,7 @@ struct SABnzbdSettingsView: View {
     }
 
     /// The percentage is in the picker itself; the footer adds the one thing the
-    /// picker can't say — what that percentage currently works out to.
+    /// picker can't say - what that percentage currently works out to.
     private var speedLimitFooter: String {
         let base = "Caps SABnzbd's download speed as a percentage of line speed. Unlimited removes the cap."
         guard let absolute = serviceManager.queue?.speedLimitAbsolute, absolute > 0 else {

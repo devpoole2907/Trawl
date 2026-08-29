@@ -5,11 +5,11 @@
 //  Sonarr already has several UI journeys (`SonarrConnectedJourneyUITests`,
 //  `ArrInstanceSwitchJourneyUITests`, `ArrRepointJourneyUITests`,
 //  `ArrSearchAddJourneyUITests`); Radarr had none. This suite doesn't re-run the
-//  Sonarr journeys against Radarr — most of the list machinery is shared through
+//  Sonarr journeys against Radarr - most of the list machinery is shared through
 //  `ArrMediaListView`, so that would just re-prove the same shared code twice. It
 //  targets what's genuinely Radarr-specific instead: `RadarrViewModel`,
 //  `RadarrMovieListView`, and above all `RadarrMovieDetailView`
-//  (`Trawl/ArrStack/RadarrMovieDetailView.swift`) — 1,952 executable lines at 0%
+//  (`Trawl/ArrStack/RadarrMovieDetailView.swift`) - 1,952 executable lines at 0%
 //  coverage, the largest untested file in the project.
 //
 //  ## Seeding, reused from `SonarrConnectedJourneyUITests`'s pattern
@@ -27,7 +27,7 @@
 //  `TRAWL_UITEST_TMDB_BASE_URL` is set on every launch here (not just the failure
 //  paths) because `RadarrMovieDetailView`'s `.task(id: movie?.tmdbId)` always fires a
 //  real `TMDbClient().movieCredits(tmdbId:)` lookup for the cast shelf
-//  (`RadarrMovieDetailView.swift:150-157`) the moment the detail screen appears — left
+//  (`RadarrMovieDetailView.swift:150-157`) the moment the detail screen appears - left
 //  alone it reaches the public internet and sits out a 15s timeout, which is exactly
 //  what made an earlier journey in this suite take 140s (see
 //  `ArrSearchAddJourneyUITests`'s identical comment). A closed loopback port
@@ -41,22 +41,22 @@
 //  `ArrMediaListView`, whose rows are `NavigationLink(value: item.id)` wrapping
 //  `RadarrMovieRow` (`ArrMediaListView.swift:247`, `RadarrMovieListView.swift:250`).
 //  `RadarrMovieRow` renders `Text(movie.title)` with no `.accessibilityElement`
-//  grouping, so the title is directly reachable as `app.staticTexts[title]` — the
+//  grouping, so the title is directly reachable as `app.staticTexts[title]` - the
 //  same working pattern `SonarrConnectedJourneyUITests` and `ArrSearchAddJourneyUITests`
 //  already rely on for their own rows.
 //
 //  Tapping a row pushes `RadarrMovieDetailView(movieId:viewModel:)`
 //  (`RadarrMovieListView.swift:94`), which wraps its content in `ArrItemDetailView`
-//  (`Trawl/ArrStack/Detail/ArrItemDetailView.swift`) — `.navigationTitle(title)` there
+//  (`Trawl/ArrStack/Detail/ArrItemDetailView.swift`) - `.navigationTitle(title)` there
 //  means the movie's title is reachable unambiguously as `app.navigationBars[title]`,
 //  sidestepping any risk of the list row's identical `Text` still being mounted
 //  underneath during the push transition. `heroSection` (`RadarrMovieDetailView.swift:
 //  457-474`) renders the studio and the "Monitored" badge
 //  (`RadarrMovie.detailBadges(context:)`, `Trawl/ArrStack/Detail/
-//  ArrDetailSharedTypes.swift:110-112` — appended *only* `if context.isInLibrary &&
+//  ArrDetailSharedTypes.swift:110-112` - appended *only* `if context.isInLibrary &&
 //  monitored == true`), and `cardsSection` renders the overview via
 //  `ArrDetailOverviewCard` (`RadarrMovieDetailView.swift:512-513`) whenever
-//  `movie.overview` is non-empty — all three are plain, ungrouped `Text`/`Label`
+//  `movie.overview` is non-empty - all three are plain, ungrouped `Text`/`Label`
 //  nodes, so `RadarrFixtureServer`'s known constants (`movieTitle`, `movieStudio`,
 //  `movieOverview`) are asserted directly against `app.staticTexts`/`app.navigationBars`.
 //
@@ -68,14 +68,14 @@
 //  (`RadarrMovieDetailView.swift:1008-1015`) that calls
 //  `viewModel.toggleMovieMonitored(movie)`. That method
 //  (`Trawl/ArrStack/RadarrViewModel.swift:259-299`) first re-fetches the movie via
-//  `GET /api/v3/movie/{id}` to get a canonical copy — bailing out silently if
+//  `GET /api/v3/movie/{id}` to get a canonical copy - bailing out silently if
 //  `qualityProfileId` is nil or `rootFolderPath` is empty
 //  (`RadarrViewModel.swift:267-273`), which is exactly why
-//  `RadarrFixtureServer.movieJSON()` always serves both — then sends the flipped
+//  `RadarrFixtureServer.movieJSON()` always serves both - then sends the flipped
 //  value via `PUT /api/v3/movie/{id}` (`RadarrAPIClient.updateMovie(_:moveFiles:)`,
 //  `RadarrAPIClient.swift:48-51`), and finally reloads the library with
 //  `loadMovies()`. `RadarrFixtureServer` remembers the `monitored` flag a `PUT`
-//  changes, so that reload reflects the flip — which is what lets this suite use the
+//  changes, so that reload reflects the flip - which is what lets this suite use the
 //  "Monitored" badge's disappearance as its positive on-screen signal: unlike a
 //  filtered list row that stays mounted with `exists == true`, this badge is
 //  genuinely absent from the view hierarchy once `monitored` is no longer `true`
@@ -89,10 +89,10 @@
 //  - A tap on an element that `exists` but isn't yet `isHittable` is silently
 //    dropped, surfacing as a failure on the *next* assertion instead. `tapWhenHittable`
 //    below never taps without first polling `isHittable` in a bounded loop, built
-//    only from `waitForExistence` — no `sleep()`/`Thread.sleep` anywhere in this file.
+//    only from `waitForExistence` - no `sleep()`/`Thread.sleep` anywhere in this file.
 //  - Even a confirmed-hittable `StaticText` inside a `List` row can fail
 //    `element.tap()` with "Timed out while synthesizing event" when the app never
-//    reaches quiescence — which happens under full-plan load but not in isolation,
+//    reaches quiescence - which happens under full-plan load but not in isolation,
 //    so it presents as a flaky test rather than a harness timing dependency.
 //    `tapCentre(of:)` delivers the already-verified tap by coordinate instead.
 //  - `TrawlUITests/XCUIElement+Scrolling.swift`'s `waitForExistence(in:timeout:)`
@@ -147,24 +147,24 @@ final class RadarrJourneyUITests: XCTestCase {
         let movieRow = app.staticTexts[RadarrFixtureServer.movieTitle]
         XCTAssertTrue(
             movieRow.waitForExistence(timeout: 15),
-            "RadarrMovieRow should show the fixture movie's title once the real connect sequence and GET /api/v3/movie complete — regression: the Radarr connect path or the Movies tab's rendering broke."
+            "RadarrMovieRow should show the fixture movie's title once the real connect sequence and GET /api/v3/movie complete - regression: the Radarr connect path or the Movies tab's rendering broke."
         )
         XCTAssertTrue(
             server.hasReceivedRequest(method: "GET", path: "/api/v3/movie"),
-            "The fixture server should have actually received the movie library request — proves the row came over real HTTP through RadarrAPIClient, not from a stub."
+            "The fixture server should have actually received the movie library request - proves the row came over real HTTP through RadarrAPIClient, not from a stub."
         )
 
         // MARK: 2. Open the movie detail screen and assert real, distinct content.
 
         XCTAssertTrue(
             tapWhenHittable(movieRow, in: app, timeout: 15),
-            "The movie row should become tappable once the list finishes loading — regression: the row exists but its tap is silently dropped (see file header, 'established UI facts')."
+            "The movie row should become tappable once the list finishes loading - regression: the row exists but its tap is silently dropped (see file header, 'established UI facts')."
         )
 
         // Deliberately NOT `app.navigationBars[RadarrFixtureServer.movieTitle]`.
         // Subscripting a navigation bar by this title crashes the test runner
-        // outright — "Assertion failure in -[XCUIElementQuery
-        // _predicateWithType:identifier:]" — because the title contains a colon.
+        // outright - "Assertion failure in -[XCUIElementQuery
+        // _predicateWithType:identifier:]" - because the title contains a colon.
         // The runner dies rather than failing an assertion, so the whole journey is
         // lost with no useful message.
         //
@@ -175,13 +175,13 @@ final class RadarrJourneyUITests: XCTestCase {
         // the push transition.
         XCTAssertTrue(
             app.navigationBars.firstMatch.waitForExistence(timeout: 15),
-            "Tapping the movie should push a detail screen — regression: RadarrMovieDetailView failed to resolve the movie, or the navigation never happened."
+            "Tapping the movie should push a detail screen - regression: RadarrMovieDetailView failed to resolve the movie, or the navigation never happened."
         )
 
         let studioText = app.staticTexts[RadarrFixtureServer.movieStudio]
         XCTAssertTrue(
             studioText.waitForExistence(timeout: 15),
-            "ArrDetailHeaderView should render the movie's real studio ('\(RadarrFixtureServer.movieStudio)') — regression: heroSection stopped passing movie.studio through, or the field failed to decode."
+            "ArrDetailHeaderView should render the movie's real studio ('\(RadarrFixtureServer.movieStudio)') - regression: heroSection stopped passing movie.studio through, or the field failed to decode."
         )
 
         // Matched on a distinctive fragment rather than subscripting by the whole
@@ -194,13 +194,13 @@ final class RadarrJourneyUITests: XCTestCase {
             .firstMatch
         XCTAssertTrue(
             overviewText.waitForExistence(timeout: 15),
-            "ArrDetailOverviewCard should render the movie's real overview text verbatim — regression: cardsSection stopped rendering the overview card, or RadarrMovie.overview failed to decode. This is the core proof RadarrMovieDetailView — the largest untested file in the project — actually renders real payload content, not just a title."
+            "ArrDetailOverviewCard should render the movie's real overview text verbatim - regression: cardsSection stopped rendering the overview card, or RadarrMovie.overview failed to decode. This is the core proof RadarrMovieDetailView - the largest untested file in the project - actually renders real payload content, not just a title."
         )
 
         let monitoredBadge = app.staticTexts["Monitored"]
         XCTAssertTrue(
             monitoredBadge.waitForExistence(timeout: 15),
-            "The fixture movie is seeded monitored and in the library, so detailBadges(context:) should append a 'Monitored' pill (ArrDetailSharedTypes.swift) — this is also the baseline state the toggle action below flips away from."
+            "The fixture movie is seeded monitored and in the library, so detailBadges(context:) should append a 'Monitored' pill (ArrDetailSharedTypes.swift) - this is also the baseline state the toggle action below flips away from."
         )
 
         // MARK: 3. Radarr-specific action: toggle "Monitored" off via the "More" menu.
@@ -208,18 +208,18 @@ final class RadarrJourneyUITests: XCTestCase {
         let moreButton = app.navigationBars.buttons["More"]
         XCTAssertTrue(
             tapWhenHittable(moreButton, in: app, timeout: 15),
-            "RadarrMovieDetailView's toolbar should offer a 'More' menu once the movie is in the library — regression: the toolbar Menu disappeared, or isInLibrary stopped being true for a library movie."
+            "RadarrMovieDetailView's toolbar should offer a 'More' menu once the movie is in the library - regression: the toolbar Menu disappeared, or isInLibrary stopped being true for a library movie."
         )
 
         let unmonitorButton = firstElement(labelContains: "Unmonitor", in: app)
         XCTAssertTrue(
             unmonitorButton.waitForExistence(timeout: 10),
-            "The More menu should offer 'Unmonitor' while the movie is monitored — regression: the menu's label stopped reflecting movie.monitored, or the row disappeared entirely."
+            "The More menu should offer 'Unmonitor' while the movie is monitored - regression: the menu's label stopped reflecting movie.monitored, or the row disappeared entirely."
         )
 
         // Captured immediately before the tap that triggers toggleMovieMonitored's
         // real GET-then-PUT sequence, so every request from here on is attributable
-        // to this one action — mirrors ArrSearchAddJourneyUITests's
+        // to this one action - mirrors ArrSearchAddJourneyUITests's
         // `serverRequestCountBeforeAdd`.
         let requestsBeforeToggleSettles = server.requests.count
         XCTAssertTrue(
@@ -230,12 +230,12 @@ final class RadarrJourneyUITests: XCTestCase {
         // Positive UI outcome: unlike a filtered list row that stays mounted with
         // `exists == true` (see file header on absence-assertion pitfalls), the
         // "Monitored" badge is only ever appended to the badges array `if monitored
-        // == true` — its disappearance is a genuine conditional-render change, not a
+        // == true` - its disappearance is a genuine conditional-render change, not a
         // hidden-but-present row.
         waitForDisappearance(of: monitoredBadge, timeout: 20)
         XCTAssertFalse(
             monitoredBadge.exists,
-            "toggleMovieMonitored's PUT + loadMovies() refetch should flip the movie to unmonitored, removing the 'Monitored' badge — regression: the toggle silently failed, or the post-update refetch didn't land."
+            "toggleMovieMonitored's PUT + loadMovies() refetch should flip the movie to unmonitored, removing the 'Monitored' badge - regression: the toggle silently failed, or the post-update refetch didn't land."
         )
 
         // Positive UI outcome #2: reopening the menu should now offer the opposite
@@ -247,7 +247,7 @@ final class RadarrJourneyUITests: XCTestCase {
         let monitorButtonAfterToggle = firstElement(labelContains: "Monitor", in: app)
         XCTAssertTrue(
             monitorButtonAfterToggle.waitForExistence(timeout: 10),
-            "After unmonitoring, the More menu's row should now read 'Monitor' (movie.monitored == false) — regression: the view model's local `movies` array wasn't updated, leaving the menu offering the wrong action for the movie's actual state."
+            "After unmonitoring, the More menu's row should now read 'Monitor' (movie.monitored == false) - regression: the view model's local `movies` array wasn't updated, leaving the menu offering the wrong action for the movie's actual state."
         )
 
         // Server evidence: not just that the UI believes the toggle worked, but that
@@ -258,13 +258,13 @@ final class RadarrJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             requestsDuringToggle.contains { $0.method == "GET" && $0.path == movieDetailPath },
-            "toggleMovieMonitored should re-fetch the canonical movie via GET \(movieDetailPath) before building its update — regression: RadarrViewModel stopped calling client.getMovie(id:), which would also silently break the qualityProfileId/rootFolderPath guard."
+            "toggleMovieMonitored should re-fetch the canonical movie via GET \(movieDetailPath) before building its update - regression: RadarrViewModel stopped calling client.getMovie(id:), which would also silently break the qualityProfileId/rootFolderPath guard."
         )
 
         let putRequests = requestsDuringToggle.filter { $0.method == "PUT" && $0.path == movieDetailPath }
         XCTAssertEqual(
             putRequests.count, 1,
-            "Exactly one PUT \(movieDetailPath) should have been sent for tapping 'Unmonitor' once — regression: a double-submit, or the tap never reaching the network."
+            "Exactly one PUT \(movieDetailPath) should have been sent for tapping 'Unmonitor' once - regression: a double-submit, or the tap never reaching the network."
         )
         guard let putRequest = putRequests.first else {
             XCTFail("No PUT \(movieDetailPath) was recorded even though the UI reflects the toggle having taken effect.")
@@ -276,14 +276,14 @@ final class RadarrJourneyUITests: XCTestCase {
         )
         XCTAssertEqual(
             putBodyJSON["monitored"] as? Bool, false,
-            "The PUT body should carry the flipped 'monitored': false — regression: toggleMovieMonitored sent the movie's old value instead of the new one, i.e. tapping 'Unmonitor' would be a no-op against real Radarr."
+            "The PUT body should carry the flipped 'monitored': false - regression: toggleMovieMonitored sent the movie's old value instead of the new one, i.e. tapping 'Unmonitor' would be a no-op against real Radarr."
         )
 
         // MARK: 4. Navigate back and confirm we're on the movie list again.
 
         // The system back button's label is normally the previous screen's title
         // ("Movies", ArrMediaListView.navigationTitleText with a single Radarr
-        // instance) — but iOS falls back to a bare chevron with no title text if
+        // instance) - but iOS falls back to a bare chevron with no title text if
         // that label doesn't fit, so this tries the named button first and falls
         // back to the navigation bar's leading (back) button by position.
         let namedBackButton = app.navigationBars.buttons["Movies"]
@@ -300,7 +300,7 @@ final class RadarrJourneyUITests: XCTestCase {
 
         XCTAssertTrue(
             app.staticTexts[RadarrFixtureServer.movieTitle].waitForExistence(timeout: 15),
-            "Popping back from the detail screen should return to the Movies list still showing the fixture movie — regression: the back navigation left the app on a blank or wrong screen."
+            "Popping back from the detail screen should return to the Movies list still showing the fixture movie - regression: the back navigation left the app on a blank or wrong screen."
         )
     }
 
@@ -308,7 +308,7 @@ final class RadarrJourneyUITests: XCTestCase {
 
     /// Finds the first `Button` anywhere in the tree whose accessibility label
     /// contains `text`. Restricted to buttons (never `.any`/`.other`) so an
-    /// existence-and-tap query can't silently land on a non-interactive element —
+    /// existence-and-tap query can't silently land on a non-interactive element -
     /// mirrors `ArrSearchAddJourneyUITests.firstElement(labelContains:in:)` and
     /// `ArrInstanceSwitchJourneyUITests`'s equivalent inline predicate.
     private func firstElement(labelContains text: String, in app: XCUIApplication) -> XCUIElement {
@@ -319,7 +319,7 @@ final class RadarrJourneyUITests: XCTestCase {
 
     /// Waits for `element` to exist (scrolling if necessary via
     /// `XCUIElement+Scrolling.swift`), then polls `isHittable` in a bounded loop
-    /// before tapping — never taps blind. Addresses the file header's first
+    /// before tapping - never taps blind. Addresses the file header's first
     /// established UI fact: a tap on an element that `exists` but isn't yet
     /// `isHittable` is silently dropped, and the resulting failure lands on the
     /// *next* assertion instead, blaming the wrong screen. Returns whether the tap
@@ -348,7 +348,7 @@ final class RadarrJourneyUITests: XCTestCase {
     /// "Failed to tap … Timed out while synthesizing event" whenever the app does
     /// not reach quiescence within XCTest's internal idle wait. The journey passes
     /// in isolation and fails inside the full plan, because the shared simulator is
-    /// under load there and Trawl's polling never lets the run loop go idle — so
+    /// under load there and Trawl's polling never lets the run loop go idle - so
     /// the symptom looks like flakiness in this test rather than a timing
     /// dependency in the harness.
     ///
@@ -361,7 +361,7 @@ final class RadarrJourneyUITests: XCTestCase {
     }
 
     /// Polls `element.exists` until it goes false or `timeout` elapses. XCTest has
-    /// no built-in "wait for disappearance" — mirrors
+    /// no built-in "wait for disappearance" - mirrors
     /// `ArrSearchAddJourneyUITests.waitForDisappearance(of:timeout:)`.
     private func waitForDisappearance(of element: XCUIElement, timeout: TimeInterval) {
         let deadline = Date().addingTimeInterval(timeout)

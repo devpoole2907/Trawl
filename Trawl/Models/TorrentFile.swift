@@ -17,7 +17,7 @@ struct TorrentFile: Codable, Identifiable, Sendable {
         case availability
     }
 
-    /// The API does not return an index field — it must be assigned from
+    /// The API does not return an index field - it must be assigned from
     /// the array position during decoding.
     nonisolated init(index: Int, name: String, size: Int64, progress: Double, priority: FilePriority, isSeed: Bool?, availability: Double?) {
         self.index = index

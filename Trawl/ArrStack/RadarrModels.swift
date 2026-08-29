@@ -445,4 +445,4 @@ enum RadarrCommand: String, Sendable {
 // (Trawl-only target) so the widget / share extensions can still compile this file.
 
 // MARK: - Movie Lookup (search results for adding)
-// Uses the same RadarrMovie struct — lookup results have tmdbId but no local id yet.
+// Uses the same RadarrMovie struct - lookup results have tmdbId but no local id yet.

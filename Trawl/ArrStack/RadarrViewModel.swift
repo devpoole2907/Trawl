@@ -157,14 +157,14 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     }
 
     /// The client that owns a copy, falling back to the bound one when no server is
-    /// named — a preview, or a caller that predates the pair.
+    /// named - a preview, or a caller that predates the pair.
     private func client(for instanceID: UUID?) -> RadarrAPIClient? {
         guard let instanceID else { return client }
         return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
     }
 
     /// Config for one server. The pair do not share quality profiles or root
-    /// folders — an HD profile ID posted to the 4K server names a different profile
+    /// folders - an HD profile ID posted to the 4K server names a different profile
     /// or none at all.
     func qualityProfiles(on instanceID: UUID?) -> [ArrQualityProfile] {
         guard let instanceID else { return qualityProfiles }
@@ -189,7 +189,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     /// Every mutation goes through here rather than through `client`, which is
     /// still whichever instance is nominally active. In a blended library the row
     /// the user acted on may belong to either server, and the two hand out the
-    /// same integer IDs — so sending an update to the active client can silently
+    /// same integer IDs - so sending an update to the active client can silently
     /// modify a different film that happens to share the ID.
     ///
     /// Falls back to the active client only for IDs that aren't in the loaded
@@ -461,7 +461,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             return
         }
 
-        // Only used to name a failure, so the first copy's title is fine — but it
+        // Only used to name a failure, so the first copy's title is fine - but it
         // must not trap: with a pair configured this list is the union of both
         // servers, and they number their libraries from the same sequence.
         let titlesByID = Dictionary(
@@ -514,7 +514,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         error = nil
         do {
             _ = try await client.searchMovie(movieIds: [movieId])
-            // Callers already show their own "Search Queued" feedback — log this one silently
+            // Callers already show their own "Search Queued" feedback - log this one silently
             // to avoid a duplicate banner.
             InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for movie.")
             error = nil

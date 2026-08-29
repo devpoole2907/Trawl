@@ -494,7 +494,7 @@ struct SonarrSeasonSearchView: View {
     /// The server this screen's episodes came from, when there is more than one to
     /// confuse it with. Seasons and episodes belong to a single server's copy of a
     /// series, and without this the screen is identical whether one server is
-    /// configured or two — asserting one server's "Downloaded" as the episode's own.
+    /// configured or two - asserting one server's "Downloaded" as the episode's own.
     private var instanceBadgeRef: ArrInstanceRef? {
         guard let seriesInstanceID,
               let ref = serviceManager.instanceRef(.sonarr, id: seriesInstanceID),
@@ -1239,7 +1239,7 @@ struct SonarrEpisodeSearchView: View {
     /// The server this screen's episodes came from, when there is more than one to
     /// confuse it with. Seasons and episodes belong to a single server's copy of a
     /// series, and without this the screen is identical whether one server is
-    /// configured or two — asserting one server's "Downloaded" as the episode's own.
+    /// configured or two - asserting one server's "Downloaded" as the episode's own.
     private var instanceBadgeRef: ArrInstanceRef? {
         guard let seriesInstanceID,
               let ref = serviceManager.instanceRef(.sonarr, id: seriesInstanceID),

@@ -2,7 +2,7 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// `ProwlarrProxiesViewModel` — the indexer-proxy (Http/Socks4/Socks5/
+/// `ProwlarrProxiesViewModel` - the indexer-proxy (Http/Socks4/Socks5/
 /// FlareSolverr) half of `ProwlarrViewModel.swift`. Same rules as the other
 /// Prowlarr suites: real `ProwlarrAPIClient`, real `ArrServiceManager`,
 /// loopback fixture server, request bodies compared as parsed JSON.

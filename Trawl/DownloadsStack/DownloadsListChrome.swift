@@ -3,8 +3,8 @@ import SwiftUI
 /// What the Downloads tab's toolbar can currently do, published by whichever list
 /// is on screen.
 ///
-/// The tab shows one of three lists — the blended queue, SABnzbd's queue, or
-/// qBittorrent's torrents — and they used to be three separate screens, each with
+/// The tab shows one of three lists - the blended queue, SABnzbd's queue, or
+/// qBittorrent's torrents - and they used to be three separate screens, each with
 /// its own toolbar. Switching lists therefore replaced the entire chrome: Select
 /// existed only on Torrents, Client Management and Blocklist only on the blended
 /// list, and "Pause All" was the sole occupant of SABnzbd's overflow. The tab now
@@ -17,7 +17,7 @@ import SwiftUI
 @Observable
 final class DownloadsListChrome {
     /// Whether the visible list supports multi-select at all. A list with no rows
-    /// still supports it — the button is disabled rather than absent, so the
+    /// still supports it - the button is disabled rather than absent, so the
     /// toolbar does not reshuffle as rows arrive.
     var canSelect = false
     var isSelecting = false
@@ -25,7 +25,7 @@ final class DownloadsListChrome {
     var totalCount = 0
 
     /// Torrents can be rechecked; nothing else can. Actions the visible list does
-    /// not support are dropped rather than shown disabled — a permanently greyed
+    /// not support are dropped rather than shown disabled - a permanently greyed
     /// Recheck on a SABnzbd queue is noise, where a greyed Pause with nothing
     /// selected is a hint.
     var supportsRecheck = false
@@ -39,7 +39,7 @@ final class DownloadsListChrome {
     var recheckSelected: (() -> Void)?
     var deleteSelected: (() -> Void)?
 
-    /// Entries the visible list contributes to the shared overflow menu — SABnzbd's
+    /// Entries the visible list contributes to the shared overflow menu - SABnzbd's
     /// Pause All, qBittorrent's alternative speed mode. Described rather than
     /// built, so the menu stays the tab's.
     var extraActions: [ExtraAction] = []

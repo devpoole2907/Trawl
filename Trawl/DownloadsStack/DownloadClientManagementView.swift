@@ -202,7 +202,7 @@ struct DownloadClientManagementView: View {
                     }
                 }
             } footer: {
-                Text("This is often fine — a container hostname and a LAN address can be the same server.")
+                Text("This is often fine - a container hostname and a LAN address can be the same server.")
             }
         }
     }
@@ -218,8 +218,8 @@ struct DownloadClientManagementView: View {
 /// user. Naming the hub after the client keeps the empty state predictable.
 /// SABnzbd's counterpart to `QBittorrentClientHubView`, laid out the same way:
 /// the live queue first, then the configuration the client owns, then settings
-/// and logs. Both clients are reached the same way — Downloads → Client
-/// Management → the client — rather than one living here and the other buried in
+/// and logs. Both clients are reached the same way - Downloads → Client
+/// Management → the client - rather than one living here and the other buried in
 /// app settings.
 struct SABnzbdClientHubView: View {
     @Environment(SABnzbdServiceManager.self) private var serviceManager

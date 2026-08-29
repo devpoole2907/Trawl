@@ -44,7 +44,7 @@ struct ArrQualityDefinitionsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
-    /// Quality definitions — the size limits per quality — are per-server, and an
+    /// Quality definitions - the size limits per quality - are per-server, and an
     /// HD/4K pair sets them very differently. Scoped to a server, not a service.
     @State private var selectedInstanceID: UUID?
     @State private var selectedService: ArrServiceType = .sonarr
@@ -224,7 +224,7 @@ struct ArrQualityDefinitionsView: View {
         }
     }
 
-    /// The server whose definitions are on screen — every read and save goes
+    /// The server whose definitions are on screen - every read and save goes
     /// through it, so a size limit edited on the 4K server cannot land on the HD
     /// one.
     private func currentClient() throws -> any SharedArrClient {

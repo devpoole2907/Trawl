@@ -734,7 +734,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     let grabAction: (ArrRelease) async -> Bool
     let currentErrorMessage: () -> String?
     /// Optional diagnostics used when a search runs long: names the slow
-    /// indexer(s) and can disable them. `nil` when Prowlarr isn't configured —
+    /// indexer(s) and can disable them. `nil` when Prowlarr isn't configured -
     /// the browser then shows a generic "taking longer than usual" message with
     /// no action button.
     let slowSearchDiagnostics: ArrSlowSearchDiagnostics?
@@ -983,17 +983,17 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
-    /// Subtitle shown beneath the spinner — the normal hint until a search drags
+    /// Subtitle shown beneath the spinner - the normal hint until a search drags
     /// on, then an explanation that names the slow indexer(s) once the probe has
     /// identified them.
     private var loadingDetail: String {
         guard slowSearchTriggered else { return loadingDescription }
         guard !slowIndexers.isEmpty else {
-            return "This is taking longer than usual — an indexer is slow to respond."
+            return "This is taking longer than usual - an indexer is slow to respond."
         }
         let names = slowIndexers.map(\.name).formatted(.list(type: .and))
         let verb = slowIndexers.count == 1 ? "is" : "are"
-        return "Waiting on \(names) — \(verb) slow right now. Results appear once they reply."
+        return "Waiting on \(names) - \(verb) slow right now. Results appear once they reply."
     }
 
     private var disableButtonTitle: String {
@@ -1194,8 +1194,8 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
-    /// After the grace period, flag a still-empty search as slow and — if the
-    /// diagnostics are available — name the indexer(s) holding it up. Read-only
+    /// After the grace period, flag a still-empty search as slow and - if the
+    /// diagnostics are available - name the indexer(s) holding it up. Read-only
     /// and best-effort; bails the moment results arrive or the load is cancelled.
     private func monitorSlowSearch() async {
         try? await Task.sleep(for: arrSlowSearchGracePeriod)
@@ -1232,7 +1232,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             message: "\(names.formatted(.list(type: .and))) disabled in Prowlarr. Re-enable any time from indexer settings."
         )
 
-        // Reset and search again — the disabled indexers won't be queried now.
+        // Reset and search again - the disabled indexers won't be queried now.
         hasLoaded = false
         slowSearchTriggered = false
         slowIndexers = []

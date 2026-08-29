@@ -208,7 +208,7 @@ final class LibraryImportScanViewModel {
 
     /// Every call in this view model goes through these rather than through the
     /// manager's active client, so a scan started against the 4K server imports
-    /// there. They fall back to the active client only when no server was named —
+    /// there. They fall back to the active client only when no server was named -
     /// a single-instance setup, or a caller that predates the pair.
     private var sonarrClient: SonarrAPIClient? {
         instanceID.flatMap { serviceManager.sonarrClient(for: $0) } ?? serviceManager.sonarrClient
@@ -418,7 +418,7 @@ final class LibraryImportScanViewModel {
             let description = error.localizedDescription
             if description.localizedCaseInsensitiveContains("could not find a part of the path")
                 || description.localizedCaseInsensitiveContains("directory not found") {
-                // Expected when the title has no files yet — its folder doesn't exist on
+                // Expected when the title has no files yet - its folder doesn't exist on
                 // disk. Explain it rather than alarming with a raw 500 (the Sonarr/Radarr
                 // web UI shows the same error here).
                 scanFolderMissing = true
@@ -535,7 +535,7 @@ final class LibraryImportScanViewModel {
 
             // Wait for the manual import command to reach a terminal state.
             let command = try await manualImport(files: filesToImport, onProgress: importProgressHandler(jobID: jobID))
-            Self.logger.info("Command finished — id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
+            Self.logger.info("Command finished - id:\(command.id ?? -1) status:\(command.status ?? "nil", privacy: .public) exception:\(command.exception ?? "none", privacy: .private)")
 
             if !command.isTerminal {
                 Self.logger.info("Command \(command.id ?? -1) is still running with status \(command.status ?? "unknown", privacy: .public)")
@@ -548,7 +548,7 @@ final class LibraryImportScanViewModel {
             }
 
             if command.succeeded {
-                // Items were already optimistically removed. Don't reload — rescanning the folder
+                // Items were already optimistically removed. Don't reload - rescanning the folder
                 // will find the file again (hardlinks/copies leave the source in place) and undo
                 // the removal, making it look like the import failed when it didn't.
                 serviceManager.lastLibraryImportTimestamp = Date()
@@ -561,7 +561,7 @@ final class LibraryImportScanViewModel {
                 return true
             } else {
                 let reason = manualImportFailureMessage(for: command)
-                Self.logger.error("Command failed — \(reason, privacy: .private)")
+                Self.logger.error("Command failed - \(reason, privacy: .private)")
                 notificationCenter.completeImportJob(id: jobID, succeeded: false, errorMessage: reason)
                 notificationCenter.showError(title: "Import Failed", message: reason)
                 withAnimation(.snappy) {
@@ -576,7 +576,7 @@ final class LibraryImportScanViewModel {
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: "Cancelled")
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
-            Self.logger.error("Manual import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
+            Self.logger.error("Manual import command timed out while waiting - id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import Started",
@@ -584,7 +584,7 @@ final class LibraryImportScanViewModel {
             )
             return false
         } catch {
-            Self.logger.error("Threw error — \(error, privacy: .private)")
+            Self.logger.error("Threw error - \(error, privacy: .private)")
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: error.localizedDescription)
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             withAnimation(.snappy) {
@@ -767,7 +767,7 @@ final class LibraryImportScanViewModel {
         switch service {
         case .radarr:
             // Fetch the movie list live so in-library status reflects the current
-            // library — relying on the cached `libraryMovies` left this stale (e.g.
+            // library - relying on the cached `libraryMovies` left this stale (e.g.
             // unchanged after pull-to-refresh, which doesn't reload the library).
             let movies = (try? await radarrClient?.getMovies()) ?? libraryMovies
             if !movies.isEmpty { libraryMovies = movies }
@@ -810,7 +810,7 @@ final class LibraryImportScanViewModel {
     }
 
     /// Radarr/Sonarr's manual-import response often matches a file to a movie/series by
-    /// parsing but returns it with no library id (id 0) — so the file looks like a title
+    /// parsing but returns it with no library id (id 0) - so the file looks like a title
     /// that still needs adding, even when it's already in the library. We hold the full
     /// library list, so re-link those files to their real library entry by TMDb/TVDb id
     /// and move them from "Identified / needs add" into the importable set.
@@ -871,11 +871,11 @@ final class LibraryImportScanViewModel {
             }
             computeOwnedTitlesInFolder()
         } catch {
-            // Silently fail — user will see an empty list in the sheet
+            // Silently fail - user will see an empty list in the sheet
         }
     }
 
-    /// Library titles whose folder lives under the scanned path — i.e. what's *already
+    /// Library titles whose folder lives under the scanned path - i.e. what's *already
     /// imported* from this folder (hidden from the scan by `filterExistingFiles`). Shown
     /// read-only under the Owned tab so the folder's contents aren't a mystery.
     func computeOwnedTitlesInFolder() {
@@ -1042,7 +1042,7 @@ final class LibraryImportScanViewModel {
                     let results = try await client.lookupSeries(term: term)
                     // After the network round-trip, re-read the group from the recomputed
                     // unidentified list. The user may have manually identified some/all of
-                    // these files in the meantime — only cascade to whatever's still pending.
+                    // these files in the meantime - only cascade to whatever's still pending.
                     guard let pending = pendingItems(forGroupID: groupID) else { continue }
                     if let match = results
                         .compactMap({ result in librarySeries.first(where: { $0.tvdbId == result.tvdbId }) })
@@ -1380,7 +1380,7 @@ final class LibraryImportScanViewModel {
                 break
             }
         } catch {
-            Self.logger.error("Library refresh after add failed — \(error.localizedDescription, privacy: .public)")
+            Self.logger.error("Library refresh after add failed - \(error.localizedDescription, privacy: .public)")
         }
     }
 
@@ -1448,7 +1448,7 @@ final class LibraryImportScanViewModel {
                 return true
             } else {
                 let reason = manualImportFailureMessage(for: command)
-                Self.logger.error("importItems failed — \(reason, privacy: .private)")
+                Self.logger.error("importItems failed - \(reason, privacy: .private)")
                 InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: reason)
                 InAppNotificationCenter.shared.showError(title: "Import Failed", message: reason)
                 withAnimation(.snappy) {
@@ -1461,7 +1461,7 @@ final class LibraryImportScanViewModel {
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: "Cancelled")
             return false
         } catch ArrError.commandTimeout(let commandId, let lastKnownCommand) {
-            Self.logger.error("Grouped import command timed out while waiting — id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
+            Self.logger.error("Grouped import command timed out while waiting - id:\(commandId ?? -1) status:\(lastKnownCommand?.status ?? "unknown", privacy: .public)")
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: true)
             InAppNotificationCenter.shared.showSuccess(
                 title: "Import In Progress",
@@ -1469,7 +1469,7 @@ final class LibraryImportScanViewModel {
             )
             return false
         } catch {
-            Self.logger.error("importItems threw — \(error, privacy: .private)")
+            Self.logger.error("importItems threw - \(error, privacy: .private)")
             InAppNotificationCenter.shared.completeImportJob(id: jobID, succeeded: false, errorMessage: error.localizedDescription)
             InAppNotificationCenter.shared.showError(title: "Import Failed", message: error.localizedDescription)
             withAnimation(.snappy) {

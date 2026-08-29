@@ -2,7 +2,7 @@ import Testing
 import Foundation
 @testable import Trawl
 
-/// Pure decoding tests for the TMDb cast/credits data layer. No networking —
+/// Pure decoding tests for the TMDb cast/credits data layer. No networking -
 /// exercises snake_case CodingKeys against realistic TMDb JSON fixtures,
 /// including null/missing-field cases.
 @Suite("TMDb Credits Model Tests")

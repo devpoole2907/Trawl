@@ -3,12 +3,12 @@
 //  TrawlUITests
 //
 //  A second loopback Sonarr fixture, alongside `SonarrFixtureServer`, purpose-built
-//  for UI journey #5 (search for and add a series — TRAWL_RELIABILITY_TEST_AUDIT.md).
+//  for UI journey #5 (search for and add a series - TRAWL_RELIABILITY_TEST_AUDIT.md).
 //  Modeled on `SonarrFixtureServer`'s NWListener/lock/`Connection: close` pattern
 //  (itself modeled on `TrawlTests/ArrClientLifecycleTests.swift`'s
 //  `LifecycleArrTestServer`), but a distinct type because this journey needs routes
-//  neither of those serve — `GET /api/v3/series/lookup` and a `POST /api/v3/series`
-//  whose outcome a single test can flip at runtime — plus request *bodies*, which
+//  neither of those serve - `GET /api/v3/series/lookup` and a `POST /api/v3/series`
+//  whose outcome a single test can flip at runtime - plus request *bodies*, which
 //  neither prior fixture records, so the add journey's tests can assert exactly what
 //  the app sent.
 //
@@ -16,20 +16,20 @@
 //  - Sonarr connect sequence, shared with `SonarrFixtureServer`: `GET
 //    /api/v3/system/status`, `GET /api/v3/qualityprofile`, `GET /api/v3/rootfolder`,
 //    `GET /api/v3/tag` (`ArrServiceManager.connectService`/`refreshConfiguration`).
-//  - `GET /api/v3/series` — the series library
+//  - `GET /api/v3/series` - the series library
 //    (`ArrServiceManager.loadSeriesLibrary`, `SonarrAPIClient.getSeries`), reloaded
 //    with `maxAge: 0` (always refetches) after every successful add
 //    (`SonarrViewModel.addSeries` -> `loadSeries()`).
-//  - `GET /api/v3/series/lookup` — the add-new search
+//  - `GET /api/v3/series/lookup` - the add-new search
 //    (`SonarrAPIClient.lookupSeries(term:)`, called from
 //    `ArrLibraryViewModel.performLookup(term:)` via `SearchViewModel.startArrLookup`).
-//  - `POST /api/v3/series` — the add itself (`SonarrAPIClient.addSeries(_:)`, called
+//  - `POST /api/v3/series` - the add itself (`SonarrAPIClient.addSeries(_:)`, called
 //    from `SonarrAddToLibrarySheet.addSeries()` via `SonarrViewModel.addSeries`).
 //
 //  Both `GET /api/v3/series` and `POST /api/v3/series` are runtime-configurable
 //  because one test (the duplicate path) needs the library to already contain what's
 //  being searched for, and another (the failure path) needs the add itself to fail
-//  with a real 500 — the audit's explicit ask ("configurable at runtime so one test
+//  with a real 500 - the audit's explicit ask ("configurable at runtime so one test
 //  can switch a route between success and failure").
 
 import Foundation
@@ -46,16 +46,16 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     /// What the *next* (and every subsequent, until changed again) `POST
     /// /api/v3/series` should do.
     enum AddOutcome: Sendable {
-        /// Responds 201 with `addedSeriesJSON` — which must decode as a
+        /// Responds 201 with `addedSeriesJSON` - which must decode as a
         /// `SonarrSeries` (real Sonarr's add response shape), since
-        /// `SonarrAPIClient.addSeries` decodes its response — and folds that same
+        /// `SonarrAPIClient.addSeries` decodes its response - and folds that same
         /// object into what `GET /api/v3/series` returns afterward, mirroring real
         /// Sonarr so the app's post-add `loadSeries()` refetch sees the new series.
         case success
         /// Responds with `status` and a plain-text `body`. Plain text (not JSON) is
         /// deliberate: `ArrError.serverErrorDisplayMessage` passes a non-JSON body
         /// straight through as its first line, so the resulting
-        /// `errorDescription` is exactly "Server error (\(status)): \(body)" —
+        /// `errorDescription` is exactly "Server error (\(status)): \(body)" -
         /// deterministic and assertable, per `ArrSharedModels.swift`'s
         /// `ArrError.errorDescription` / `serverErrorDisplayMessage`.
         case failure(status: Int, body: String)
@@ -80,7 +80,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     ///   - librarySeriesJSON: raw JSON array body initially returned for `GET
     ///     /api/v3/series`.
     ///   - lookupResponseJSON: raw JSON array body returned for `GET
-    ///     /api/v3/series/lookup`, regardless of the `term` query value — every
+    ///     /api/v3/series/lookup`, regardless of the `term` query value - every
     ///     journey here performs exactly one search, so no per-term routing is
     ///     needed.
     ///   - addedSeriesJSON: raw JSON *object* (not array) both returned as the
@@ -153,7 +153,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
 
     /// Switches what the *next* `POST /api/v3/series` does. Must be called before
     /// the app is driven to actually send that request (i.e. before the test taps
-    /// the add sheet's confirm button) — this fixture has no other synchronization
+    /// the add sheet's confirm button) - this fixture has no other synchronization
     /// with the app under test.
     func setAddOutcome(_ outcome: AddOutcome) {
         lock.lock()
@@ -172,8 +172,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         receive(on: connection, buffer: Data())
     }
 
-    /// Accumulates received bytes until a full HTTP request — headers plus a body
-    /// exactly as long as its declared `Content-Length` — has arrived, rather than
+    /// Accumulates received bytes until a full HTTP request - headers plus a body
+    /// exactly as long as its declared `Content-Length` - has arrived, rather than
     /// assuming (as the simpler fixture servers in this suite do) that one `receive`
     /// callback always contains the whole request. That assumption holds for a
     /// bodyless `GET`, but this fixture also has to record `POST /api/v3/series`'s
@@ -195,7 +195,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
                 self.handle(request, on: connection)
             } else if error != nil || (isComplete && (data == nil || data!.isEmpty)) {
                 // Connection closed (or errored) before a complete request ever
-                // arrived — nothing sensible to respond with.
+                // arrived - nothing sensible to respond with.
                 connection.cancel()
             } else {
                 self.receive(on: connection, buffer: next)
@@ -221,7 +221,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
     /// series library, and the add itself need is listed explicitly; anything else
     /// (health checks, blocklist, calendar prefetches, etc. the app may also issue)
     /// gets a harmless empty-array `200 OK`, matching `SonarrFixtureServer`'s
-    /// convention — those aren't relevant to what this journey asserts.
+    /// convention - those aren't relevant to what this journey asserts.
     private func responseBody(for request: RecordedRequest) -> (status: Int, body: String) {
         switch (request.method, request.path) {
         case ("GET", "/api/v3/system/status"):
@@ -270,7 +270,7 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         }
     }
 
-    /// Appends one JSON object's raw text into a JSON array's raw text — e.g.
+    /// Appends one JSON object's raw text into a JSON array's raw text - e.g.
     /// `[{"a":1}]` plus `{"b":2}` becomes `[{"a":1},{"b":2}]`. String-level rather
     /// than decode/re-encode so this fixture never has to know the full
     /// `SonarrSeries` shape, only what it's given.
@@ -327,8 +327,8 @@ final class ArrSearchAddFixtureServer: @unchecked Sendable {
         return RecordedRequest(method: method, path: path, rawQuery: rawQuery, body: body)
     }
 
-    /// Reason phrase is cosmetic — `URLSession`/`HTTPURLResponse` parse only the
-    /// numeric status code — but a real one avoids relying on the perennially odd
+    /// Reason phrase is cosmetic - `URLSession`/`HTTPURLResponse` parse only the
+    /// numeric status code - but a real one avoids relying on the perennially odd
     /// `HTTPURLResponse.localizedString(forStatusCode:)` (e.g. it returns "no error"
     /// for 200 on Apple platforms).
     private static func httpResponse(statusCode: Int, body: String) -> Data {

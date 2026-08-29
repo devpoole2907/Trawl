@@ -118,7 +118,7 @@ final class ArrServiceManager {
     private(set) var radarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
     private(set) var isLoadingQueue = false
     /// True once a queue refresh has completed, successfully or not. Views use this to
-    /// show a spinner on first load only — `isLoadingQueue` alone flips on every poll,
+    /// show a spinner on first load only - `isLoadingQueue` alone flips on every poll,
     /// so an empty queue would flicker between spinner and empty state every cycle.
     private(set) var hasLoadedQueueOnce = false
     private(set) var queueError: String?
@@ -226,7 +226,7 @@ final class ArrServiceManager {
     ///
     /// A calendar feed is a URL on a single server, so with an HD/4K pair there are
     /// two of them and the by-service call below can only ever hand back the active
-    /// one — the other server's airings simply could not be subscribed to.
+    /// one - the other server's airings simply could not be subscribed to.
     func iCalFeedLink(for ref: ArrInstanceRef) async throws -> ArrICalFeedLink {
         let url: URL
         let webcal: URL
@@ -576,7 +576,7 @@ final class ArrServiceManager {
     var sonarrRootFolders: [ArrRootFolder] { activeSonarrEntry?.rootFolders ?? [] }
     var sonarrTags: [ArrTag] { activeSonarrEntry?.tags ?? [] }
 
-    /// ID of the active Sonarr instance — use as `.task(id:)` trigger for view model recreation
+    /// ID of the active Sonarr instance - use as `.task(id:)` trigger for view model recreation
     var activeSonarrInstanceID: UUID? { activeSonarrEntry?.id }
     var activeSonarrClientRevision: UUID? { activeSonarrEntry?.clientRevision }
 
@@ -597,7 +597,7 @@ final class ArrServiceManager {
     var radarrRootFolders: [ArrRootFolder] { activeRadarrEntry?.rootFolders ?? [] }
     var radarrTags: [ArrTag] { activeRadarrEntry?.tags ?? [] }
 
-    /// ID of the active Radarr instance — use as `.task(id:)` trigger for view model recreation
+    /// ID of the active Radarr instance - use as `.task(id:)` trigger for view model recreation
     var activeRadarrInstanceID: UUID? { activeRadarrEntry?.id }
     var activeRadarrClientRevision: UUID? { activeRadarrEntry?.clientRevision }
 
@@ -675,7 +675,7 @@ final class ArrServiceManager {
     /// who had configured two Sonarr servers has two profiles that both default to
     /// HD. Left alone they would badge identically and collide in the merged row.
     /// The older server keeps HD and the newer takes 4K, which matches how these
-    /// setups are actually built — the 4K instance is the one added second.
+    /// setups are actually built - the 4K instance is the one added second.
     ///
     /// Idempotent: a set that already has one server per tier is untouched.
     static func normalizeQualityTiers(in profiles: [ArrServiceProfile]) {
@@ -701,7 +701,7 @@ final class ArrServiceManager {
     }
 
     /// Retry only profiles that are configured but not currently connected or connecting.
-    /// Safe to call on foreground return — does not reset already-connected profiles.
+    /// Safe to call on foreground return - does not reset already-connected profiles.
     /// The decision is per profile (not per service type) so a failed secondary
     /// instance is retried even while another instance of the same type is healthy.
     func retryDisconnected() async {
@@ -725,8 +725,8 @@ final class ArrServiceManager {
 
         // Record the profile if this is the first the manager has seen of it.
         // `storedProfiles` is the only place the quality tier lives, so a server
-        // connected without going through `initialize(from:)` — a freshly added
-        // one, or a test driving `connectService` directly — would otherwise badge
+        // connected without going through `initialize(from:)` - a freshly added
+        // one, or a test driving `connectService` directly - would otherwise badge
         // as HD whatever it actually is.
         if let index = storedProfiles.firstIndex(where: { $0.id == profile.id }) {
             storedProfiles[index] = profile
@@ -1082,7 +1082,7 @@ final class ArrServiceManager {
                 runtimeName: "Python"
             )
         default:
-            // Sonarr & Radarr both speak /api/v3 — use the base actor's HTTP primitive
+            // Sonarr & Radarr both speak /api/v3 - use the base actor's HTTP primitive
             // directly so this path doesn't need a service-specific wrapper.
             let client = ArrAPIClient(baseURL: hostURL, apiKey: apiKey, allowsUntrustedTLS: allowsUntrustedTLS)
             let status: ArrSystemStatus = try await client.get("/api/v3/system/status")
@@ -1176,7 +1176,7 @@ final class ArrServiceManager {
     }
 
     /// Fetches queue and history from every instance of one service concurrently.
-    /// One server being down degrades its own rows only — the other instance's
+    /// One server being down degrades its own rows only - the other instance's
     /// queue still renders, which matters when a 4K server is offline and the HD
     /// one is happily downloading.
     private func fanOutQueueSnapshots<C: SharedArrClient>(
@@ -1195,7 +1195,7 @@ final class ArrServiceManager {
         return (queue, history, errors)
     }
 
-    /// Starts the one shared queue poller. Idempotent — the `nil` check is what
+    /// Starts the one shared queue poller. Idempotent - the `nil` check is what
     /// guarantees a single timer however many callers ask for one.
     func startQueuePolling() {
         guard queuePollingTask == nil else { return }
@@ -1235,7 +1235,7 @@ final class ArrServiceManager {
     }
 
     /// A cadence change only lands on the next tick, and the slow tick is a minute
-    /// long — reissue the timer so opening Downloads doesn't have to wait it out.
+    /// long - reissue the timer so opening Downloads doesn't have to wait it out.
     /// Still exactly one timer: the old task is cancelled before the new one starts.
     private func restartQueuePollingIfRunning() {
         guard queuePollingTask != nil else { return }

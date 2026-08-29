@@ -69,7 +69,7 @@ struct RadarrMovieDetailView: View {
         }
     }
 
-    /// Blended-library init — the title, wherever it lives.
+    /// Blended-library init - the title, wherever it lives.
     init(mergeKey: ArrMergeKey, viewModel: RadarrViewModel) {
         self.mergeKey = mergeKey
         self.movieId = nil
@@ -78,7 +78,7 @@ struct RadarrMovieDetailView: View {
         self.onAdded = nil
     }
 
-    /// Library init — movie lives in the ViewModel's loaded library. Kept for the
+    /// Library init - movie lives in the ViewModel's loaded library. Kept for the
     /// entry points that only have a library ID: widgets, Siri intents, Seerr
     /// deep links, calendar and wanted rows.
     init(movieId: Int, viewModel: RadarrViewModel) {
@@ -89,7 +89,7 @@ struct RadarrMovieDetailView: View {
         self.onAdded = nil
     }
 
-    /// Discover init — movie comes from a lookup result, may or may not be in library.
+    /// Discover init - movie comes from a lookup result, may or may not be in library.
     init(movie: RadarrMovie, viewModel: RadarrViewModel, onAdded: (() async -> Void)? = nil) {
         self.discoverMovie = movie
         self.mergeKey = nil
@@ -115,7 +115,7 @@ struct RadarrMovieDetailView: View {
     /// Every server's copy of this title.
     ///
     /// A library ID identifies a row on one server, so an ID-based entry point is
-    /// resolved to its copy first and then widened to the whole merged entry —
+    /// resolved to its copy first and then widened to the whole merged entry -
     /// arriving from a widget or a Siri intent lands on the same screen as
     /// tapping the row in the library.
     private var entry: ArrLibraryEntry<RadarrMovie>? {
@@ -384,7 +384,7 @@ struct RadarrMovieDetailView: View {
             } else {
                 await viewModel.loadMovieFiles(movieId: id)
             }
-            // Appear-time only, so the shared cache serves it — opening a movie
+            // Appear-time only, so the shared cache serves it - opening a movie
             // shouldn't re-download the whole library the list already has. Pull to
             // refresh and the queue-driven reloads below still force a fetch.
             await viewModel.loadMovies(maxAge: ArrLibraryCachePolicy.appearMaxAge)
@@ -414,7 +414,7 @@ struct RadarrMovieDetailView: View {
                     try await Task.sleep(for: .seconds(pollInterval))
                 }
             } catch is CancellationError {
-                // task was cancelled — exit cleanly
+                // task was cancelled - exit cleanly
             } catch {
                 // ignore transient errors
             }
@@ -728,7 +728,7 @@ struct RadarrMovieDetailView: View {
     /// pair each server gets its own "On Disk" cell, because "68 GB" for a film
     /// that is 68 GB in 4K and 14 GB in HD describes neither server.
     ///
-    /// Status is an availability pill rather than a stat cell — it is the one
+    /// Status is an availability pill rather than a stat cell - it is the one
     /// thing here that answers "do I have this, and in what", so it reads as a
     /// state and not as another number.
     private func statsCard(_ movie: RadarrMovie) -> some View {
@@ -741,7 +741,7 @@ struct RadarrMovieDetailView: View {
             if perInstance.count > 1 {
                 ForEach(perInstance, id: \.ref.id) { entryPair in
                     statCell(
-                        value: entryPair.size > 0 ? ByteFormatter.format(bytes: entryPair.size) : "—",
+                        value: entryPair.size > 0 ? ByteFormatter.format(bytes: entryPair.size) : "-",
                         label: "\(entryPair.ref.shortLabel) on Disk"
                     )
                     cardDivider
@@ -862,7 +862,7 @@ struct RadarrMovieDetailView: View {
     }
 
     /// A toolbar item that has to name a server when there are two. With one
-    /// server it stays a plain button — nothing to disambiguate, and a submenu
+    /// server it stays a plain button - nothing to disambiguate, and a submenu
     /// would be a tap for nothing.
     @ViewBuilder
     private func serverScopedMenuItem(
@@ -1064,8 +1064,8 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Info card
 
-    /// One path row per server. Each server has its own root folder — an HD and a
-    /// 4K library in the same folder is the setup this pair exists to avoid — so a
+    /// One path row per server. Each server has its own root folder - an HD and a
+    /// 4K library in the same folder is the setup this pair exists to avoid - so a
     /// single "Path" row would show one server's location and quietly withhold the
     /// other's. The identifiers below are metadata and identical on both, so they
     /// stay single.
@@ -1364,7 +1364,7 @@ struct RadarrMovieDetailView: View {
                             title: movie.monitored == true ? "Unmonitor" : "Monitor",
                             systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill",
                             choiceLabel: { ref, copy in
-                                "\(ref.shortLabel) — \(copy.monitored == true ? "Unmonitor" : "Monitor")"
+                                "\(ref.shortLabel) - \(copy.monitored == true ? "Unmonitor" : "Monitor")"
                             }
                         ) { copy in
                             Task { await viewModel.toggleMovieMonitored(copy) }

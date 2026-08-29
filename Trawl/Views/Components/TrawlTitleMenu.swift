@@ -23,7 +23,7 @@ struct TrawlTitleMenuOption<Value: Hashable>: Identifiable {
 ///
 /// Because a `.principal` item *replaces* the navigation title rather than
 /// sitting beside it, any screen using this has to stop drawing a title of its
-/// own while the menu is up — and has to take the menu down again whenever the
+/// own while the menu is up - and has to take the menu down again whenever the
 /// title needs to say something else, such as a selection count during editing.
 struct TrawlTitleMenu<Value: Hashable>: View {
     let options: [TrawlTitleMenuOption<Value>]

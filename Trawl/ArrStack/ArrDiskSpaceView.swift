@@ -113,7 +113,7 @@ struct ArrDiskSpaceView: View {
         guard serviceManager.showsInstanceProvenance(for: ref.serviceType) else {
             return ref.serviceType.displayName
         }
-        return "\(ref.serviceType.displayName) — \(ref.shortLabel)"
+        return "\(ref.serviceType.displayName) - \(ref.shortLabel)"
     }
 
     private func loadDiskSpace() async {

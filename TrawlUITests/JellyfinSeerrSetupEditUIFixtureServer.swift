@@ -12,7 +12,7 @@
 //  * Credentials are checked, not assumed. A Jellyfin request whose
 //    `Authorization: MediaBrowser … Token="…"` field does not match the configured API
 //    key gets a real 401, and a Seerr login whose JSON body does not carry the exact
-//    configured username/password gets a real 401 — so the "rejected then corrected"
+//    configured username/password gets a real 401 - so the "rejected then corrected"
 //    halves of each journey are produced by the server, not by the test.
 //  * Anything outside the routes these journeys legitimately exercise is recorded in
 //    `unexpectedRequests` and answered with 404 rather than a catch-all success, so a

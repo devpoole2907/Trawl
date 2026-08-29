@@ -268,7 +268,7 @@ struct RadarrMovieRow: View {
     /// which suppresses the badges entirely.
     var instances: [ArrInstanceRef] = []
 
-    /// Shared metadata — title, year, artwork, runtime — is identical on both
+    /// Shared metadata - title, year, artwork, runtime - is identical on both
     /// servers, so the row reads it from the first copy.
     private var movie: RadarrMovie { entry.primary }
 
@@ -307,7 +307,7 @@ struct RadarrMovieRow: View {
                 HStack(spacing: 6) {
                     // Only when the badges cannot say it. With a pair configured
                     // they carry availability themselves, so the pill would just be
-                    // the same fact in words — it earns its place only when nothing
+                    // the same fact in words - it earns its place only when nothing
                     // is downloaded anywhere and there is a status to report, or on
                     // a single-server setup where there are no badges at all.
                     if instances.isEmpty || availableTiers.isEmpty {
@@ -354,7 +354,7 @@ struct RadarrMovieRow: View {
         .padding(.vertical, 4)
     }
 
-    /// The tiers that actually hold the film — the whole point of a pair.
+    /// The tiers that actually hold the film - the whole point of a pair.
     private var availableTiers: [ArrQualityTier] {
         entry.availableTiers(from: instances) { $0.hasFile == true }
     }

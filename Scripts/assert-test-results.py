@@ -37,9 +37,9 @@ def main() -> int:
     if failed:
         problems.append(f"{failed} test(s) failed")
     if skipped:
-        problems.append(f"{skipped} test(s) skipped — skips are not evidence")
+        problems.append(f"{skipped} test(s) skipped - skips are not evidence")
     if passed == 0:
-        problems.append("no tests executed — an empty run is not a passing run")
+        problems.append("no tests executed - an empty run is not a passing run")
 
     if problems:
         for problem in problems:

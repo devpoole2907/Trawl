@@ -7,8 +7,8 @@ import Network
 /// `BazarrAPIClient.init` builds its own `ArrAPIClient` (and that its own ephemeral
 /// `URLSession`) with no session-injection seam, so a `URLProtocol` stub cannot be
 /// used. A real socket is therefore the only way to drive the production request
-/// path — `BazarrViewModel` → `BazarrAPIClient` → `ArrAPIClient`/`HTTPTransport` →
-/// `JSONDecoder` — with controlled payloads, mirroring `ArrClientLifecycleTests`'
+/// path - `BazarrViewModel` → `BazarrAPIClient` → `ArrAPIClient`/`HTTPTransport` →
+/// `JSONDecoder` - with controlled payloads, mirroring `ArrClientLifecycleTests`'
 /// file-private `LifecycleArrTestServer` and `JellyfinFixtureServer`. Those two
 /// types are either file-private or not the right shape for Bazarr's multi-path
 /// connect flow (`/api/system/status`, `/api/system/languages/profiles`,
@@ -27,7 +27,7 @@ nonisolated struct BazarrFixtureRequest: Sendable, Equatable {
     /// rather than a query, so assertions about *what was saved* need this.
     let body: String
 
-    /// The form body decoded into its pairs, in order and with repeats preserved —
+    /// The form body decoded into its pairs, in order and with repeats preserved -
     /// `settings-general-enabled_providers` is sent once per enabled provider, so a
     /// dictionary would silently collapse the very thing worth asserting.
     var formPairs: [(name: String, value: String)] {

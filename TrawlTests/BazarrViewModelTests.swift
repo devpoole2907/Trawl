@@ -5,19 +5,19 @@ import Testing
 
 /// Coverage for `BazarrViewModel.swift`:
 ///
-/// - **Part A** — `SubtitleCoverage`'s computed properties and the
+/// - **Part A** - `SubtitleCoverage`'s computed properties and the
 ///   `statusColor`/`statusIcon`/`BazarrBrowserTab` helpers. Pure logic, no
 ///   server involved.
-/// - **Part B** — the `searchText` / `showMonitoredOnly` / `showMissingOnly` /
+/// - **Part B** - the `searchText` / `showMonitoredOnly` / `showMissingOnly` /
 ///   `sortNewestFirst` filter pipeline. Seeded via `BazarrViewModel`'s own
 ///   `#if DEBUG` preview initializer (real production code, not a test double),
-///   so this also needs no server — `applyFilters()` only ever reads state
+///   so this also needs no server - `applyFilters()` only ever reads state
 ///   already sitting on the view model.
-/// - **Part C** — `isConnected` / `isConnecting` / `connectionError` read
+/// - **Part C** - `isConnected` / `isConnecting` / `connectionError` read
 ///   through a real `ArrServiceManager` against `BazarrFixtureServer`.
-/// - **Part D** — `loadSeries` / `loadMovies` / `loadEpisodes(for:)` against
+/// - **Part D** - `loadSeries` / `loadMovies` / `loadEpisodes(for:)` against
 ///   `BazarrFixtureServer`, including a test that a retained view model follows
-///   an in-place reconnect to the new host — see
+///   an in-place reconnect to the new host - see
 ///   `retainedViewModelFollowsReconnectedClient`.
 @Suite("BazarrViewModel", .serialized)
 @MainActor
@@ -119,7 +119,7 @@ struct BazarrViewModelTests {
 
     @Test("A whitespace-only search is not treated as empty; it filters literally against a space")
     func whitespaceOnlySearchIsLiteral() async {
-        let vm = makeFilterViewModel() // titles are Alpha/Bravo/Charlie/Delta — none contain a space
+        let vm = makeFilterViewModel() // titles are Alpha/Bravo/Charlie/Delta - none contain a space
         vm.searchText = " "
         let settled = await awaitCondition { vm.filteredSeries.isEmpty && vm.filteredMovies.isEmpty }
         #expect(settled)
@@ -201,7 +201,7 @@ struct BazarrViewModelTests {
             #expect(vm.connectionError == nil)
 
             // Reconnect the same profile to a server that parks its status
-            // request, so isConnecting is observably true while it's in flight —
+            // request, so isConnecting is observably true while it's in flight -
             // a real barrier via BazarrFixtureServer's park/release, no sleeping.
             let serverB = try await BazarrFixtureServer(label: "conn-b") { request in
                 request.path == "/api/system/status" ? nil : .genericOK
@@ -213,7 +213,7 @@ struct BazarrViewModelTests {
 
             let becameConnecting = await awaitCondition { vm.isConnecting == true }
             #expect(becameConnecting)
-            // Stale value from the still-active serverA connection — unaffected
+            // Stale value from the still-active serverA connection - unaffected
             // mid-flight, since setConnecting doesn't touch isConnected.
             #expect(vm.isConnected == true)
             #expect(vm.connectionError == nil)
@@ -377,7 +377,7 @@ struct BazarrViewModelTests {
 
     /// `SonarrViewModel` and `RadarrViewModel` construct their base
     /// `ArrLibraryViewModel` with a `clientProvider` closure so a retained view
-    /// model picks up the replacement client after an in-place reconnect —
+    /// model picks up the replacement client after an in-place reconnect -
     /// `ArrClientLifecycleTests` proves that for both. `BazarrViewModel` was the
     /// odd one out: it passed only a static client snapshot, so a retained view
     /// model went on talking to the host it was born with. This is the same
@@ -409,7 +409,7 @@ struct BazarrViewModelTests {
             await vm.loadSeries()
 
             // The refresh must land on the reconnected host, and server A must
-            // see no further traffic at all — a stale client would show up as
+            // see no further traffic at all - a stale client would show up as
             // both the old title and an extra request to A.
             #expect(vm.series.map(\.title) == ["From B"])
             #expect(serverA.requestCount(path: "/api/series") == requestsToABeforeReconnect)
@@ -457,7 +457,7 @@ struct BazarrViewModelTests {
 
     /// `searchText`/`showMonitoredOnly`/`showMissingOnly`/`sortNewestFirst` each
     /// fire an unstructured, unawaited `Task { await applyFilters() }` from
-    /// `didSet` with no seam to await directly — matching the documented
+    /// `didSet` with no seam to await directly - matching the documented
     /// exception to "no sleeping." Mirrors `OnboardingViewModelTests.awaitCondition`
     /// and `SeerrIssueListViewModelTests.awaitCondition`.
     private func awaitCondition(maxYields: Int = 2_000, _ condition: () -> Bool) async -> Bool {
@@ -497,7 +497,7 @@ fileprivate let subtitleCoverageCases: [SubtitleCoverageCase] = [
     .init(name: "unknown", coverage: .unknown, hasIndicator: false, isFullyCovered: false, badgeLabel: ""),
     .init(name: "noneFound", coverage: .noneFound, hasIndicator: true, isFullyCovered: false, badgeLabel: "No Subs"),
     .init(name: "presentUntracked", coverage: .presentUntracked, hasIndicator: true, isFullyCovered: true, badgeLabel: "Subs Present"),
-    .init(name: "tracked(missing: 0) — the complete boundary", coverage: .tracked(missing: 0), hasIndicator: true, isFullyCovered: true, badgeLabel: "Subs Complete"),
-    .init(name: "tracked(missing: 1) — just past the boundary", coverage: .tracked(missing: 1), hasIndicator: true, isFullyCovered: false, badgeLabel: "1 Missing"),
+    .init(name: "tracked(missing: 0) - the complete boundary", coverage: .tracked(missing: 0), hasIndicator: true, isFullyCovered: true, badgeLabel: "Subs Complete"),
+    .init(name: "tracked(missing: 1) - just past the boundary", coverage: .tracked(missing: 1), hasIndicator: true, isFullyCovered: false, badgeLabel: "1 Missing"),
     .init(name: "tracked(missing: 6)", coverage: .tracked(missing: 6), hasIndicator: true, isFullyCovered: false, badgeLabel: "6 Missing"),
 ]

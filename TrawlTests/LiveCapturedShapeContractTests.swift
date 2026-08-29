@@ -7,8 +7,8 @@ import Testing
 /// Every other contract suite in this project fakes a server from a reading of
 /// Trawl's own code, which cannot catch "we modelled the API wrong in the first
 /// place". These fixtures were instead taken verbatim from live instances on
-/// 23 August 2026 — **qBittorrent v5.2.3**, **SABnzbd** (CherryPy 18.10.0) and
-/// **Sonarr 4.0.19.2979** — so they pin what those servers actually send rather
+/// 23 August 2026 - **qBittorrent v5.2.3**, **SABnzbd** (CherryPy 18.10.0) and
+/// **Sonarr 4.0.19.2979** - so they pin what those servers actually send rather
 /// than what we assumed.
 ///
 /// Two of these differ from what the hand-written fixtures had been asserting:
@@ -21,7 +21,7 @@ struct LiveCapturedShapeContractTests {
     // MARK: - qBittorrent v5 login
 
     /// Verbatim from qBittorrent v5.2.3. Note the cookie **name** carries the
-    /// server's port, and the **value** contains `/` and `+` — a parser that
+    /// server's port, and the **value** contains `/` and `+` - a parser that
     /// splits on the wrong character, or that assumes an alphanumeric token,
     /// breaks on a real session.
     private static let capturedSetCookie =
@@ -115,7 +115,7 @@ struct LiveCapturedShapeContractTests {
     /// carrying one torrent. The real torrent object has **68 fields**; the
     /// hand-written fixtures used three.
     ///
-    /// The state is `stoppedDL`, which is the v5 name — v4 called this `pausedDL`.
+    /// The state is `stoppedDL`, which is the v5 name - v4 called this `pausedDL`.
     /// A client that only knew the v4 spelling would mis-categorise every paused
     /// torrent on a modern server.
     private static let capturedQBittorrentMainData = """
@@ -336,7 +336,7 @@ struct LiveCapturedShapeContractTests {
     /// in the library, exactly as a query for a real id does. A client that trusted
     /// the server to filter would therefore mark *everything* as available.
     ///
-    /// Note the real key casing — `Tmdb`, `Imdb`, `Tvdb` — alongside `TmdbCollection`
+    /// Note the real key casing - `Tmdb`, `Imdb`, `Tvdb` - alongside `TmdbCollection`
     /// and `TvRage`, which are decoys that must not be mistaken for the ids we match
     /// on.
     private static let capturedJellyfinItems = """
@@ -414,7 +414,7 @@ struct LiveCapturedShapeContractTests {
     /// | `queue`   | 403    |
     /// | `history` | 403    |
     ///
-    /// So the add-only key is not simply "rejected" — it is accepted for some modes
+    /// So the add-only key is not simply "rejected" - it is accepted for some modes
     /// and refused for others, and that asymmetry is the only way to tell it apart
     /// from a plain wrong key. Before this was handled, pasting the NZB key produced
     /// "SABnzbd rejected the API key. Update it in Settings.", which sends the user
@@ -482,7 +482,7 @@ struct LiveCapturedShapeContractTests {
         CapturedShapeURLProtocol.reset()
         // Verbatim from SABnzbd (CherryPy/18.10.0): status 403, body
         // "API Key Incorrect". Not a 401, and not a 200 carrying a JSON error
-        // envelope — the two shapes the hand-written fixtures had assumed.
+        // envelope - the two shapes the hand-written fixtures had assumed.
         CapturedShapeURLProtocol.apiResponse = CapturedResponse(
             statusCode: 403,
             body: Data("API Key Incorrect".utf8),

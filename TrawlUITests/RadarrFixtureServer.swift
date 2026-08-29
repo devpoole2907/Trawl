@@ -7,50 +7,50 @@
 //  on `TrawlTests/ArrClientLifecycleTests.swift`'s `LifecycleArrTestServer`), but with
 //  its own request-body buffering (from `ArrSearchAddFixtureServer`) because
 //  `RadarrJourneyUITests` needs to inspect what a real `PUT /api/v3/movie/{id}` body
-//  actually contains — something the simpler single-`receive` fixtures never had to do.
+//  actually contains - something the simpler single-`receive` fixtures never had to do.
 //
 //  Production routes this answers (read from source, not guessed):
 //  - Radarr connect sequence (`ArrServiceManager.connectService`'s `.radarr` branch,
 //    `Trawl/ArrStack/ArrServiceManager.swift`): `GET /api/v3/system/status`, `GET
-//    /api/v3/qualityprofile`, `GET /api/v3/rootfolder`, `GET /api/v3/tag` — all via
+//    /api/v3/qualityprofile`, `GET /api/v3/rootfolder`, `GET /api/v3/tag` - all via
 //    `SharedArrClient`'s default implementations (`Trawl/ArrStack/ArrAPIClient.swift`).
-//  - `GET /api/v3/movie` — the movie library (`ArrServiceManager.loadMovieLibrary`,
+//  - `GET /api/v3/movie` - the movie library (`ArrServiceManager.loadMovieLibrary`,
 //    `RadarrAPIClient.getMovies`, `Trawl/ArrStack/RadarrAPIClient.swift:15`).
-//  - `GET /api/v3/movie/lookup` and `POST /api/v3/movie` — the add-new movie
+//  - `GET /api/v3/movie/lookup` and `POST /api/v3/movie` - the add-new movie
 //    journey. When configured with an added-movie payload, a successful POST folds
 //    it into subsequent library responses so the production refetch changes the UI.
-//  - `GET /api/v3/movie/{id}` — the canonical single-movie fetch
+//  - `GET /api/v3/movie/{id}` - the canonical single-movie fetch
 //    (`RadarrAPIClient.getMovie(id:)`, `RadarrAPIClient.swift:20`), called by
 //    `RadarrViewModel.toggleMovieMonitored(_:)`
 //    (`Trawl/ArrStack/RadarrViewModel.swift:267`) before it can build the updated
-//    movie to PUT — this fixture must serve a movie with a non-nil `qualityProfileId`
+//    movie to PUT - this fixture must serve a movie with a non-nil `qualityProfileId`
 //    and a non-empty `rootFolderPath`, or `toggleMovieMonitored` bails out early
 //    (`RadarrViewModel.swift:268-273`) without ever sending the PUT.
-//  - `PUT /api/v3/movie/{id}` — the update itself (`RadarrAPIClient.updateMovie(_:
+//  - `PUT /api/v3/movie/{id}` - the update itself (`RadarrAPIClient.updateMovie(_:
 //    moveFiles:)`, `RadarrAPIClient.swift:48`), sent by `toggleMovieMonitored` with
 //    the flipped `monitored` flag. This fixture parses the request body's `monitored`
 //    field and remembers it, so every subsequent `GET /api/v3/movie` and `GET
-//    /api/v3/movie/{id}` reflects the new state — mirroring real Radarr closely
+//    /api/v3/movie/{id}` reflects the new state - mirroring real Radarr closely
 //    enough that the app's post-update `loadMovies()` refetch actually sees the flip.
-//  - `GET /api/v3/moviefile?movieId={id}` — `RadarrViewModel.loadMovieFiles(movieId:)`
+//  - `GET /api/v3/moviefile?movieId={id}` - `RadarrViewModel.loadMovieFiles(movieId:)`
 //    (`RadarrViewModel.swift:121`), fired by `RadarrMovieDetailView`'s
 //    `.task(id: resolvedLibraryId)` (`RadarrMovieDetailView.swift:294-330`).
-//  - `GET /api/v3/queue`, `GET /api/v3/history` — polled by that same task and by
+//  - `GET /api/v3/queue`, `GET /api/v3/history` - polled by that same task and by
 //    `ArrServiceManager.refreshQueues()`; both decode as paged *objects* (not bare
-//    arrays — `ArrQueuePage`/`ArrHistoryPage`, `Trawl/ArrStack/ArrSharedModels.swift`),
+//    arrays - `ArrQueuePage`/`ArrHistoryPage`, `Trawl/ArrStack/ArrSharedModels.swift`),
 //    so this fixture answers `{}` rather than the `[]` a plain-array endpoint gets.
-//  - `GET /api/v3/blocklist` — same paged-object shape (`ArrBlocklistPage`), polled by
+//  - `GET /api/v3/blocklist` - same paged-object shape (`ArrBlocklistPage`), polled by
 //    `ArrServiceManager.loadBlocklist()` right after connect.
 //  - Anything else the app may also issue (health checks, calendar prefetches from
 //    `ArrCalendarViewModel.refresh()`, etc.) gets a harmless empty-array `200 OK`,
-//    matching `SonarrFixtureServer`'s convention — none of it is relevant to what
+//    matching `SonarrFixtureServer`'s convention - none of it is relevant to what
 //    `RadarrJourneyUITests` asserts.
 //
 //  ## The fixture movie
 //
 //  `RadarrMovieDetailView` is 1,952 lines at 0% coverage before this suite, and a
 //  movie payload with only a couple of fields would leave most of it rendering
-//  nothing — see `TrawlTests/LiveCapturedShapeContractTests.swift` for a documented
+//  nothing - see `TrawlTests/LiveCapturedShapeContractTests.swift` for a documented
 //  case of a hand-written fixture's field gap hiding real behavior. `movieJSON()`
 //  below fills in every field `RadarrMovieDetailView` actually reads (read from
 //  `Trawl/ArrStack/RadarrMovieDetailView.swift` and `Trawl/ArrStack/RadarrModels.swift`
@@ -197,8 +197,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
         receive(on: connection, buffer: Data())
     }
 
-    /// Accumulates received bytes until a full HTTP request — headers plus a body
-    /// exactly as long as its declared `Content-Length` — has arrived, rather than
+    /// Accumulates received bytes until a full HTTP request - headers plus a body
+    /// exactly as long as its declared `Content-Length` - has arrived, rather than
     /// assuming a bodyless `GET` fits in one `NWConnection.receive` callback (which
     /// is all `SonarrFixtureServer` needs, but not the `PUT` this fixture has to
     /// parse). Mirrors `ArrSearchAddFixtureServer.receive(on:buffer:)`.
@@ -245,7 +245,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
     /// path (`/api/v3/movie/{id}`) is only known at runtime (`Self.movieId`), and a
     /// `switch` case matching against a pre-bound `let` requires relying on Swift's
     /// expression-pattern-vs-binding-pattern distinction, which is easy to get wrong
-    /// by eye in review — an explicit `==` comparison here can't be misread.
+    /// by eye in review - an explicit `==` comparison here can't be misread.
     private func responseBody(for request: RecordedRequest) -> String {
         let movieDetailPath = "/api/v3/movie/\(Self.movieId)"
 
@@ -311,7 +311,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
             return "{}"
         }
         // ArrQueuePage / ArrHistoryPage / ArrBlocklistPage all decode as paged
-        // *objects*, not bare arrays — every field on each is optional, so an empty
+        // *objects*, not bare arrays - every field on each is optional, so an empty
         // object decodes to an empty page rather than throwing.
         if request.method == "GET",
            ["/api/v3/queue", "/api/v3/history", "/api/v3/blocklist"].contains(request.path) {
@@ -319,7 +319,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
         }
         // Anything else the app may also issue (health checks, calendar prefetches
         // from ArrCalendarViewModel.refresh(), etc.) gets a harmless empty-array
-        // `200 OK`, matching SonarrFixtureServer's convention — none of it is
+        // `200 OK`, matching SonarrFixtureServer's convention - none of it is
         // relevant to what RadarrJourneyUITests asserts.
         return "[]"
     }

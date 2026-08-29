@@ -10,7 +10,7 @@ import Testing
 ///
 /// `OnboardingViewModel.validateAndSave` builds its own `QBittorrentAPIClient` (and that client
 /// its own ephemeral `URLSession`) internally, with no injectable session reachable from the
-/// view model's public surface — unlike `QBittorrentAPIClient`/`AuthService` themselves, which
+/// view model's public surface - unlike `QBittorrentAPIClient`/`AuthService` themselves, which
 /// both accept one. There is therefore no `URLProtocol` seam to hang off of here, so these
 /// tests drive the real view model over a real loopback TCP server, following the `NWListener`
 /// pattern established in `ArrClientLifecycleTests.LifecycleArrTestServer`.
@@ -180,7 +180,7 @@ struct OnboardingViewModelTests {
 
         #expect(saved == false)
         // AuthService.performLogin only recognizes 204, or 200 with an "Ok." body, as success;
-        // every other status code — including a proxy's 502 — falls into the same .authFailed
+        // every other status code - including a proxy's 502 - falls into the same .authFailed
         // branch as a rejected login, so the user sees the identical "check your credentials"
         // message a bad password would produce. This is real, current behavior; this suite pins
         // it rather than changing it.
@@ -457,17 +457,17 @@ struct OnboardingViewModelTests {
     /// "earlier step already committed, later step failed" scenario the audit describes.
     ///
     /// `ServerProfile.id` carries `@Attribute(.unique)`. This test pre-saves `editingServer`
-    /// (id X, standing in for "a server the user already onboarded"), then inserts — but does
-    /// not save — a second, decoy `ServerProfile` whose `id` is reassigned to that same X
+    /// (id X, standing in for "a server the user already onboarded"), then inserts - but does
+    /// not save - a second, decoy `ServerProfile` whose `id` is reassigned to that same X
     /// before `validateAndSave` runs. When `validateAndSave` calls its own `modelContext.save()`,
     /// it tries to commit both `editingServer`'s mutated fields and the decoy's still-pending
     /// insert together; the duplicate unique `id` violates the store's constraint and `save()`
-    /// throws — a genuine SwiftData failure, not a simulated one, landing exactly in the branch
+    /// throws - a genuine SwiftData failure, not a simulated one, landing exactly in the branch
     /// the audit is worried about (Keychain already overwritten with the new credentials,
     /// `modelContext.save()` the thing that fails).
     ///
     /// `validateAndSave`'s rollback runs inside `defer` as an **unstructured, unawaited**
-    /// `Task { @MainActor in ... }` — the function returns `false` without waiting for that task
+    /// `Task { @MainActor in ... }` - the function returns `false` without waiting for that task
     /// to finish undoing the mutation (see the "found wrong but not changed" note in this
     /// suite's final report). There is no seam to await it directly, so this polls real state
     /// with bounded `Task.yield()` cycles rather than a wall-clock sleep or a fixed delay.
@@ -535,7 +535,7 @@ struct OnboardingViewModelTests {
             "A cancelled attempt must not surface an error: the user dismissed the sheet or asked for a new attempt."
         )
         // The request's own timeout is 60s. This is not a timing assertion on the
-        // machine's speed — it is the difference between cancellation being honoured at
+        // machine's speed - it is the difference between cancellation being honoured at
         // all and the login running to completion regardless.
         #expect(
             elapsed < 20,
@@ -558,7 +558,7 @@ struct OnboardingViewModelTests {
     }
 
     /// Runs `body`, then deletes the Keychain credentials for every profile in `profiles` on
-    /// both the success and failure path — mirrors `ArrClientLifecycleTests.withSavedAPIKey`
+    /// both the success and failure path - mirrors `ArrClientLifecycleTests.withSavedAPIKey`
     /// and `KeychainAppGroupTests.withTestKey`. Every profile passed in was created either by
     /// this test file or by the real `OnboardingViewModel` under test, each with its own
     /// randomly generated `UUID`, so this never touches a real saved credential.
@@ -595,8 +595,8 @@ struct OnboardingViewModelTests {
 
 /// A minimal loopback HTTP server standing in for qBittorrent's WebUI API. `OnboardingViewModel`
 /// builds its own `QBittorrentAPIClient` (and that client its own ephemeral `URLSession`)
-/// internally, with no injectable seam reachable from outside — see the suite's top doc
-/// comment — so this drives the real view model over real loopback TCP, following the pattern
+/// internally, with no injectable seam reachable from outside - see the suite's top doc
+/// comment - so this drives the real view model over real loopback TCP, following the pattern
 /// established by `ArrClientLifecycleTests.LifecycleArrTestServer`.
 private nonisolated final class OnboardingFakeQBServer: @unchecked Sendable {
     private let listener: NWListener

@@ -5,7 +5,7 @@ extension XCUIElement {
     /// appear straight away.
     ///
     /// SwiftUI renders `Form`/`List` rows lazily, so a control that is simply below
-    /// the fold is absent from the accessibility tree entirely — `waitForExistence`
+    /// the fold is absent from the accessibility tree entirely - `waitForExistence`
     /// reports it missing even though a user could reach it by scrolling. That makes
     /// a plain wait fail for reasons that have nothing to do with the behavior under
     /// test.

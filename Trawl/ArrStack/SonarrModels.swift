@@ -44,7 +44,7 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
     /// `nil` for lookup results, previews and fixtures, which belong to no server.
     var instanceID: UUID?
 
-    /// Identity is `(server, library ID)`, not the library ID alone — see the
+    /// Identity is `(server, library ID)`, not the library ID alone - see the
     /// matching note on `RadarrMovie`.
     static func == (lhs: SonarrSeries, rhs: SonarrSeries) -> Bool {
         lhs.id == rhs.id && lhs.instanceID == rhs.instanceID
@@ -353,7 +353,7 @@ nonisolated struct SonarrEpisode: Codable, Identifiable, Sendable {
     let grabbed: Bool?
 
     /// Which Sonarr server returned this episode. Outside `CodingKeys`, like the
-    /// matching field on `SonarrSeries` — see the note there.
+    /// matching field on `SonarrSeries` - see the note there.
     var instanceID: UUID?
 
     enum CodingKeys: String, CodingKey {

@@ -3,9 +3,9 @@ import Foundation
 /// Pure presentation mapping for the glanceable widget surfaces: the lock-screen
 /// accessory families and the small Upcoming Releases tile.
 ///
-/// This deliberately imports nothing but Foundation. The decisions here — what a
+/// This deliberately imports nothing but Foundation. The decisions here - what a
 /// gauge fills to, what one line of inline text says, how far away the next
-/// release reads — are the parts of those layouts that can actually be wrong, so
+/// release reads - are the parts of those layouts that can actually be wrong, so
 /// they live outside SwiftUI where a test can compile and pin them.
 nonisolated enum WidgetGlanceFormatter {
 
@@ -42,7 +42,7 @@ nonisolated enum WidgetGlanceFormatter {
     }
 
     /// Short centre label for the speed dial. The unit is implied by the dial's
-    /// arrow, so only the magnitude is printed — a circular accessory has room for
+    /// arrow, so only the magnitude is printed - a circular accessory has room for
     /// roughly three or four characters.
     static func compactRateLabel(bytesPerSecond: Int64, isUnavailable: Bool = false) -> String {
         if isUnavailable { return "--" }

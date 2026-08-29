@@ -158,7 +158,7 @@ private struct FlowLayout: Layout {
 struct ArrMediaFileRow: View {
     struct Config {
         var qualityBadge: String?
-        /// Season badge ("S1", "Specials") — set this only at the series-level files card.
+        /// Season badge ("S1", "Specials") - set this only at the series-level files card.
         var seasonBadge: String?
         var path: String?
         var size: Int64?

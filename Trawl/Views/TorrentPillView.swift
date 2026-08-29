@@ -86,7 +86,7 @@ struct TorrentSummaryView<Accessory: View>: View {
                     systemImage: "clock",
                     text: (!torrent.state.isCompleted && torrent.eta > 0 && torrent.eta < 8_640_000)
                         ? ByteFormatter.formatETA(seconds: torrent.eta)
-                        : "—",
+                        : "-",
                     tint: .secondary
                 )
 

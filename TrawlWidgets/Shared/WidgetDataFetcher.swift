@@ -491,7 +491,7 @@ enum WidgetDataFetcher {
 
     /// Pauses or resumes every configured download client.
     ///
-    /// One client failing does not abandon the others — a user with qBittorrent up
+    /// One client failing does not abandon the others - a user with qBittorrent up
     /// and SABnzbd down still wants qBittorrent paused. The error is only rethrown
     /// when nothing at all succeeded, so the control never reports a no-op as done.
     static func setDownloadsPaused(_ paused: Bool, serverID: String? = nil) async throws {
@@ -607,7 +607,7 @@ enum WidgetDataFetcher {
 
     /// Fetches upcoming episodes and movie releases for the next `days` days.
     /// - Parameter includeUnmonitored: When `true` (default), includes unmonitored
-    ///   series/movies — matching the main app's calendar. When `false`, only
+    ///   series/movies - matching the main app's calendar. When `false`, only
     ///   monitored items are returned.
     static func fetchUpcomingReleases(days: Int = 14, includeUnmonitored: Bool = true) async throws -> [WidgetCalendarEvent] {
         let profiles = try await fetchArrProfiles(serviceTypes: [.sonarr, .radarr])

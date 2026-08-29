@@ -11,7 +11,7 @@ import Testing
 /// surface (`state(for:)` / `episodesState(for:)`) and through what the server
 /// actually received.
 ///
-/// Synchronisation is entirely continuation-based — the server resumes a
+/// Synchronisation is entirely continuation-based - the server resumes a
 /// `CheckedContinuation` when it has served (or had torn down) the expected
 /// number of requests. There are no sleeps and no timing assumptions.
 @Suite("Jellyfin availability resolver state", .serialized)
@@ -304,7 +304,7 @@ struct JellyfinAvailabilityResolverTests {
         resolver.ensureLoaded(key, media: media, client: client)
         #expect(server.requests.count == 1)
 
-        // A failure must not outlive its own TTL — the whole point of the shorter
+        // A failure must not outlive its own TTL - the whole point of the shorter
         // window is that a dropped connection stops pinning the card in an error.
         clock.advance(by: 2)
         guard case .idle = resolver.state(for: key) else {
@@ -462,7 +462,7 @@ struct JellyfinAvailabilityResolverTests {
         #expect(resolver.state(for: key).isIdle)
 
         // The client tearing the parked socket down is the observable proof that
-        // Task.cancel() reached URLSession — no polling, no sleeping.
+        // Task.cancel() reached URLSession - no polling, no sleeping.
         await server.waitForClosedConnections(1)
 
         // Nothing the server could now say can revive the entry: the cancelled
@@ -555,7 +555,7 @@ struct JellyfinAvailabilityResolverTests {
             return
         }
         // Unlike the availability path, episodes are stored in the order the
-        // server returned them — they are not re-sorted by name.
+        // server returned them - they are not re-sorted by name.
         #expect(items.map(\.id) == ["e3", "e1"])
 
         resolver.ensureEpisodesLoaded(key, client: client)
@@ -614,7 +614,7 @@ extension JellyfinAvailabilityResolver.State {
 
 // MARK: - localMatches case table
 
-/// Plain data only — the `JellyfinMediaAvailabilityCard.Media` value is built
+/// Plain data only - the `JellyfinMediaAvailabilityCard.Media` value is built
 /// inside the `@MainActor` test body, which keeps this table usable from the
 /// nonisolated context `@Test(arguments:)` evaluates it in.
 private nonisolated struct JellyfinMatchCase: Sendable, CustomStringConvertible {

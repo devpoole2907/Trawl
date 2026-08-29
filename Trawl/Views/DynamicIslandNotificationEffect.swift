@@ -20,7 +20,7 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
         // Order matters: the glass goes down first and the mesh sits over it.
         // `glassEffect` paints a specular highlight along the shape's edge, and
         // with the mesh underneath that highlight lands on top as a light hairline
-        // — invisible in light mode against white content, but an obvious white
+        // - invisible in light mode against white content, but an obvious white
         // line along the top of the Dynamic Island in dark mode. Measured at the
         // top edge: grey 61 with the mesh underneath, 0 with it on top. Layering
         // the mesh above lets its opaque top row cover the highlight while its
@@ -30,7 +30,7 @@ struct DynamicIslandNotificationEffect<Content: View>: View {
             // Sized *before* `glassEffect`, not by the frame on the ZStack below.
             // Liquid Glass anchors its render surface to the bounds of the view the
             // modifier is attached to, so an unconstrained `Color.clear` leaves the
-            // material at its expanded size while everything around it shrinks —
+            // material at its expanded size while everything around it shrinks -
             // the bubble flashes full-width on dismissal instead of collapsing with
             // the rest. This is the safeguard the mesh-over-glass change dropped
             // when it moved the glass inside the stack.

@@ -2,7 +2,7 @@ import AppIntents
 import CoreSpotlight
 import Foundation
 
-/// A Sonarr series — either a lookup result from a search or an item already in the library.
+/// A Sonarr series - either a lookup result from a search or an item already in the library.
 /// Shares `ArrMediaPayload` with `ArrMovieEntity`. Conforms to `IndexedEntity` for Spotlight /
 /// Apple Intelligence discovery (see `ArrSpotlightIndexer`).
 nonisolated struct ArrSeriesEntity: IndexedEntity {

@@ -221,7 +221,7 @@ struct DirectIndexerSchemaPickerSheet: View {
     }
 
     /// Built from the whole schema rather than the search results, so the bar doesn't
-    /// reshuffle while typing. Empty when the Arr only returned one protocol — a filter
+    /// reshuffle while typing. Empty when the Arr only returned one protocol - a filter
     /// with a single option isn't worth the row.
     private var protocolSegments: [TrawlSegmentBarItem<IndexerListSection?>] {
         let present = Set(viewModel.schema(for: profile.id).map(listSection(for:)))

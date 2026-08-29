@@ -9,7 +9,7 @@ nonisolated struct ArrCalendarItemEntity: AppEntity {
 
     nonisolated struct Payload: Codable, Sendable {
         var serviceName: String
-        var title: String           // movie title, or "Series — S01E02 Title"
+        var title: String           // movie title, or "Series - S01E02 Title"
         var dateISO: String?
     }
 

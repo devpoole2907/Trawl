@@ -3,7 +3,7 @@ import Foundation
 
 extension ArrServiceProfile {
     /// Returns a transient profile NOT inserted into any ModelContext.
-    /// `@Model` types cannot have stored static lets — always a static func.
+    /// `@Model` types cannot have stored static lets - always a static func.
     static func preview(
         _ serviceType: ArrServiceType = .sonarr,
         displayName: String? = nil,

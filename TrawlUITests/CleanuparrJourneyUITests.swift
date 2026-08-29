@@ -48,11 +48,11 @@ final class CleanuparrJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(
             app.staticTexts["Fixture qBittorrent"].waitForExistence(in: app, timeout: 15),
-            "The dashboard should render the download-client health name decoded from Cleanuparr's real Stats response — regression: the configured profile did not connect, the stats request failed, or the Health section stopped rendering."
+            "The dashboard should render the download-client health name decoded from Cleanuparr's real Stats response - regression: the configured profile did not connect, the stats request failed, or the Health section stopped rendering."
         )
         XCTAssertTrue(
             app.staticTexts["Fixture Radarr is unavailable"].waitForExistence(in: app, timeout: 10),
-            "The dashboard should render Cleanuparr's unhealthy Arr service error, not merely a generic connected state — regression: Health.Service.errorMessage stopped reaching healthRow(_:)."
+            "The dashboard should render Cleanuparr's unhealthy Arr service error, not merely a generic connected state - regression: Health.Service.errorMessage stopped reaching healthRow(_:)."
         )
         let readiness = app.descendants(matching: .any)
             .matching(NSPredicate(
@@ -67,7 +67,7 @@ final class CleanuparrJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(
             server.hasReceivedStatsRequest(hours: 168, includeDryRun: false),
-            "The app should request GET /api/v2/stats with hours=168, includeDryRun=false, and the seeded X-Api-Key before rendering dashboard content — proves this is a production HTTP path, not installed state."
+            "The app should request GET /api/v2/stats with hours=168, includeDryRun=false, and the seeded X-Api-Key before rendering dashboard content - proves this is a production HTTP path, not installed state."
         )
         XCTAssertTrue(
             server.hasReceivedRequest(method: "GET", path: "/health/ready"),

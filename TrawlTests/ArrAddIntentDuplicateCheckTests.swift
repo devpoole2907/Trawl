@@ -7,13 +7,13 @@ import Testing
 /// Regression coverage for M-02: `AddRadarrMovieIntent` / `AddSonarrSeriesIntent` must not
 /// swallow a failed duplicate-check library read. Previously `try? await client.getMovies()`
 /// (and the Sonarr equivalent) turned any failure into an empty array, so the intent believed
-/// the library was empty and went on to add — even though it had no idea whether the item
+/// the library was empty and went on to add - even though it had no idea whether the item
 /// already existed.
 ///
-/// These tests drive the real `perform()` path — a real `AddRadarrMovieIntent` /
+/// These tests drive the real `perform()` path - a real `AddRadarrMovieIntent` /
 /// `AddSonarrSeriesIntent`, a real service profile persisted to the App Group SwiftData store
 /// (the same store `ArrIntentSupport.loadServices` reads), a real Keychain-backed API key, and a
-/// real loopback `NWListener` standing in for Radarr/Sonarr — following the pattern established
+/// real loopback `NWListener` standing in for Radarr/Sonarr - following the pattern established
 /// in `ArrClientLifecycleTests`.
 @Suite("Arr Add Intent duplicate-check failure handling", .serialized)
 @MainActor
@@ -262,7 +262,7 @@ struct ArrAddIntentDuplicateCheckTests {
 
     /// Persists a real `ArrServiceProfile` to the same App Group SwiftData store
     /// `ArrIntentSupport.loadServices` reads, saves a matching Keychain API key, runs
-    /// `operation`, then removes both — regardless of whether `operation` throws.
+    /// `operation`, then removes both - regardless of whether `operation` throws.
     ///
     /// This mirrors `ArrClientLifecycleTests.withSavedAPIKey`, extended to also cover the
     /// SwiftData side that the intent layer (as opposed to `ArrServiceManager`) resolves

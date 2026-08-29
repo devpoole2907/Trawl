@@ -902,7 +902,7 @@ private nonisolated struct SeerrRecordedRequest: Sendable, Equatable {
 
     /// Everything but the body compares exactly. JSON bodies compare
     /// *semantically*, because `JSONEncoder` gives no ordering guarantee for a
-    /// synthesized `CodingKeys` — asserting raw bytes would make these tests
+    /// synthesized `CodingKeys` - asserting raw bytes would make these tests
     /// fail on an encoder implementation detail rather than on a contract
     /// change. This is still the strong assertion: the key set must match
     /// exactly, so an optional that should have been omitted still fails, and a

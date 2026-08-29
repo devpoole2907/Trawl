@@ -180,7 +180,7 @@ private struct ArrDetailPillFlowLayout: Layout {
 // MARK: - Alternate titles card
 
 /// Displays a collapsible list of alternate titles.
-/// Each entry is `(title, subtitle?)` — callers map service-specific types to this tuple.
+/// Each entry is `(title, subtitle?)` - callers map service-specific types to this tuple.
 struct ArrDetailAlternateTitlesCard: View {
     let titles: [(title: String, subtitle: String?)]
     @State private var isExpanded = false

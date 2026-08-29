@@ -20,8 +20,8 @@ struct AppSheetShell<Content: View>: View {
     /// Where the sheet's confirming action lives.
     ///
     /// A toolbar button is right for small edits, where the sheet is a detail the
-    /// user is amending. For a sheet whose entire purpose is one commitment — add
-    /// this series, add this download client — the action deserves the same weight
+    /// user is amending. For a sheet whose entire purpose is one commitment - add
+    /// this series, add this download client - the action deserves the same weight
     /// the welcome flow gives it: a full-width capsule at the bottom, in thumb
     /// reach, rather than a word in the top corner.
     enum ConfirmPlacement {

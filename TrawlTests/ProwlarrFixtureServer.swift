@@ -8,9 +8,9 @@ import Network
 /// `ArrAPIClient` → `HTTPTransport` → `URLSession(configuration: .ephemeral)`
 /// chain and exposes no session seam, so a `URLProtocol` stub cannot be
 /// injected. A real socket is therefore the only way to exercise the production
-/// request path — `ProwlarrViewModel` → `ProwlarrAPIClient` → `ArrAPIClient` →
+/// request path - `ProwlarrViewModel` → `ProwlarrAPIClient` → `ArrAPIClient` →
 /// `HTTPTransport` → `JSONEncoder`/`JSONDecoder` → `HTTPErrorMapper` → `ArrError`
-/// — end to end, and the only way to assert on the bytes a mutation actually put
+/// - end to end, and the only way to assert on the bytes a mutation actually put
 /// on the wire.
 ///
 /// This is a deliberate copy of the pattern in `JellyfinFixtureServer` (and of
@@ -171,7 +171,7 @@ nonisolated final class ProwlarrFixtureServer: @unchecked Sendable {
     /// Resumes once `count` requests for `path` have arrived, whether or not
     /// they were answered. This is the barrier used to know an in-flight request
     /// really reached the socket before the test does something else to the view
-    /// model — no sleeping, no polling.
+    /// model - no sleeping, no polling.
     func waitForRequests(path: String, count: Int) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let matches: @Sendable (ProwlarrFixtureRequest) -> Bool = { $0.path == path }

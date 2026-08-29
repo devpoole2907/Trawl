@@ -2,11 +2,11 @@ import Foundation
 import Testing
 @testable import Trawl
 
-/// `ArrIndexerManagementViewModel` — the Sonarr/Radarr indexer manager at the
+/// `ArrIndexerManagementViewModel` - the Sonarr/Radarr indexer manager at the
 /// bottom of `ProwlarrViewModel.swift`. Every mutation is keyed by
 /// `(profileID, serviceType)` and resolved to a real `SonarrAPIClient` /
 /// `RadarrAPIClient` through a real `ArrServiceManager.connectService`
-/// against loopback fixture servers — never a protocol fake standing in for
+/// against loopback fixture servers - never a protocol fake standing in for
 /// the client. The highest-value behaviour under test is instance routing:
 /// with two connected instances of the *same* service type, an operation
 /// addressed to one profile must never reach the other profile's socket,
@@ -76,7 +76,7 @@ struct ArrIndexerManagementViewModelTests {
 
             #expect(viewModel.indexers(for: sonarrProfile.id, serviceType: .sonarr).map { $0.name ?? "" } == ["SonarrOne"])
             #expect(viewModel.indexers(for: radarrProfile.id, serviceType: .radarr).map { $0.name ?? "" } == ["RadarrOne"])
-            // Same numeric id (1) on both servers — a keying bug (e.g. keyed by
+            // Same numeric id (1) on both servers - a keying bug (e.g. keyed by
             // indexer id instead of profile id) would smear one service's list
             // into the other's slot. It must not.
             #expect(viewModel.sonarrIndexersByProfileID[radarrProfile.id] == nil)
@@ -161,7 +161,7 @@ struct ArrIndexerManagementViewModelTests {
     }
 
     // The two tests above address the *first-connected* profile, which is also the
-    // manager's active instance — so a profile-blind client lookup would still
+    // manager's active instance - so a profile-blind client lookup would still
     // route them correctly and they would pass under that bug. These two address
     // the non-active profile instead, which is the case that actually breaks.
     // Creating or renaming an indexer on the wrong server is the most destructive
@@ -265,7 +265,7 @@ struct ArrIndexerManagementViewModelTests {
             let viewModel = ArrIndexerManagementViewModel(serviceManager: manager)
             await viewModel.loadIndexers(for: profileA.id, serviceType: .sonarr)
             await viewModel.loadIndexers(for: profileB.id, serviceType: .sonarr)
-            // Both profiles happen to hold an indexer with the same id (1) —
+            // Both profiles happen to hold an indexer with the same id (1) -
             // exactly the shape that would expose a delete keyed on indexer id
             // rather than on (profileID, id).
             let alphaOnA = try #require(viewModel.indexers(for: profileA.id, serviceType: .sonarr).first)
@@ -418,8 +418,8 @@ struct ArrIndexerManagementViewModelTests {
         #expect(viewModel.error(for: profileID) == ArrError.unsupportedIndexerService(ArrServiceType.bazarr.displayName).localizedDescription)
 
         // loadIndexers/loadSchema short-circuit before ever reaching
-        // withIndexerClient for these two service types, so — unlike the
-        // mutating entry points above — they leave no error behind at all.
+        // withIndexerClient for these two service types, so - unlike the
+        // mutating entry points above - they leave no error behind at all.
         // Pinning that as current behaviour, not endorsing it as correct.
         await viewModel.loadIndexers(for: profileID, serviceType: .prowlarr)
         #expect(viewModel.error(for: profileID) != nil) // still holds the addIndexer error from above

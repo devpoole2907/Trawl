@@ -14,7 +14,7 @@ struct RadarrAddMovieSheet: View {
     @State private var optionsExpanded = false
     @State private var isAdding = false
     @State private var qualityProfileForDetails: ArrQualityProfile?
-    /// Which server this film is added to — see `SonarrAddSeriesSheet`.
+    /// Which server this film is added to - see `SonarrAddSeriesSheet`.
     @State private var selectedInstanceID: UUID?
 
     var body: some View {

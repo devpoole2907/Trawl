@@ -36,7 +36,7 @@ enum WidgetTimelinePolicy {
 
     /// The small Upcoming Releases tile prints a countdown rather than a list, so
     /// it must come back sooner than the list families when the next release is
-    /// close — otherwise the tile keeps showing a stale "in 4h 20m" for hours.
+    /// close - otherwise the tile keeps showing a stale "in 4h 20m" for hours.
     /// `secondsUntilNextRelease` is `nil` when there is nothing upcoming.
     static func calendarCountdownRefreshInterval(secondsUntilNextRelease: TimeInterval?) -> TimeInterval {
         guard let seconds = secondsUntilNextRelease else { return 6 * 60 * 60 }

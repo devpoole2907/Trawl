@@ -10,7 +10,7 @@ import Testing
 /// inside Trawl.
 ///
 /// The specific hazard is that `POST /Users/{id}/Policy` replaces the **whole** policy.
-/// Jellyfin does not merge — whatever is sent becomes the user's permissions. So an
+/// Jellyfin does not merge - whatever is sent becomes the user's permissions. So an
 /// editor that rebuilt the policy from the fields it happens to show would silently
 /// clear every permission it does not know about, and the UI would look correct
 /// afterwards because it only renders the fields it knows. `JellyfinUserEditorViewModel`
@@ -55,7 +55,7 @@ struct JellyfinUserPolicyTests {
 
         // Everything the editor did not touch must survive the round trip. These are the
         // fields that decide whether someone keeps admin rights, keeps access to their
-        // libraries, and stays un-disabled — silently dropping any of them is the
+        // libraries, and stays un-disabled - silently dropping any of them is the
         // failure this test exists for.
         #expect(body["IsAdministrator"] as? Bool == true)
         #expect(body["IsDisabled"] as? Bool == false)
@@ -117,7 +117,7 @@ struct JellyfinUserPolicyTests {
         let request = try #require(requests.first)
         #expect(request.method == "DELETE")
         #expect(request.path == "/Users/u1")
-        #expect(request.body.isEmpty, "A user deletion carries no body — anything here would be sent to the server unread.")
+        #expect(request.body.isEmpty, "A user deletion carries no body - anything here would be sent to the server unread.")
         #expect(
             request.authorization?.contains("jf-token") == true,
             "The deletion must be authenticated; an unauthenticated one would fail on a real server."

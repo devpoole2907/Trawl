@@ -25,7 +25,7 @@ final class InAppNotificationCenter {
 
     // Current banner frame in window coordinates. Used by the iOS passthrough
     // window's hit test so touches inside the banner reach SwiftUI's gesture
-    // system. ObservationIgnored — read imperatively from UIKit, not via views.
+    // system. ObservationIgnored - read imperatively from UIKit, not via views.
     @ObservationIgnored var bannerFrame: CGRect = .zero
 
     private var queuedBanners: [InAppBannerItem] = []
@@ -130,7 +130,7 @@ final class InAppNotificationCenter {
 
     /// Records a notification in the Recent Notifications log without presenting
     /// a banner or firing haptics. For confirmations whose feedback is already
-    /// visible elsewhere (in-view status cards, webhook pushes) — the event stays
+    /// visible elsewhere (in-view status cards, webhook pushes) - the event stays
     /// auditable in the log without stacking a redundant banner.
     func logSilently(
         title: String,

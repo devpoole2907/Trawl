@@ -74,7 +74,7 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
     /// Library view models can survive an in-place profile edit. When a resolver
     /// is supplied it is the only source of truth, so a same-ID reconnect cannot
-    /// leave the view model bound to the previous host or API key — and a failed
+    /// leave the view model bound to the previous host or API key - and a failed
     /// reconnect, which leaves no client at all, resolves to `nil` instead of
     /// falling back to the client this view model was born with.
     private let storedClient: Client?
@@ -154,7 +154,7 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
 
     /// Every connected instance of this view model's service, in configured
     /// order. Overridden by the Sonarr and Radarr view models; the base returns
-    /// nothing, so Bazarr and Prowlarr — which have no instance pair — keep
+    /// nothing, so Bazarr and Prowlarr - which have no instance pair - keep
     /// falling back to their single bound client.
     var routedInstances: [(ref: ArrInstanceRef, client: Client)] { [] }
 
@@ -297,7 +297,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     var sortOrder: Sort { didSet { rebuildFilteredItems() } }
     var filteredItems: [ArrLibraryEntry<LibraryItem>] = []
 
-    // Queue — fanned out across every visible instance, each row keeping the
+    // Queue - fanned out across every visible instance, each row keeping the
     // server it came from so a removal can be routed back to it.
     private(set) var queueRecords: [ArrInstanced<ArrQueueItem>] = []
     var queue: [ArrQueueItem] { queueRecords.map(\.value) }
@@ -316,7 +316,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     private(set) var isLoadingWantedMissing: Bool = false
     private(set) var wantedMissingTotalRecords: Int = 0
     /// One paginator per server. A single page number has no meaning across two
-    /// servers' wanted lists — page 2 of the union is not page 2 of either — so
+    /// servers' wanted lists - page 2 of the union is not page 2 of either - so
     /// each instance is paged independently and the results concatenated in
     /// configured order.
     @ObservationIgnored private var wantedMissingLoaders: [UUID: PaginatedLoader<WantedRecord>] = [:]
@@ -359,7 +359,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// Filtering is "any copy matches", applied to the row rather than to each
     /// copy. A film that is downloaded on the HD server and missing on the 4K one
     /// belongs in both the Downloaded and the Missing list, and in each it keeps
-    /// both copies — so its badges stay honest about where it actually lives
+    /// both copies - so its badges stay honest about where it actually lives
     /// instead of implying it exists only on the server that matched.
     func makeFilteredEntries(
         from items: [LibraryItem],
@@ -395,10 +395,10 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         await deleteItems(ids: ids, deleteFiles: deleteFiles, nounSingular: nounSingular, nounPlural: nounPlural)
     }
 
-    /// Override hook — routes each copy to the server that holds it.
+    /// Override hook - routes each copy to the server that holds it.
     func deleteEntries(_ entries: [ArrLibraryEntry<LibraryItem>], deleteFiles: Bool) async {}
 
-    /// Override hook — flips every copy so a merged row can't end up half
+    /// Override hook - flips every copy so a merged row can't end up half
     /// monitored.
     func toggleMonitoredAcrossInstances(_ entry: ArrLibraryEntry<LibraryItem>) async {
         for copy in entry.copies {
@@ -410,7 +410,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     /// Loads the library through `ArrServiceManager`'s shared cache.
     ///
-    /// `maxAge` of 0 — the default — always refetches, which is what every
+    /// `maxAge` of 0 - the default - always refetches, which is what every
     /// mutation-driven caller (delete, monitor toggle, add, edit) needs. Appear-time
     /// callers pass `ArrLibraryCachePolicy.appearMaxAge` so switching tabs or popping a
     /// detail view reuses what's already loaded instead of re-downloading the whole
@@ -418,7 +418,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// Loads the blended library: every visible instance's items, as one union.
     ///
     /// This deliberately does not read "the active client". A list fed from one
-    /// instance is the behaviour the merged library replaces — it would show only
+    /// instance is the behaviour the merged library replaces - it would show only
     /// half of an HD/4K pair while claiming to be the whole library.
     func loadLibraryItems(maxAge: TimeInterval = 0) async {
         isLoading = true
@@ -455,7 +455,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     /// "Refresh all", "check for new releases" and "search all missing" are claims
     /// about *the library*, and the library is the union of the pair. Sending one
     /// of them to the active client alone does half the job and then reports that
-    /// it did all of it — the silent half-failure this whole feature exists to
+    /// it did all of it - the silent half-failure this whole feature exists to
     /// prevent. Servers are tried independently: one being down is a reason to
     /// name it, not to abandon the command on the other.
     ///
@@ -677,7 +677,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
             let expectsWebhook = await expectsReleaseGrabWebhook()
             if expectsWebhook {
                 // A webhook-driven "Grabbed" push will arrive seconds later and show its own
-                // banner — log this one silently to avoid a duplicate.
+                // banner - log this one silently to avoid a duplicate.
                 InAppNotificationCenter.shared.logSilently(title: "Release Sent", message: release.title ?? "Release")
             } else {
                 InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
@@ -889,7 +889,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         }
     }
 
-    /// Override hook — subclasses invalidate their filtered cache when the
+    /// Override hook - subclasses invalidate their filtered cache when the
     /// Jellyfin presence cache changes.
     func onJellyfinLibraryCacheChanged() {}
 
@@ -960,7 +960,7 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     associatedtype Filter: RawRepresentable & CaseIterable & Identifiable & Hashable where Filter.RawValue == String
     associatedtype Sort: RawRepresentable & CaseIterable & Identifiable & Hashable where Sort.RawValue == String
 
-    /// The list's unit is a merged entry — one title, every server's copy of it —
+    /// The list's unit is a merged entry - one title, every server's copy of it -
     /// not a raw library item. `items` keeps the flat union underneath for
     /// anything that needs per-server truth.
     var filteredItems: [ArrLibraryEntry<Item>] { get }
@@ -983,7 +983,7 @@ protocol ArrMediaListViewModel: AnyObject, Sendable {
     func toggleMonitored(_ item: Item) async
     /// Deletes every server's copy of each selected title. A merged row stands for
     /// the title, so deleting it from the blended library means deleting it
-    /// everywhere — leaving the 4K copy behind after deleting the HD one would
+    /// everywhere - leaving the 4K copy behind after deleting the HD one would
     /// leave the row on screen and look like the delete failed.
     func deleteEntries(_ entries: [ArrLibraryEntry<Item>], deleteFiles: Bool) async
     /// Flips monitoring on every server's copy, so the merged row's state stays

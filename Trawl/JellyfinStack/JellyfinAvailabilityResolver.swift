@@ -26,7 +26,7 @@ final class JellyfinAvailabilityResolver {
         var timestamp: Date
     }
 
-    /// `.loading` never expires — an in-flight task owns that entry and will
+    /// `.loading` never expires - an in-flight task owns that entry and will
     /// overwrite it. `.idle` is never stored.
     private func expired(_ entry: Entry) -> Bool {
         let age = now().timeIntervalSince(entry.timestamp)
@@ -40,7 +40,7 @@ final class JellyfinAvailabilityResolver {
     private static let ttl: TimeInterval = 300
     /// Failures expire far sooner than successes. A resolved answer stays valid
     /// for as long as the library is unlikely to have changed, but a failure is
-    /// usually transient — a dropped connection or a server restart — and must
+    /// usually transient - a dropped connection or a server restart - and must
     /// not pin the card in an error state for the life of the resolver.
     private static let failureTTL: TimeInterval = 60
     private static let maxEntries = 64
@@ -140,7 +140,7 @@ final class JellyfinAvailabilityResolver {
                     includeItemTypes: media.itemTypes,
                     anyProviderIdEquals: pairs
                 )
-                // Apply local matching as a safety net — some Jellyfin versions
+                // Apply local matching as a safety net - some Jellyfin versions
                 // ignore AnyProviderIdEquals on /Items and return all library items.
                 items = candidates.filter { localMatches($0, media: media) }
             }
@@ -242,7 +242,7 @@ final class JellyfinAvailabilityResolver {
     private func titleYearFallbackMatches(_ item: JellyfinLibraryItem, title: String, year: Int?) -> Bool {
         guard normalizedTitle(strippingTrailingYear(item.name)) == normalizedTitle(title) else { return false }
         guard let year, let productionYear = item.productionYear else { return true }
-        // Allow a one-year tolerance — Sonarr/Radarr and Jellyfin's metadata
+        // Allow a one-year tolerance - Sonarr/Radarr and Jellyfin's metadata
         // sources routinely disagree by a year on first-air/release dates,
         // especially for unreleased titles.
         return abs(productionYear - year) <= 1
@@ -251,7 +251,7 @@ final class JellyfinAvailabilityResolver {
     /// Jellyfin appends a disambiguation `(YYYY)` suffix to library item names
     /// when several entries share a title (e.g. "A Knight of the Seven Kingdoms
     /// (2025)"). Sonarr/Radarr titles carry no such suffix, so strip it before
-    /// comparing — otherwise the trailing year defeats the normalized match.
+    /// comparing - otherwise the trailing year defeats the normalized match.
     private func strippingTrailingYear(_ value: String?) -> String {
         guard let value else { return "" }
         return value.replacingOccurrences(
@@ -273,7 +273,7 @@ final class JellyfinAvailabilityResolver {
         return result
     }
 
-    /// The longest alphanumeric word in the title — distinctive enough to narrow
+    /// The longest alphanumeric word in the title - distinctive enough to narrow
     /// a substring search while still appearing verbatim in the Jellyfin name.
     private func mostDistinctiveWord(in title: String) -> String? {
         title

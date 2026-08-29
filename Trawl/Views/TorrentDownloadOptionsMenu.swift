@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The "Download Options" submenu — sequential download, first/last piece priority,
+/// The "Download Options" submenu - sequential download, first/last piece priority,
 /// and per-torrent speed limits. Shared between the torrent detail toolbar and the
 /// torrent list row context menu so both expose the same controls.
 ///

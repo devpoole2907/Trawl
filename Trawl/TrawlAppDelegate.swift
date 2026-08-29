@@ -43,7 +43,7 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
 
     // Handle foreground notifications
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification, withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        // Absorb system banners when foregrounded — show via in-app banner instead
+        // Absorb system banners when foregrounded - show via in-app banner instead
         let content = notification.request.content
         let title = content.title
         let body = Self.enrichedNotificationBody(content.body, userInfo: content.userInfo)
@@ -65,7 +65,7 @@ final class TrawlAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificatio
         completionHandler([.list, .badge])
     }
 
-    /// Handle a tapped notification. Without this the worker's routing data is inert —
+    /// Handle a tapped notification. Without this the worker's routing data is inert -
     /// the app has `trawl://` deep links, but nothing was ever wired to trigger them
     /// from a push, so tapping a banner just opened the app on whatever tab it was on.
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse, withCompletionHandler completionHandler: @escaping () -> Void) {

@@ -4,12 +4,12 @@ import SwiftData
 import Testing
 @testable import Trawl
 
-/// Coverage for `SeerrSetupViewModel.login(modelContext:)` — validation order,
+/// Coverage for `SeerrSetupViewModel.login(modelContext:)` - validation order,
 /// admin/cookie rejection, and the exclusive-enable persistence rule. Previously
 /// untested.
 ///
 /// `SeerrSetupViewModel.login` builds its own `SeerrAPIClient` internally with no
-/// `sessionConfiguration` parameter reaching the caller — the same situation
+/// `sessionConfiguration` parameter reaching the caller - the same situation
 /// `SeerrServiceManagerTests` documents for `SeerrServiceManager.connectService(_:)`.
 /// There is therefore no `URLProtocol` seam to hang off of for the network-reaching
 /// paths, so those tests drive the real view model over a real loopback TCP server,
@@ -91,7 +91,7 @@ struct SeerrSetupViewModelTests {
     func nonAdminUserIsRejected() async throws {
         let server = try await SeerrSetupLoopbackServer(label: "non-admin")
         defer { server.stop() }
-        // permissions = 32 (.request) — the admin bit (2) is not set.
+        // permissions = 32 (.request) - the admin bit (2) is not set.
         server.route("POST /api/v1/auth/jellyfin", SeerrSetupFakeResponse(
             body: Data(#"{"id":5,"displayName":"Regular User","permissions":32}"#.utf8)
         ))
@@ -171,7 +171,7 @@ struct SeerrSetupViewModelTests {
     /// Seerr is modelled as a single instance: `login` resolves the profile to write
     /// as `first(where: \.isEnabled) ?? first`, so signing in against a *different*
     /// Seerr server repoints the existing profile rather than adding a second one.
-    /// This pins that behaviour — a second profile appearing here would mean the
+    /// This pins that behaviour - a second profile appearing here would mean the
     /// single-instance assumption the rest of the Seerr stack relies on had changed.
     @Test("Signing in against a different server repoints the existing profile instead of adding a second")
     func loginRepointsExistingProfileRatherThanAddingOne() async throws {
@@ -267,7 +267,7 @@ struct SeerrSetupViewModelTests {
     }
 
     /// Runs `body`, then deletes the Keychain session cookie for every profile in
-    /// `profiles` on both the success and failure path — mirrors
+    /// `profiles` on both the success and failure path - mirrors
     /// `OnboardingViewModelTests.cleaningUpKeychain`.
     private func cleaningUpKeychain(for profiles: [SeerrServiceProfile], body: () async throws -> Void) async throws {
         do {
@@ -310,7 +310,7 @@ private nonisolated struct SeerrSetupFakeResponse: Sendable {
 
 /// A minimal loopback HTTP server standing in for Seerr's Jellyfin-login endpoint.
 /// `SeerrSetupViewModel.login` builds its own `SeerrAPIClient` internally with no
-/// injectable seam reachable from outside — see this file's top doc comment — so
+/// injectable seam reachable from outside - see this file's top doc comment - so
 /// this drives the real view model over real loopback TCP, following the pattern
 /// established by `ArrClientLifecycleTests.LifecycleArrTestServer` and
 /// `OnboardingViewModelTests.OnboardingFakeQBServer` (both `private` to their own

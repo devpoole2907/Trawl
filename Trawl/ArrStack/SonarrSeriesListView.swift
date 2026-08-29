@@ -121,7 +121,7 @@ struct SonarrSeriesListView: View {
     }
 
     /// Rebuilds when the *set* of connected servers changes, not just when one
-    /// nominated server does — either half of a pair joining or leaving changes
+    /// nominated server does - either half of a pair joining or leaving changes
     /// what the blended library contains.
     private var viewModelLoadKey: String {
         serviceManager.connectedSonarr
@@ -141,7 +141,7 @@ struct SonarrSeriesRow: View {
     /// which suppresses the badges entirely.
     var instances: [ArrInstanceRef] = []
 
-    /// Shared metadata — title, year, artwork, network — is identical on both
+    /// Shared metadata - title, year, artwork, network - is identical on both
     /// servers, so the row reads it from the first copy.
     private var series: SonarrSeries { entry.primary }
 
@@ -192,7 +192,7 @@ struct SonarrSeriesRow: View {
 
                     // Only when the badges cannot say it. With a pair configured
                     // they carry availability themselves, so the pill would just be
-                    // the same fact in words — it earns its place only when nothing
+                    // the same fact in words - it earns its place only when nothing
                     // is downloaded anywhere and there is a status to report, or on
                     // a single-server setup where there are no badges at all.
                     if instances.isEmpty || availableTiers.isEmpty {
@@ -235,7 +235,7 @@ struct SonarrSeriesRow: View {
 
     /// A series counts as available on a server once that server has any episode
     /// file. "Available 4K" on a show with one 2160p episode is the honest
-    /// reading — the 4K library has started it — and the episode counter beside
+    /// reading - the 4K library has started it - and the episode counter beside
     /// the pill carries how far along it is.
     private var availableTiers: [ArrQualityTier] {
         entry.availableTiers(from: instances) { ($0.statistics?.episodeFileCount ?? 0) > 0 }

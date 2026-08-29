@@ -9,7 +9,7 @@ final class TorrentListViewModel {
     var sortOrder: TorrentSortOrder = .addedDate
     var actionErrorAlert: ErrorAlertItem?
 
-    // Cached off-main — only recomputed when inputs change
+    // Cached off-main - only recomputed when inputs change
     private(set) var filteredTorrents: [Torrent] = []
     private(set) var filterCounts: [TorrentFilter: Int] = [:]
 
@@ -248,7 +248,7 @@ final class TorrentListViewModel {
                 self.filterCounts = result.counts
 
                 // Clear processing hashes that are now represented in the new sync data.
-                // Compute the set to remove first — mutating a Set while iterating it
+                // Compute the set to remove first - mutating a Set while iterating it
                 // is undefined behaviour in Swift and can trap.
                 let settled = self.processingHashes.filter { snapshot[$0] != nil }
                 self.processingHashes.subtract(settled)
@@ -257,7 +257,7 @@ final class TorrentListViewModel {
         }
     }
 
-    /// Pure, nonisolated — safe to run on any thread.
+    /// Pure, nonisolated - safe to run on any thread.
     nonisolated private static func compute(
         torrents: [String: Torrent],
         filter: TorrentFilter,

@@ -2,8 +2,8 @@ import Foundation
 
 /// Identity of one configured Sonarr or Radarr server.
 ///
-/// Trawl presents two instances of each service — the intended setup is an HD
-/// pair and a 4K pair — as a single blended library. Server identity is kept as
+/// Trawl presents two instances of each service - the intended setup is an HD
+/// pair and a 4K pair - as a single blended library. Server identity is kept as
 /// *provenance*: it rides along with every item, queue row, calendar entry and
 /// health check so the UI can say which server a thing came from, and so a
 /// command can be routed back to the server that owns it. It is deliberately not
@@ -18,18 +18,18 @@ nonisolated struct ArrInstanceRef: Identifiable, Hashable, Sendable {
     /// Which copy of the library this server holds.
     let tier: ArrQualityTier
 
-    /// The badge text — "Default" or "4K", matching Seerr's own wording.
+    /// The badge text - "Default" or "4K", matching Seerr's own wording.
     ///
     /// Taken from the declared tier rather than parsed out of `displayName`. The
     /// name is whatever the user felt like typing; the tier is the thing the
     /// blended library is actually organised around.
     var shortLabel: String { tier.label }
 
-    /// The server named in full — "Sonarr Default", "Radarr 4K".
+    /// The server named in full - "Sonarr Default", "Radarr 4K".
     ///
     /// `shortLabel` is for badges *on* something that already says what it is: a
     /// library row, a queue entry, a calendar item. Where the label is the whole
-    /// answer to "which server is this?" — a `Server` field on a form — a bare
+    /// answer to "which server is this?" - a `Server` field on a form - a bare
     /// "Default" or "4K" names a tier rather than a server and leaves the reader
     /// to supply the service themselves.
     var qualifiedLabel: String { "\(serviceType.displayName) \(tier.label)" }
@@ -69,14 +69,14 @@ nonisolated extension ArrInstanceRef {
 
 /// An API model that remembers which server it was fetched from.
 ///
-/// The *arr APIs have no concept of this — two servers hand out the same small
-/// integer IDs for different titles — so provenance is stamped on at the point of
+/// The *arr APIs have no concept of this - two servers hand out the same small
+/// integer IDs for different titles - so provenance is stamped on at the point of
 /// the fetch and travels with the value from then on. Without it, a merged
 /// library could not route a delete, a monitor toggle or an interactive search
 /// back to the server that actually holds the item.
 nonisolated protocol ArrInstanceScoped {
     /// The server this value came from. `nil` for values that never went through
-    /// an instance-aware load — lookup/discover results, previews, and fixtures.
+    /// an instance-aware load - lookup/discover results, previews, and fixtures.
     var instanceID: UUID? { get set }
 }
 
@@ -102,8 +102,8 @@ nonisolated extension Array where Element: ArrInstanceScoped {
 ///
 /// Used for everything the *arr APIs return that isn't a merged library item:
 /// queue rows, history, health checks, root folders, download clients, backups,
-/// scheduled tasks. Those are per-server facts, and the alternative — stamping an
-/// `instanceID` onto each wire model — risks encoding Trawl's bookkeeping back to
+/// scheduled tasks. Those are per-server facts, and the alternative - stamping an
+/// `instanceID` onto each wire model - risks encoding Trawl's bookkeeping back to
 /// a server on the next PUT. Wrapping keeps the wire models exactly as the API
 /// defines them and makes provenance impossible to drop by accident: a caller
 /// that wants the value has to acknowledge the instance to reach it.
@@ -176,7 +176,7 @@ nonisolated extension ArrInstanceRef {
 /// The *arr APIs number their libraries from the same sequence, so an `Int` on its
 /// own is not a key: two servers each hand out series 1, for different shows.
 /// Keying a lookup on the bare ID resolves an episode against whichever server's
-/// copy happened to win — and with a trapping `Dictionary` init it does not resolve
+/// copy happened to win - and with a trapping `Dictionary` init it does not resolve
 /// anything at all, it crashes the app on the duplicate key.
 nonisolated struct ArrScopedID: Hashable, Sendable {
     let instanceID: UUID?

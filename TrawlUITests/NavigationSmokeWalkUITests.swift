@@ -5,7 +5,7 @@
 //  The systemic risk behind N-02: a view reading a non-optional
 //  `@Environment(SomeType.self)` traps at runtime the moment SwiftUI can't resolve it,
 //  and nothing catches that until a real navigation reaches the screen. N-02 crashed
-//  the app outright opening the SABnzbd queue screen — four navigations deep, and no
+//  the app outright opening the SABnzbd queue screen - four navigations deep, and no
 //  test had ever gone there. Every other journey suite in this target asserts business
 //  behavior on a handful of screens; this suite is deliberately different: it is a
 //  breadth-first walk that visits as much of the real navigation surface as it can
@@ -17,7 +17,7 @@
 //  `SABnzbdFixtureServer`, seeded through `TrawlApp`'s DEBUG hooks
 //  (`TRAWL_UITEST_SONARR_BASE_URL`, `TRAWL_UITEST_SABNZBD_BASE_URL`), so the app's own
 //  startup, connect, and navigation code runs unmodified. `TRAWL_UITEST_TMDB_BASE_URL`
-//  is always pointed at an unreachable loopback address (`http://127.0.0.1:1/tmdb`) —
+//  is always pointed at an unreachable loopback address (`http://127.0.0.1:1/tmdb`) -
 //  without it, detail screens fire a real TMDb lookup that reaches the public internet
 //  and sits out a 15s timeout.
 //
@@ -26,7 +26,7 @@
 //  written to render a real "not set up" / "no services configured" empty state rather
 //  than crash or render blank, and that is exactly the kind of screen N-02 proves can't
 //  be taken on faith. Where a screen genuinely cannot be reached without live service
-//  data the fixtures can't provide (a real qBittorrent WebUI handshake, in particular —
+//  data the fixtures can't provide (a real qBittorrent WebUI handshake, in particular -
 //  no loopback fixture for that protocol exists anywhere in this test target), it is
 //  skipped, and that is called out in this suite's own report rather than asserted
 //  against.
@@ -214,8 +214,8 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             "Screen: 'SABnzbd Settings' should render the configured server's Edit Server control."
         )
         // Two pops, not one: `SABnzbdSettingsView` and `SABnzbdClientHubView` both
-        // use `.navigationTitle("SABnzbd")`, so popping once lands back on the hub —
-        // which still matches that title — rather than at Client Management.
+        // use `.navigationTitle("SABnzbd")`, so popping once lands back on the hub -
+        // which still matches that title - rather than at Client Management.
         popBack(app, fromTitle: "SABnzbd")
         popBack(app, fromTitle: "SABnzbd")
 
@@ -227,7 +227,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
 
         // N-02 regression, by its new route. The SABnzbd queue is no longer a push
-        // under Client Management — it is one of the Downloads tab's own lists,
+        // under Client Management - it is one of the Downloads tab's own lists,
         // chosen from the title menu. What the assertion protects is unchanged:
         // `SABnzbdManagerView` reads SyncService, TorrentService and
         // SABnzbdServiceManager, and used to trap on whichever route failed to hand
@@ -265,7 +265,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         //
         // Wait for the item before tapping. The menu is still presenting when
         // `openDownloadsOptions` returns, and a tap dispatched at an element that is
-        // not there yet is silently dropped — the walk then fails on the *next*
+        // not there yet is silently dropped - the walk then fails on the *next*
         // assertion, blaming the destination screen for a tap that never landed.
         openDownloadsOptions(app)
         let blocklistItem = app.buttons["Blocklist"]
@@ -288,7 +288,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     // MARK: - 4. Automation & Clients and System's children
 
     /// Regressions this catches: any child screen under the Automation & Clients or
-    /// System hubs failing to render or failing to pop back — none of these had ever
+    /// System hubs failing to render or failing to pop back - none of these had ever
     /// been opened by a test before either. Sonarr is configured, so
     /// `AutomationAndClientsHubView`'s "Indexers"/"Download Clients"/"Tasks" rows and
     /// `TasksHubView`'s "Arr Tasks" row render their real (non-empty-state) content,
@@ -386,7 +386,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
                     "onnected"
                 )
             ).firstMatch.waitForExistence(timeout: 10),
-            "Screen: a configured Sonarr should expose its server as a tappable row — the row is the editor entry point now, replacing the separate 'Edit Server' button."
+            "Screen: a configured Sonarr should expose its server as a tappable row - the row is the editor entry point now, replacing the separate 'Edit Server' button."
         )
         popBack(app, fromTitle: "Sonarr")
 
@@ -398,7 +398,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         XCTAssertTrue(app.buttons["Edit Server"].waitForExistence(timeout: 10), "Screen: a configured SABnzbd should offer 'Edit Server'.")
         popBack(app, fromTitle: "SABnzbd")
 
-        // Radarr: never configured — the unconfigured-service settings path.
+        // Radarr: never configured - the unconfigured-service settings path.
         let radarrRow = firstElement(labelContains: "Radarr", in: app)
         XCTAssertTrue(radarrRow.waitForExistence(in: app, timeout: 10), "Screen: Settings should still list a Radarr row even though it's not configured.")
         radarrRow.tap()
@@ -429,7 +429,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     }
 
     /// Shared seeding for methods that just need a generically-configured, connected
-    /// Sonarr + SABnzbd to reach the tab UI — the exact fixture content doesn't matter
+    /// Sonarr + SABnzbd to reach the tab UI - the exact fixture content doesn't matter
     /// to these methods, only that both services are configured and reachable.
     private func launchWithSonarrAndSABnzbd() async throws -> XCUIApplication {
         let seriesJSON = #"[{"id":1,"title":"Fixture Series Alpha"}]"#
@@ -451,7 +451,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// Taps an item in a just-opened menu, once it is actually hittable.
     ///
     /// A menu item exists in the hierarchy before it can receive a tap, and a tap
-    /// synthesized too early is dropped silently — the failure then lands on the
+    /// synthesized too early is dropped silently - the failure then lands on the
     /// screen that never appeared rather than on the tap that never took. Retrying
     /// the tap is not an option either: tapping a `Menu` toggles it, so a retry can
     /// close a menu that had in fact opened.
@@ -491,7 +491,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// Finds the first `Button` anywhere in the tree whose accessibility label contains
     /// `text`. Rows built from `NavigationLink`/`Button` wrapping multiple `Text`/`Image`
     /// children (`NavigationMenuRow`, `SettingsView.serviceRow`) merge their title and
-    /// subtitle into one accessibility label, so an exact match is fragile — this
+    /// subtitle into one accessibility label, so an exact match is fragile - this
     /// mirrors the pattern already established in `ArrRepointJourneyUITests`. Restricted
     /// to `.buttons` deliberately: matching `.any` picks up non-interactive descendants
     /// too, and tapping one of those silently does nothing.
@@ -529,7 +529,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
     /// Taps a row (matched by `rowLabel` substring) that's expected to push a screen
     /// titled `expectedTitle`, asserts that screen actually rendered, pops back via its
-    /// back button, and asserts the original row is visible again — proving both that
+    /// back button, and asserts the original row is visible again - proving both that
     /// the screen renders real content and that it can actually be navigated away from,
     /// not just pushed to.
     private func assertRowPushesAndPops(

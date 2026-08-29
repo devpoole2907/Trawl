@@ -513,7 +513,7 @@ enum ArrSeasonPackFilter: String, CaseIterable, Identifiable, Codable {
 /// An independent, per-protocol indexer selection for the interactive search
 /// browser. Torrent and Usenet each get their own, so a user can exclude one
 /// protocol outright (`.none`) while still picking a specific indexer from the
-/// other — something a single flat indexer string could never express.
+/// other - something a single flat indexer string could never express.
 enum ArrReleaseIndexerFilter: Hashable, Sendable {
     /// Show every indexer of this protocol.
     case all
@@ -596,7 +596,7 @@ struct ArrReleaseSort: RawRepresentable, Codable {
     }
 
     // Explicit memberwise Codable: without these, Swift satisfies Codable via the
-    // stdlib's RawRepresentable path, which encodes `rawValue` — and `rawValue`
+    // stdlib's RawRepresentable path, which encodes `rawValue` - and `rawValue`
     // JSON-encodes self, recursing until the process stack-overflows.
     private enum CodingKeys: String, CodingKey {
         case option, isAscending, torrentIndexer, usenetIndexer, quality, approvedOnly, seasonPack
@@ -981,7 +981,7 @@ nonisolated struct ArrHistoryRecord: Codable, Identifiable, Sendable {
                 } else if let value = try? nested.decode(Double.self, forKey: key) {
                     dict[key.stringValue] = String(value)
                 }
-                // Skip null / nested object / array — not useful as a [String: String] entry.
+                // Skip null / nested object / array - not useful as a [String: String] entry.
             }
             data = dict.isEmpty ? nil : dict
         } else {
@@ -1620,7 +1620,7 @@ nonisolated func rebasedLibraryPath(existingPath: String, existingRoot: String, 
 
     // A library item lives directly under its root, so its folder is the last
     // component of the path. Rebasing keeps that folder name and swaps in the new
-    // root — matching how Sonarr/Radarr themselves move an item to a new root, and
+    // root - matching how Sonarr/Radarr themselves move an item to a new root, and
     // self-healing a previously doubled path (e.g. /root/root/Show -> /newRoot/Show)
     // rather than preserving the corrupted middle segment.
     guard let folderName = existingPathComponents.last else {

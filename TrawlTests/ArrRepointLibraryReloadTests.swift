@@ -6,9 +6,9 @@ import Testing
 /// N-01: after a same-ID repoint, the Series list renders empty even though the app
 /// is connected to the new server and that server's library has already been fetched.
 ///
-/// This reproduces the model half of that sequence in-process — real
+/// This reproduces the model half of that sequence in-process - real
 /// `ArrServiceManager`, real `SonarrAPIClient`, real `ArrLibraryCache`, two real
-/// loopback servers — and drives a view model through exactly the appear-time
+/// loopback servers - and drives a view model through exactly the appear-time
 /// sequence `ArrMediaListView.performInitialLoadAndStartPolling` uses. It exists to
 /// separate "the manager/cache/view-model layer is wrong" from "the view never asks
 /// it to load".
@@ -67,7 +67,7 @@ struct ArrRepointLibraryReloadTests {
         await manager.connectService(profile)
 
         // A 120s staleness window would happily serve A's copy if the repoint had not
-        // invalidated the entry — that invalidation is what this pins.
+        // invalidated the entry - that invalidation is what this pins.
         let library = try await manager.loadSeriesLibrary(maxAge: ArrLibraryCachePolicy.appearMaxAge)
         #expect(library.map(\.title) == ["From B"])
     }

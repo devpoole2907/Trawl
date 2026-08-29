@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// Library Management — everything about what lands on disk and how it is named.
+/// Library Management - everything about what lands on disk and how it is named.
 /// Absorbs the former "Media & Import" hub (root folders, imports, naming, quality)
 /// and gains subtitles and Jellyfin libraries, so those children live in exactly one
 /// place. Disk Space moved out to the System hub.

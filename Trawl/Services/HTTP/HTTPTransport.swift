@@ -138,7 +138,7 @@ actor HTTPTransport {
     // MARK: - Core perform
 
     /// Performs the request and returns the raw data + parsed HTTPURLResponse,
-    /// after running the response observer. Does NOT validate the status code —
+    /// after running the response observer. Does NOT validate the status code -
     /// callers that need raw access (Seerr login) get the unmodified response.
     func performRaw(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let path = request.url?.path ?? "<unknown>"

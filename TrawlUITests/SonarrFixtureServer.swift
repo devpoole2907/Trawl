@@ -17,7 +17,7 @@ import Network
 
 /// Loopback fixture standing in for a real Sonarr server. Answers the endpoints
 /// `ArrServiceManager.connectService(_:)` calls for `.sonarr` (system status, quality
-/// profiles, root folders, tags — see `SharedArrClient` and `ArrServiceManager.swift`),
+/// profiles, root folders, tags - see `SharedArrClient` and `ArrServiceManager.swift`),
 /// plus the series library endpoint the Series tab loads afterward.
 final class SonarrFixtureServer: @unchecked Sendable {
     struct RecordedRequest: Sendable, Equatable {
@@ -47,7 +47,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     ///     match is answered `401`, exactly as a real Sonarr rejects a bad key. The
     ///     production client maps 401 to `ArrError.invalidAPIKey`
     ///     (`ArrAPIClient.swift`'s `unauthorizedStatusCodes: [401]`), which is what the
-    ///     setup sheet surfaces. Defaults to nil — accept every key — so the journeys
+    ///     setup sheet surfaces. Defaults to nil - accept every key - so the journeys
     ///     that only need a reachable server are unaffected.
     ///   - statusJSON: body for `GET /api/v3/system/status`. Defaults to `{}`; give it
     ///     an `instanceName` when a journey needs to tell two instances apart in the UI,
@@ -120,7 +120,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     /// Each inbound connection is handled independently and closed after one
     /// response (`Connection: close`), matching how `URLSession` issues one
     /// connection per request. The app polls and reconnects services repeatedly, so
-    /// this can and does get invoked many times concurrently — `newConnectionHandler`
+    /// this can and does get invoked many times concurrently - `newConnectionHandler`
     /// spins up a fresh handler per connection, and every mutation of
     /// `recordedRequests` is serialized by `lock`, so nothing here assumes a single
     /// request per endpoint.

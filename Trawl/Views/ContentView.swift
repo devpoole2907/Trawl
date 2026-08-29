@@ -79,7 +79,7 @@ struct ContentView: View {
         // only exists once a qBittorrent server is configured. Every one of the 43
         // `@Environment(SyncService.self)` / `@Environment(TorrentService.self)`
         // reads in the app is non-optional, and a missing one is a *fatal* SwiftUI
-        // assertion, not a degraded view — that is exactly what crashed the app in
+        // assertion, not a degraded view - that is exactly what crashed the app in
         // N-02, four navigations deep, on a screen no test had ever opened.
         //
         // Injecting them here, with the same disconnected fallback `tabContent`
@@ -318,7 +318,7 @@ struct ContentView: View {
                     initializeServices()
                 }
                 // Re-attempt service managers that failed to connect (e.g. VPN was off at launch).
-                // These don't reset already-connected services — only retry disconnected ones.
+                // These don't reset already-connected services - only retry disconnected ones.
                 if !seerrServiceManager.isConnected && !seerrServiceManager.isConnecting && !seerrProfiles.isEmpty {
                     Task { await seerrServiceManager.initialize(from: seerrProfiles) }
                 }
@@ -335,7 +335,7 @@ struct ContentView: View {
                 }
                 Task { await arrServiceManager.retryDisconnected() }
                 arrServiceManager.startQueuePolling()
-                // Covers returning to a tab that isn't Series or Movies — those two
+                // Covers returning to a tab that isn't Series or Movies - those two
                 // refresh themselves on `.active`. Staleness-gated, so a quick trip
                 // out of the app doesn't refetch anything.
                 arrServiceManager.prefetchLibraries()
@@ -555,7 +555,7 @@ struct ContentView: View {
         }
     }
 
-    /// Single entry point for every URL that reaches the app — external links,
+    /// Single entry point for every URL that reaches the app - external links,
     /// opened files, and tapped push notifications.
     private func handleIncomingURL(_ url: URL) {
         // NZBs arrive as a file the system hands us ("Open in Trawl" from Files
@@ -630,7 +630,7 @@ struct ContentView: View {
     private var hasSABnzbdServer: Bool { !sabnzbdProfiles.isEmpty }
 
     /// Hands an incoming NZB straight to SABnzbd. There's no torrent-style staging
-    /// sheet for Usenet deep links — SABnzbd's own defaults cover category and
+    /// sheet for Usenet deep links - SABnzbd's own defaults cover category and
     /// priority, so a confirm-and-send is the whole flow.
     private func send(_ link: NZBDeepLink) {
         guard !isSendingNZB else { return }
@@ -868,7 +868,7 @@ struct ContentView: View {
                     isConnecting = false
                 }
                 // A magnet opened at cold launch stays queued in pendingMagnetURL and is
-                // presented once a retry reconnects — let the user know it wasn't lost.
+                // presented once a retry reconnects - let the user know it wasn't lost.
                 if pendingMagnetURL != nil {
                     InAppNotificationCenter.shared.showSuccess(
                         title: "Magnet Queued",
@@ -983,7 +983,7 @@ private struct MagnetDeepLink: Identifiable {
 }
 
 /// An NZB arriving from outside the app. There is no `nzb:` URL scheme worth
-/// registering — nothing on iOS emits one — so the two shapes that actually
+/// registering - nothing on iOS emits one - so the two shapes that actually
 /// reach us are a `file:` URL (Files / Safari downloads / "Open in Trawl", via
 /// the NZB document type declared in `TrawlApp-Info.plist`) and an http(s) link
 /// whose path ends in `.nzb`. `trawl://add-nzb?url=…` is accepted too, for
@@ -1032,7 +1032,7 @@ private struct NZBDeepLink {
         self.displayName = target.lastPathComponent.isEmpty ? raw : target.lastPathComponent
     }
 
-    /// Mirrors `AddTorrentSheet.isNZBFileName` — SABnzbd also serves gzipped NZBs.
+    /// Mirrors `AddTorrentSheet.isNZBFileName` - SABnzbd also serves gzipped NZBs.
     private static func isNZBFileName(_ fileName: String) -> Bool {
         let lowercased = fileName.lowercased()
         return lowercased.hasSuffix(".nzb") || lowercased.hasSuffix(".nzb.gz")
@@ -1040,7 +1040,7 @@ private struct NZBDeepLink {
 }
 
 extension ContentView {
-    /// `trawl://downloads/issues` or `trawl://downloads?section=issues` — both
+    /// `trawl://downloads/issues` or `trawl://downloads?section=issues` - both
     /// forms resolve to a `DownloadSection`. Absent or unknown means "leave the
     /// segment alone".
     fileprivate static func downloadsSection(from url: URL) -> DownloadSection? {

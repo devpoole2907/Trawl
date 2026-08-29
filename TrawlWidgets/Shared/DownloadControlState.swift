@@ -7,7 +7,7 @@ import Foundation
 /// off one client. This type holds the raw counts each client reports and answers
 /// that question in one place, free of WidgetKit and SwiftData so it is testable.
 nonisolated struct DownloadControlState: Sendable, Equatable {
-    /// qBittorrent torrents still working — downloading, seeding, checking, moving.
+    /// qBittorrent torrents still working - downloading, seeding, checking, moving.
     let runningTorrentCount: Int
     /// qBittorrent torrents explicitly stopped or paused by the user.
     let stoppedTorrentCount: Int
@@ -38,8 +38,8 @@ nonisolated struct DownloadControlState: Sendable, Equatable {
     ///
     /// A SABnzbd queue that is not paused is running whether or not it holds jobs,
     /// because it will start the next one. qBittorrent has no global switch, so it
-    /// is read from its torrents. When nothing is running *and* nothing is stopped —
-    /// an empty qBittorrent with no SABnzbd queue — the stack is idle, not paused,
+    /// is read from its torrents. When nothing is running *and* nothing is stopped -
+    /// an empty qBittorrent with no SABnzbd queue - the stack is idle, not paused,
     /// so the control shows the toggle on rather than inviting a pointless resume.
     var isRunning: Bool {
         guard isAvailable else { return false }

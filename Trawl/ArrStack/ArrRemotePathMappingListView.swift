@@ -293,7 +293,7 @@ private struct RemotePathMappingEntry: Identifiable {
     let mapping: ArrRemotePathMapping
     /// The server holding this mapping. Remote path mappings translate a download
     /// client's paths into the *arr's own, and each server has its own view of the
-    /// filesystem — a pair sharing a client still needs a mapping each.
+    /// filesystem - a pair sharing a client still needs a mapping each.
     var instance: ArrInstanceRef?
 
     // Both instances number their mappings from the same sequence.

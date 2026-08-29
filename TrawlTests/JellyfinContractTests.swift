@@ -5,7 +5,7 @@ import Testing
 
 /// Network contract tests for `JellyfinAPIClient`.
 ///
-/// Every test here drives the real production stack — `JellyfinAPIClient`'s
+/// Every test here drives the real production stack - `JellyfinAPIClient`'s
 /// request builders, `JellyfinAuthHeader`, `HTTPTransport`'s URL/query
 /// construction, its status validator, `JSONDecoder`, and the
 /// `HTTPErrorMapper` that produces `JellyfinAPIError`. The only fake is the
@@ -13,9 +13,9 @@ import Testing
 /// replies with canned payloads.
 ///
 /// A real socket (rather than a `URLProtocol` stub) is used deliberately: it
-/// lets these tests assert the *wire* form of the request — the exact request
+/// lets these tests assert the *wire* form of the request - the exact request
 /// line, the exact percent-encoding of the query, the exact `Authorization`
-/// header string, and the exact request body — none of which a `URLProtocol`
+/// header string, and the exact request body - none of which a `URLProtocol`
 /// can observe faithfully (`URLRequest.httpBody` is not reliably visible
 /// there). It also needs no production seam: `JellyfinAPIClient.init` already
 /// takes a `baseURL`.
@@ -395,7 +395,7 @@ struct JellyfinContractTests {
         #expect(response.items[3].parentIndexNumber == 1)
         #expect(response.items[3].seriesId == "s1")
         #expect(response.items[3].seasonId == "se1")
-        // MediaSources present but sizeless — must not fabricate a size.
+        // MediaSources present but sizeless - must not fabricate a size.
         #expect(response.items[3].fileSize == nil)
     }
 

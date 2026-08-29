@@ -2,8 +2,8 @@ import SwiftUI
 
 /// SABnzbd's categories and post-processing scripts.
 ///
-/// Mirrors `QBittorrentCategoriesAndTagsView`'s shape — one list, a segmented
-/// switch, add in the toolbar, swipe to delete — so the two clients' management
+/// Mirrors `QBittorrentCategoriesAndTagsView`'s shape - one list, a segmented
+/// switch, add in the toolbar, swipe to delete - so the two clients' management
 /// screens read the same. The halves differ where the services do: a SABnzbd
 /// category carries a folder, a script and a priority rather than just a save
 /// path, and scripts are files on SABnzbd's disk with no API to create them, so

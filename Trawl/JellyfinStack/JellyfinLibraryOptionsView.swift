@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// Full editor for a Jellyfin library's scanning, metadata and image-fetcher
-/// configuration — the equivalent of the "Manage Library" settings page on the
+/// configuration - the equivalent of the "Manage Library" settings page on the
 /// Jellyfin dashboard. Loads the library's current `LibraryOptions` (returned by
 /// `/Library/VirtualFolders`) plus the set of available fetchers for the content
 /// type, lets the user toggle/reorder them, and writes the whole object back.

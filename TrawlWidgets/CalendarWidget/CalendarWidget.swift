@@ -159,7 +159,7 @@ struct CalendarWidgetEntryView: View {
     }
 
     /// Small family: the single next release plus how long until it lands. Reuses
-    /// the snapshot the provider already fetched — no extra networking.
+    /// the snapshot the provider already fetched - no extra networking.
     @ViewBuilder
     private var nextReleaseView: some View {
         if let next = entry.events.first {
