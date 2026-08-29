@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct SonarrAddSeriesSheet: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: SonarrViewModel
     @State private var searchQuery = ""
@@ -12,6 +13,11 @@ struct SonarrAddSeriesSheet: View {
     @State private var optionsExpanded = false
     @State private var isAdding = false
     @State private var qualityProfileForDetails: ArrQualityProfile?
+    /// Which server this title is added to. An HD/4K pair is run precisely so that
+    /// some titles live on one and some on both, so the destination is a choice the
+    /// user makes rather than one inherited from whichever server happens to be
+    /// active.
+    @State private var selectedInstanceID: UUID?
 
     var body: some View {
         ArrSheetShell(
@@ -20,7 +26,8 @@ struct SonarrAddSeriesSheet: View {
             isConfirmDisabled: !canAddSelectedSeries,
             onConfirm: {
                 Task { await addSelectedSeries() }
-            }
+            },
+            confirmPlacement: .prominentBottom
         ) {
             List {
                 Section {
@@ -52,15 +59,27 @@ struct SonarrAddSeriesSheet: View {
                 if let selectedSeries, !isInLibrary(selectedSeries) {
                     Section {
                         DisclosureGroup("Options", isExpanded: $optionsExpanded) {
+                            if availableInstances.count > 1 {
+                                Picker("Server", selection: $selectedInstanceID) {
+                                    ForEach(availableInstances) { instance in
+                                        Text(serviceManager.scopeLabel(for: instance))
+                                            .tag(Optional(instance.id))
+                                    }
+                                }
+                                .onChange(of: selectedInstanceID) { _, _ in
+                                    applyDefaultsForSelectedServer()
+                                }
+                            }
+
                             ArrQualityProfilePicker(
                                 selection: $selectedQualityProfileId,
-                                profiles: viewModel.qualityProfiles,
+                                profiles: profiles,
                                 onInfo: { qualityProfileForDetails = $0 }
                             )
 
                             ArrRootFolderPicker(
                                 selection: $selectedRootFolderPath,
-                                folders: viewModel.rootFolders
+                                folders: folders
                             )
 
                             Picker("Monitor", selection: $monitorOption) {
@@ -112,18 +131,38 @@ struct SonarrAddSeriesSheet: View {
         selectedSeries.map { !isInLibrary($0) } == true
     }
 
+    private var availableInstances: [ArrInstanceRef] {
+        viewModel.routedInstances.map(\.ref)
+    }
+
+    private var profiles: [ArrQualityProfile] {
+        viewModel.qualityProfiles(on: selectedInstanceID)
+    }
+
+    private var folders: [ArrRootFolder] {
+        viewModel.rootFolders(on: selectedInstanceID)
+    }
+
     private var selectedQualityProfile: ArrQualityProfile? {
         guard let selectedQualityProfileId else { return nil }
-        return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
+        return profiles.first { $0.id == selectedQualityProfileId }
     }
 
     private func refreshConfigurationAndDefaults() async {
         await viewModel.refreshConfiguration()
-        if selectedQualityProfileId == nil {
-            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
+        if selectedInstanceID == nil { selectedInstanceID = availableInstances.first?.id }
+        applyDefaultsForSelectedServer()
+    }
+
+    /// Profile and folder are per-server, so changing the destination has to reset
+    /// them: keeping an HD profile ID selected while adding to 4K posts an ID that
+    /// server has never issued.
+    private func applyDefaultsForSelectedServer() {
+        if selectedQualityProfileId == nil || !profiles.contains(where: { $0.id == selectedQualityProfileId }) {
+            selectedQualityProfileId = profiles.first?.id
         }
-        if selectedRootFolderPath == nil {
-            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        if selectedRootFolderPath == nil || !folders.contains(where: { $0.path == selectedRootFolderPath }) {
+            selectedRootFolderPath = folders.first?.path
         }
     }
 
@@ -177,7 +216,8 @@ struct SonarrAddSeriesSheet: View {
             qualityProfileId: qpId,
             rootFolderPath: rootPath,
             monitorOption: monitorOption,
-            searchForMissing: searchForMissing
+            searchForMissing: searchForMissing,
+            instanceID: selectedInstanceID
         )
         isAdding = false
         if success { dismiss() }

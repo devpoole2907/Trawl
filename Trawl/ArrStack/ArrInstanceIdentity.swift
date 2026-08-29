@@ -18,7 +18,7 @@ nonisolated struct ArrInstanceRef: Identifiable, Hashable, Sendable {
     /// Which copy of the library this server holds.
     let tier: ArrQualityTier
 
-    /// The badge text — "HD" or "4K".
+    /// The badge text — "Default" or "4K", matching Seerr's own wording.
     ///
     /// Taken from the declared tier rather than parsed out of `displayName`. The
     /// name is whatever the user felt like typing; the tier is the thing the

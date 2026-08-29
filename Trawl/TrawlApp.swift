@@ -137,7 +137,7 @@ struct TrawlApp: App {
     ///
     /// A second, optional Sonarr profile can be seeded alongside the first through
     /// `TRAWL_UITEST_SONARR_B_BASE_URL`, for journeys that need two live instances to
-    /// switch between (see `ArrInstanceSwitchJourneyUITests`). It is intentionally
+    /// present as one blended library (see `ArrBlendedLibraryJourneyUITests`). It is intentionally
     /// additive: the first variable and profile behave exactly as before whether or
     /// not the second is present.
     private static func seedUITestArrServiceIfRequested(into modelContainer: ModelContainer) {
@@ -249,6 +249,28 @@ struct TrawlApp: App {
             try context.save()
         } catch {
             fatalError("Failed to seed UI test Radarr profile: \(error)")
+        }
+
+        // Second Radarr, on the same terms as the second Sonarr above: seeded strictly
+        // after the first has committed, so the pair has a stable insertion order and
+        // the older profile takes the HD tier.
+        if let radarrBBaseURL = ProcessInfo.processInfo.environment["TRAWL_UITEST_RADARR_B_BASE_URL"],
+           !radarrBBaseURL.isEmpty {
+            let profileB = ArrServiceProfile(
+                displayName: "Alternate Radarr",
+                hostURL: radarrBBaseURL,
+                serviceType: .radarr
+            )
+            profileB.id = UUID(uuidString: "9C6F1B4A-0000-4000-8000-000000000006")!
+
+            seedUITestKeychainValue("uitest-api-key", forKey: profileB.apiKeyKeychainKey)
+
+            context.insert(profileB)
+            do {
+                try context.save()
+            } catch {
+                fatalError("Failed to seed second UI test Radarr profile: \(error)")
+            }
         }
     }
 

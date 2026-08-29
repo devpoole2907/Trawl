@@ -14,7 +14,20 @@ struct AppSheetShell<Content: View>: View {
     let isConfirmDisabled: Bool
     let isConfirmLoading: Bool
     let onConfirm: (() -> Void)?
+    let confirmPlacement: ConfirmPlacement
     let usesInlineLargeTitle: Bool
+
+    /// Where the sheet's confirming action lives.
+    ///
+    /// A toolbar button is right for small edits, where the sheet is a detail the
+    /// user is amending. For a sheet whose entire purpose is one commitment — add
+    /// this series, add this download client — the action deserves the same weight
+    /// the welcome flow gives it: a full-width capsule at the bottom, in thumb
+    /// reach, rather than a word in the top corner.
+    enum ConfirmPlacement {
+        case toolbar
+        case prominentBottom
+    }
     let detents: Set<PresentationDetent>
     let dragIndicator: Visibility
     let content: Content
@@ -29,6 +42,7 @@ struct AppSheetShell<Content: View>: View {
         isConfirmDisabled: Bool = false,
         isConfirmLoading: Bool = false,
         onConfirm: (() -> Void)? = nil,
+        confirmPlacement: ConfirmPlacement = .toolbar,
         usesInlineLargeTitle: Bool = false,
         detents: Set<PresentationDetent> = [.large],
         dragIndicator: Visibility = .hidden,
@@ -43,6 +57,7 @@ struct AppSheetShell<Content: View>: View {
         self.isConfirmDisabled = isConfirmDisabled
         self.isConfirmLoading = isConfirmLoading
         self.onConfirm = onConfirm
+        self.confirmPlacement = confirmPlacement
         self.usesInlineLargeTitle = usesInlineLargeTitle
         self.detents = detents
         self.dragIndicator = dragIndicator
@@ -73,7 +88,7 @@ struct AppSheetShell<Content: View>: View {
                         }
                     }
 
-                    if let confirmTitle, let onConfirm {
+                    if let confirmTitle, let onConfirm, confirmPlacement == .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             if isConfirmLoading {
                                 ProgressView()
@@ -84,6 +99,12 @@ struct AppSheetShell<Content: View>: View {
                         }
                     }
                 }
+                .prominentBottomConfirm(
+                    title: confirmPlacement == .prominentBottom ? confirmTitle : nil,
+                    isLoading: isConfirmLoading,
+                    isDisabled: isConfirmDisabled,
+                    action: onConfirm
+                )
         }
         .presentationDetents(detents)
         .presentationDragIndicator(dragIndicator)
@@ -91,6 +112,25 @@ struct AppSheetShell<Content: View>: View {
 }
 
 private extension View {
+    @ViewBuilder
+    func prominentBottomConfirm(
+        title: String?,
+        isLoading: Bool,
+        isDisabled: Bool,
+        action: (() -> Void)?
+    ) -> some View {
+        if let title, let action {
+            prominentBottomButton(
+                LocalizedStringKey(title),
+                isLoading: isLoading,
+                isDisabled: isDisabled,
+                action: action
+            )
+        } else {
+            self
+        }
+    }
+
     @ViewBuilder
     func appSheetNavigationSubtitle(_ subtitle: String?) -> some View {
         if let subtitle {

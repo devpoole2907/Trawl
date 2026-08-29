@@ -917,13 +917,95 @@ badges as provenance, and commands routed back to the server that owns the row. 
 instance filter exists and is wired through every unified surface but is deliberately
 not exposed in the UI yet — the picker is separate work.
 
-Still targeting a single server, and the remaining scope of this change: the per-server
-admin screens other than Root Folders and Disk Space. Download clients, remote path
-mappings, naming config, quality profiles, quality definitions, backups, scheduled
-tasks, events, updates, media management and import locations all still read one
-instance per service. The pattern to follow is in `ArrRootFoldersView`: section by
-server rather than by service, and route mutations through
-`ArrServiceManager.sharedClient(for:)`.
+The per-server admin screens are done — download clients, remote path mappings,
+naming, quality profiles, quality definitions, backups, scheduled tasks, events,
+updates and import locations all scope to a server through `ArrInstanceScopeBar` and
+route mutations through `ArrServiceManager.sharedClient(for:)`. Media Management
+needed nothing: it is a navigation hub and its children carry the scope.
+
+### Deliberately deferred, with the shape already decided — 29 August 2026
+
+Three pieces are understood and postponed rather than missed. Each is a product
+decision that has been made; only the implementation is outstanding.
+
+**The instance filter has no UI.** `visibleSonarr`/`visibleRadarr` gate every unified
+surface and `ArrInstanceFilterState` is fully wired and tested, but nothing exposes it.
+The picker is separate work, deferred on purpose so the library shipped unified first.
+
+**Server choice on detail actions is per-action, not contextual.** Automatic and
+interactive search present a confirmation dialog naming the servers; edit, change root
+folder, monitor, rename and manual import nest a server submenu in the ellipsis. This
+replaced an "Act on" mode whose indicator lived on a part of the page the toolbar could
+not show — a mode error waiting to happen on the irreversible actions. The per-action
+form is the 1.0 answer and is deliberately cheap; a better contextual switch is
+intended later.
+
+**The season and episode screens show one server's episodes.** Merged episode rows
+badged HD/4K — matching every other list in the app — are the decided end state, and
+are deferred alongside the filter picker.
+
+Two things were wrong underneath, and both are fixed, because neither was a
+consequence of deferring the merge.
+
+*The screens were silent about which server they were showing.* Captured side by side,
+the Season 1 and S01E01 screens were **pixel-identical** with one Sonarr configured and
+with two. No badge, no server name, nothing — while the rest of the app names its
+server everywhere. That is not an unfinished merge, it is a screen asserting one
+server's facts as the episode's own: with HD holding both episode files and 4K holding
+one, the pair's episode read "Downloaded" with no way to tell whose download that was,
+and no route to the other copy at all. Both screens now carry the owning server's
+badge beside the series name whenever a second Sonarr exists.
+
+*The routing was wrong, not merely unmerged.* `loadEpisodes`/`loadEpisodeFiles` fetched
+from the **active** client regardless of which copy was on screen — so with the HD
+server down and 4K connected, 4K's episodes rendered under the HD series with no error
+— and cached the result under a bare series ID that both servers issue, where the
+second load silently replaced the first. Both now take an `instanceID` and key on
+`ArrScopedID`.
+
+The badge is deliberately an interim: it stops the screen lying while the merged-rows
+design is still outstanding.
+
+### Seerr alignment — 29 August 2026
+
+Seerr administers the same pair of servers Trawl does, and the two now agree.
+
+**"Default", not "HD".** Seerr calls the pair a default server and a 4K server;
+Trawl called them HD and 4K, so one box had two names depending on which screen you
+were on. Every user-facing string now says Default. The `hd` raw value is unchanged
+— it is persisted on every profile — so this is a labelling change only.
+
+**The tier is provenance, not a quality gate.** Nothing in Trawl inspects a file's
+resolution, and nothing routes a grab, search or import by quality; the quality
+profiles on each server decide that, exactly as they do without Trawl. A 4K file on
+the default server is fine and always was. `Available 4K` therefore means "the
+server designated 4K holds this", which is the same thing Seerr's own `4K Available`
+means — Seerr does not inspect resolution either. The wording is ambiguous in
+isolation and deliberately kept, because agreeing with Seerr matters more than being
+independently precise.
+
+**`status4k` is now decoded.** Seerr tracks 4K availability separately, and Trawl
+read only `status` — so a 4K request whose file existed read as unavailable, and one
+whose default copy existed read as done when the 4K grab had not happened.
+`badgeStatus` routes through `mediaStatus(is4k:)`. **Not yet verified against a live
+server**: the field is modelled from the documented shape, against this project's own
+rule of curling first. It is optional, so the failure mode is a silent no-op rather
+than a crash, but confirm the key on a real instance before release.
+
+**Creating requests is out of scope.** Trawl is an admin surface: it approves,
+declines and deletes requests but never makes them. `is4k` is read and rendered,
+never written. This is a boundary, not a gap.
+
+**Still open:** nothing associates a Seerr DVR record with the Trawl Arr profile it
+describes. The linked-application editor prefills host and port from a chosen Trawl
+profile, but the link is then stored purely as Seerr's own record, so the two cannot
+be cross-referenced afterwards and nothing notices if they drift apart.
+
+**Monitor means different things in two places, on purpose.** From a library row it
+acts on the title and therefore on every server; from a detail view it acts on the
+chosen copy. The library row's badge distinguishes "monitored everywhere" (filled)
+from "monitored on some" (hollow), which is what makes the split legible rather than
+confusing.
 
 ### Product direction and 1.0 boundary — superseded, kept for the reasoning — 28 August 2026
 

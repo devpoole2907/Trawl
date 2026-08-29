@@ -69,6 +69,10 @@ struct DownloadsView: View {
     /// Drives the toolbar overflow menu's pushes. A menu can't hold a
     /// `NavigationLink`, so the selection travels through state instead.
     @State private var managementRoute: DownloadsManagementRoute?
+    /// Which of the tab's three lists is showing. Switched from the title menu
+    /// rather than by pushing: these are peers, not details of one another, and
+    /// reaching a client's own queue by way of Client Management never made sense.
+    @State private var titleDestination: DownloadsTitleDestination = .downloads
 
     init(initialSection: DownloadSection = .active) {
         _selectedSection = State(initialValue: initialSection)
@@ -90,6 +94,87 @@ struct DownloadsView: View {
     }
 
     var body: some View {
+        Group {
+            switch titleDestination {
+            case .downloads:
+                downloadsContent
+            case .sabQueue:
+                SABnzbdManagerView()
+                    .environment(sabnzbdServiceManager)
+                    .environment(syncService)
+                    .environment(torrentService)
+                    // The menu is the title, so these views must not also set one:
+                    // their own `.navigationTitle` renders *underneath* the principal
+                    // item rather than replacing it, which reads as two titles.
+                    .navigationTitle("")
+                    .toolbarTitleDisplayMode(.inline)
+            case .torrents:
+                TorrentListView(title: "qBittorrent")
+                    .environment(syncService)
+                    .environment(torrentService)
+                    .navigationTitle("")
+                    .toolbarTitleDisplayMode(.inline)
+            }
+        }
+        .animation(.snappy, value: titleDestination)
+        .toolbar { titleMenuToolbarItem }
+    }
+
+    /// The title menu replaces the navigation title rather than joining it, so
+    /// everything below has to stop drawing one of its own while it is showing.
+    private var showsTitleMenu: Bool {
+        availableTitleDestinations.count > 1
+    }
+
+    /// The title doubles as the switch between this tab's three lists.
+    ///
+    /// Deliberately a `Menu` inside a `ToolbarItem` styled to read as the title,
+    /// not `ToolbarTitleMenu`: that modifier does nothing for a large title, which
+    /// is the size this reads at. The trade-off is that a menu hidden in a title is
+    /// easy to overlook, so it only appears when there is actually somewhere else
+    /// to go, and it carries a chevron to say it opens.
+    @ToolbarContentBuilder
+    private var titleMenuToolbarItem: some ToolbarContent {
+        if availableTitleDestinations.count > 1 {
+            ToolbarItem(placement: .principal) {
+                Menu {
+                    Picker("View", selection: Binding(
+                        get: { titleDestination },
+                        set: { newDestination in
+                            withAnimation(.snappy) { titleDestination = newDestination }
+                        }
+                    )) {
+                        ForEach(availableTitleDestinations) { destination in
+                            Label(destination.title, systemImage: destination.systemImage)
+                                .tag(destination)
+                        }
+                    }
+                    .pickerStyle(.inline)
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(titleDestination.title)
+                            .font(.title.bold())
+                            .foregroundStyle(.primary)
+                        Image(systemName: "chevron.down")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .accessibilityLabel("\(titleDestination.title), change view")
+            }
+        }
+    }
+
+    /// Only the lists this setup actually has a client for.
+    private var availableTitleDestinations: [DownloadsTitleDestination] {
+        var destinations: [DownloadsTitleDestination] = [.downloads]
+        if hasSABnzbdServer { destinations.append(.sabQueue) }
+        if hasQBittorrentServer { destinations.append(.torrents) }
+        return destinations
+    }
+
+    private var downloadsContent: some View {
         content
             // Applied before .safeAreaInset so the RefreshAction stays scoped to the list.
             // Attached after the inset it also propagates into the segment bar, which then
@@ -112,10 +197,10 @@ struct DownloadsView: View {
                 applyRequestedRoute(downloadsNavigator?.requestedRoute)
             }
             .background(backgroundGradient)
-            .navigationTitle("Downloads")
+            .navigationTitle(showsTitleMenu ? "" : "Downloads")
             .navigationSubtitle(navigationSubtitle)
             #if os(iOS)
-            .toolbarTitleDisplayMode(.inlineLarge)
+            .toolbarTitleDisplayMode(showsTitleMenu ? .inline : .inlineLarge)
             #endif
             .safeAreaInset(edge: .top) {
                 TrawlSegmentBar(
@@ -946,13 +1031,10 @@ struct DownloadsView: View {
         !sabnzbdProfiles.isEmpty
     }
 
+    /// Keyed on every configured server, not the active pair: the queue this screen
+    /// shows is the union of both, so a second server connecting has to reload it.
     private var reloadKey: String {
-        [
-            arrServiceManager.activeSonarrInstanceID?.uuidString ?? "no-sonarr",
-            arrServiceManager.activeRadarrInstanceID?.uuidString ?? "no-radarr",
-            String(arrServiceManager.sonarrConnected),
-            String(arrServiceManager.radarrConnected)
-        ].joined(separator: "|")
+        arrServiceManager.arrConnectionKey
     }
 
     private var backgroundGradient: some View {
@@ -999,5 +1081,35 @@ private struct ArrQueueActionTarget: Identifiable {
 private extension DownloadSection {
     var segmentBarItem: TrawlSegmentBarItem<Self> {
         TrawlSegmentBarItem(rawValue, value: self)
+    }
+}
+
+/// The three peer lists the Downloads tab can show.
+///
+/// SABnzbd's queue and qBittorrent's torrents used to live two pushes deep behind
+/// Client Management, which put a client's own downloads under a heading about
+/// configuring clients. They are the same kind of thing as the unified list, so
+/// they sit beside it.
+enum DownloadsTitleDestination: String, CaseIterable, Identifiable, Hashable {
+    case downloads
+    case sabQueue
+    case torrents
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .downloads: "Downloads"
+        case .sabQueue: "SABnzbd"
+        case .torrents: "Torrents"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .downloads: "tray.and.arrow.down"
+        case .sabQueue: ServiceIdentity.sabnzbd.systemImage
+        case .torrents: "arrow.down.circle.fill"
+        }
     }
 }

@@ -11,6 +11,34 @@ struct SearchView: View {
     @State private var showArrSetupSheet = false
     @State private var navigationPath = NavigationPath()
     @State private var trendingLookupTask: Task<Void, Never>? = nil
+    /// A quick-add waiting on the user to say which server it lands on. Only ever
+    /// set when the service actually has two — with one server the add stays one
+    /// tap, which is the whole point of the control.
+    @State private var pendingQuickAdd: PendingQuickAdd?
+
+    private struct PendingQuickAdd: Identifiable {
+        enum Target {
+            case series(SonarrSeries)
+            case movie(RadarrMovie)
+        }
+
+        let target: Target
+        let instances: [ArrInstanceRef]
+
+        var id: String {
+            switch target {
+            case .series(let series): "series-\(series.tvdbId ?? series.id)"
+            case .movie(let movie): "movie-\(movie.tmdbId ?? movie.id)"
+            }
+        }
+
+        var title: String {
+            switch target {
+            case .series(let series): series.title
+            case .movie(let movie): movie.title
+            }
+        }
+    }
 
     @Namespace private var trendingTransition
 
@@ -207,6 +235,22 @@ struct SearchView: View {
             #endif
             .safeAreaInset(edge: .top) {
                 Color.clear.frame(height: 44)
+            }
+            .confirmationDialog(
+                pendingQuickAdd.map { "Add \($0.title) to which server?" } ?? "",
+                isPresented: Binding(
+                    get: { pendingQuickAdd != nil },
+                    set: { if !$0 { pendingQuickAdd = nil } }
+                ),
+                titleVisibility: .visible,
+                presenting: pendingQuickAdd
+            ) { pending in
+                ForEach(pending.instances) { instance in
+                    Button(arrServiceManager.scopeLabel(for: instance)) {
+                        performQuickAdd(pending, on: instance)
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
             }
             .alert("Clear Recent Searches?", isPresented: $showClearConfirmation) {
                 Button("Clear All", role: .destructive) {
@@ -814,12 +858,44 @@ struct SearchView: View {
         await viewModel.toggleLibraryMovieMonitored(movie, arrServiceManager: arrServiceManager)
     }
 
+    /// Adding to an HD/4K pair has to ask which one: the two servers are run
+    /// precisely so that a title can go to one, the other, or both, and there is no
+    /// sensible default to infer. With one server configured this stays a single tap.
     private func quickAddSeries(_ series: SonarrSeries) async {
+        let instances = arrServiceManager.refs(for: .sonarr)
+        if instances.count > 1 {
+            pendingQuickAdd = PendingQuickAdd(target: .series(series), instances: instances)
+            return
+        }
         await viewModel.quickAddSeries(series, arrServiceManager: arrServiceManager)
     }
 
     private func quickAddMovie(_ movie: RadarrMovie) async {
+        let instances = arrServiceManager.refs(for: .radarr)
+        if instances.count > 1 {
+            pendingQuickAdd = PendingQuickAdd(target: .movie(movie), instances: instances)
+            return
+        }
         await viewModel.quickAddMovie(movie, arrServiceManager: arrServiceManager)
+    }
+
+    private func performQuickAdd(_ pending: PendingQuickAdd, on instance: ArrInstanceRef) {
+        Task {
+            switch pending.target {
+            case .series(let series):
+                await viewModel.quickAddSeries(
+                    series,
+                    arrServiceManager: arrServiceManager,
+                    instanceID: instance.id
+                )
+            case .movie(let movie):
+                await viewModel.quickAddMovie(
+                    movie,
+                    arrServiceManager: arrServiceManager,
+                    instanceID: instance.id
+                )
+            }
+        }
     }
 
     // MARK: - Recents persistence

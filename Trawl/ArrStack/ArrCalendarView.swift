@@ -486,7 +486,7 @@ struct ArrCalendarView: View {
     private var calendarReloadKey: String {
         // Active Sonarr/Radarr instance IDs are part of the key so switching between
         // connected instances re-fires this task and reloads the calendar.
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+        serviceManager.arrConnectionKey
     }
     
     var body: some View {
@@ -1241,7 +1241,10 @@ private struct ICalSubscribeSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.openURL) private var openURL
 
-    @State private var selectedService: ArrServiceType?
+    /// The server whose feed is being configured. A calendar feed is a URL on one
+    /// server, so an HD/4K pair has two of them — picking a *service* could only
+    /// ever offer the active one, leaving the other server's airings unsubscribable.
+    @State private var selectedInstanceID: UUID?
     @State private var feedLink: ArrICalFeedLink?
     @State private var feedErrorMessage: String?
     @State private var includeUnmonitored = false
@@ -1258,17 +1261,30 @@ private struct ICalSubscribeSheet: View {
         )
     }
 
+    private var availableInstances: [ArrInstanceRef] {
+        serviceManager.visibleArrInstances
+            .map(\.ref)
+            .filter { availableServices.contains($0.serviceType) }
+    }
+
+    private var selectedInstance: ArrInstanceRef? {
+        availableInstances.first { $0.id == selectedInstanceID }
+    }
+
+    private var selectedService: ArrServiceType? {
+        selectedInstance?.serviceType
+    }
+
     private var accentColor: Color {
         selectedService?.serviceIdentity.brandColor ?? .secondary
     }
 
+    /// The chosen server's own tags. Tags are per-server and their IDs are not
+    /// comparable across a pair, so offering the other server's would build a feed
+    /// URL filtered on IDs this server has never heard of.
     private var availableTags: [ArrTag] {
-        guard let selectedService else { return [] }
-        let tags: [ArrTag] = switch selectedService {
-        case .sonarr: serviceManager.sonarrTags
-        case .radarr: serviceManager.radarrTags
-        case .prowlarr, .bazarr: []
-        }
+        guard let instance = selectedInstance else { return [] }
+        let tags = serviceManager.tagsByInstance.first { $0.ref.id == instance.id }?.values ?? []
         return tags.sorted { $0.label.localizedCaseInsensitiveCompare($1.label) == .orderedAscending }
     }
 
@@ -1310,11 +1326,13 @@ private struct ICalSubscribeSheet: View {
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onAppear {
-            if selectedService == nil, availableServices.count == 1 {
-                selectedService = availableServices.first
+            if selectedInstanceID == nil, availableInstances.count == 1 {
+                selectedInstanceID = availableInstances.first?.id
             }
         }
-        .task(id: selectedService) {
+        // Keyed on the server, not the service: switching HD -> 4K leaves the
+        // service unchanged, and the feed would stay the previous server's.
+        .task(id: selectedInstanceID) {
             await loadFeedLink()
         }
     }
@@ -1333,11 +1351,11 @@ private struct ICalSubscribeSheet: View {
 
     private var servicePicker: some View {
         VStack(alignment: .leading, spacing: 12) {
-            sectionTitle("Service")
+            sectionTitle(availableInstances.count > availableServices.count ? "Server" : "Service")
 
             VStack(spacing: 12) {
-                ForEach(availableServices) { service in
-                    serviceRow(service)
+                ForEach(availableInstances) { instance in
+                    serviceRow(instance)
                 }
             }
         }
@@ -1461,7 +1479,7 @@ private struct ICalSubscribeSheet: View {
                 } else {
                     HStack(spacing: 10) {
                         ProgressView()
-                        Text(selectedService == nil ? "Select a service to generate a feed URL." : "Generating feed URL...")
+                        Text(selectedInstanceID == nil ? "Select a server to generate a feed URL." : "Generating feed URL...")
                             .font(.footnote)
                             .foregroundStyle(.secondary)
                     }
@@ -1494,12 +1512,16 @@ private struct ICalSubscribeSheet: View {
         }
     }
 
-    private func serviceRow(_ service: ArrServiceType) -> some View {
+    private func serviceRow(_ instance: ArrInstanceRef) -> some View {
+        let service = instance.serviceType
         let brand = service.serviceIdentity.brandColor
-        let isSelected = selectedService == service
+        let isSelected = selectedInstanceID == instance.id
         return Button {
             withAnimation {
-                selectedService = service
+                selectedInstanceID = instance.id
+                // Tag IDs and release types belong to the server they were chosen
+                // on; carrying them across would filter a feed on IDs the new
+                // server has never issued.
                 selectedTagIDs.removeAll()
                 selectedReleaseTypes = Set(ICalReleaseType.allCases)
             }
@@ -1591,7 +1613,7 @@ private struct ICalSubscribeSheet: View {
     }
 
     private func loadFeedLink() async {
-        guard let selectedService else {
+        guard let instance = selectedInstance else {
             feedLink = nil
             feedErrorMessage = nil
             return
@@ -1601,11 +1623,11 @@ private struct ICalSubscribeSheet: View {
         feedErrorMessage = nil
 
         do {
-            let link = try await serviceManager.iCalFeedLink(for: selectedService)
-            guard self.selectedService == selectedService else { return }
+            let link = try await serviceManager.iCalFeedLink(for: instance)
+            guard self.selectedInstanceID == instance.id else { return }
             feedLink = link
         } catch {
-            guard self.selectedService == selectedService else { return }
+            guard self.selectedInstanceID == instance.id else { return }
             feedErrorMessage = error.localizedDescription
         }
     }

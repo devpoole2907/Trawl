@@ -185,20 +185,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             "Screen: tapping the SABnzbd row should push SABnzbdClientHubView titled 'SABnzbd'."
         )
 
-        // N-02 regression: Queue -> SABnzbdManagerView.
-        let queueRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Queue")).firstMatch
-        XCTAssertTrue(queueRow.waitForExistence(in: app, timeout: 10), "Screen: the SABnzbd hub should offer a 'Queue' destination.")
-        queueRow.tap()
-        XCTAssertTrue(
-            app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
-            "N-02 regression: SABnzbdManagerView should render the seeded job (proving SyncService/TorrentService/SABnzbdServiceManager all resolved) instead of trapping on a missing @Environment value."
-        )
-        popBack(app, fromTitle: "SABnzbd")
-
         let categoriesRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Categories & Scripts")).firstMatch
         XCTAssertTrue(
             categoriesRow.waitForExistence(in: app, timeout: 10),
-            "Screen: popping back from Queue should return to the SABnzbd hub showing 'Categories & Scripts' again."
+            "Screen: the SABnzbd hub should list 'Categories & Scripts'."
         )
         categoriesRow.tap()
         XCTAssertTrue(
@@ -235,6 +225,41 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 10),
             "Screen: popping all the way back from Client Management should return to Downloads still showing its real content."
         )
+
+        // N-02 regression, by its new route. The SABnzbd queue is no longer a push
+        // under Client Management — it is one of the Downloads tab's own lists,
+        // chosen from the title menu. What the assertion protects is unchanged:
+        // `SABnzbdManagerView` reads SyncService, TorrentService and
+        // SABnzbdServiceManager, and used to trap on whichever route failed to hand
+        // it one of them. Reaching it from the tab root exercises a different set of
+        // hand-overs than the old push did, so this is worth keeping.
+        let titleMenu = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "change view")
+        ).firstMatch
+        XCTAssertTrue(
+            titleMenu.waitForExistence(in: app, timeout: 10),
+            "Screen: with a SABnzbd client configured, Downloads should offer its title menu."
+        )
+        titleMenu.tap()
+
+        let sabnzbdOption = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd")
+        ).firstMatch
+        XCTAssertTrue(sabnzbdOption.waitForExistence(timeout: 10), "Screen: the Downloads title menu should list SABnzbd.")
+        sabnzbdOption.tap()
+
+        XCTAssertTrue(
+            app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
+            "N-02 regression: SABnzbdManagerView should render the seeded job (proving SyncService/TorrentService/SABnzbdServiceManager all resolved) instead of trapping on a missing @Environment value."
+        )
+
+        // Back to the unified list, so the Blocklist walk below starts where it
+        // expects to.
+        titleMenu.tap()
+        let downloadsOption = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS[c] %@", "Downloads")
+        ).firstMatch
+        if downloadsOption.waitForExistence(timeout: 10) { downloadsOption.tap() }
 
         // Blocklist, the overflow menu's other route.
         //
@@ -353,7 +378,16 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         XCTAssertTrue(sonarrRow.waitForExistence(in: app, timeout: 10), "Screen: Settings should list the seeded Sonarr profile.")
         sonarrRow.tap()
         XCTAssertTrue(app.navigationBars["Sonarr"].waitForExistence(timeout: 10), "Screen: the Sonarr row should push ArrServiceSettingsView titled 'Sonarr'.")
-        XCTAssertTrue(app.buttons["Edit Server"].waitForExistence(timeout: 10), "Screen: a configured Sonarr should offer 'Edit Server'.")
+        XCTAssertTrue(
+            app.buttons.matching(
+                NSPredicate(
+                    format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
+                    "Fixture Sonarr",
+                    "onnected"
+                )
+            ).firstMatch.waitForExistence(timeout: 10),
+            "Screen: a configured Sonarr should expose its server as a tappable row — the row is the editor entry point now, replacing the separate 'Edit Server' button."
+        )
         popBack(app, fromTitle: "Sonarr")
 
         // SABnzbd: configured and connected.

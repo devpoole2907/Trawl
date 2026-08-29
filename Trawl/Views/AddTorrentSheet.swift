@@ -37,7 +37,8 @@ struct AddTorrentSheet: View {
                     }
                 }
             },
-            detents: [.medium, .large],
+            confirmPlacement: .prominentBottom,
+            detents: [.large],
             dragIndicator: .visible
         ) {
             Group {

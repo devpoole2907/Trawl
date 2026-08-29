@@ -19,9 +19,29 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     // Library state
     private(set) var series: [SonarrSeries] = [] { didSet { rebuildFilteredItems() } }
     // Episode state (for detail views)
-    private(set) var episodes: [Int: [SonarrEpisode]] = [:]  // seriesId -> episodes
+    /// Keyed by (server, series ID) rather than by series ID alone. Both halves of
+    /// an HD/4K pair hand out a series 1, so a bare-Int key means whichever server
+    /// loaded last wins and the other's episodes are silently displayed under it.
+    private(set) var episodes: [ArrScopedID: [SonarrEpisode]] = [:]
     private(set) var isLoadingEpisodes: Bool = false
-    private(set) var episodeFiles: [Int: [SonarrEpisodeFile]] = [:]  // seriesId -> files
+    private(set) var episodeFiles: [ArrScopedID: [SonarrEpisodeFile]] = [:]
+
+    /// Episodes for one server's copy of a series. `instanceID` nil keeps the
+    /// pre-pair behaviour of reading whatever the bound client loaded.
+    func episodes(forSeries seriesId: Int, on instanceID: UUID?) -> [SonarrEpisode] {
+        episodes[ArrScopedID(instanceID, seriesId)] ?? []
+    }
+
+    func episodeFiles(forSeries seriesId: Int, on instanceID: UUID?) -> [SonarrEpisodeFile] {
+        episodeFiles[ArrScopedID(instanceID, seriesId)] ?? []
+    }
+
+    /// The client that owns a copy, falling back to the bound one when no server is
+    /// named — a preview, or a caller that predates the pair.
+    private func client(for instanceID: UUID?) -> SonarrAPIClient? {
+        guard let instanceID else { return client }
+        return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
+    }
 
     init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
         super.init(
@@ -171,6 +191,19 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         return Double(statistics.episodeFileCount ?? 0) / Double(episodeCount)
     }
 
+    /// Config for one server. The pair do not share quality profiles or root
+    /// folders — an HD profile ID posted to the 4K server names a different profile
+    /// or none at all.
+    func qualityProfiles(on instanceID: UUID?) -> [ArrQualityProfile] {
+        guard let instanceID else { return qualityProfiles }
+        return serviceManager.qualityProfilesByInstance.first { $0.ref.id == instanceID }?.values ?? []
+    }
+
+    func rootFolders(on instanceID: UUID?) -> [ArrRootFolder] {
+        guard let instanceID else { return rootFolders }
+        return serviceManager.rootFolders(for: instanceID)
+    }
+
     var qualityProfiles: [ArrQualityProfile] { serviceManager.sonarrQualityProfiles }
     var rootFolders: [ArrRootFolder] { serviceManager.sonarrRootFolders }
     var tags: [ArrTag] { serviceManager.sonarrTags }
@@ -202,12 +235,12 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
 
     // MARK: - Episodes
 
-    func loadEpisodes(for seriesId: Int) async {
-        guard let client else { return }
+    func loadEpisodes(for seriesId: Int, instanceID: UUID? = nil) async {
+        guard let client = client(for: instanceID) else { return }
         isLoadingEpisodes = true
         do {
-            let eps = try await client.getEpisodes(seriesId: seriesId)
-            episodes[seriesId] = eps
+            let eps = try await client.getEpisodes(seriesId: seriesId).stamped(with: instanceID)
+            episodes[ArrScopedID(instanceID, seriesId)] = eps
         } catch is CancellationError {
             // ignore
         } catch {
@@ -216,11 +249,11 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         isLoadingEpisodes = false
     }
 
-    func loadEpisodeFiles(for seriesId: Int) async {
-        guard let client else { return }
+    func loadEpisodeFiles(for seriesId: Int, instanceID: UUID? = nil) async {
+        guard let client = client(for: instanceID) else { return }
         do {
             let files = try await client.getEpisodeFiles(seriesId: seriesId)
-            episodeFiles[seriesId] = files.sorted {
+            episodeFiles[ArrScopedID(instanceID, seriesId)] = files.sorted {
                 ($0.seasonNumber ?? 0, $0.relativePath ?? "") < ($1.seasonNumber ?? 0, $1.relativePath ?? "")
             }
         } catch is CancellationError {
@@ -236,7 +269,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         do {
             _ = try await client.setEpisodeMonitored(episodeIds: [episode.id], monitored: newMonitored)
             if let seriesId = episode.seriesId {
-                await loadEpisodes(for: seriesId)
+                await loadEpisodes(for: seriesId, instanceID: episode.instanceID)
             }
         } catch {
             self.error = error.localizedDescription
@@ -477,9 +510,14 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         seasonFolder: Bool = true,
         seriesType: String = "standard",
         monitorOption: String = "all",
-        searchForMissing: Bool = true
+        searchForMissing: Bool = true,
+        instanceID: UUID? = nil
     ) async -> Bool {
-        guard let client else { return false }
+        // The server is part of the request, not a detail of it: the quality profile
+        // ID and root folder path below only mean anything on the server they were
+        // read from, so an add that routes elsewhere posts one server's IDs to
+        // another's library.
+        guard let client = client(for: instanceID) else { return false }
         let addSeasons = seasons.map { SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: $0.monitored ?? true) }
         let body = SonarrAddSeriesBody(
             tvdbId: tvdbId,
@@ -545,8 +583,8 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             _ = try await client.updateSeries(updatedSeries, moveFiles: moveFiles)
             await loadSeries()
             if series.id > 0 {
-                await loadEpisodes(for: series.id)
-                await loadEpisodeFiles(for: series.id)
+                await loadEpisodes(for: series.id, instanceID: series.instanceID)
+                await loadEpisodeFiles(for: series.id, instanceID: series.instanceID)
             }
             await loadQueue()
             await serviceManager.calendarViewModel.refresh()
@@ -569,10 +607,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
 
     /// Marks every episode of a series as monitored. Used when a user re-enables series
     /// monitoring and opts to cascade that to episodes, since Sonarr does not do this itself.
-    func monitorAllEpisodes(seriesId: Int) async -> Bool {
-        guard let client else { return false }
+    func monitorAllEpisodes(seriesId: Int, instanceID: UUID? = nil) async -> Bool {
+        guard let client = client(for: instanceID) else { return false }
         do {
-            let existing = episodes[seriesId] ?? []
+            let existing = episodes(forSeries: seriesId, on: instanceID)
             let eps = existing.isEmpty ? try await client.getEpisodes(seriesId: seriesId) : existing
             let episodeIds = eps.map(\.id)
             if !episodeIds.isEmpty {
@@ -657,17 +695,19 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         }
     }
 
-    func deleteEpisodeFile(id: Int) async -> Bool {
-        guard let client else { return false }
-        let seriesId = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
+    func deleteEpisodeFile(id: Int, instanceID: UUID? = nil) async -> Bool {
+        guard let client = client(for: instanceID) else { return false }
+        // The cache key already carries the server, so the reload below goes back to
+        // the one the file actually came from.
+        let scopedID = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
 
         do {
             error = nil
             try await client.deleteEpisodeFile(id: id)
 
-            if let seriesId {
-                await loadEpisodeFiles(for: seriesId)
-                await loadEpisodes(for: seriesId)
+            if let scopedID {
+                await loadEpisodeFiles(for: scopedID.id, instanceID: scopedID.instanceID)
+                await loadEpisodes(for: scopedID.id, instanceID: scopedID.instanceID)
                 await loadSeries()
             }
             return true
@@ -746,9 +786,15 @@ extension SonarrViewModel {
         detachClientForPreview()
         self.isLoading = isLoading
         self.error = error
-        self.episodes = episodes
+        // Previews seed by plain series ID and have no server, which is exactly the
+        // unstamped case `ArrScopedID` represents with a nil instance.
+        self.episodes = Dictionary(
+            uniqueKeysWithValues: episodes.map { (ArrScopedID(nil, $0.key), $0.value) }
+        )
         self.isLoadingEpisodes = isLoadingEpisodes
-        self.episodeFiles = episodeFiles
+        self.episodeFiles = Dictionary(
+            uniqueKeysWithValues: episodeFiles.map { (ArrScopedID(nil, $0.key), $0.value) }
+        )
     }
 
     static func previewDetail(

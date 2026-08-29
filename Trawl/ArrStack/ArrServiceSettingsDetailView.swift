@@ -11,6 +11,11 @@ struct ArrServiceSettingsView: View {
     @State private var systemStatus: ArrSystemStatus?
     @State private var isLoadingStatus = false
     @State private var systemStatusError: String?
+    /// Each configured server's status, when this service has more than one. The
+    /// pair share a row rather than a section each — two full status cards is a lot
+    /// of screen for what is usually the same version twice.
+    @State private var pairedStatuses: [(ref: ArrInstanceRef, status: ArrSystemStatus)] = []
+    @State private var isStatusExpanded = false
     @State private var commandStatusMessage: String?
     @State private var isRunningCommand = false
     #if DEBUG
@@ -37,6 +42,16 @@ struct ArrServiceSettingsView: View {
     /// default server chosen in the Servers section above. With two configured,
     /// the header has to say which one, or the version and OS on screen look like
     /// facts about both.
+    /// Every connected server of this service, each of which needs its own webhook.
+    private var notifiableProfiles: [ArrServiceProfile] {
+        serviceProfiles.filter { isProfileConnected($0.id) }
+    }
+
+    /// Whether another server of this service still fits under the cap.
+    private var canAddAnotherServer: Bool {
+        serviceProfiles.count < (ArrSetupViewModel.instanceLimit(for: serviceType) ?? .max)
+    }
+
     private var systemStatusTitle: String {
         guard let profile,
               let instance = serviceManager.instanceRef(serviceType, id: profile.id),
@@ -65,80 +80,93 @@ struct ArrServiceSettingsView: View {
         }
     }
 
-    private var serviceColor: Color {
-        serviceType.serviceIdentity.brandColor
-    }
-
     private var supportsCommands: Bool {
         serviceType != .prowlarr && serviceType != .bazarr
     }
 
     var body: some View {
         List {
-            Section {
-                if let profile {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            HStack(spacing: 6) {
-                                Text(profile.displayName)
-                                    .font(.subheadline)
-                                    .fontWeight(.medium)
-                                if let instance = serviceManager.instanceRef(serviceType, id: profile.id),
-                                   serviceManager.showsInstanceProvenance(for: serviceType) {
-                                    ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+            // Only when there is nothing to list below: with a pair configured the
+            // Servers section already shows this server, and showing it twice —
+            // same name, same host, same status — read as two more servers.
+            if serviceProfiles.count <= 1 {
+                Section {
+                    if let profile {
+                        Button {
+                            editorContext = .edit(profile)
+                        } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                HStack(spacing: 6) {
+                                    Text(profile.displayName)
+                                        .font(.subheadline)
+                                        .fontWeight(.medium)
+                                    if let instance = serviceManager.instanceRef(serviceType, id: profile.id),
+                                       serviceManager.showsInstanceProvenance(for: serviceType) {
+                                        ArrInstanceBadge(label: instance.shortLabel, ordinal: instance.ordinal)
+                                    }
                                 }
+                                Text(profile.hostURL)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
                             }
-                            Text(profile.hostURL)
+                            Spacer()
+                            Label(
+                                isConnected ? "Connected" : "Disconnected",
+                                systemImage: "circle.fill"
+                            )
+                            .font(.caption)
+                            .foregroundStyle(isConnected ? .green : .red)
+                            .labelStyle(.titleAndIcon)
+                            Image(systemName: "chevron.right")
                                 .font(.caption2)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Label(
-                            isConnected ? "Connected" : "Disconnected",
-                            systemImage: "circle.fill"
-                        )
-                        .font(.caption)
-                        .foregroundStyle(isConnected ? .green : .red)
-                        .labelStyle(.titleAndIcon)
-                    }
+                        // Without this the row's midpoint is the Spacer, which a
+                        // plain button does not hit-test — the row looks tappable
+                        // and silently ignores taps that land between its ends.
+                        .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
 
-                    if let version = profile.apiVersion {
-                        LabeledContent("\(serviceType.displayName)") {
-                            Text("v\(version)").foregroundStyle(.secondary)
+                        if let version = profile.apiVersion {
+                            LabeledContent("\(serviceType.displayName)") {
+                                Text("v\(version)").foregroundStyle(.secondary)
+                            }
+                        }
+
+                        if let error = serviceManager.connectionErrors[profile.id.uuidString] {
+                            Label(error, systemImage: "exclamationmark.triangle.fill")
+                                .font(.subheadline)
+                                .foregroundStyle(.red)
+                        }
+                        if serviceProfiles.count <= 1, canAddAnotherServer {
+                            Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
+                                editorContext = .create(serviceType)
+                            }
+                        }
+                    } else {
+                        Button {
+                            editorContext = .create(serviceType)
+                        } label: {
+                            Label("Add \(serviceType.displayName) Server", systemImage: "plus")
                         }
                     }
-
-                    if let error = serviceManager.connectionErrors[profile.id.uuidString] {
-                        Label(error, systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(.red)
+                } header: {
+                    Text("Server")
+                } footer: {
+                    if profile == nil {
+                        Text("Find your API key in \(serviceType.displayName) under Settings → General → Security.")
                     }
-                    Button("Edit Server", systemImage: "pencil") {
-                        editorContext = .edit(profile)
-                    }
-                } else {
-                    Button {
-                        editorContext = .create(serviceType)
-                    } label: {
-                        Label("Add \(serviceType.displayName) Server", systemImage: "plus")
-                    }
-                }
-            } header: {
-                Text("Server")
-            } footer: {
-                if profile == nil {
-                    Text("Find your API key in \(serviceType.displayName) under Settings → General → Security.")
                 }
             }
 
             if profile != nil {
-                if serviceType != .prowlarr, !serviceProfiles.isEmpty {
+                if serviceType != .prowlarr, serviceProfiles.count > 1 {
                     Section {
                         ForEach(serviceProfiles) { serviceProfile in
                             Button {
-                                if isProfileConnected(serviceProfile.id) {
-                                    setActiveProfile(serviceProfile.id)
-                                }
+                                editorContext = .edit(serviceProfile)
                             } label: {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 2) {
@@ -154,31 +182,29 @@ struct ArrServiceSettingsView: View {
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                             .lineLimit(1)
+                                        // Per row, because with a pair "connection
+                                        // failed" is not actionable without knowing
+                                        // which server failed.
+                                        if let error = serviceManager.connectionErrors[serviceProfile.id.uuidString] {
+                                            Text(error)
+                                                .font(.caption2)
+                                                .foregroundStyle(.red)
+                                        }
                                     }
 
                                     Spacer()
 
-                                    if serviceProfile.id == activeProfileID {
-                                        Label("Active", systemImage: "checkmark")
-                                            .font(.caption)
-                                            .foregroundStyle(serviceColor)
-                                    } else {
-                                        Image(systemName: isProfileConnected(serviceProfile.id) ? "circle.fill" : "circle")
-                                            .font(.caption)
-                                            .foregroundStyle(isProfileConnected(serviceProfile.id) ? .green : .red)
-                                    }
+                                    Image(systemName: isProfileConnected(serviceProfile.id) ? "circle.fill" : "circle")
+                                        .font(.caption)
+                                        .foregroundStyle(isProfileConnected(serviceProfile.id) ? .green : .red)
+                                    Image(systemName: "chevron.right")
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
                                 }
+                                .contentShape(Rectangle())
                             }
                             .buttonStyle(.plain)
-                            .disabled(!isProfileConnected(serviceProfile.id))
                             .contextMenu {
-                                Button("Make Active", systemImage: "checkmark.circle") {
-                                    if isProfileConnected(serviceProfile.id) {
-                                        setActiveProfile(serviceProfile.id)
-                                    }
-                                }
-                                .disabled(!isProfileConnected(serviceProfile.id))
-
                                 Button("Edit", systemImage: "pencil") {
                                     editorContext = .edit(serviceProfile)
                                 }
@@ -189,7 +215,7 @@ struct ArrServiceSettingsView: View {
                             }
                         }
 
-                        if serviceProfiles.count < (ArrSetupViewModel.instanceLimit(for: serviceType) ?? .max) {
+                        if canAddAnotherServer {
                             Button("Add Another \(serviceType.displayName) Server", systemImage: "plus") {
                                 editorContext = .create(serviceType)
                             }
@@ -197,11 +223,59 @@ struct ArrServiceSettingsView: View {
                     } header: {
                         Text("Servers")
                     } footer: {
-                        Text("Choose the default server for actions that target only one \(serviceType.displayName) server. The library remains unified.")
+                        Text("Both servers stay connected and their libraries are shown as one. Tap a server to edit it.")
                     }
                 }
 
-                if let systemStatus {
+                if pairedStatuses.count > 1 {
+                    Section("System Status") {
+                        Button {
+                            withAnimation(.snappy) { isStatusExpanded.toggle() }
+                        } label: {
+                            VStack(alignment: .leading, spacing: 8) {
+                                ForEach(Array(pairedStatuses.enumerated()), id: \.element.ref.id) { index, entry in
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        HStack(spacing: 6) {
+                                            Text(serviceManager.scopeLabel(for: entry.ref))
+                                                .font(.subheadline.weight(index == 0 ? .medium : .regular))
+                                                .foregroundStyle(index == 0 ? .primary : .secondary)
+                                            ArrInstanceBadge(label: entry.ref.shortLabel, ordinal: entry.ref.ordinal)
+                                            Spacer()
+                                            if let version = entry.status.version {
+                                                Text("v\(version)")
+                                                    .font(.caption)
+                                                    .foregroundStyle(.secondary)
+                                            }
+                                            if index == 0 {
+                                                Image(systemName: isStatusExpanded ? "chevron.up" : "chevron.down")
+                                                    .font(.caption2)
+                                                    .foregroundStyle(.tertiary)
+                                            }
+                                        }
+                                        if isStatusExpanded {
+                                            ForEach(statusDetailLines(for: entry.status), id: \.label) { line in
+                                                HStack {
+                                                    Text(line.label)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                    Spacer()
+                                                    Text(line.value)
+                                                        .font(.caption)
+                                                        .foregroundStyle(.secondary)
+                                                }
+                                            }
+                                        }
+                                    }
+                                    // The second server sits indented under the first:
+                                    // one row describing a pair, not two rows that look
+                                    // like two unrelated servers.
+                                    .padding(.leading, index == 0 ? 0 : 16)
+                                }
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                } else if let systemStatus {
                     Section(systemStatusTitle) {
                         if let instanceName = systemStatus.instanceName ?? systemStatus.appName {
                             serviceInfoRow(label: "Instance", value: instanceName)
@@ -237,29 +311,35 @@ struct ArrServiceSettingsView: View {
                     }
                 }
 
-                if serviceType.supportsWebhookNotifications, isConnected {
+                // One row per configured server. A webhook is a record *on* a
+                // server, so a single row could only ever configure one half of a
+                // pair — the other server's grabs and imports would never reach the
+                // device, with nothing on screen to say why.
+                if serviceType.supportsWebhookNotifications, !notifiableProfiles.isEmpty {
                     Section("Notifications") {
-                        NavigationLink {
-                            ArrWebhookNotificationConfigView(
-                                serviceType: serviceType,
-                                profile: profile,
-                                isConnected: isConnected
-                            )
-                        } label: {
-                            #if DEBUG
-                            ArrWebhookNotificationHubRow(
-                                serviceType: serviceType,
-                                profile: profile,
-                                isConnected: isConnected,
-                                previewStatus: previewNotificationStatus
-                            )
-                            #else
-                            ArrWebhookNotificationHubRow(
-                                serviceType: serviceType,
-                                profile: profile,
-                                isConnected: isConnected
-                            )
-                            #endif
+                        ForEach(notifiableProfiles) { notifiableProfile in
+                            NavigationLink {
+                                ArrWebhookNotificationConfigView(
+                                    serviceType: serviceType,
+                                    profile: notifiableProfile,
+                                    isConnected: isProfileConnected(notifiableProfile.id)
+                                )
+                            } label: {
+                                #if DEBUG
+                                ArrWebhookNotificationHubRow(
+                                    serviceType: serviceType,
+                                    profile: notifiableProfile,
+                                    isConnected: isProfileConnected(notifiableProfile.id),
+                                    previewStatus: previewNotificationStatus
+                                )
+                                #else
+                                ArrWebhookNotificationHubRow(
+                                    serviceType: serviceType,
+                                    profile: notifiableProfile,
+                                    isConnected: isProfileConnected(notifiableProfile.id)
+                                )
+                                #endif
+                            }
                         }
                     }
                 }
@@ -337,34 +417,8 @@ struct ArrServiceSettingsView: View {
         }
     }
 
-    private var activeProfileID: UUID? {
-        switch serviceType {
-        case .sonarr:
-            serviceManager.activeSonarrInstanceID
-        case .radarr:
-            serviceManager.activeRadarrInstanceID
-        case .prowlarr:
-            serviceManager.activeProwlarrProfileID
-        case .bazarr:
-            serviceManager.activeBazarrProfileID
-        }
-    }
-
     private func isProfileConnected(_ profileID: UUID) -> Bool {
         serviceManager.isConnected(serviceType, profileID: profileID)
-    }
-
-    private func setActiveProfile(_ profileID: UUID) {
-        switch serviceType {
-        case .sonarr:
-            serviceManager.setActiveSonarr(profileID)
-        case .radarr:
-            serviceManager.setActiveRadarr(profileID)
-        case .prowlarr:
-            break
-        case .bazarr:
-            serviceManager.setActiveBazarr(profileID)
-        }
     }
 
     private func deleteProfile(_ profile: ArrServiceProfile) async {
@@ -426,6 +480,34 @@ struct ArrServiceSettingsView: View {
             return
         }
 
+        // Sonarr and Radarr can have two servers, and the status row describes both.
+        // Asking only the fallback server would put one server's version and OS under
+        // a heading that sits above a list of two.
+        if serviceType == .sonarr || serviceType == .radarr {
+            let refs = serviceManager.refs(for: serviceType)
+            if refs.count > 1 {
+                isLoadingStatus = true
+                defer { isLoadingStatus = false }
+                var loaded: [(ref: ArrInstanceRef, status: ArrSystemStatus)] = []
+                var firstError: String?
+                for ref in refs {
+                    guard let client = serviceManager.sharedClient(for: ref) else { continue }
+                    do {
+                        loaded.append((ref: ref, status: try await client.getSystemStatus()))
+                    } catch {
+                        if firstError == nil { firstError = error.localizedDescription }
+                    }
+                }
+                pairedStatuses = loaded
+                systemStatus = nil
+                // One server answering is still a useful row; only a total failure is
+                // worth replacing it with an error.
+                systemStatusError = loaded.isEmpty ? firstError : nil
+                return
+            }
+            pairedStatuses = []
+        }
+
         let client: ArrServiceStatusProviding? = switch serviceType {
         case .sonarr:
             serviceManager.sonarrClient
@@ -457,6 +539,25 @@ struct ArrServiceSettingsView: View {
     }
 
     // MARK: - Actions
+
+    /// The rows under a server once the status row is expanded. Version is already
+    /// on the collapsed line, so it is not repeated here.
+    private func statusDetailLines(for status: ArrSystemStatus) -> [(label: String, value: String)] {
+        var lines: [(label: String, value: String)] = []
+        if let instanceName = status.instanceName ?? status.appName {
+            lines.append(("Instance", instanceName))
+        }
+        if let osName = status.osName {
+            lines.append(("OS", [osName, status.osVersion].compactMap { $0 }.joined(separator: " ")))
+        }
+        if let runtimeName = status.runtimeName {
+            lines.append(("Runtime", [runtimeName, status.runtimeVersion].compactMap { $0 }.joined(separator: " ")))
+        }
+        if let urlBase = status.urlBase, !urlBase.isEmpty {
+            lines.append(("URL Base", urlBase))
+        }
+        return lines
+    }
 
     private func serviceInfoRow(label: String, value: String) -> some View {
         HStack {
@@ -681,6 +782,17 @@ struct ArrWebhookNotificationConfigView: View {
     @State private var deviceToken: String?
     #endif
 
+    /// Names the server when there are two, since each has its own webhook and the
+    /// screens are otherwise identical.
+    private var notificationsTitle: String {
+        guard let profile,
+              let instance = serviceManager.instanceRef(serviceType, id: profile.id),
+              serviceManager.showsInstanceProvenance(for: serviceType) else {
+            return "\(serviceType.displayName) Notifications"
+        }
+        return "\(serviceManager.scopeLabel(for: instance)) Notifications"
+    }
+
     private var availableTags: [ArrTag] {
         guard let profile else { return [] }
         return serviceManager.tags(for: profile)
@@ -778,7 +890,7 @@ struct ArrWebhookNotificationConfigView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .navigationTitle("\(serviceType.displayName) Notifications")
+        .navigationTitle(notificationsTitle)
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
                 if isSaving {

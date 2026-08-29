@@ -596,7 +596,7 @@ struct ArrBlocklistView: View {
     /// Combines the current mode with the active Sonarr/Radarr instance IDs so switching
     /// between connected instances reloads the blocklist/exclusions for the active instance.
     private var blocklistReloadKey: String {
-        "\(mode.rawValue)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")"
+        "\(mode.rawValue)-\(serviceManager.arrConnectionKey)"
     }
 
     private func loadCurrentMode() async {

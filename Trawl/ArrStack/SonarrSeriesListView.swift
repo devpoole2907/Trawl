@@ -161,7 +161,9 @@ struct SonarrSeriesRow: View {
                         .fontWeight(.medium)
                         .lineLimit(1)
                     // One row per title, badged with every server that holds it.
-                    ArrInstanceBadgeRow(refs: instances)
+                    // Filled means that server has a file; hollow means the title is
+                    // in its library with nothing downloaded yet.
+                    ArrInstanceBadgeRow(refs: instances, downloadedTiers: availableTiers)
                 }
 
                 HStack(spacing: 4) {
@@ -188,11 +190,18 @@ struct SonarrSeriesRow: View {
                             .foregroundStyle(.secondary)
                     }
 
-                    ArrAvailabilityPill(
-                        availableTiers: availableTiers,
-                        showsTiers: !instances.isEmpty,
-                        unavailableStatus: unavailableStatus
-                    )
+                    // Only when the badges cannot say it. With a pair configured
+                    // they carry availability themselves, so the pill would just be
+                    // the same fact in words — it earns its place only when nothing
+                    // is downloaded anywhere and there is a status to report, or on
+                    // a single-server setup where there are no badges at all.
+                    if instances.isEmpty || availableTiers.isEmpty {
+                        ArrAvailabilityPill(
+                            availableTiers: availableTiers,
+                            showsTiers: !instances.isEmpty,
+                            unavailableStatus: unavailableStatus
+                        )
+                    }
 
                     if subtitleCoverage.hasIndicator {
                         Text("•")
@@ -214,7 +223,10 @@ struct SonarrSeriesRow: View {
                         .foregroundStyle(.orange)
                 }
 
-                ArrMonitorBadge(isMonitored: entry.copies.contains { $0.monitored == true })
+                ArrMonitorBadge(
+                    monitoredCount: entry.copies.filter { $0.monitored == true }.count,
+                    totalCount: entry.copies.count
+                )
                     .font(.caption)
             }
         }

@@ -485,8 +485,25 @@ struct SonarrSeasonSearchView: View {
         series?.id ?? initialEpisodes.first?.seriesId
     }
 
+    /// The server this season belongs to. Episodes are per-server, and both halves
+    /// of a pair number theirs from the same sequence.
+    private var seriesInstanceID: UUID? {
+        series?.instanceID ?? initialEpisodes.first?.instanceID
+    }
+
+    /// The server this screen's episodes came from, when there is more than one to
+    /// confuse it with. Seasons and episodes belong to a single server's copy of a
+    /// series, and without this the screen is identical whether one server is
+    /// configured or two — asserting one server's "Downloaded" as the episode's own.
+    private var instanceBadgeRef: ArrInstanceRef? {
+        guard let seriesInstanceID,
+              let ref = serviceManager.instanceRef(.sonarr, id: seriesInstanceID),
+              serviceManager.showsInstanceProvenance(for: .sonarr) else { return nil }
+        return ref
+    }
+
     private var sortedEpisodes: [SonarrEpisode] {
-        let latestEpisodes = seriesId.flatMap { viewModel.episodes[$0] } ?? []
+        let latestEpisodes = seriesId.map { viewModel.episodes(forSeries: $0, on: seriesInstanceID) } ?? []
         let source = latestEpisodes.isEmpty ? initialEpisodes : latestEpisodes
         return source
             .filter { $0.seasonNumber == seasonNumber }
@@ -537,8 +554,8 @@ struct SonarrSeasonSearchView: View {
         }
         .refreshable {
             guard let seriesId else { return }
-            await viewModel.loadEpisodes(for: seriesId)
-            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
+            await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
             await viewModel.loadQueue()
             if let bazarrClient {
                 await refreshBazarrSeasonEpisodes(seriesId: seriesId, client: bazarrClient)
@@ -646,8 +663,8 @@ struct SonarrSeasonSearchView: View {
     private func refreshSeasonState() async {
         guard let seriesId else { return }
         await viewModel.loadQueue()
-        await viewModel.loadEpisodes(for: seriesId)
-        await viewModel.loadEpisodeFiles(for: seriesId)
+        await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
+        await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
         await viewModel.loadSeries()
     }
 
@@ -671,9 +688,9 @@ struct SonarrSeasonSearchView: View {
                 let currentQueueIDs = Set(relevantQueueItems.map(\.id))
                 let hasRelevantQueueItems = !relevantQueueItems.isEmpty
 
-                await viewModel.loadEpisodes(for: seriesId)
+                await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
                 try Task.checkCancellation()
-                await viewModel.loadEpisodeFiles(for: seriesId)
+                await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
                 try Task.checkCancellation()
 
                 if currentQueueIDs != knownQueueIDs || hasRelevantQueueItems || hadRelevantQueueItems {
@@ -784,10 +801,15 @@ struct SonarrSeasonSearchView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text(series?.title ?? "Series")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
+                HStack(spacing: 6) {
+                    Text(series?.title ?? "Series")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                    if let ref = instanceBadgeRef {
+                        ArrInstanceBadge(label: ref.shortLabel, ordinal: ref.ordinal, style: .prominent)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -1208,9 +1230,26 @@ struct SonarrEpisodeSearchView: View {
         series?.id ?? episode.seriesId
     }
 
+    /// The server this episode belongs to. Read from the passed-in episode rather
+    /// than from `currentEpisode`, which is itself resolved through this.
+    private var seriesInstanceID: UUID? {
+        series?.instanceID ?? episode.instanceID
+    }
+
+    /// The server this screen's episodes came from, when there is more than one to
+    /// confuse it with. Seasons and episodes belong to a single server's copy of a
+    /// series, and without this the screen is identical whether one server is
+    /// configured or two — asserting one server's "Downloaded" as the episode's own.
+    private var instanceBadgeRef: ArrInstanceRef? {
+        guard let seriesInstanceID,
+              let ref = serviceManager.instanceRef(.sonarr, id: seriesInstanceID),
+              serviceManager.showsInstanceProvenance(for: .sonarr) else { return nil }
+        return ref
+    }
+
     private var currentEpisode: SonarrEpisode {
         guard let seriesId,
-              let latestEpisode = viewModel.episodes[seriesId]?.first(where: { $0.id == episode.id }) else {
+              let latestEpisode = viewModel.episodes(forSeries: seriesId, on: seriesInstanceID).first(where: { $0.id == episode.id }) else {
             return episode
         }
         return latestEpisode
@@ -1244,11 +1283,11 @@ struct SonarrEpisodeSearchView: View {
 
     private var episodeFiles: [SonarrEpisodeFile] {
         guard let seriesId, let episodeFileId = currentEpisode.episodeFileId else { return [] }
-        return viewModel.episodeFiles[seriesId]?.filter { $0.id == episodeFileId } ?? []
+        return viewModel.episodeFiles(forSeries: seriesId, on: seriesInstanceID).filter { $0.id == episodeFileId }
     }
 
     private func handleDeleteEpisodeFile(file: SonarrEpisodeFile) async {
-        let success = await viewModel.deleteEpisodeFile(id: file.id)
+        let success = await viewModel.deleteEpisodeFile(id: file.id, instanceID: seriesInstanceID)
         if success {
             InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "Episode file has been removed.")
         } else if let error = viewModel.error {
@@ -1391,8 +1430,8 @@ struct SonarrEpisodeSearchView: View {
         }
         .refreshable {
             guard let seriesId else { return }
-            await viewModel.loadEpisodes(for: seriesId)
-            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
+            await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
             await viewModel.loadQueue()
             await viewModel.loadHistory(instanceID: currentEpisode.instanceID)
             await refreshBazarrEpisode()
@@ -1623,10 +1662,15 @@ struct SonarrEpisodeSearchView: View {
                     .multilineTextAlignment(.center)
                     .fixedSize(horizontal: false, vertical: true)
 
-                Text("\(series?.title ?? "Series") · \(currentEpisode.episodeIdentifier)")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
+                HStack(spacing: 6) {
+                    Text("\(series?.title ?? "Series") · \(currentEpisode.episodeIdentifier)")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                    if let ref = instanceBadgeRef {
+                        ArrInstanceBadge(label: ref.shortLabel, ordinal: ref.ordinal, style: .prominent)
+                    }
+                }
             }
         }
         .frame(maxWidth: .infinity)
@@ -1763,8 +1807,8 @@ struct SonarrEpisodeSearchView: View {
     private func refreshEpisodeState() async {
         await viewModel.loadQueue()
         if let seriesId {
-            await viewModel.loadEpisodes(for: seriesId)
-            await viewModel.loadEpisodeFiles(for: seriesId)
+            await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
+            await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
             await viewModel.loadSeries()
         }
         await viewModel.loadHistory(page: 1, instanceID: currentEpisode.instanceID)
@@ -1785,9 +1829,9 @@ struct SonarrEpisodeSearchView: View {
                 let hasQueueItem = currentQueueID != nil
 
                 if let seriesId {
-                    await viewModel.loadEpisodes(for: seriesId)
+                    await viewModel.loadEpisodes(for: seriesId, instanceID: seriesInstanceID)
                     try Task.checkCancellation()
-                    await viewModel.loadEpisodeFiles(for: seriesId)
+                    await viewModel.loadEpisodeFiles(for: seriesId, instanceID: seriesInstanceID)
                     try Task.checkCancellation()
                 }
 

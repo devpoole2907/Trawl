@@ -34,7 +34,7 @@ struct ArrServicesSettingsView: View {
                 .disabled(!canAddAnyService)
             } footer: {
                 if !canAddAnyService {
-                    Text("Every service Trawl supports is configured. Sonarr and Radarr allow two servers each — the usual setup is one HD and one 4K — and both appear as a single library.")
+                    Text("Every service Trawl supports is configured. Sonarr and Radarr allow two servers each — a default one and a 4K one, matching Seerr — and both appear as a single library.")
                 }
             }
 

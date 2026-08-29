@@ -309,7 +309,7 @@ struct ArrWantedView: View {
     private var reloadKey: String {
         // Active Sonarr/Radarr instance IDs are part of the key so switching between
         // connected instances reloads wanted items for the now-active instance.
-        "\(serviceManager.sonarrConnected)-\(serviceManager.radarrConnected)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeSonarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeRadarrInstanceID?.uuidString ?? "none")-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
+        "\(serviceManager.arrConnectionKey)-\(serviceManager.hasAnyConnectedBazarrInstance)-\(serviceManager.activeBazarrProfileID?.uuidString ?? "none")"
     }
 
     // MARK: - Actions

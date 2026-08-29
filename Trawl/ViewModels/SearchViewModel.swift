@@ -77,7 +77,7 @@ final class SearchViewModel {
     func createLookupViewModels(arrServiceManager: ArrServiceManager) {
         let nextSonarrKey = sonarrLookupKey(
             isConnected: arrServiceManager.sonarrConnected,
-            instanceID: arrServiceManager.activeSonarrInstanceID
+            connectionKey: arrServiceManager.arrConnectionKey
         )
         if !arrServiceManager.sonarrConnected {
             sonarrLookupVM = nil
@@ -91,7 +91,7 @@ final class SearchViewModel {
 
         let nextRadarrKey = radarrLookupKey(
             isConnected: arrServiceManager.radarrConnected,
-            instanceID: arrServiceManager.activeRadarrInstanceID
+            connectionKey: arrServiceManager.arrConnectionKey
         )
         if !arrServiceManager.radarrConnected {
             radarrLookupVM = nil
@@ -402,7 +402,7 @@ final class SearchViewModel {
         }
     }
 
-    func quickAddSeries(_ series: SonarrSeries, arrServiceManager: ArrServiceManager) async {
+    func quickAddSeries(_ series: SonarrSeries, arrServiceManager: ArrServiceManager, instanceID: UUID? = nil) async {
         guard let viewModel = sonarrLookupVM else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "Sonarr is not connected.")
             return
@@ -421,11 +421,11 @@ final class SearchViewModel {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "This search result is missing a title slug.")
             return
         }
-        guard let qualityProfileId = viewModel.qualityProfiles.first?.id else {
+        guard let qualityProfileId = viewModel.qualityProfiles(on: instanceID).first?.id else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "No Sonarr quality profile is available.")
             return
         }
-        guard let rootFolderPath = viewModel.rootFolders.first?.path else {
+        guard let rootFolderPath = viewModel.rootFolders(on: instanceID).first?.path else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Series", message: "No Sonarr root folder is configured.")
             return
         }
@@ -437,7 +437,8 @@ final class SearchViewModel {
             images: series.images ?? [],
             seasons: series.seasons ?? [],
             qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath
+            rootFolderPath: rootFolderPath,
+            instanceID: instanceID
         )
 
         if wasAdded {
@@ -450,7 +451,7 @@ final class SearchViewModel {
         }
     }
 
-    func quickAddMovie(_ movie: RadarrMovie, arrServiceManager: ArrServiceManager) async {
+    func quickAddMovie(_ movie: RadarrMovie, arrServiceManager: ArrServiceManager, instanceID: UUID? = nil) async {
         guard let viewModel = radarrLookupVM else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "Radarr is not connected.")
             return
@@ -465,11 +466,11 @@ final class SearchViewModel {
         arrAddInFlightIDs.insert(flightID)
         defer { arrAddInFlightIDs.remove(flightID) }
 
-        guard let qualityProfileId = viewModel.qualityProfiles.first?.id else {
+        guard let qualityProfileId = viewModel.qualityProfiles(on: instanceID).first?.id else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "No Radarr quality profile is available.")
             return
         }
-        guard let rootFolderPath = viewModel.rootFolders.first?.path else {
+        guard let rootFolderPath = viewModel.rootFolders(on: instanceID).first?.path else {
             actionErrorAlert = ErrorAlertItem(title: "Couldn't Add Movie", message: "No Radarr root folder is configured.")
             return
         }
@@ -478,7 +479,8 @@ final class SearchViewModel {
             title: movie.title,
             tmdbId: tmdbId,
             qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath
+            rootFolderPath: rootFolderPath,
+            instanceID: instanceID
         )
 
         if wasAdded {
@@ -491,14 +493,18 @@ final class SearchViewModel {
         }
     }
 
-    private func sonarrLookupKey(isConnected: Bool, instanceID: UUID?) -> String {
+    /// Keyed on every configured server rather than the active one. These lookup
+    /// view models read the blended library, so a second server connecting has to
+    /// rebuild them — keyed on the active instance alone it never changed, and the
+    /// second server's titles stayed absent from search.
+    private func sonarrLookupKey(isConnected: Bool, connectionKey: String) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(instanceID?.uuidString ?? "none")"
+        return "connected:\(connectionKey)"
     }
 
-    private func radarrLookupKey(isConnected: Bool, instanceID: UUID?) -> String {
+    private func radarrLookupKey(isConnected: Bool, connectionKey: String) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(instanceID?.uuidString ?? "none")"
+        return "connected:\(connectionKey)"
     }
 }
 

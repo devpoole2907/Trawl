@@ -436,7 +436,7 @@ struct ArrRemotePathMappingEditorSheet: View {
                         }
                         .pickerStyle(.segmented)
                     } footer: {
-                        Text("Each server translates paths for itself, so an HD and a 4K server sharing a download client still need a mapping each.")
+                        Text("Each server translates paths for itself, so a default and a 4K server sharing a download client still need a mapping each.")
                     }
                 }
 

@@ -66,8 +66,9 @@ public final class ArrServiceProfile {
 
 /// Which copy of the library a server holds.
 ///
-/// Trawl supports one of each per service — an HD Sonarr and a 4K Sonarr, an HD
-/// Radarr and a 4K Radarr — presented as one blended library. That is also where
+/// Trawl supports one of each per service — a default Sonarr and a 4K Sonarr, a
+/// default Radarr and a 4K Radarr — presented as one blended library. The naming
+/// follows Seerr, which pairs the same servers as a default and a 4K one. That is also where
 /// the two-instance cap comes from: there are two tiers, so there are two slots,
 /// and the limit needs no separate rule.
 nonisolated public enum ArrQualityTier: String, Codable, CaseIterable, Identifiable, Sendable {
@@ -77,9 +78,15 @@ nonisolated public enum ArrQualityTier: String, Codable, CaseIterable, Identifia
     public var id: String { rawValue }
 
     /// The badge text. Short by design — it sits on every row of the library.
+    ///
+    /// "Default" rather than "HD" to match Seerr, which is the other admin surface
+    /// for the same pair of servers and calls them the default server and the 4K
+    /// server. Two names for one box — "HD" here, "Default" in Linked Applications
+    /// — made them read as different things. The `hd` case keeps its raw value:
+    /// it is persisted on every profile, and renaming it would orphan them.
     public var label: String {
         switch self {
-        case .hd: "HD"
+        case .hd: "Default"
         case .uhd: "4K"
         }
     }
@@ -88,7 +95,7 @@ nonisolated public enum ArrQualityTier: String, Codable, CaseIterable, Identifia
     /// their place.
     public var longLabel: String {
         switch self {
-        case .hd: "HD (1080p and below)"
+        case .hd: "Default (non-4K)"
         case .uhd: "4K (2160p)"
         }
     }

@@ -134,7 +134,7 @@ struct ArrSetupSheet: View {
         }) {
             return "Your \(other.label) \(vm.serviceType.displayName) is already set up. Both servers appear as one library, with each title showing whether it's available in HD, 4K, or both."
         }
-        return "Trawl holds one \(vm.serviceType.displayName) for HD and one for 4K, blended into a single library. Add the other later to see both."
+        return "Trawl holds one default \(vm.serviceType.displayName) and one 4K one, blended into a single library — the same pair Seerr uses. Add the other later to see both."
     }
 
     @ViewBuilder

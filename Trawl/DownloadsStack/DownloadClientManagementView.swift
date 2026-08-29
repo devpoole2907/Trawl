@@ -39,11 +39,13 @@ struct DownloadClientManagementView: View {
                         NavigationLink {
                             SABnzbdClientHubView()
                                 .environment(sabnzbdServiceManager)
-                                // Handed over explicitly, exactly as the qBittorrent
-                                // branch above does: `SABnzbdManagerView` further down
-                                // this stack reads both, and without them it traps with
-                                // "No Observable object of type SyncService found" —
-                                // which crashed the app for anyone using SABnzbd.
+                                // `SABnzbdManagerView` used to sit under this hub and
+                                // read both of these; without them it trapped with "No
+                                // Observable object of type SyncService found", which
+                                // crashed the app for anyone using SABnzbd. The queue
+                                // now lives in the Downloads title menu, but the
+                                // hand-over stays: it costs nothing, and the trap it
+                                // prevents is a crash rather than a missing view.
                                 .environment(syncService)
                                 .environment(torrentService)
                         } label: {
@@ -225,23 +227,10 @@ struct SABnzbdClientHubView: View {
     @Environment(TorrentService.self) private var torrentService
 
     var body: some View {
+        // The queue itself is not here: it is one of the Downloads tab's own lists,
+        // reached from the title menu. Client Management is for configuring the
+        // client, not for browsing what it is doing.
         List {
-            Section {
-                NavigationLink {
-                    SABnzbdManagerView()
-                        .environment(serviceManager)
-                        .environment(syncService)
-                        .environment(torrentService)
-                } label: {
-                    NavigationMenuRow(
-                        icon: ServiceIdentity.sabnzbd.systemImage,
-                        color: ServiceIdentity.sabnzbd.brandColor,
-                        title: "Queue",
-                        subtitle: "Downloads, repairs, unpacking, and history"
-                    )
-                }
-            }
-
             Section {
                 NavigationLink {
                     SABnzbdCategoriesView()
@@ -298,22 +287,9 @@ struct QBittorrentClientHubView: View {
     @Environment(TorrentService.self) private var torrentService
 
     var body: some View {
+        // Torrents live in the Downloads tab's title menu, for the same reason the
+        // SABnzbd queue does.
         List {
-            Section {
-                NavigationLink {
-                    TorrentListView(title: "qBittorrent")
-                        .environment(syncService)
-                        .environment(torrentService)
-                } label: {
-                    NavigationMenuRow(
-                        icon: "arrow.down.circle.fill",
-                        color: ServiceIdentity.qbittorrent.brandColor,
-                        title: "Torrents",
-                        subtitle: "Seeding, peers, files, and limits"
-                    )
-                }
-            }
-
             Section {
                 NavigationLink {
                     TorrentStatsView()

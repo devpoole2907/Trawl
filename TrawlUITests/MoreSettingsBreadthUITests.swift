@@ -63,8 +63,14 @@ final class MoreSettingsBreadthUITests: XCTestCase {
             "Sonarr settings should render the synchronously seeded profile rather than an unconfigured placeholder."
         )
         XCTAssertTrue(
-            app.buttons["Edit Server"].waitForExistence(in: app, timeout: 5),
-            "A configured Sonarr settings screen should expose the real server editor entry point."
+            app.buttons.matching(
+                NSPredicate(
+                    format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
+                    "Fixture Sonarr",
+                    "onnected"
+                )
+            ).firstMatch.waitForExistence(in: app, timeout: 5),
+            "A configured Sonarr settings screen should expose its server as a tappable row — the row itself is the editor entry point, replacing the separate 'Edit Server' button that duplicated it."
         )
         XCTAssertTrue(
             sonarr.hasReceivedRequest(method: "GET", path: "/api/v3/system/status"),

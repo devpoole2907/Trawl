@@ -113,7 +113,7 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         let editSheetTitle = app.navigationBars["Edit Sonarr"]
         XCTAssertTrue(
             editSheetTitle.waitForExistence(timeout: 10),
-            "'Edit Server' should present ArrSetupSheet titled 'Edit Sonarr' for the existing profile."
+            "Tapping the configured server row should present ArrSetupSheet titled 'Edit Sonarr' for that profile."
         )
         // `ModalFormStyle` declares `.presentationDetents([.medium, .large])`, so this
         // editor opens at medium — with the keyboard up, the ValidationErrorSection
@@ -251,12 +251,31 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         )
         sonarrRow.tap()
 
-        let editServerButton = app.buttons["Edit Server"]
         XCTAssertTrue(
-            editServerButton.waitForExistence(timeout: 10),
-            "ArrServiceSettingsView should offer an 'Edit Server' button once a Sonarr profile exists (ArrServiceSettingsDetailView.swift)."
+            app.navigationBars["Sonarr"].waitForExistence(timeout: 10),
+            "Tapping the Settings row should push the Sonarr service screen before its own rows are queried."
         )
-        editServerButton.tap()
+
+        // The configured server row *is* the editor entry point — there is no
+        // separate "Edit Server" button. A row that shows a server and does nothing
+        // when tapped, next to a button that edits it, was the redundancy this
+        // replaced.
+        //
+        // Matched on the connection state as well as the name: the Notifications
+        // section further down carries "Fixture Sonarr" too, and a name-only
+        // predicate taps that instead and then waits for a sheet that never opens.
+        let serverRow = app.buttons.matching(
+            NSPredicate(
+                format: "label CONTAINS[c] %@ AND label CONTAINS[c] %@",
+                "Fixture Sonarr",
+                "onnected"
+            )
+        ).firstMatch
+        XCTAssertTrue(
+            serverRow.waitForExistence(in: app, timeout: 10),
+            "ArrServiceSettingsView should list the configured Sonarr server as a tappable row (ArrServiceSettingsDetailView.swift)."
+        )
+        serverRow.tap()
     }
 
     // MARK: - Helpers

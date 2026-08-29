@@ -222,6 +222,35 @@ final class ArrServiceManager {
         return links
     }
 
+    /// The feed for one specific server.
+    ///
+    /// A calendar feed is a URL on a single server, so with an HD/4K pair there are
+    /// two of them and the by-service call below can only ever hand back the active
+    /// one — the other server's airings simply could not be subscribed to.
+    func iCalFeedLink(for ref: ArrInstanceRef) async throws -> ArrICalFeedLink {
+        let url: URL
+        let webcal: URL
+        switch ref.serviceType {
+        case .sonarr:
+            guard let client = sonarrClient(for: ref.id) else { throw ArrError.noServiceConfigured }
+            url = try await client.iCalFeedURL()
+            webcal = try client.webcalURL(from: url)
+        case .radarr:
+            guard let client = radarrClient(for: ref.id) else { throw ArrError.noServiceConfigured }
+            url = try await client.iCalFeedURL()
+            webcal = try client.webcalURL(from: url)
+        case .prowlarr, .bazarr:
+            throw ArrError.noServiceConfigured
+        }
+        return try ArrICalFeedLink(
+            serviceType: ref.serviceType,
+            profileID: ref.id,
+            displayName: scopeLabel(for: ref),
+            url: url,
+            webcalURL: webcal
+        )
+    }
+
     func iCalFeedLink(for serviceType: ArrServiceType) async throws -> ArrICalFeedLink {
         switch serviceType {
         case .sonarr:

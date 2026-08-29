@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct RadarrAddMovieSheet: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(\.dismiss) private var dismiss
     @Bindable var viewModel: RadarrViewModel
     @State private var searchQuery = ""
@@ -13,6 +14,8 @@ struct RadarrAddMovieSheet: View {
     @State private var optionsExpanded = false
     @State private var isAdding = false
     @State private var qualityProfileForDetails: ArrQualityProfile?
+    /// Which server this film is added to — see `SonarrAddSeriesSheet`.
+    @State private var selectedInstanceID: UUID?
 
     var body: some View {
         ArrSheetShell(
@@ -21,7 +24,8 @@ struct RadarrAddMovieSheet: View {
             isConfirmDisabled: !canAddSelectedMovie,
             onConfirm: {
                 Task { await addSelectedMovie() }
-            }
+            },
+            confirmPlacement: .prominentBottom
         ) {
             List {
                 Section {
@@ -53,15 +57,27 @@ struct RadarrAddMovieSheet: View {
                 if let selectedMovie, !isInLibrary(selectedMovie) {
                     Section {
                         DisclosureGroup("Options", isExpanded: $optionsExpanded) {
+                            if availableInstances.count > 1 {
+                                Picker("Server", selection: $selectedInstanceID) {
+                                    ForEach(availableInstances) { instance in
+                                        Text(serviceManager.scopeLabel(for: instance))
+                                            .tag(Optional(instance.id))
+                                    }
+                                }
+                                .onChange(of: selectedInstanceID) { _, _ in
+                                    applyDefaultsForSelectedServer()
+                                }
+                            }
+
                             ArrQualityProfilePicker(
                                 selection: $selectedQualityProfileId,
-                                profiles: viewModel.qualityProfiles,
+                                profiles: profiles,
                                 onInfo: { qualityProfileForDetails = $0 }
                             )
 
                             ArrRootFolderPicker(
                                 selection: $selectedRootFolderPath,
-                                folders: viewModel.rootFolders
+                                folders: folders
                             )
 
                             Picker("Minimum Availability", selection: $minimumAvailability) {
@@ -114,18 +130,36 @@ struct RadarrAddMovieSheet: View {
         selectedMovie.map { !isInLibrary($0) } == true
     }
 
+    private var availableInstances: [ArrInstanceRef] {
+        viewModel.routedInstances.map(\.ref)
+    }
+
+    private var profiles: [ArrQualityProfile] {
+        viewModel.qualityProfiles(on: selectedInstanceID)
+    }
+
+    private var folders: [ArrRootFolder] {
+        viewModel.rootFolders(on: selectedInstanceID)
+    }
+
     private var selectedQualityProfile: ArrQualityProfile? {
         guard let selectedQualityProfileId else { return nil }
-        return viewModel.qualityProfiles.first { $0.id == selectedQualityProfileId }
+        return profiles.first { $0.id == selectedQualityProfileId }
     }
 
     private func refreshConfigurationAndDefaults() async {
         await viewModel.refreshConfiguration()
-        if selectedQualityProfileId == nil {
-            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
+        if selectedInstanceID == nil { selectedInstanceID = availableInstances.first?.id }
+        applyDefaultsForSelectedServer()
+    }
+
+    /// Profile and folder are per-server, so changing the destination resets them.
+    private func applyDefaultsForSelectedServer() {
+        if selectedQualityProfileId == nil || !profiles.contains(where: { $0.id == selectedQualityProfileId }) {
+            selectedQualityProfileId = profiles.first?.id
         }
-        if selectedRootFolderPath == nil {
-            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        if selectedRootFolderPath == nil || !folders.contains(where: { $0.path == selectedRootFolderPath }) {
+            selectedRootFolderPath = folders.first?.path
         }
     }
 
@@ -175,7 +209,8 @@ struct RadarrAddMovieSheet: View {
             rootFolderPath: rootPath,
             minimumAvailability: minimumAvailability,
             monitorOption: monitorOption,
-            searchForMovie: searchForMovie
+            searchForMovie: searchForMovie,
+            instanceID: selectedInstanceID
         )
         isAdding = false
         if success { dismiss() }

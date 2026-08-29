@@ -105,7 +105,7 @@ struct SonarrEditSeriesSheet: View {
             return
         }
         if monitorAllEpisodes {
-            let episodesSuccess = await viewModel.monitorAllEpisodes(seriesId: series.id)
+            let episodesSuccess = await viewModel.monitorAllEpisodes(seriesId: series.id, instanceID: series.instanceID)
             isSaving = false
             if episodesSuccess { dismiss() }
             return

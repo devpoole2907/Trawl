@@ -33,6 +33,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private let seriesResponseBody: String
     private let acceptedAPIKey: String?
     private let statusResponseBody: String
+    /// Body for `GET /api/v3/episode`. Defaults to an empty array, so every suite
+    /// that predates episode coverage keeps exactly the behaviour it had.
+    private let episodesResponseBody: String
+    private let episodeFilesResponseBody: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -48,12 +52,20 @@ final class SonarrFixtureServer: @unchecked Sendable {
     ///   - statusJSON: body for `GET /api/v3/system/status`. Defaults to `{}`; give it
     ///     an `instanceName` when a journey needs to tell two instances apart in the UI,
     ///     since that is what `ArrSetupViewModel` uses as the profile's display name.
-    init(seriesJSON: String, acceptedAPIKey: String? = nil, statusJSON: String = "{}") async throws {
+    init(
+        seriesJSON: String,
+        acceptedAPIKey: String? = nil,
+        statusJSON: String = "{}",
+        episodesJSON: String = "[]",
+        episodeFilesJSON: String = "[]"
+    ) async throws {
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.seriesResponseBody = seriesJSON
         self.acceptedAPIKey = acceptedAPIKey
         self.statusResponseBody = statusJSON
+        self.episodesResponseBody = episodesJSON
+        self.episodeFilesResponseBody = episodeFilesJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.respond(to: connection)
@@ -154,6 +166,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
             return "[]"
         case ("GET", "/api/v3/series"):
             return seriesResponseBody
+        case ("GET", "/api/v3/episode"):
+            return episodesResponseBody
+        case ("GET", "/api/v3/episodefile"):
+            return episodeFilesResponseBody
         default:
             return "[]"
         }

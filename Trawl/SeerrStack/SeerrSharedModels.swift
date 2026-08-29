@@ -85,7 +85,7 @@ nonisolated struct SeerrMediaRequest: Codable, Identifiable, Sendable {
         guard let requestStatus else { return nil }
 
         if requestStatus == .approved {
-            switch media?.mediaStatus {
+            switch media?.mediaStatus(is4k: is4k == true) {
             case .processing, .pending, .unknown:
                 return .processing
             case .partiallyAvailable:
@@ -110,6 +110,10 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
     let tmdbId: Int?
     let tvdbId: Int?
     let status: Int?
+    /// Availability on the 4K server, which Seerr tracks separately from `status`.
+    /// Optional and absent on a single-server install, so it decodes to nil there
+    /// and nothing downstream changes.
+    let status4k: Int?
     let mediaType: String?
     let title: String?
     let name: String?
@@ -143,6 +147,16 @@ nonisolated struct SeerrRequestMedia: Codable, Sendable {
     var mediaStatus: SeerrMediaStatus? {
         guard let status else { return nil }
         return SeerrMediaStatus(rawValue: status)
+    }
+
+    /// The availability that answers a given request. A 4K request is satisfied by
+    /// the 4K server, and reading `status` for it reports the default server's
+    /// availability instead — a 4K request whose file exists reads as unavailable,
+    /// and one whose default-quality copy exists reads as done when it is not.
+    func mediaStatus(is4k: Bool) -> SeerrMediaStatus? {
+        guard is4k else { return mediaStatus }
+        guard let status4k else { return nil }
+        return SeerrMediaStatus(rawValue: status4k)
     }
 }
 

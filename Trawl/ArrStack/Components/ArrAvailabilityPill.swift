@@ -28,6 +28,10 @@ struct ArrAvailabilityPill: View {
             .padding(.vertical, 2)
             .background(tint.opacity(0.15), in: Capsule())
             .lineLimit(1)
+            // "Available HD & 4K" is the longest label and the one that matters
+            // most; in a stats cell it was clipping to "Available H...". Scaling
+            // keeps the whole statement rather than half of it.
+            .minimumScaleFactor(0.75)
     }
 
     var label: String {
@@ -47,6 +51,10 @@ struct ArrAvailabilityPill: View {
         guard !availableTiers.isEmpty else { return unavailableStatus }
         guard showsTiers else { return "Available" }
         let ordered = ArrQualityTier.allCases.filter { availableTiers.contains($0) }
+        // Plain "Available" already means the default server — that is how Seerr
+        // words it — so naming that tier would be both redundant and, as
+        // "Available Default", not English. Only 4K earns a name.
+        if ordered == [.hd] { return "Available" }
         return "Available \(ordered.map(\.label).joined(separator: " & "))"
     }
 

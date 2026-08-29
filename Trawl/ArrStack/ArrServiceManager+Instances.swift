@@ -325,6 +325,20 @@ extension ArrServiceManager {
     /// now present one section per *server*, because root folders, download
     /// clients, naming formats and scheduled tasks are configured per server and a
     /// pair's two halves rarely agree.
+    /// Changes whenever *any* configured Sonarr or Radarr changes connection state,
+    /// including its `clientRevision`.
+    ///
+    /// `sonarrConnected`/`radarrConnected` report only the **active** entry, so a
+    /// second server coming up leaves them unchanged — and a `.task(id:)` keyed on
+    /// them never re-runs. That is how a freshly connected 4K server stays missing
+    /// from a list whose whole job is to be the union of both. Every unified surface
+    /// keys on this instead.
+    var arrConnectionKey: String {
+        let sonarr = sonarrInstances.map { "\($0.id.uuidString):\($0.isConnected):\($0.clientRevision.uuidString)" }
+        let radarr = radarrInstances.map { "\($0.id.uuidString):\($0.isConnected):\($0.clientRevision.uuidString)" }
+        return (sonarr + radarr).joined(separator: "|")
+    }
+
     var visibleArrInstances: [(ref: ArrInstanceRef, client: any SharedArrClient)] {
         visibleSonarr.map { (ref: $0.ref, client: $0.client as any SharedArrClient) }
             + visibleRadarr.map { (ref: $0.ref, client: $0.client as any SharedArrClient) }

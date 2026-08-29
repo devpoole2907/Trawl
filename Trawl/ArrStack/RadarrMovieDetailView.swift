@@ -52,6 +52,22 @@ struct RadarrMovieDetailView: View {
     /// Which server the server-specific actions act on. Only consulted when the
     /// title is on both; defaults to the first copy.
     @State private var actionInstanceID: UUID?
+    /// Which search is waiting on the user to say which server it runs against.
+    @State private var pendingServerAction: PendingServerAction?
+
+    private enum PendingServerAction: String, Identifiable {
+        case automaticSearch
+        case interactiveSearch
+
+        var id: String { rawValue }
+
+        var prompt: String {
+            switch self {
+            case .automaticSearch: "Search which server?"
+            case .interactiveSearch: "Pick a release for which server?"
+            }
+        }
+    }
 
     /// Blended-library init — the title, wherever it lives.
     init(mergeKey: ArrMergeKey, viewModel: RadarrViewModel) {
@@ -208,6 +224,27 @@ struct RadarrMovieDetailView: View {
             await sabnzbdServiceManager?.refresh()
         }
         .toolbar { toolbarContent }
+        .confirmationDialog(
+            pendingServerAction?.prompt ?? "",
+            isPresented: Binding(
+                get: { pendingServerAction != nil },
+                set: { if !$0 { pendingServerAction = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingServerAction
+        ) { action in
+            ForEach(serverChoices, id: \.ref.id) { choice in
+                Button(serviceManager.scopeLabel(for: choice.ref)) {
+                    act(on: choice.copy) {
+                        switch action {
+                        case .automaticSearch: performAutomaticSearch(choice.copy)
+                        case .interactiveSearch: interactiveSearchMovie = choice.copy
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
             TextField("Root folder", text: $rootFolderText)
             Button("Move Existing Files") {
@@ -723,7 +760,10 @@ struct RadarrMovieDetailView: View {
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-            .frame(maxWidth: .infinity)
+            // Natural width, so the numeric cells share the remainder instead of
+            // every cell taking an equal share and squeezing the longest label.
+            .fixedSize(horizontal: true, vertical: false)
+            .padding(.horizontal, 8)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 12)
@@ -743,27 +783,38 @@ struct RadarrMovieDetailView: View {
     /// a title is on a pair the card first asks which one. Without that the
     /// buttons would silently pick a server, and "search for this film" would
     /// fetch a 4K release into the HD library as often as not.
+    /// Extracted so the direct (one server) and chosen-server paths cannot drift.
+    private func performAutomaticSearch(_ target: RadarrMovie) {
+        guard !isDispatchingAutomaticSearch else { return }
+        isDispatchingAutomaticSearch = true
+        Task {
+            await viewModel.searchMovie(movieId: target.id, instanceID: target.instanceID)
+            isDispatchingAutomaticSearch = false
+
+            if let error = viewModel.error, !error.isEmpty {
+                InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+            } else {
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Search Queued",
+                    message: searchQueuedMessage(for: target)
+                )
+            }
+        }
+    }
+
     @ViewBuilder
     private func searchActionsCard(_ movie: RadarrMovie) -> some View {
         let target = actionCopy ?? movie
         VStack(spacing: 12) {
-            instanceActionPicker
             HStack(spacing: 12) {
                 Button {
-                    guard !isDispatchingAutomaticSearch else { return }
-                    isDispatchingAutomaticSearch = true
-                    Task {
-                        await viewModel.searchMovie(movieId: target.id, instanceID: target.instanceID)
-                        isDispatchingAutomaticSearch = false
-
-                        if let error = viewModel.error, !error.isEmpty {
-                            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
-                        } else {
-                            InAppNotificationCenter.shared.showSuccess(
-                                title: "Search Queued",
-                                message: searchQueuedMessage(for: target)
-                            )
-                        }
+                    // HD and 4K want different releases into different root folders,
+                    // so with a pair the server is chosen here rather than inherited
+                    // from a mode set elsewhere on the page.
+                    if serverChoices.isEmpty {
+                        performAutomaticSearch(target)
+                    } else {
+                        pendingServerAction = .automaticSearch
                     }
                 } label: {
                     detailSearchButtonLabel(
@@ -777,7 +828,11 @@ struct RadarrMovieDetailView: View {
                 .frame(maxWidth: .infinity)
 
                 Button {
-                    interactiveSearchMovie = target
+                    if serverChoices.isEmpty {
+                        interactiveSearchMovie = target
+                    } else {
+                        pendingServerAction = .interactiveSearch
+                    }
                 } label: {
                     detailSearchButtonLabel(
                         title: "Interactive",
@@ -792,37 +847,52 @@ struct RadarrMovieDetailView: View {
         }
     }
 
-    /// Chooses which server the server-specific actions below act on. Rendered
-    /// only when the title is genuinely on both — with one server there is
-    /// nothing to choose and the control would be dead weight.
+    /// The servers this title is on, paired with the copy each one holds. Empty
+    /// when there is nothing to choose between.
+    private var serverChoices: [(ref: ArrInstanceRef, copy: RadarrMovie)] {
+        guard let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count else { return [] }
+        return Array(zip(instanceRefs, entry.copies)).map { (ref: $0.0, copy: $0.1) }
+    }
+
+    /// Points the server-scoped state at one copy and then runs the action, so the
+    /// sheet or alert that follows opens against the server just chosen.
+    private func act(on copy: RadarrMovie, _ perform: () -> Void) {
+        actionInstanceID = copy.instanceID
+        perform()
+    }
+
+    /// A toolbar item that has to name a server when there are two. With one
+    /// server it stays a plain button — nothing to disambiguate, and a submenu
+    /// would be a tap for nothing.
     @ViewBuilder
-    private var instanceActionPicker: some View {
-        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
-            HStack(spacing: 8) {
-                Text("Act on")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
-                    let isSelected = (actionCopy?.instanceID ?? entry.primary.instanceID) == copy.instanceID
-                    Button {
-                        withAnimation(.snappy) { actionInstanceID = copy.instanceID }
-                    } label: {
-                        Text(ref.shortLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(isSelected ? Color.white : ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                isSelected
-                                    ? AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
-                                    : AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal).opacity(0.14)),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
+    private func serverScopedMenuItem(
+        title: String,
+        systemImage: String,
+        choiceLabel: @escaping (ArrInstanceRef, RadarrMovie) -> String = { ref, _ in ref.shortLabel },
+        isEnabled: Bool = true,
+        perform: @escaping (RadarrMovie) -> Void
+    ) -> some View {
+        let choices = serverChoices
+        if choices.isEmpty {
+            if let movie = actionCopy {
+                Button {
+                    act(on: movie) { perform(movie) }
+                } label: {
+                    Label(title, systemImage: systemImage)
                 }
-                Spacer()
+                .disabled(!isEnabled)
             }
+        } else {
+            Menu {
+                ForEach(choices, id: \.ref.id) { choice in
+                    Button(choiceLabel(choice.ref, choice.copy)) {
+                        act(on: choice.copy) { perform(choice.copy) }
+                    }
+                }
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+            .disabled(!isEnabled)
         }
     }
 
@@ -994,10 +1064,25 @@ struct RadarrMovieDetailView: View {
 
     // MARK: - Info card
 
+    /// One path row per server. Each server has its own root folder — an HD and a
+    /// 4K library in the same folder is the setup this pair exists to avoid — so a
+    /// single "Path" row would show one server's location and quietly withhold the
+    /// other's. The identifiers below are metadata and identical on both, so they
+    /// stay single.
+    private func pathRows(_ movie: RadarrMovie) -> [(String, String, String)] {
+        guard isInLibrary else { return [] }
+        let choices = serverChoices
+        guard !choices.isEmpty else {
+            return movie.path.map { [("folder", "Path", $0)] } ?? []
+        }
+        return choices.compactMap { choice in
+            choice.copy.path.map { ("folder", "\(choice.ref.shortLabel) Path", $0) }
+        }
+    }
+
     @ViewBuilder
     private func infoCard(_ movie: RadarrMovie) -> some View {
-        let rows: [(String, String, String)] = [
-            isInLibrary ? movie.path.map { ("folder", "Path", $0) } : nil,
+        let rows: [(String, String, String)] = pathRows(movie) + [
             movie.imdbId.flatMap { $0.isEmpty ? nil : ("number", "IMDb", $0) },
             movie.tmdbId.map { ("number.circle", "TMDb", String($0)) }
         ].compactMap { $0 }
@@ -1263,46 +1348,47 @@ struct RadarrMovieDetailView: View {
             if isInLibrary {
                 if let movie = actionCopy {
                     Menu {
-                        Button {
+                        // Each of these edits one server's copy, so with a pair
+                        // they nest a server choice rather than inheriting a mode
+                        // set on a part of the page the toolbar cannot show.
+                        serverScopedMenuItem(title: "Edit", systemImage: "slider.horizontal.3") { _ in
                             showEditSheet = true
-                        } label: {
-                            Label("Edit", systemImage: "slider.horizontal.3")
                         }
 
-                        Button {
-                            rootFolderText = movie.rootFolderPath ?? ""
+                        serverScopedMenuItem(title: "Change Root Folder", systemImage: "folder") { copy in
+                            rootFolderText = copy.rootFolderPath ?? ""
                             showRootFolderAlert = true
-                        } label: {
-                            Label("Change Root Folder", systemImage: "folder")
                         }
 
-                        Button {
-                            Task { await viewModel.toggleMovieMonitored(movie) }
-                        } label: {
-                            Label(
-                                movie.monitored == true ? "Unmonitor" : "Monitor",
-                                systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                            )
+                        serverScopedMenuItem(
+                            title: movie.monitored == true ? "Unmonitor" : "Monitor",
+                            systemImage: movie.monitored == true ? "bookmark.slash" : "bookmark.fill",
+                            choiceLabel: { ref, copy in
+                                "\(ref.shortLabel) — \(copy.monitored == true ? "Unmonitor" : "Monitor")"
+                            }
+                        ) { copy in
+                            Task { await viewModel.toggleMovieMonitored(copy) }
                         }
 
+                        // Refreshes the library, not one copy, so it stays a plain
+                        // button.
                         Button {
                             Task { try? await viewModel.refreshMovies() }
                         } label: {
                             Label("Refresh", systemImage: "arrow.clockwise")
                         }
 
-                        Button {
+                        serverScopedMenuItem(
+                            title: "Rename Files",
+                            systemImage: "pencil.and.list.clipboard",
+                            isEnabled: !isRenamingFiles
+                        ) { _ in
                             showRenameFilesAlert = true
-                        } label: {
-                            Label("Rename Files", systemImage: "pencil.and.list.clipboard")
                         }
-                        .disabled(isRenamingFiles)
 
                         if movie.path != nil {
-                            Button {
+                            serverScopedMenuItem(title: "Manual Import", systemImage: "tray.and.arrow.down.fill") { _ in
                                 showManualImport = true
-                            } label: {
-                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
                             }
                         }
 

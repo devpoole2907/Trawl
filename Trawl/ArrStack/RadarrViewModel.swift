@@ -156,6 +156,26 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         }
     }
 
+    /// The client that owns a copy, falling back to the bound one when no server is
+    /// named — a preview, or a caller that predates the pair.
+    private func client(for instanceID: UUID?) -> RadarrAPIClient? {
+        guard let instanceID else { return client }
+        return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
+    }
+
+    /// Config for one server. The pair do not share quality profiles or root
+    /// folders — an HD profile ID posted to the 4K server names a different profile
+    /// or none at all.
+    func qualityProfiles(on instanceID: UUID?) -> [ArrQualityProfile] {
+        guard let instanceID else { return qualityProfiles }
+        return serviceManager.qualityProfilesByInstance.first { $0.ref.id == instanceID }?.values ?? []
+    }
+
+    func rootFolders(on instanceID: UUID?) -> [ArrRootFolder] {
+        guard let instanceID else { return rootFolders }
+        return serviceManager.rootFolders(for: instanceID)
+    }
+
     var qualityProfiles: [ArrQualityProfile] { serviceManager.radarrQualityProfiles }
     var rootFolders: [ArrRootFolder] { serviceManager.radarrRootFolders }
     var tags: [ArrTag] { serviceManager.radarrTags }
@@ -287,9 +307,12 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         monitored: Bool = true,
         minimumAvailability: String = "released",
         monitorOption: String = "movieOnly",
-        searchForMovie: Bool = true
+        searchForMovie: Bool = true,
+        instanceID: UUID? = nil
     ) async -> Bool {
-        guard let client else { return false }
+        // See `SonarrViewModel.addSeries`: the profile ID and root folder path are
+        // only meaningful on the server they came from.
+        guard let client = client(for: instanceID) else { return false }
         let body = RadarrAddMovieBody(
             title: title,
             tmdbId: tmdbId,

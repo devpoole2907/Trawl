@@ -20,7 +20,7 @@ struct ArrDualInstanceTests {
 
     @Test("A server's badge is its declared tier, not its name")
     func badgeComesFromTheDeclaredTier() {
-        // An earlier pass parsed "HD" and "4K" out of whatever the user had named
+        // An earlier pass parsed the tier out of whatever the user had named
         // the server. That worked for "4K Radarr" and produced nonsense for
         // "Radarr (big box)". The tier is declared at setup instead.
         let refs = ArrInstanceRef.make(
@@ -30,7 +30,7 @@ struct ArrDualInstanceTests {
             ],
             serviceType: .radarr
         )
-        #expect(refs.map(\.shortLabel) == ["HD", "4K"])
+        #expect(refs.map(\.shortLabel) == ["Default", "4K"])
         #expect(refs.map(\.displayName) == ["spare", "Radarr (big box)"])
     }
 
@@ -45,7 +45,7 @@ struct ArrDualInstanceTests {
             ],
             serviceType: .sonarr
         )
-        #expect(refs.map(\.shortLabel) == ["HD", "4K"])
+        #expect(refs.map(\.shortLabel) == ["Default", "4K"])
         #expect(refs.map(\.ordinal) == [0, 1])
     }
 
@@ -54,14 +54,14 @@ struct ArrDualInstanceTests {
         // The two-instance limit is not a separate rule: a third server would have
         // no tier to hold and no badge to wear.
         #expect(ArrInstanceRef.maxInstancesPerServiceType == ArrQualityTier.allCases.count)
-        #expect(ArrQualityTier.allCases.map(\.label) == ["HD", "4K"])
+        #expect(ArrQualityTier.allCases.map(\.label) == ["Default", "4K"])
     }
 
     // MARK: - Availability pills
 
     @Test("Availability says which tiers hold the title", arguments: [
-        ([ArrQualityTier.hd, .uhd], true, "Available HD & 4K"),
-        ([.hd], true, "Available HD"),
+        ([ArrQualityTier.hd, .uhd], true, "Available Default & 4K"),
+        ([.hd], true, "Available"),
         ([.uhd], true, "Available 4K"),
         ([], true, "Missing")
     ])
@@ -74,7 +74,7 @@ struct ArrDualInstanceTests {
 
     @Test("A single-server library says only Available")
     func availabilityOmitsTiersWithOneServer() {
-        // "Available HD" on a one-server setup implies a 4K library that does not
+        // Naming a tier on a one-server setup implies a 4K library that does not
         // exist.
         #expect(
             ArrAvailabilityPill.label(availableTiers: [.hd], showsTiers: false, unavailableStatus: "Missing")
@@ -86,7 +86,7 @@ struct ArrDualInstanceTests {
     func availabilityLabelIsOrderIndependent() {
         #expect(
             ArrAvailabilityPill.label(availableTiers: [.uhd, .hd], showsTiers: true, unavailableStatus: "Missing")
-                == "Available HD & 4K"
+                == "Available Default & 4K"
         )
     }
 
@@ -612,7 +612,7 @@ struct ArrDualInstanceRoutingTests {
         await manager.connectService(uhdProfile)
 
         #expect(manager.showsInstanceProvenance(for: .radarr))
-        #expect(manager.radarrRefs.map(\.shortLabel) == ["HD", "4K"])
+        #expect(manager.radarrRefs.map(\.shortLabel) == ["Default", "4K"])
         #expect(manager.canAddInstance(of: .radarr) == false)
         #expect(manager.instanceSlotsRemaining(of: .radarr) == 0)
     }

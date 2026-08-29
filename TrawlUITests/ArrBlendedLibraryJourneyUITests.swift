@@ -36,7 +36,7 @@
 //  a second Sonarr profile from `TRAWL_UITEST_SONARR_B_BASE_URL` alongside the
 //  `TRAWL_UITEST_SONARR_BASE_URL` one. The two are inserted with fixed, distinct UUIDs
 //  and saved strictly in order, which makes the first the older profile — and therefore
-//  the HD half of the pair, since an untiered pair is split HD/4K by profile age.
+//  the default half of the pair, since an untiered pair is split by profile age.
 //
 //  ## Why both halves have to be asserted from real servers
 //
@@ -72,12 +72,15 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
     /// per-instance library switcher coming back.
     @MainActor
     func testSeriesTabShowsBothServersLibrariesAsOneBadgedList() async throws {
-        let seriesJSONOne = #"[{"id":1,"title":"Bluebird Chronicles"}]"#
+        // The default server's series has files; the 4K server's has none. That is
+        // what makes the badge fill testable: one row should read as downloaded and
+        // the other as in-the-library-only.
+        let seriesJSONOne = #"[{"id":1,"title":"Bluebird Chronicles","statistics":{"episodeCount":10,"episodeFileCount":10}}]"#
         // Deliberately the same library ID on the second server. Two *arr servers
         // number their libraries from the same sequence, so an implementation that
         // keys rows on the ID alone collapses these two distinct series into one row
         // — and this test then sees only one title.
-        let seriesJSONTwo = #"[{"id":1,"title":"Redwood Files"}]"#
+        let seriesJSONTwo = #"[{"id":1,"title":"Redwood Files","statistics":{"episodeCount":8,"episodeFileCount":0}}]"#
 
         let one = try await SonarrFixtureServer(seriesJSON: seriesJSONOne)
         serverOne = one
@@ -122,15 +125,18 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
 
         // MARK: Each row says which server it came from.
 
-        let hdBadge = app.staticTexts["On HD"]
-        let fourKBadge = app.staticTexts["On 4K"]
+        // The badges now carry availability in their accessibility label as well as
+        // their fill, which is the only way this distinction is testable — and the
+        // only way it reaches anyone who cannot see the fill.
+        let defaultBadge = app.staticTexts["On Default, downloaded"]
+        let fourKBadge = app.staticTexts["On 4K, not downloaded"]
         XCTAssertTrue(
-            hdBadge.waitForExistence(timeout: 10),
-            "Rows from the older (HD) server should carry its badge — a merged list without provenance cannot be read, since the same title can exist on both servers."
+            defaultBadge.waitForExistence(timeout: 10),
+            "Rows from the older (default) server should carry its badge — a merged list without provenance cannot be read, since the same title can exist on both servers."
         )
         XCTAssertTrue(
             fourKBadge.waitForExistence(timeout: 10),
-            "Rows from the 4K server should carry its badge — regression: the untiered pair was not split HD/4K on launch, or the badge stopped rendering."
+            "Rows from the 4K server should carry its badge, hollow because that server has no files — regression: the untiered pair was not split on launch, the badge stopped rendering, or availability stopped reaching the badge and every server now reads as downloaded."
         )
 
         // MARK: Both servers were actually asked, over real HTTP.

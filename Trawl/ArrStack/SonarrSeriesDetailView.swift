@@ -46,6 +46,24 @@ struct SonarrSeriesDetailView: View {
     /// Which server the server-specific actions act on. Only consulted when the
     /// title is on both; defaults to the first copy.
     @State private var actionInstanceID: UUID?
+    /// Which search is waiting on the user to say which server it runs against.
+    @State private var pendingServerAction: PendingServerAction?
+
+    /// The two search actions that cannot be sent to both servers at once: HD and
+    /// 4K want different releases, into different root folders.
+    private enum PendingServerAction: String, Identifiable {
+        case automaticSearch
+        case interactiveSearch
+
+        var id: String { rawValue }
+
+        var prompt: String {
+            switch self {
+            case .automaticSearch: "Search which server?"
+            case .interactiveSearch: "Pick a release for which server?"
+            }
+        }
+    }
 
     /// Blended-library init — the title, wherever it lives.
     init(mergeKey: ArrMergeKey, viewModel: SonarrViewModel) {
@@ -137,9 +155,16 @@ struct SonarrSeriesDetailView: View {
         return viewModel.series.first { $0.tvdbId == tvdbId }?.id
     }
 
+    /// The server whose copy this view is showing. Everything episode-shaped is
+    /// read and loaded against it: episodes belong to one server's series, and the
+    /// two servers number theirs from the same sequence.
+    private var resolvedInstanceID: UUID? {
+        actionCopy?.instanceID ?? series?.instanceID
+    }
+
     private var episodes: [SonarrEpisode] {
         guard let id = resolvedSeriesId else { return [] }
-        return viewModel.episodes[id] ?? []
+        return viewModel.episodes(forSeries: id, on: resolvedInstanceID)
     }
 
     private func bazarrEpisode(for file: SonarrEpisodeFile) -> BazarrEpisode? {
@@ -155,7 +180,7 @@ struct SonarrSeriesDetailView: View {
     }
     private var episodeFiles: [SonarrEpisodeFile] {
         guard let id = resolvedSeriesId else { return [] }
-        return viewModel.episodeFiles[id] ?? []
+        return viewModel.episodeFiles(forSeries: id, on: resolvedInstanceID)
     }
     /// Unified subtitle coverage: Bazarr when it has a profile, otherwise the
     /// embedded subtitle tracks reported by the loaded Sonarr episode files.
@@ -255,6 +280,27 @@ struct SonarrSeriesDetailView: View {
             }
         }
         .toolbar { toolbarContent }
+        .confirmationDialog(
+            pendingServerAction?.prompt ?? "",
+            isPresented: Binding(
+                get: { pendingServerAction != nil },
+                set: { if !$0 { pendingServerAction = nil } }
+            ),
+            titleVisibility: .visible,
+            presenting: pendingServerAction
+        ) { action in
+            ForEach(serverChoices, id: \.ref.id) { choice in
+                Button(serviceManager.scopeLabel(for: choice.ref)) {
+                    act(on: choice.copy) {
+                        switch action {
+                        case .automaticSearch: performAutomaticSearch(choice.copy)
+                        case .interactiveSearch: interactiveSearchSeries = choice.copy
+                        }
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
         .alert("Change Root Folder", isPresented: $showRootFolderAlert) {
             TextField("Root folder", text: $rootFolderText)
             Button("Move Existing Files") {
@@ -280,8 +326,8 @@ struct SonarrSeriesDetailView: View {
                 }
 
                 var currentViewModel = viewModel
-                await currentViewModel.loadEpisodes(for: id)
-                await currentViewModel.loadEpisodeFiles(for: id)
+                await currentViewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
+                await currentViewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
                 var knownQueueIds = Set(currentViewModel.queue.map(\.id))
                 do {
                     while true {
@@ -302,9 +348,9 @@ struct SonarrSeriesDetailView: View {
                         }
 
                         if currentIds != knownQueueIds || hasActiveOrIssueItems {
-                            await currentViewModel.loadEpisodes(for: id)
+                            await currentViewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
                             try Task.checkCancellation()
-                            await currentViewModel.loadEpisodeFiles(for: id)
+                            await currentViewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
                             try Task.checkCancellation()
                             await currentViewModel.loadSeries()
                             try Task.checkCancellation()
@@ -345,8 +391,8 @@ struct SonarrSeriesDetailView: View {
                 onImportCompleted: {
                     if let id = resolvedSeriesId {
                         await viewModel.loadQueue()
-                        await viewModel.loadEpisodes(for: id)
-                        await viewModel.loadEpisodeFiles(for: id)
+                        await viewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
+                        await viewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
                     } else {
                         await viewModel.loadQueue()
                     }
@@ -385,7 +431,7 @@ struct SonarrSeriesDetailView: View {
                 if let file = selectedEpisodeFileForDeletion {
                     selectedEpisodeFileForDeletion = nil
                     Task {
-                        let didDelete = await viewModel.deleteEpisodeFile(id: file.id)
+                        let didDelete = await viewModel.deleteEpisodeFile(id: file.id, instanceID: resolvedInstanceID)
                         if didDelete {
                             InAppNotificationCenter.shared.showSuccess(title: "File Deleted", message: "The episode file has been removed.")
                         } else if let error = viewModel.error, !error.isEmpty {
@@ -454,40 +500,55 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
-    /// Chooses which server the server-specific actions below act on. Rendered
-    /// only when the title is genuinely on both.
-    @ViewBuilder
-    private var instanceActionPicker: some View {
-        if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
-            HStack(spacing: 8) {
-                Text("Act on")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
-                    let isSelected = (actionCopy?.instanceID ?? entry.primary.instanceID) == copy.instanceID
-                    Button {
-                        withAnimation(.snappy) { actionInstanceID = copy.instanceID }
-                    } label: {
-                        Text(ref.shortLabel)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(isSelected ? Color.white : ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 4)
-                            .background(
-                                isSelected
-                                    ? AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal))
-                                    : AnyShapeStyle(ArrInstanceBadge.tint(forOrdinal: ref.ordinal).opacity(0.14)),
-                                in: Capsule()
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer()
-            }
-        }
+    /// The servers this title is on, paired with the copy each one holds. Empty
+    /// when there is nothing to choose between, which is what every call site
+    /// below uses to decide whether to ask at all.
+    private var serverChoices: [(ref: ArrInstanceRef, copy: SonarrSeries)] {
+        guard let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count else { return [] }
+        return Array(zip(instanceRefs, entry.copies)).map { (ref: $0.0, copy: $0.1) }
     }
 
-    // MARK: - Cards section
+    /// Points the server-scoped state at one copy and then runs the action, so the
+    /// sheet or alert that follows opens against the server just chosen.
+    private func act(on copy: SonarrSeries, _ perform: () -> Void) {
+        actionInstanceID = copy.instanceID
+        perform()
+    }
+
+    /// A toolbar item that has to name a server when there are two. With one
+    /// server it stays a plain button — there is nothing to disambiguate and a
+    /// submenu would be a tap for nothing.
+    @ViewBuilder
+    private func serverScopedMenuItem(
+        title: String,
+        systemImage: String,
+        choiceLabel: @escaping (ArrInstanceRef, SonarrSeries) -> String = { ref, _ in ref.shortLabel },
+        isEnabled: Bool = true,
+        perform: @escaping (SonarrSeries) -> Void
+    ) -> some View {
+        let choices = serverChoices
+        if choices.isEmpty {
+            if let series = actionCopy {
+                Button {
+                    act(on: series) { perform(series) }
+                } label: {
+                    Label(title, systemImage: systemImage)
+                }
+                .disabled(!isEnabled)
+            }
+        } else {
+            Menu {
+                ForEach(choices, id: \.ref.id) { choice in
+                    Button(choiceLabel(choice.ref, choice.copy)) {
+                        act(on: choice.copy) { perform(choice.copy) }
+                    }
+                }
+            } label: {
+                Label(title, systemImage: systemImage)
+            }
+            .disabled(!isEnabled)
+        }
+    }
 
     private func completeCastCreditNavigation() {
         guard let credit = pendingCastCredit else { return }
@@ -641,26 +702,57 @@ struct SonarrSeriesDetailView: View {
     @ViewBuilder
     private func statsCard(_ series: SonarrSeries) -> some View {
         if let entry, entry.isOnMultipleInstances, instanceRefs.count == entry.copies.count {
-            HStack(spacing: 0) {
-                statCell(value: "\(series.statistics?.seasonCount ?? 0)", label: "Seasons")
-                ForEach(Array(zip(instanceRefs, entry.copies)), id: \.0.id) { ref, copy in
+            // Two rows rather than one. A pair needs episode counts, disk usage and
+            // completion *per server* — more cells than a single row can hold, and
+            // dropping the last two would tell the user less about two servers than
+            // this same card tells them about one.
+            let pairs = Array(zip(instanceRefs, entry.copies))
+            VStack(spacing: 12) {
+                HStack(spacing: 0) {
+                    statCell(value: "\(series.statistics?.seasonCount ?? 0)", label: "Seasons")
+                    ForEach(pairs, id: \.0.id) { ref, copy in
+                        cardDivider
+                        let files = copy.statistics?.episodeFileCount ?? 0
+                        let total = copy.statistics?.episodeCount ?? 0
+                        statCell(value: "\(files)/\(total)", label: "\(ref.shortLabel) Episodes")
+                    }
                     cardDivider
-                    let files = copy.statistics?.episodeFileCount ?? 0
-                    let total = copy.statistics?.episodeCount ?? 0
-                    statCell(value: "\(files)/\(total)", label: "\(ref.shortLabel) Episodes")
+                    VStack(spacing: 4) {
+                        ArrAvailabilityPill(
+                            availableTiers: availableTiers,
+                            showsTiers: !instanceRefs.isEmpty,
+                            unavailableStatus: "Not downloaded"
+                        )
+                        Text("Library")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    // Natural width, so the numeric cells share the remainder rather
+                    // than every cell taking an equal share and clipping the longest
+                    // label to "Available H...".
+                    .fixedSize(horizontal: true, vertical: false)
+                    .padding(.horizontal, 8)
                 }
-                cardDivider
-                VStack(spacing: 4) {
-                    ArrAvailabilityPill(
-                        availableTiers: availableTiers,
-                        showsTiers: !instanceRefs.isEmpty,
-                        unavailableStatus: "Not downloaded"
-                    )
-                    Text("Library")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
+                Divider().padding(.horizontal, 12)
+                HStack(spacing: 0) {
+                    ForEach(pairs, id: \.0.id) { ref, copy in
+                        let size = copy.statistics?.sizeOnDisk ?? 0
+                        statCell(
+                            value: size > 0 ? ByteFormatter.format(bytes: size) : "—",
+                            label: "\(ref.shortLabel) on Disk"
+                        )
+                        cardDivider
+                    }
+                    ForEach(Array(pairs.enumerated()), id: \.element.0.id) { index, pair in
+                        let files = pair.1.statistics?.episodeFileCount ?? 0
+                        let total = pair.1.statistics?.episodeCount ?? 0
+                        statCell(
+                            value: total > 0 ? "\(Int(Double(files) / Double(total) * 100))%" : "—",
+                            label: "\(pair.0.shortLabel) Complete"
+                        )
+                        if index < pairs.count - 1 { cardDivider }
+                    }
                 }
-                .frame(maxWidth: .infinity)
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 12)
@@ -704,41 +796,51 @@ struct SonarrSeriesDetailView: View {
     // MARK: - Search card
 
     private func seriesSearchCard(_ series: SonarrSeries) -> some View {
-        VStack(spacing: 12) {
-            instanceActionPicker
-            seriesSearchButtons(series)
+        seriesSearchButtons(series)
+    }
+
+
+    /// Extracted so the direct (one server) and chosen-server paths cannot drift.
+    private func performAutomaticSearch(_ series: SonarrSeries) {
+        guard !isDispatchingSeriesSearch else { return }
+        let seriesId = series.id
+        if let loadedEpisodes = Optional(viewModel.episodes(forSeries: seriesId, on: series.instanceID)),
+           !loadedEpisodes.isEmpty,
+           !loadedEpisodes.contains(where: { $0.monitored == true }) {
+            InAppNotificationCenter.shared.showError(
+                title: "Nothing Monitored",
+                message: "No episodes in \(series.title) are monitored, so Sonarr has nothing to search. Monitor episodes first or use Interactive Search."
+            )
+            return
+        }
+        isDispatchingSeriesSearch = true
+        Task {
+            let didStart = await viewModel.searchSeries(seriesId: seriesId)
+            isDispatchingSeriesSearch = false
+            if !didStart, let error = viewModel.error, !error.isEmpty {
+                InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
+            } else if didStart {
+                // This flow has no in-view feedback card, so show the banner here —
+                // the view model itself only logs silently now to avoid duplicate
+                // banners for flows (like the season view) that do have a card.
+                InAppNotificationCenter.shared.showSuccess(
+                    title: "Search Queued",
+                    message: "\(series.title) was sent to Sonarr for automatic search."
+                )
+            }
         }
     }
 
     private func seriesSearchButtons(_ series: SonarrSeries) -> some View {
         HStack(spacing: 12) {
             Button {
-                guard !isDispatchingSeriesSearch else { return }
-                let seriesId = series.id
-                if let loadedEpisodes = viewModel.episodes[seriesId],
-                   !loadedEpisodes.isEmpty,
-                   !loadedEpisodes.contains(where: { $0.monitored == true }) {
-                    InAppNotificationCenter.shared.showError(
-                        title: "Nothing Monitored",
-                        message: "No episodes in \(series.title) are monitored, so Sonarr has nothing to search. Monitor episodes first or use Interactive Search."
-                    )
-                    return
-                }
-                isDispatchingSeriesSearch = true
-                Task {
-                    let didStart = await viewModel.searchSeries(seriesId: seriesId)
-                    isDispatchingSeriesSearch = false
-                    if !didStart, let error = viewModel.error, !error.isEmpty {
-                        InAppNotificationCenter.shared.showError(title: "Search Failed", message: error)
-                    } else if didStart {
-                        // This flow has no in-view feedback card, so show the banner here —
-                        // the view model itself only logs silently now to avoid duplicate
-                        // banners for flows (like the season view) that do have a card.
-                        InAppNotificationCenter.shared.showSuccess(
-                            title: "Search Queued",
-                            message: "\(series.title) was sent to Sonarr for automatic search."
-                        )
-                    }
+                // With two servers the choice is made here rather than held as a
+                // mode: HD and 4K want different releases, and the answer is only
+                // obvious at the moment of asking.
+                if serverChoices.isEmpty {
+                    performAutomaticSearch(series)
+                } else {
+                    pendingServerAction = .automaticSearch
                 }
             } label: {
                 detailSearchButtonLabel(
@@ -753,7 +855,11 @@ struct SonarrSeriesDetailView: View {
             .disabled(isDispatchingSeriesSearch)
 
             Button {
-                interactiveSearchSeries = series
+                if serverChoices.isEmpty {
+                    interactiveSearchSeries = series
+                } else {
+                    pendingServerAction = .interactiveSearch
+                }
             } label: {
                 detailSearchButtonLabel(
                     title: "Interactive",
@@ -1047,8 +1153,8 @@ struct SonarrSeriesDetailView: View {
             return
         }
         await viewModel.loadQueue()
-        await viewModel.loadEpisodes(for: id)
-        await viewModel.loadEpisodeFiles(for: id)
+        await viewModel.loadEpisodes(for: id, instanceID: resolvedInstanceID)
+        await viewModel.loadEpisodeFiles(for: id, instanceID: resolvedInstanceID)
         await viewModel.loadSeries()
     }
 
@@ -1141,40 +1247,39 @@ struct SonarrSeriesDetailView: View {
             if isInLibrary {
                 Menu {
                     if let series = actionCopy {
-                        Button {
+                        // Each of these edits one server's copy. With a pair they
+                        // nest a server choice rather than inheriting a mode set
+                        // further down a page the toolbar cannot see.
+                        serverScopedMenuItem(title: "Edit", systemImage: "slider.horizontal.3") { _ in
                             showEditSheet = true
-                        } label: {
-                            Label("Edit", systemImage: "slider.horizontal.3")
                         }
 
-                        Button {
-                            rootFolderText = series.rootFolderPath ?? ""
+                        serverScopedMenuItem(title: "Change Root Folder", systemImage: "folder") { copy in
+                            rootFolderText = copy.rootFolderPath ?? ""
                             showRootFolderAlert = true
-                        } label: {
-                            Label("Change Root Folder", systemImage: "folder")
                         }
 
-                        Button {
-                            Task { await viewModel.toggleSeriesMonitored(series) }
-                        } label: {
-                            Label(
-                                series.monitored == true ? "Unmonitor" : "Monitor",
-                                systemImage: series.monitored == true ? "bookmark.slash" : "bookmark.fill"
-                            )
+                        serverScopedMenuItem(
+                            title: series.monitored == true ? "Unmonitor" : "Monitor",
+                            systemImage: series.monitored == true ? "bookmark.slash" : "bookmark.fill",
+                            choiceLabel: { ref, copy in
+                                "\(ref.shortLabel) — \(copy.monitored == true ? "Unmonitor" : "Monitor")"
+                            }
+                        ) { copy in
+                            Task { await viewModel.toggleSeriesMonitored(copy) }
                         }
 
-                        Button {
+                        serverScopedMenuItem(
+                            title: "Rename Files",
+                            systemImage: "pencil.and.list.clipboard",
+                            isEnabled: !isRenamingFiles
+                        ) { _ in
                             showRenameFilesAlert = true
-                        } label: {
-                            Label("Rename Files", systemImage: "pencil.and.list.clipboard")
                         }
-                        .disabled(isRenamingFiles)
 
                         if series.path != nil {
-                            Button {
+                            serverScopedMenuItem(title: "Manual Import", systemImage: "tray.and.arrow.down.fill") { _ in
                                 showManualImport = true
-                            } label: {
-                                Label("Manual Import", systemImage: "tray.and.arrow.down.fill")
                             }
                         }
 
