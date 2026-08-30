@@ -406,12 +406,19 @@ struct JellyfinUserEditorView: View {
     @ViewBuilder
     private func policyRow(_ label: String, value: Bool?, systemImage: String) -> some View {
         let enabled = value == true
-        LabeledContent {
+        return LabeledContent {
             Image(systemName: enabled ? "checkmark.circle.fill" : "circle")
                 .foregroundStyle(enabled ? .green : .secondary)
         } label: {
             Label(label, systemImage: systemImage)
         }
+        // The row said whether a permission was granted using colour and glyph only,
+        // so VoiceOver read every one of them as just its name - an administrator
+        // could not tell an enabled permission from a disabled one by ear. These are
+        // permissions, so that is worth stating explicitly rather than leaving to a
+        // green tick.
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(enabled ? "Enabled" : "Disabled")
     }
 
     private func policyToggle(_ label: String, field: PolicyField, binding: Binding<Bool>, systemImage: String) -> some View {

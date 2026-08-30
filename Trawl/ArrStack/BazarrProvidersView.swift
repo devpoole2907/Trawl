@@ -34,8 +34,17 @@ struct BazarrProvidersView: View {
         serviceManager.activeBazarrEntry?.client
     }
 
+    /// Every provider Bazarr has enabled, whether or not this app knows it.
+    ///
+    /// This used to `compactMap` the catalog lookup, so a provider Bazarr had enabled
+    /// that the catalog has no entry for simply vanished - with nothing on screen to
+    /// say why. "Not in our list" is not the same as "not enabled", and the catalog is
+    /// a hardcoded set that necessarily lags Bazarr's own, so this is a permanent
+    /// condition rather than a rare one.
     private var enabledProviders: [BazarrProviderDefinition] {
-        enabledProviderKeys.compactMap { BazarrProviderCatalog.definition(for: $0) }
+        enabledProviderKeys.map {
+            BazarrProviderCatalog.definition(for: $0) ?? BazarrProviderCatalog.unknown(key: $0)
+        }
     }
 
     private var filteredProviders: [BazarrProviderDefinition] {
@@ -1087,6 +1096,25 @@ private enum BazarrProviderCatalog {
 
     static func definition(for key: String) -> BazarrProviderDefinition? {
         providers.first { $0.key == key }
+    }
+
+    /// Stands in for a provider Bazarr reports as enabled that this catalog has no
+    /// entry for.
+    ///
+    /// Carries no fields deliberately: the whole reason it is unknown is that we do
+    /// not know what its settings are, and rendering editable fields we cannot name
+    /// would be worse than rendering none. The name falls back to the key's
+    /// prettified form, so the row still reads as a provider rather than a raw
+    /// identifier, and its status badge still resolves - that comes from Bazarr's own
+    /// `/api/providers`, not from this list.
+    static func unknown(key: String) -> BazarrProviderDefinition {
+        BazarrProviderDefinition(
+            key: key,
+            name: nil,
+            description: "Enabled in Bazarr. Trawl has no settings for this provider yet - configure it in Bazarr's own web UI.",
+            message: nil,
+            fields: []
+        )
     }
 
     private static func provider(
