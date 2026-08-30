@@ -1315,3 +1315,163 @@ struct LibraryImportScanSessionStoreTests {
         #expect(requestModel(from: store, manager: manager, path: "/data/Movies") === movies)
     }
 }
+
+// MARK: - Add to library: state scoping and refusal reporting
+
+/// Two reported symptoms with one cause. Tapping Add and Import on an identify
+/// sheet did nothing, and a different sheet showed a spinner where its Add button
+/// belonged — while multi-select import still worked, because `performImport()`
+/// never consulted the flag those two shared.
+///
+/// `isAddingToLibrary` was a single `Bool` on the view model that the identify
+/// sheet used both to render "Adding to library..." and to disable its buttons, so
+/// one add anywhere disabled every sheet, and any path that missed the manual
+/// reset left them disabled for good. The refusal path was worse: a five-condition
+/// `guard` returning `false` with no message, which is precisely "I hit the button
+/// and nothing happens".
+@Suite("Library import add-to-library state")
+@MainActor
+struct LibraryImportAddToLibraryStateTests {
+
+    private func viewModel() -> LibraryImportScanViewModel {
+        let vm = LibraryImportScanViewModel(
+            path: "/data/Movies-4K",
+            service: .radarr,
+            serviceManager: ArrServiceManager()
+        )
+        vm.autoIdentifyEnabled = false
+        return vm
+    }
+
+    private func blockedItem(_ name: String) -> LibraryImportItem {
+        ScanFixture.item(
+            path: "/data/Movies-4K/\(name)/\(name).mkv",
+            rejections: [ScanFixture.resolvableRejection]
+        )
+    }
+
+    private static func catalogMovie(tmdbId: Int?) -> RadarrMovie {
+        let tmdb = tmdbId.map { "\"tmdbId\": \($0)," } ?? ""
+        return ScanFixture.movie("{\"id\": 0, \(tmdb) \"title\": \"Us\", \"year\": 2019}")
+    }
+
+    @Test("Nothing is being added before anything starts")
+    func idleByDefault() {
+        let vm = viewModel()
+        #expect(!vm.isAddingToLibrary)
+        #expect(!vm.isAddingToLibrary(itemIDs: [blockedItem("Us.2019").id]))
+    }
+
+    /// The scoping that stops one sheet blanking the others.
+    @Test("Asking about one file's add never answers for another file")
+    func addStateIsScopedToItsOwnItems() async {
+        let vm = viewModel()
+        let mine = blockedItem("Us.2019")
+        let theirs = blockedItem("Heat.1995")
+        vm.blockedFiles = [mine, theirs]
+        vm.recomputeGroups()
+
+        // No Radarr client, so this refuses at the first precondition - the point is
+        // what the flag looks like afterwards, from both sheets' perspective.
+        _ = await vm.addToLibraryAndIdentify(
+            blockedItems: [mine],
+            movie: Self.catalogMovie(tmdbId: 1234),
+            importAfterAdding: false
+        )
+
+        #expect(!vm.isAddingToLibrary(itemIDs: [theirs.id]), "A second sheet must not be disabled by another file's add.")
+        #expect(!vm.isAddingToLibrary(itemIDs: [mine.id]))
+    }
+
+    /// The stuck-spinner regression: whatever happens, the flag comes back down.
+    @Test("A refused add leaves nothing marked as in flight")
+    func refusedAddDoesNotLeaveTheSheetDisabled() async {
+        let vm = viewModel()
+        let item = blockedItem("Us.2019")
+        vm.blockedFiles = [item]
+        vm.recomputeGroups()
+
+        let succeeded = await vm.addToLibraryAndIdentify(
+            blockedItems: [item],
+            movie: Self.catalogMovie(tmdbId: 1234),
+            importAfterAdding: true
+        )
+
+        #expect(!succeeded)
+        #expect(!vm.isAddingToLibrary, "A refusal must not leave every identify sheet behind a spinner.")
+        #expect(!vm.isAddingToLibrary(itemIDs: [item.id]))
+    }
+
+    /// A refusal has to say something. This is the difference between the reported
+    /// symptom and a fixable one.
+    @Test("A refused add reports a reason instead of failing silently")
+    func refusedAddReportsAReason() async {
+        let center = InAppNotificationCenter.shared
+        let before = center.recentNotifications.count
+        let vm = viewModel()
+        let item = blockedItem("Us.2019")
+        vm.blockedFiles = [item]
+        vm.recomputeGroups()
+
+        _ = await vm.addToLibraryAndIdentify(
+            blockedItems: [item],
+            movie: Self.catalogMovie(tmdbId: 1234),
+            importAfterAdding: false
+        )
+
+        #expect(center.recentNotifications.count > before, "The user has to be told why Add did nothing.")
+    }
+
+    /// A catalog result with no TMDb id cannot be added, and saying so beats a
+    /// button that appears to work.
+    @Test("A movie with no TMDb id is refused with a reason, not silently")
+    func movieWithoutTMDbIDIsRefusedLoudly() async {
+        let center = InAppNotificationCenter.shared
+        let before = center.recentNotifications.count
+        let vm = viewModel()
+        let item = blockedItem("Us.2019")
+        vm.blockedFiles = [item]
+        vm.recomputeGroups()
+
+        let succeeded = await vm.addToLibraryAndIdentify(
+            blockedItems: [item],
+            movie: Self.catalogMovie(tmdbId: nil),
+            importAfterAdding: false
+        )
+
+        #expect(!succeeded)
+        #expect(center.recentNotifications.count > before)
+        #expect(!vm.isAddingToLibrary)
+    }
+
+    /// An empty selection is the one refusal that stays quiet: there is no user
+    /// intent behind it to explain.
+    @Test("Adding no items is a quiet no-op")
+    func emptySelectionIsQuiet() async {
+        let center = InAppNotificationCenter.shared
+        let before = center.recentNotifications.count
+        let vm = viewModel()
+
+        let succeeded = await vm.addToLibraryAndIdentify(
+            blockedItems: [],
+            movie: Self.catalogMovie(tmdbId: 1234),
+            importAfterAdding: false
+        )
+
+        #expect(!succeeded)
+        #expect(center.recentNotifications.count == before)
+    }
+
+    /// The other silent `false`: an import whose files are no longer importable.
+    @Test("Importing files that are no longer importable reports it")
+    func importingMissingFilesReportsIt() async {
+        let center = InAppNotificationCenter.shared
+        let before = center.recentNotifications.count
+        let vm = viewModel()
+
+        let succeeded = await vm.importIdentifiedItems(originalIDs: ["not-in-the-scan"])
+
+        #expect(!succeeded)
+        #expect(center.recentNotifications.count > before)
+    }
+}

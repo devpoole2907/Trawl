@@ -2075,8 +2075,15 @@ private struct LibraryImportIdentifySheet: View {
         case catalogSeries(SonarrSeries)
     }
 
+    /// Scoped to this sheet's own files. Asking the view model whether *anything*
+    /// is being added disabled every open identify sheet whenever one add ran, and
+    /// left them all disabled for good if that add never cleared the flag.
+    private var isAddingTheseItems: Bool {
+        viewModel.isAddingToLibrary(itemIDs: includedItems.map(\.id))
+    }
+
     private var isConfirmDisabled: Bool {
-        selectedResult == nil || viewModel.isAddingToLibrary
+        selectedResult == nil || isAddingTheseItems
     }
 
     private var currentMatch: CurrentMatch? {
@@ -2112,7 +2119,7 @@ private struct LibraryImportIdentifySheet: View {
             if viewModel.isLoadingLibrary {
                 ProgressView("Loading library…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if viewModel.isAddingToLibrary {
+            } else if isAddingTheseItems {
                 VStack(spacing: 12) {
                     ProgressView()
                     Text("Adding to library…")

@@ -171,7 +171,17 @@ final class LibraryImportScanViewModel {
     var catalogMovieResults: [RadarrMovie] = []
     var catalogSeriesResults: [SonarrSeries] = []
     var isSearchingCatalog = false
-    var isAddingToLibrary = false
+    /// The items currently being added to the library.
+    ///
+    /// This was a single `Bool`, and the identify sheet both renders "Adding to
+    /// library..." and disables its Add buttons from it. One add anywhere therefore
+    /// blanked *every* identify sheet and disabled its buttons, and because the flag
+    /// was cleared on each return path rather than by `defer`, any path that did not
+    /// reach one left it stuck true - a sheet showing a spinner where its Add button
+    /// belongs, forever, with multi-select import still working because
+    /// `performImport()` never consults it. Tracking which items are being added lets
+    /// each sheet answer for itself, and the set is emptied by `defer`.
+    private(set) var addingToLibraryItemIDs: Set<String> = []
     var autoSuggestionMovies: [RadarrMovie] = []
     var autoSuggestionSeries: [SonarrSeries] = []
     var isLoadingAutoSuggestions = false
@@ -235,6 +245,72 @@ final class LibraryImportScanViewModel {
 
     var isBusy: Bool {
         isScanning || isImporting
+    }
+
+    /// True while any add is in flight. Kept for callers that genuinely mean "any".
+    var isAddingToLibrary: Bool { !addingToLibraryItemIDs.isEmpty }
+
+    /// True only while *these* items are being added, which is what a sheet showing
+    /// one file should be asking.
+    func isAddingToLibrary(itemIDs: some Collection<String>) -> Bool {
+        !addingToLibraryItemIDs.isDisjoint(with: itemIDs)
+    }
+
+    /// Marks these items as being added for the duration of `work`.
+    ///
+    /// `defer`, so no early return, thrown error or cancellation can leave the
+    /// identify sheets disabled behind a spinner.
+    private func whileAddingToLibrary<T>(_ itemIDs: [String], _ work: () async -> T) async -> T {
+        addingToLibraryItemIDs.formUnion(itemIDs)
+        defer { addingToLibraryItemIDs.subtract(itemIDs) }
+        return await work()
+    }
+
+    /// The root folder to add into.
+    ///
+    /// Fetched on demand when the cached list is empty. The Add button used to depend
+    /// on the server's configuration already being loaded, and both loaders swallow
+    /// their errors, so a slow or failed load left this empty and every Add silently
+    /// did nothing.
+    private func resolvedRootFolderPath() async -> String? {
+        if let cached = rootFolders.first?.path { return cached }
+        switch service {
+        case .radarr:
+            guard let fetched = try? await radarrClient?.getRootFolders() else { return nil }
+            return fetched.first?.path
+        case .sonarr:
+            guard let fetched = try? await sonarrClient?.getRootFolders() else { return nil }
+            return fetched.first?.path
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    /// The quality profile to add with, fetched on demand for the same reason.
+    private func resolvedQualityProfileID() async -> Int? {
+        if let cached = qualityProfiles.first?.id { return cached }
+        switch service {
+        case .radarr:
+            guard let fetched = try? await radarrClient?.getQualityProfiles() else { return nil }
+            qualityProfiles = fetched
+            return fetched.first?.id
+        case .sonarr:
+            guard let fetched = try? await sonarrClient?.getQualityProfiles() else { return nil }
+            qualityProfiles = fetched
+            return fetched.first?.id
+        case .prowlarr, .bazarr:
+            return nil
+        }
+    }
+
+    /// Names what stopped an add, rather than returning false in silence.
+    ///
+    /// Every branch here was one arm of a single five-condition `guard` that returned
+    /// `false` with no message and no logging: the user tapped Add and Import and the
+    /// sheet simply sat there.
+    private func reportAddPrecondition(_ reason: String) {
+        Self.logger.error("Add to library refused: \(reason, privacy: .public) [service \(self.service.displayName, privacy: .public)]")
+        InAppNotificationCenter.shared.showError(title: "Couldn't Add", message: reason)
     }
 
     private func beginImportActivity() {
@@ -1232,14 +1308,46 @@ final class LibraryImportScanViewModel {
 
     @discardableResult
     func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], movie: RadarrMovie, importAfterAdding: Bool = true) async -> Bool {
-        guard !blockedItems.isEmpty,
-              let client = radarrClient,
-              let tmdbId = movie.tmdbId,
-              let rootFolder = rootFolders.first?.path,
-              let qualityProfileId = qualityProfiles.first?.id else { return false }
+        guard !blockedItems.isEmpty else { return false }
+        guard let client = radarrClient else {
+            reportAddPrecondition("Radarr isn't connected, so \(movie.title) can't be added.")
+            return false
+        }
+        guard let tmdbId = movie.tmdbId else {
+            reportAddPrecondition("\(movie.title) has no TMDb id, so Radarr can't add it. Search for it again and pick a result from Discover.")
+            return false
+        }
+        guard let rootFolder = await resolvedRootFolderPath() else {
+            reportAddPrecondition("\(service.displayName) has no root folder to add \(movie.title) into. Add one in Library Management, then try again.")
+            return false
+        }
+        guard let qualityProfileId = await resolvedQualityProfileID() else {
+            reportAddPrecondition("Couldn't read \(service.displayName)'s quality profiles, so \(movie.title) can't be added. Check the server is reachable and try again.")
+            return false
+        }
 
-        isAddingToLibrary = true
+        return await whileAddingToLibrary(blockedItems.map(\.id)) {
+            await addMovieAndIdentify(
+                blockedItems: blockedItems,
+                movie: movie,
+                client: client,
+                tmdbId: tmdbId,
+                rootFolder: rootFolder,
+                qualityProfileId: qualityProfileId,
+                importAfterAdding: importAfterAdding
+            )
+        }
+    }
 
+    private func addMovieAndIdentify(
+        blockedItems: [LibraryImportItem],
+        movie: RadarrMovie,
+        client: RadarrAPIClient,
+        tmdbId: Int,
+        rootFolder: String,
+        qualityProfileId: Int,
+        importAfterAdding: Bool
+    ) async -> Bool {
         let resolvedMovie: RadarrMovie
         do {
             let body = RadarrAddMovieBody(
@@ -1259,16 +1367,12 @@ final class LibraryImportScanViewModel {
             if let existing = await existingLibraryMovieMatch(for: movie, after: error) {
                 resolvedMovie = existing
             } else {
-                isAddingToLibrary = false
                 InAppNotificationCenter.shared.showError(title: "Couldn't Add", message: error.localizedDescription)
                 return false
             }
         }
 
         applyIdentification(to: blockedItems, mediaID: resolvedMovie.id, title: resolvedMovie.title, posterURL: posterURL(from: resolvedMovie.images))
-        // Release the "Adding to library…" state before the (potentially long) import wait so
-        // other identify sheets aren't blocked by a flag that no longer reflects what's happening.
-        isAddingToLibrary = false
 
         if importAfterAdding {
             await importIdentifiedItems(originalIDs: Set(blockedItems.map(\.id)))
@@ -1278,15 +1382,48 @@ final class LibraryImportScanViewModel {
 
     @discardableResult
     func addToLibraryAndIdentify(blockedItems: [LibraryImportItem], series: SonarrSeries, importAfterAdding: Bool = true) async -> Bool {
-        guard !blockedItems.isEmpty,
-              let client = sonarrClient,
-              let tvdbId = series.tvdbId,
-              let titleSlug = series.titleSlug,
-              let rootFolder = rootFolders.first?.path,
-              let qualityProfileId = qualityProfiles.first?.id else { return false }
+        guard !blockedItems.isEmpty else { return false }
+        guard let client = sonarrClient else {
+            reportAddPrecondition("Sonarr isn't connected, so \(series.title) can't be added.")
+            return false
+        }
+        guard let tvdbId = series.tvdbId, let titleSlug = series.titleSlug else {
+            reportAddPrecondition("\(series.title) is missing the TVDb details Sonarr needs to add it. Search for it again and pick a result from Discover.")
+            return false
+        }
+        guard let rootFolder = await resolvedRootFolderPath() else {
+            reportAddPrecondition("\(service.displayName) has no root folder to add \(series.title) into. Add one in Library Management, then try again.")
+            return false
+        }
+        guard let qualityProfileId = await resolvedQualityProfileID() else {
+            reportAddPrecondition("Couldn't read \(service.displayName)'s quality profiles, so \(series.title) can't be added. Check the server is reachable and try again.")
+            return false
+        }
 
-        isAddingToLibrary = true
+        return await whileAddingToLibrary(blockedItems.map(\.id)) {
+            await addSeriesAndIdentify(
+                blockedItems: blockedItems,
+                series: series,
+                client: client,
+                tvdbId: tvdbId,
+                titleSlug: titleSlug,
+                rootFolder: rootFolder,
+                qualityProfileId: qualityProfileId,
+                importAfterAdding: importAfterAdding
+            )
+        }
+    }
 
+    private func addSeriesAndIdentify(
+        blockedItems: [LibraryImportItem],
+        series: SonarrSeries,
+        client: SonarrAPIClient,
+        tvdbId: Int,
+        titleSlug: String,
+        rootFolder: String,
+        qualityProfileId: Int,
+        importAfterAdding: Bool
+    ) async -> Bool {
         let resolvedSeries: SonarrSeries
         do {
             let seasons = (series.seasons ?? []).map {
@@ -1318,14 +1455,12 @@ final class LibraryImportScanViewModel {
             if let existing = await existingLibrarySeriesMatch(for: series, after: error) {
                 resolvedSeries = existing
             } else {
-                isAddingToLibrary = false
                 InAppNotificationCenter.shared.showError(title: "Couldn't Add", message: error.localizedDescription)
                 return false
             }
         }
 
         applyIdentification(to: blockedItems, mediaID: resolvedSeries.id, title: resolvedSeries.title, posterURL: posterURL(from: resolvedSeries.images))
-        isAddingToLibrary = false
 
         if importAfterAdding {
             let didImport = await importIdentifiedItems(originalIDs: Set(blockedItems.map(\.id)))
@@ -1373,7 +1508,16 @@ final class LibraryImportScanViewModel {
     @discardableResult
     func importIdentifiedItems(originalIDs: Set<String>) async -> Bool {
         let toImport = importableFiles.filter { originalIDs.contains($0.id) }
-        guard !toImport.isEmpty else { return false }
+        guard !toImport.isEmpty else {
+            // Reached when the identification did not land the files in the importable
+            // set - previously a silent `false`, which the sheet showed as nothing at all.
+            Self.logger.error("Import requested for \(originalIDs.count) files but none were importable")
+            InAppNotificationCenter.shared.showError(
+                title: "Nothing to Import",
+                message: "Those files are no longer ready to import. Pull to refresh the scan and try again."
+            )
+            return false
+        }
         return await importItems(toImport)
     }
 
