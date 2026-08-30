@@ -183,8 +183,17 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
             "H-05 regression: once SABnzbd starts rejecting the API key, SABnzbdManagerView should show its 'SABnzbd Unavailable' state instead of silently continuing to look connected."
         )
 
-        XCTAssertFalse(
-            app.staticTexts[jobName].exists,
+        // Waited for, not sampled. Every other assertion in this journey waits; this
+        // one used to check `exists` the instant the error text appeared, and the row
+        // is still in the accessibility tree for the few frames its removal animates.
+        // Measured at ~50-60ms on an idle machine, which is why this passed alone and
+        // failed inside the full plan, where the host is busy and that window widens.
+        //
+        // The timeout stays short on purpose. The assertion is guarding something
+        // real - a disconnected client must not keep showing its jobs - so a row that
+        // genuinely never clears has to fail rather than be waited out.
+        XCTAssertTrue(
+            app.staticTexts[jobName].waitForNonExistence(timeout: 5),
             "H-05 regression: the previously-connected job should not still be on screen once the client has been cleared after an unauthorized response."
         )
 
