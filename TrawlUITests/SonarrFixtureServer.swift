@@ -37,6 +37,8 @@ final class SonarrFixtureServer: @unchecked Sendable {
     /// that predates episode coverage keeps exactly the behaviour it had.
     private let episodesResponseBody: String
     private let episodeFilesResponseBody: String
+    private let downloadClientsJSON: String
+    private let logJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -57,8 +59,16 @@ final class SonarrFixtureServer: @unchecked Sendable {
         acceptedAPIKey: String? = nil,
         statusJSON: String = "{}",
         episodesJSON: String = "[]",
-        episodeFilesJSON: String = "[]"
+        episodeFilesJSON: String = "[]",
+        /// Defaults to none, which is a real answer rather than a failure: a server
+        /// with no download client is a state the app has to render.
+        downloadClientsJSON: String = "[]",
+        /// Defaults to an empty page, which is a real answer: a server with nothing
+        /// logged is a state the Events screen has to render.
+        logJSON: String = #"{"page":1,"pageSize":50,"totalRecords":0,"records":[]}"#
     ) async throws {
+        self.downloadClientsJSON = downloadClientsJSON
+        self.logJSON = logJSON
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.seriesResponseBody = seriesJSON
@@ -160,6 +170,10 @@ final class SonarrFixtureServer: @unchecked Sendable {
             return statusResponseBody
         case ("GET", "/api/v3/qualityprofile"):
             return "[]"
+        case ("GET", "/api/v3/log"):
+            return logJSON
+        case ("GET", "/api/v3/downloadclient"):
+            return downloadClientsJSON
         case ("GET", "/api/v3/rootfolder"):
             return "[]"
         case ("GET", "/api/v3/tag"):

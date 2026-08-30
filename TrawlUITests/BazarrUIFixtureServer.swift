@@ -17,6 +17,17 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
         let headers: [String: String]
     }
 
+    /// A real key from the app's provider catalog. The screen maps enabled keys
+    /// through that catalog and drops anything it does not recognise, so an invented
+    /// provider name renders as an empty list.
+    static let providerKey = "opensubtitlescom"
+    /// A provider key deliberately absent from the app's hardcoded catalog. Bazarr's
+    /// own provider set moves independently, so this is the ordinary case rather than
+    /// a contrived one - and it used to disappear from the screen entirely.
+    static let unknownProviderKey = "future_provider"
+    static let unknownProviderDisplayName = "Future Provider"
+    static let providerDisplayName = "OpenSubtitles.com"
+    static let providerStatus = "Good"
     static let languageProfileID = 71
     static let languageProfileName = "Fixture English"
     static let missingLanguageName = "English"
@@ -26,11 +37,26 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
     private let queue: DispatchQueue
     private let radarrMovieID: Int
     private let radarrMovieTitle: String
+    /// This server's linked-application settings.
+    ///
+    /// Configurable per server so a pair can be given *different* answers: the
+    /// linked-apps screen shows one section per Bazarr, and the only way to prove a
+    /// section reports its own server rather than whichever loaded last is for the
+    /// two to disagree.
+    private let linkedSonarrHost: String?
+    private let linkedRadarrHost: String?
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
 
-    init(radarrMovieID: Int, radarrMovieTitle: String) async throws {
+    init(
+        radarrMovieID: Int,
+        radarrMovieTitle: String,
+        linkedSonarrHost: String? = nil,
+        linkedRadarrHost: String? = nil
+    ) async throws {
+        self.linkedSonarrHost = linkedSonarrHost
+        self.linkedRadarrHost = linkedRadarrHost
         self.queue = DispatchQueue(label: "BazarrUIFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
         self.radarrMovieID = radarrMovieID
@@ -132,6 +158,12 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
             """#
         case ("GET", "/api/system/languages"):
             return #"{"data":[{"name":"English","code2":"en","code3":"eng","enabled":true}]}"#
+        case ("GET", "/api/providers"):
+            return #"""
+            {"data":[{"name":"\#(Self.providerKey)","status":"\#(Self.providerStatus)","retry":null},{"name":"\#(Self.unknownProviderKey)","status":"\#(Self.providerStatus)","retry":null}]}
+            """#
+        case ("GET", "/api/system/settings"):
+            return settingsJSON()
         case ("GET", "/api/movies"):
             return moviesPageJSON()
         case ("GET", "/api/series"):
@@ -140,6 +172,20 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
             // Array-style Bazarr endpoints decode this wrapped empty collection.
             return #"{"data":[]}"#
         }
+    }
+
+    /// The shape `getSettings()` decodes, carrying only the keys the linked-apps
+    /// screen reads: whether each app is switched on, and the host it points at.
+    private func settingsJSON() -> String {
+        let sonarrEnabled = linkedSonarrHost != nil
+        let radarrEnabled = linkedRadarrHost != nil
+        return #"""
+        {
+          "general": {"use_sonarr": \#(sonarrEnabled), "use_radarr": \#(radarrEnabled), "enabled_providers": ["\#(Self.providerKey)", "\#(Self.unknownProviderKey)"]},
+          "sonarr": {"ip": "\#(linkedSonarrHost ?? "")", "port": "8989", "base_url": "/", "apikey": "fixture-sonarr-key", "ssl": false},
+          "radarr": {"ip": "\#(linkedRadarrHost ?? "")", "port": "7878", "base_url": "/", "apikey": "fixture-radarr-key", "ssl": false}
+        }
+        """#
     }
 
     /// Matches BazarrMovie's production CodingKeys, including a real assigned

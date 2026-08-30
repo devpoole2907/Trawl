@@ -414,7 +414,12 @@ struct TrawlApp: App {
     private static func seedUITestArrAdminServicesIfRequested(into modelContainer: ModelContainer) {
         let fixtures: [(environment: String, name: String, type: ArrServiceType, id: String)] = [
             ("TRAWL_UITEST_PROWLARR_BASE_URL", "Fixture Prowlarr", .prowlarr, "9C6F1B4A-0000-4000-8000-000000000008"),
-            ("TRAWL_UITEST_BAZARR_BASE_URL", "Fixture Bazarr", .bazarr, "9C6F1B4A-0000-4000-8000-000000000009")
+            ("TRAWL_UITEST_BAZARR_BASE_URL", "Fixture Bazarr", .bazarr, "9C6F1B4A-0000-4000-8000-000000000009"),
+            // A second Bazarr, for the journeys that need a pair. Its name
+            // deliberately avoids containing "Fixture Bazarr", so a test can match
+            // either server unambiguously with `label CONTAINS[c]` - the same reason
+            // the second Sonarr is called "Alternate Sonarr".
+            ("TRAWL_UITEST_BAZARR_B_BASE_URL", "Alternate Bazarr", .bazarr, "9C6F1B4A-0000-4000-8000-00000000000A")
         ]
 
         for fixture in fixtures {
