@@ -496,9 +496,7 @@ struct DownloadsView: View {
             sabActiveJobs: sabnzbdServiceManager.activeJobs,
             sabHistoryJobs: sabnzbdServiceManager.historyJobs
         )
-        .sorted {
-            sortOrder.areInIncreasingOrder($0.sortValues, $1.sortValues)
-        }
+        .sortedByDownloadOrder(sortOrder)
     }
 
     @ViewBuilder
