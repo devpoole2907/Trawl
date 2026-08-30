@@ -486,7 +486,10 @@ struct SeerrLinkedApplicationEditorSheet: View {
     }
 
     private func save() async {
-        guard let payload = form.makePayload(kind: kind) else {
+        let activeProfileName = profiles
+            .first { $0.id == form.activeProfileId }?
+            .displayName ?? form.preservedActiveProfileName
+        guard let payload = form.makePayload(kind: kind, activeProfileName: activeProfileName) else {
             errorAlert = ErrorAlertItem(title: "Missing Information", message: "Fill in the required fields before saving.")
             return
         }
@@ -530,6 +533,7 @@ private struct FormState {
     var syncEnabled: Bool
     var automaticSearchEnabled: Bool
     var tagRequests: Bool
+    var preservedActiveProfileName: String?
 
     // Sonarr-only fields preserved verbatim across edits
     var preservedAnimeProfileId: Int?
@@ -557,6 +561,7 @@ private struct FormState {
             self.syncEnabled = true
             self.automaticSearchEnabled = true
             self.tagRequests = false
+            self.preservedActiveProfileName = nil
             self.preservedAnimeProfileId = nil
             self.preservedAnimeDirectory = nil
             self.preservedLanguageProfileId = nil
@@ -581,6 +586,7 @@ private struct FormState {
             // Overseerr stores `preventSearch`; Trawl exposes it as the inverse "Enable Automatic Search".
             self.automaticSearchEnabled = !(s.preventSearch ?? false)
             self.tagRequests = s.tagRequests ?? false
+            self.preservedActiveProfileName = s.activeProfileName
             self.preservedAnimeProfileId = s.activeAnimeProfileId
             self.preservedAnimeDirectory = s.activeAnimeDirectory
             self.preservedLanguageProfileId = s.activeLanguageProfileId
@@ -600,10 +606,11 @@ private struct FormState {
         && !activeDirectory.isEmpty
     }
 
-    func makePayload(kind: SeerrDVRKind) -> SeerrDVRSettings? {
+    func makePayload(kind: SeerrDVRKind, activeProfileName: String?) -> SeerrDVRSettings? {
         guard
             let port = Int(portText),
-            let activeProfileId
+            let activeProfileId,
+            let activeProfileName
         else {
             return nil
         }
@@ -617,7 +624,7 @@ private struct FormState {
             useSsl: useSsl,
             baseUrl: baseUrl.isEmpty ? nil : baseUrl,
             activeProfileId: activeProfileId,
-            activeProfileName: nil,
+            activeProfileName: activeProfileName,
             activeDirectory: activeDirectory,
             is4k: is4k,
             isDefault: isDefault,

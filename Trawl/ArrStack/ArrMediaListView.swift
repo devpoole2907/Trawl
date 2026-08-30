@@ -39,6 +39,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @State private var selectedIDs: Set<ArrMergeKey> = []
     @State private var showBulkDeleteAlert = false
     @State private var isFilterSearchExpanded = false
+    /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
+    /// this stands in for the large-title collapse the system would do for us.
+    @State private var isTitleCompact = false
 
     #if os(iOS)
     private var swiftUIEditMode: Binding<EditMode> {
@@ -55,6 +58,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
 
     var body: some View {
         baseContent
+            .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .navigationTitle(navigationTitleText)
             .navigationSubtitle(navigationSubtitleText)
             #if os(iOS)
@@ -295,7 +299,11 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     private var titleMenuToolbarItem: some ToolbarContent {
         if showsTitleMenu {
             ToolbarItem(placement: .principal) {
-                TrawlTitleMenu(options: titleMenuOptions, selection: titleMenuSelection)
+                TrawlTitleMenu(
+                    options: titleMenuOptions,
+                    selection: titleMenuSelection,
+                    isCompact: isTitleCompact
+                )
             }
         }
     }

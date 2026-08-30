@@ -15,12 +15,40 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         let path: String
         let query: String
         let headers: [String: String]
+        let body: String
+
+        /// The `jellyfinUserIds` array of an import request, decoded from JSON rather
+        /// than string-matched, so the assertion is about the values sent and not
+        /// about encoder key order or spacing.
+        var jellyfinUserIDs: [String]? {
+            guard let data = body.data(using: .utf8),
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                return nil
+            }
+            return object["jellyfinUserIds"] as? [String]
+        }
     }
 
     static let sessionCookie = "uitest-session"
     static let issueID = 701
     static let issueTitle = "Fixture Issue: Audio Dropout"
     static let detailComment = "Fixture comment loaded from the Seerr issue detail response."
+
+    /// The Jellyfin accounts Seerr offers for import. The middle one carries no
+    /// username on purpose: `SeerrJellyfinUser.displayName` falls back to the email,
+    /// and the import sheet renders that fallback.
+    static let importableUsers: [(id: String, displayName: String)] = [
+        (id: "jf-ada", displayName: "Fixture Ada"),
+        (id: "jf-grace", displayName: "grace@fixture.test"),
+        (id: "jf-linus", displayName: "Fixture Linus")
+    ]
+
+    /// The Seerr display name each imported Jellyfin ID comes back as.
+    static let importedDisplayNames: [String: String] = [
+        "jf-ada": "Fixture Ada",
+        "jf-grace": "Fixture Grace",
+        "jf-linus": "Fixture Linus"
+    ]
 
     private let listener: NWListener
     private let queue = DispatchQueue(label: "SeerrUIFixtureServer")
@@ -64,6 +92,13 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
 
     func hasReceivedRequest(method: String, path: String) -> Bool {
         requests.contains { $0.method == method && $0.path == path }
+    }
+
+    /// The import requests this fixture received, newest last. The journey asserts on
+    /// the decoded ID list: the sheet's whole job is turning ticked rows into exactly
+    /// this payload.
+    var jellyfinImportRequests: [RecordedRequest] {
+        requests.filter { $0.method == "POST" && $0.path == "/api/v1/user/import-from-jellyfin" }
     }
 
     func hasReceivedAuthenticatedRequest(method: String, path: String) -> Bool {
@@ -134,6 +169,10 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
             return (200, issueListJSON())
         case ("GET", "/api/v1/issue/\(Self.issueID)"):
             return (200, issueDetailJSON())
+        case ("GET", "/api/v1/settings/jellyfin/users"):
+            return (200, Self.jellyfinUsersJSON)
+        case ("POST", "/api/v1/user/import-from-jellyfin"):
+            return (200, Self.importedUsersJSON(for: request.jellyfinUserIDs ?? []))
         case ("POST", "/api/v1/issue/\(Self.issueID)/resolved"):
             lock.lock()
             issueIsResolved = true
@@ -216,11 +255,20 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
             headers[String(pair[0]).lowercased()] = String(pair[1]).trimmingCharacters(in: .whitespaces)
         }
 
+        // Wait for a complete body before answering. Returning a response off the
+        // headers alone would record a POST whose payload happened to land in a later
+        // TCP segment as an empty body, which is indistinguishable from the app
+        // sending nothing.
+        let contentLength = Int(headers["content-length"] ?? "0") ?? 0
+        let body = String(text[headerEnd.upperBound...])
+        guard body.utf8.count >= contentLength else { return nil }
+
         return RecordedRequest(
             method: String(requestParts[0]),
             path: String(targetParts[0]),
             query: targetParts.count == 2 ? String(targetParts[1]) : "",
-            headers: headers
+            headers: headers,
+            body: body
         )
     }
 
@@ -229,6 +277,25 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         let reason = status == 200 ? "OK" : status == 401 ? "Unauthorized" : "Not Found"
         let headers = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(bytes.count)\r\nConnection: close\r\n\r\n"
         return Data(headers.utf8) + bytes
+    }
+
+    private static let jellyfinUsersJSON = #"""
+    [
+      { "id": "jf-ada", "username": "Fixture Ada", "email": "ada@fixture.test", "thumb": null },
+      { "id": "jf-grace", "username": null, "email": "grace@fixture.test", "thumb": null },
+      { "id": "jf-linus", "username": "Fixture Linus", "email": null, "thumb": null }
+    ]
+    """#
+
+    /// Echoes back a Seerr user per requested ID, the way the real endpoint does, so
+    /// the list the journey sees afterwards is produced by the response rather than
+    /// assumed by the app.
+    private static func importedUsersJSON(for ids: [String]) -> String {
+        let users = ids.enumerated().map { index, id in
+            let name = importedDisplayNames[id] ?? id
+            return #"{"id":\#(900 + index),"displayName":"\#(name)","permissions":32,"requestCount":0}"#
+        }
+        return "[\(users.joined(separator: ","))]"
     }
 
     private static let authenticatedUserJSON = #"{"id":1,"displayName":"Fixture Admin","permissions":32,"requestCount":1}"#

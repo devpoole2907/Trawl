@@ -28,7 +28,20 @@ struct TrawlTitleMenuOption<Value: Hashable>: Identifiable {
 struct TrawlTitleMenu<Value: Hashable>: View {
     let options: [TrawlTitleMenuOption<Value>]
     @Binding var selection: Value
+    /// Shrinks the title to inline size. A `.principal` item is fixed - it takes no
+    /// part in the large-title collapse the system runs on scroll - so the screens
+    /// using this drive it from their own scroll position via
+    /// `trawlTitleMenuShrinksOnScroll(_:)`.
+    var isCompact: Bool = false
     var animation: Animation = .snappy
+
+    private var titleFont: Font {
+        isCompact ? .headline : .title.bold()
+    }
+
+    private var chevronFont: Font {
+        isCompact ? .caption2.weight(.semibold) : .subheadline.weight(.semibold)
+    }
 
     private var currentTitle: String {
         options.first { $0.value == selection }?.title ?? ""
@@ -47,16 +60,35 @@ struct TrawlTitleMenu<Value: Hashable>: View {
             }
             .pickerStyle(.inline)
         } label: {
-            HStack(spacing: 4) {
+            HStack(spacing: isCompact ? 3 : 4) {
                 Text(currentTitle)
-                    .font(.title.bold())
+                    .font(titleFont)
                     .foregroundStyle(.primary)
                 Image(systemName: "chevron.up.chevron.down")
-                    .font(.subheadline.weight(.semibold))
+                    .font(chevronFont)
                     .foregroundStyle(.secondary)
             }
+            .animation(animation, value: isCompact)
             .contentShape(Rectangle())
         }
         .accessibilityLabel("\(currentTitle), change view")
+    }
+}
+
+extension View {
+    /// Reports whether the scroll view has moved off the top, so a `TrawlTitleMenu`
+    /// can shrink the way a system large title does.
+    ///
+    /// The menu lives in a `.principal` toolbar item, which the system never
+    /// resizes, so this is the only way it can respond to scrolling at all. The
+    /// threshold is a few points rather than zero: a rubber-band overscroll crosses
+    /// zero constantly, and toggling the title on every bounce reads as a flicker.
+    func trawlTitleMenuShrinksOnScroll(_ isCompact: Binding<Bool>) -> some View {
+        onScrollGeometryChange(for: Bool.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top > 12
+        } action: { _, scrolled in
+            guard isCompact.wrappedValue != scrolled else { return }
+            withAnimation(.snappy) { isCompact.wrappedValue = scrolled }
+        }
     }
 }

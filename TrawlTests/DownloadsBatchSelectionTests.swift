@@ -201,3 +201,168 @@ struct DownloadsBatchSelectionTests {
         #expect(chrome.selectAllTitle == "Select All")
     }
 }
+
+// MARK: - Active / Queue classification
+
+/// The blended list and the client-scoped lists have to agree about what a
+/// download is doing. They didn't: a blended row backed by a download client was
+/// filed by the *arr's import state, which stays "downloading" while the client
+/// has the job paused, so the same paused download read as Active in the blended
+/// list and Queue under the SABnzbd scope.
+@Suite("Downloads active/queue classification")
+@MainActor
+struct DownloadsSectionClassificationTests {
+    private static let decoder = JSONDecoder()
+
+    private static func sabJob(status: String, id: String = "SABnzbd_nzo_1") throws -> SABnzbdJob {
+        let json = """
+        {
+          "nzo_id": "\(id)",
+          "filename": "Example.Job",
+          "status": "\(status)",
+          "timeleft": "0:10:00",
+          "percentage": "50",
+          "size": "1 GB",
+          "sizeleft": "500 MB",
+          "mb": "1024",
+          "mbleft": "512"
+        }
+        """
+        return SABnzbdJob(queueSlot: try decoder.decode(SABnzbdQueueSlot.self, from: Data(json.utf8)))
+    }
+
+    private static func torrent(state: String, hash: String = "abc") throws -> Torrent {
+        let json = """
+        {
+          "hash": "\(hash)", "name": "Example", "size": 1000, "progress": 0.5,
+          "dlspeed": 0, "upspeed": 0, "priority": 1, "num_seeds": 2, "num_leechs": 1,
+          "ratio": 0.5, "eta": 600, "state": "\(state)", "category": "", "tags": "",
+          "added_on": 0, "completion_on": 0, "save_path": "/downloads",
+          "dl_session": 0, "up_session": 0, "amount_left": 500, "total_size": 1000,
+          "seq_dl": false, "f_l_piece_prio": false
+        }
+        """
+        return try decoder.decode(Torrent.self, from: Data(json.utf8))
+    }
+
+    /// The *arr keeps reporting "downloading" because that is its import stage,
+    /// not the client's transfer state.
+    private static func downloadingQueueItem() throws -> ArrQueueItem {
+        let json = """
+        { "id": 1, "title": "Example", "size": 1000, "sizeleft": 500, "movieId": 7,
+          "status": "downloading", "trackedDownloadState": "downloading" }
+        """
+        return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    private static func importingQueueItem() throws -> ArrQueueItem {
+        let json = """
+        { "id": 2, "title": "Example", "size": 1000, "sizeleft": 0, "movieId": 7,
+          "status": "completed", "trackedDownloadState": "importing" }
+        """
+        return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    @Test("A paused SABnzbd job is waiting, whatever the Arr still calls it")
+    func pausedSABJobIsWaiting() throws {
+        let activity = DownloadsViewModel.activity(
+            of: try Self.downloadingQueueItem(),
+            linkedTorrent: nil,
+            linkedSABJob: try Self.sabJob(status: "Paused")
+        )
+        #expect(activity == .waiting)
+    }
+
+    /// The bug in one assertion: the blended row and the SABnzbd-scoped row are
+    /// the same download, so they must land in the same section.
+    @Test("The blended row and the SABnzbd-scoped row agree about a paused job")
+    func blendedAndScopedAgree() throws {
+        let job = try Self.sabJob(status: "Paused")
+        let blended = DownloadsViewModel.activity(
+            of: try Self.downloadingQueueItem(),
+            linkedTorrent: nil,
+            linkedSABJob: job
+        )
+        #expect(blended == .waiting)
+        #expect(DownloadsViewModel.isWaiting(job))
+        #expect(!DownloadsViewModel.isActive(job))
+    }
+
+    @Test("A downloading SABnzbd job is active")
+    func downloadingSABJobIsActive() throws {
+        let activity = DownloadsViewModel.activity(
+            of: try Self.downloadingQueueItem(),
+            linkedTorrent: nil,
+            linkedSABJob: try Self.sabJob(status: "Downloading")
+        )
+        #expect(activity == .active)
+    }
+
+    @Test("A paused torrent is waiting and a downloading one is active")
+    func torrentStateDecides() throws {
+        let item = try Self.downloadingQueueItem()
+        #expect(
+            DownloadsViewModel.activity(of: item, linkedTorrent: try Self.torrent(state: "pausedDL"), linkedSABJob: nil) == .waiting
+        )
+        #expect(
+            DownloadsViewModel.activity(of: item, linkedTorrent: try Self.torrent(state: "downloading"), linkedSABJob: nil) == .active
+        )
+    }
+
+    /// A finished client job still in the Arr's queue is being imported, and the
+    /// import is the work left - so the Arr decides rather than the row falling
+    /// out of both sections.
+    @Test("A completed client job falls back to the Arr's own state")
+    func completedClientJobFallsBackToArr() throws {
+        #expect(
+            DownloadsViewModel.activity(
+                of: try Self.importingQueueItem(),
+                linkedTorrent: nil,
+                linkedSABJob: try Self.sabJob(status: "Completed")
+            ) == .active
+        )
+        #expect(
+            DownloadsViewModel.activity(
+                of: try Self.importingQueueItem(),
+                linkedTorrent: try Self.torrent(state: "uploading"),
+                linkedSABJob: nil
+            ) == .active
+        )
+    }
+
+    @Test("An unlinked row is classified by the Arr alone")
+    func unlinkedRowUsesArrState() throws {
+        #expect(
+            DownloadsViewModel.activity(of: try Self.downloadingQueueItem(), linkedTorrent: nil, linkedSABJob: nil) == .active
+        )
+        #expect(
+            DownloadsViewModel.activity(of: try Self.queuedQueueItem(), linkedTorrent: nil, linkedSABJob: nil) == .waiting
+        )
+    }
+
+    private static func queuedQueueItem() throws -> ArrQueueItem {
+        let json = """
+        { "id": 3, "title": "Example", "size": 1000, "sizeleft": 1000, "movieId": 7,
+          "status": "queued", "trackedDownloadState": "queued" }
+        """
+        return try decoder.decode(ArrQueueItem.self, from: Data(json.utf8))
+    }
+
+    /// Totality: whatever the pair of states, a row is always in exactly one of the
+    /// two sections. Losing that would drop downloads off the tab entirely.
+    @Test("Every combination lands in exactly one section")
+    func classificationIsTotal() throws {
+        let statuses = ["Downloading", "Paused", "Queued", "Completed", "Failed", "Extracting", "Repairing"]
+        let items = [try Self.downloadingQueueItem(), try Self.importingQueueItem(), try Self.queuedQueueItem()]
+        for item in items {
+            for status in statuses {
+                let activity = DownloadsViewModel.activity(
+                    of: item,
+                    linkedTorrent: nil,
+                    linkedSABJob: try Self.sabJob(status: status)
+                )
+                #expect(activity == .active || activity == .waiting)
+            }
+        }
+    }
+}

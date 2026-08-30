@@ -27,7 +27,11 @@ struct LibraryImportScanView: View {
     @State private var viewModel: LibraryImportScanViewModel
     private let instanceLabel: String?
     @State private var showSelectionReview = false
-    @State private var isSelectingMode = false
+    /// Selection is the List's own (`List(selection:)` + edit mode), not a
+    /// hand-drawn checkmark per row. The rows are groups while the import model
+    /// tracks individual file IDs, so `selectedGroupTags` below is the adapter
+    /// between the two.
+    @State private var editMode: SelectionMode = .inactive
     @State private var reviewingGroup: LibraryImportGroup?
     @State private var reviewingBlockedGroup: LibraryImportGroup?
     @State private var selectedTab: LibraryImportScanTab = .new
@@ -87,6 +91,40 @@ struct LibraryImportScanView: View {
         if n == 0 { return .none }
         return n == group.items.count ? .all : .partial
     }
+
+    // MARK: Native selection adapter
+
+    /// The groups currently on screen, per selection bucket. The view model does the
+    /// group-tag <-> file-ID mapping (`selectionTags` / `applySelectionTags`) so the
+    /// part that has to survive search filtering and auto-identification is testable
+    /// without a view.
+    private var readyBucketGroups: [LibraryImportGroup] { readyGroups + inLibraryGroups }
+    private var blockedBucketGroups: [LibraryImportGroup] { pendingAddGroups + needsIDGroups + blockedGroups }
+
+    private func rowTag(_ bucket: LibraryImportScanViewModel.SelectionBucket, _ group: LibraryImportGroup) -> String {
+        LibraryImportScanViewModel.selectionTag(bucket, group)
+    }
+
+    private var selectedGroupTags: Binding<Set<String>> {
+        Binding(
+            get: { viewModel.selectionTags(ready: readyBucketGroups, blocked: blockedBucketGroups) },
+            set: { viewModel.applySelectionTags($0, ready: readyBucketGroups, blocked: blockedBucketGroups) }
+        )
+    }
+
+    #if os(iOS)
+    /// `EditMode` is unavailable on macOS and this file compiles into TrawlMac, so
+    /// the app-wide `SelectionMode` shim holds the state and only iOS bridges it
+    /// into the environment. macOS gets `List`'s native click selection instead.
+    private var swiftUIEditMode: Binding<EditMode> {
+        Binding(
+            get: { editMode.isEditing ? .active : .inactive },
+            set: { newMode in
+                withAnimation(.snappy) { editMode = newMode.isEditing ? .active : .inactive }
+            }
+        )
+    }
+    #endif
 
     // MARK: Auto-identify text
 
@@ -156,7 +194,7 @@ struct LibraryImportScanView: View {
     // MARK: Body
 
     var body: some View {
-        List {
+        List(selection: selectedGroupTags) {
             statusSection
 
             if viewModel.importKind == .manual {
@@ -186,15 +224,18 @@ struct LibraryImportScanView: View {
                         description: Text("No unmapped files found in this directory.")
                     )
                     .listRowBackground(Color.clear)
+                    .selectionDisabled()
                 }
             }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
+        .environment(\.editMode, swiftUIEditMode)
         #else
         .listStyle(.inset)
         #endif
+        .animation(.snappy, value: editMode.isEditing)
         .animation(.snappy, value: viewModel.hasPerformedInitialScan)
         .animation(.snappy, value: viewModel.isAutoIdentifying)
         .animation(.snappy, value: viewModel.isImporting)
@@ -235,7 +276,7 @@ struct LibraryImportScanView: View {
             }
 
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                if isSelectingMode {
+                if editMode.isEditing {
                     Button(viewModel.allSelected ? "Deselect All" : "Select All") {
                         withAnimation(.snappy) { viewModel.toggleSelectAll() }
                     }
@@ -254,16 +295,18 @@ struct LibraryImportScanView: View {
                 }
 
                 if hasAnyContent {
-                    Button(isSelectingMode ? "Done" : "Select") {
+                    Button(editMode.isEditing ? "Done" : "Select") {
                         withAnimation(.snappy) {
-                            isSelectingMode.toggle()
-                            if !isSelectingMode {
+                            if editMode.isEditing {
+                                editMode = .inactive
                                 viewModel.selectedFiles.removeAll()
                                 viewModel.selectedBlockedFiles.removeAll()
+                            } else {
+                                editMode = .active
                             }
                         }
                     }
-                    .fontWeight(isSelectingMode ? .semibold : .regular)
+                    .fontWeight(editMode.isEditing ? .semibold : .regular)
                 }
             }
         }
@@ -420,18 +463,16 @@ struct LibraryImportScanView: View {
                     Toggle(isOn: Binding(get: { viewModel.seasonFolder }, set: { viewModel.seasonFolder = $0 })) {
                         Label("Season Folder", systemImage: "folder.badge.plus")
                     }
+                    .selectionDisabled()
                 }
                 ForEach(readyExpanded ? readyGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleGroup(itemIDs: group.items.map(\.id)) }
-                            } else { reviewingGroup = group }
-                        }
+                        isSelectingMode: editMode.isEditing,
+                        onToggle: { reviewingGroup = group }
                     )
+                    .tag(rowTag(.ready, group))
                     .contextMenu { Button("Review", systemImage: "list.bullet.rectangle") { reviewingGroup = group } }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button { reviewingGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
@@ -456,13 +497,10 @@ struct LibraryImportScanView: View {
                     LibraryImportGroupRow(
                         group: group, style: .pendingAdd,
                         selectionState: blockedGroupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
-                            } else { viewModel.beginIdentifying(group: group) }
-                        }
+                        isSelectingMode: editMode.isEditing,
+                        onToggle: { viewModel.beginIdentifying(group: group) }
                     )
+                    .tag(rowTag(.blocked, group))
                     .contextMenu { Button("Add to \(viewModel.service.displayName)", systemImage: "plus.circle") { viewModel.beginIdentifying(group: group) } }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button("Add", systemImage: "plus.circle") { viewModel.beginIdentifying(group: group) }.tint(.green)
@@ -487,13 +525,10 @@ struct LibraryImportScanView: View {
                     LibraryImportGroupRow(
                         group: group, style: .unidentified,
                         selectionState: blockedGroupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
-                            } else { viewModel.beginIdentifying(group: group) }
-                        }
+                        isSelectingMode: editMode.isEditing,
+                        onToggle: { viewModel.beginIdentifying(group: group) }
                     )
+                    .tag(rowTag(.blocked, group))
                     .contextMenu { Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) } }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button("Identify", systemImage: "rectangle.and.text.magnifyingglass") { viewModel.beginIdentifying(group: group) }.tint(.blue)
@@ -518,13 +553,10 @@ struct LibraryImportScanView: View {
                     LibraryImportGroupRow(
                         group: group, style: .blocked,
                         selectionState: blockedGroupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleBlockedGroup(itemIDs: group.items.map(\.id)) }
-                            } else { reviewingBlockedGroup = group }
-                        }
+                        isSelectingMode: editMode.isEditing,
+                        onToggle: { reviewingBlockedGroup = group }
                     )
+                    .tag(rowTag(.blocked, group))
                     .contextMenu {
                         Button("Review", systemImage: "list.bullet.rectangle") { reviewingBlockedGroup = group }
                         if !group.isIdentified {
@@ -554,18 +586,16 @@ struct LibraryImportScanView: View {
                     Text("Untracked files for movies you already own - import only to replace or upgrade the existing file.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .selectionDisabled()
                 }
                 ForEach(inLibraryExpanded ? inLibraryGroups : []) { group in
                     LibraryImportGroupRow(
                         group: group, style: .ready,
                         selectionState: groupSelectionState(group),
-                        isSelectingMode: isSelectingMode,
-                        onToggle: {
-                            if isSelectingMode {
-                                withAnimation(.snappy) { viewModel.toggleGroup(itemIDs: group.items.map(\.id)) }
-                            } else { reviewingGroup = group }
-                        }
+                        isSelectingMode: editMode.isEditing,
+                        onToggle: { reviewingGroup = group }
                     )
+                    .tag(rowTag(.ready, group))
                     .contextMenu { Button("Review", systemImage: "list.bullet.rectangle") { reviewingGroup = group } }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                         Button { reviewingGroup = group } label: { Label("Review", systemImage: "list.bullet.rectangle") }.tint(.blue)
@@ -591,9 +621,11 @@ struct LibraryImportScanView: View {
                     Text("Already imported into \(viewModel.service.displayName) from this folder. Nothing to do here - shown so you can see what's already handled.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    // Nothing here can be imported, so nothing here can be selected.
                     ForEach(ownedImportedTitles) { title in
                         OwnedImportedRow(title: title)
                     }
+                    .selectionDisabled()
                 }
             } header: {
                 LibraryImportDisclosureHeader(
@@ -1559,92 +1591,91 @@ private struct LibraryImportGroupRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onToggle) {
-            HStack(spacing: 12) {
-                ArrArtworkView(url: group.posterURL) {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 8).fill(.quaternary)
-                        Image(systemName: style.placeholderIcon)
-                            .font(.system(size: 14))
-                            .foregroundStyle(style == .ready
-                                ? AnyShapeStyle(.tertiary)
-                                : AnyShapeStyle(style.accentColor))
-                    }
-                }
-                .frame(width: 46, height: 69)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(group.displayTitle)
-                            .font(.subheadline.weight(.semibold))
-                            .lineLimit(1)
-                        if let badge = style.badge {
-                            statusChip(badge.text, color: badge.color)
-                        }
-                    }
-
-                    Text(group.episodeSummary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-
-                    if group.isIdentified || group.isPendingAdd {
-                        Text(group.fileSummary)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(height: 32, alignment: .topLeading)
-                    }
-
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 4) {
-                            ForEach(group.qualityNames, id: \.self) { name in
-                                statusChip(name, color: .blue)
-                            }
-                            statusChip(ByteFormatter.format(bytes: group.totalSize), color: .secondary)
-                        }
-                    }
-
-                    if style == .blocked, let firstReason = group.rejectionReasons.first {
-                        let extra = group.rejectionReasons.count - 1
-                        let suffix = extra > 0 ? " · +\(extra) more" : ""
-                        HStack(alignment: .firstTextBaseline, spacing: 2) {
-                            Image(systemName: "xmark.circle.fill")
-                            Text("\(firstReason)\(suffix)")
-                                .lineLimit(2)
-                        }
-                        .font(.caption2)
-                        .foregroundStyle(.red)
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                if isSelectingMode {
-                    selectionIcon
-                        .font(.title3)
-                        .contentTransition(.symbolEffect(.replace))
-                }
-            }
-            .padding(.vertical, 4)
-            .contentShape(Rectangle())
+        // While selecting, the row is a plain label: the List owns selection and
+        // draws its own circle, so a Button here would be a second tap handler
+        // fighting the first. Outside selection the row keeps its own action
+        // (review / identify).
+        if isSelectingMode {
+            content
+        } else {
+            Button(action: onToggle) { content }
+                .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private var selectionIcon: some View {
-        switch selectionState {
-        case .all:
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundStyle(AnyShapeStyle(.tint))
-        case .partial:
-            Image(systemName: "minus.circle.fill")
-                .foregroundStyle(AnyShapeStyle(.orange))
-        case .none:
-            Image(systemName: "circle")
-                .foregroundStyle(AnyShapeStyle(.secondary))
+    private var content: some View {
+        HStack(spacing: 12) {
+            ArrArtworkView(url: group.posterURL) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8).fill(.quaternary)
+                    Image(systemName: style.placeholderIcon)
+                        .font(.system(size: 14))
+                        .foregroundStyle(style == .ready
+                            ? AnyShapeStyle(.tertiary)
+                            : AnyShapeStyle(style.accentColor))
+                }
+            }
+            .frame(width: 46, height: 69)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
+
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 6) {
+                    Text(group.displayTitle)
+                        .font(.subheadline.weight(.semibold))
+                        .lineLimit(1)
+                    if let badge = style.badge {
+                        statusChip(badge.text, color: badge.color)
+                    }
+                }
+
+                Text(group.episodeSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                if group.isIdentified || group.isPendingAdd {
+                    Text(group.fileSummary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(height: 32, alignment: .topLeading)
+                }
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 4) {
+                        ForEach(group.qualityNames, id: \.self) { name in
+                            statusChip(name, color: .blue)
+                        }
+                        statusChip(ByteFormatter.format(bytes: group.totalSize), color: .secondary)
+                    }
+                }
+
+                if style == .blocked, let firstReason = group.rejectionReasons.first {
+                    let extra = group.rejectionReasons.count - 1
+                    let suffix = extra > 0 ? " · +\(extra) more" : ""
+                    HStack(alignment: .firstTextBaseline, spacing: 2) {
+                        Image(systemName: "xmark.circle.fill")
+                        Text("\(firstReason)\(suffix)")
+                            .lineLimit(2)
+                    }
+                    .font(.caption2)
+                    .foregroundStyle(.red)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            // The List's own tick covers selected / not selected. Partial is the
+            // one state it cannot express - the group is ticked, but only some of
+            // its files were kept in the group sheet - so that alone stays drawn.
+            if isSelectingMode, selectionState == .partial {
+                Image(systemName: "minus.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Some files selected")
+            }
         }
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 

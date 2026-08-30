@@ -342,6 +342,30 @@ struct SeerrContractTests {
         ])
     }
 
+    @Test("Creating a 4K linked server sends the required quality profile name")
+    func createLinked4KServerSendsProfileName() async throws {
+        SeerrContractURLProtocol.stub(body: Data(SeerrFixture.dvrSettingsItem.utf8))
+        let client = makeClient()
+        let settings = SeerrDVRSettings.preview(
+            id: 0,
+            name: "Sonarr 4K",
+            port: 8989,
+            activeProfileName: "Ultra-HD",
+            is4k: true
+        )
+
+        _ = try await client.createDVRSettings(.sonarr, body: settings)
+
+        let request = try #require(SeerrContractURLProtocol.recordedRequests.first)
+        #expect(request.method == "POST")
+        #expect(request.path == "/api/v1/settings/sonarr")
+        let body = try #require(request.body)
+        let json = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(json["activeProfileId"] as? Int == 1)
+        #expect(json["activeProfileName"] as? String == "Ultra-HD")
+        #expect(json["is4k"] as? Bool == true)
+    }
+
     // MARK: - Mixed and missing response fields
 
     @Test("Request list decodes missing, null, and mixed-shape fields without failing")
@@ -479,6 +503,31 @@ struct SeerrContractTests {
                 cookie: "connect.sid=session-token-1",
                 contentType: "application/json",
                 body: Data(#"{"permissions":32}"#.utf8)
+            )
+        ])
+    }
+
+    @Test("The Jellyfin import sheet's account list decodes, including the display-name fallbacks")
+    func jellyfinUsersDecodeWithDisplayNameFallbacks() async throws {
+        SeerrContractURLProtocol.stub(body: Data(SeerrFixture.jellyfinUsers.utf8))
+        let client = makeClient()
+
+        let users = try await client.getJellyfinUsers()
+
+        // What the import sheet puts on each row. Seerr omits `username` for accounts
+        // it only knows by email, and can return neither - a row showing a raw
+        // Jellyfin ID is bad but a blank row is worse, so both fallbacks are pinned.
+        #expect(users.map({ $0.id }) == ["jf-ada", "jf-grace", "jf-anon"])
+        #expect(users.map({ $0.displayName }) == ["Ada", "grace.hopper@example.test", "jf-anon"])
+        #expect(users.map({ $0.email }) == ["ada@example.test", "grace.hopper@example.test", nil])
+        #expect(SeerrContractURLProtocol.recordedRequests == [
+            SeerrRecordedRequest(
+                method: "GET",
+                path: "/api/v1/settings/jellyfin/users",
+                queryPairs: [],
+                cookie: "connect.sid=session-token-1",
+                contentType: nil,
+                body: nil
             )
         ])
     }
@@ -1149,6 +1198,20 @@ private nonisolated enum SeerrFixture {
     ]
     """#
 
+    static let dvrSettingsItem = #"""
+    {
+      "id": 4,
+      "name": "Sonarr 4K",
+      "hostname": "preview.local",
+      "port": 8989,
+      "apiKey": "preview-key",
+      "activeProfileId": 1,
+      "activeProfileName": "Ultra-HD",
+      "activeDirectory": "/data/media",
+      "is4k": true
+    }
+    """#
+
     static let dvrPickerData = #"""
     {
       "profiles": [ { "id": 6, "name": "HD-1080p" }, { "id": 9 } ],
@@ -1170,6 +1233,14 @@ private nonisolated enum SeerrFixture {
 
     static let singleUser = #"""
     { "id": 7, "displayName": "Ada", "jellyfinUsername": "ada", "permissions": 32, "requestCount": 12 }
+    """#
+
+    static let jellyfinUsers = #"""
+    [
+      { "id": "jf-ada", "username": "Ada", "email": "ada@example.test", "thumb": "/avatar/ada.png" },
+      { "id": "jf-grace", "username": null, "email": "grace.hopper@example.test", "thumb": null },
+      { "id": "jf-anon", "username": "", "email": null, "thumb": null }
+    ]
     """#
 
     static let importedUsers = #"""

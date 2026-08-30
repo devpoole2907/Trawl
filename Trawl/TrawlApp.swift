@@ -18,6 +18,9 @@ struct TrawlApp: App {
 
     let modelContainer: ModelContainer
     @State private var arrServiceManager = ArrServiceManager()
+    /// App-level so any screen can show what the configuration audit found without
+    /// re-running it: a badge, a hub row, or the setup-check wizard.
+    @State private var configurationAuditStore = ConfigurationAuditStore()
     @State private var seerrServiceManager = SeerrServiceManager()
     @State private var jellyfinServiceManager = JellyfinServiceManager()
     @State private var sabnzbdServiceManager = SABnzbdServiceManager()
@@ -113,6 +116,7 @@ struct TrawlApp: App {
         WindowGroup {
             ContentView()
                 .environment(arrServiceManager)
+                .environment(configurationAuditStore)
                 .environment(seerrServiceManager)
                 .environment(jellyfinServiceManager)
                 .environment(sabnzbdServiceManager)

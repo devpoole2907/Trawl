@@ -1,160 +1,231 @@
 import SwiftData
 import SwiftUI
 
+/// Renders the screen from fixed values instead of a live Bazarr, for `#Preview`.
+/// Nil in the app, where every section comes from its own server.
+struct BazarrLinkedApplicationsPreviewState {
+    var settings: [String: JSONValue] = [:]
+    var isLoading = false
+    var errorMessage: String?
+}
+
+/// Identifies one editable connection: which Bazarr, and which app it links to.
+private struct BazarrLinkedApplicationTarget: Identifiable, Hashable {
+    let instanceID: UUID
+    let appType: BazarrLinkedApplicationType
+
+    var id: String { "\(instanceID)-\(appType.rawValue)" }
+}
+
 struct BazarrLinkedApplicationsListView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
-    @State private var settings: [String: JSONValue] = [:]
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-    @State private var editorContext: BazarrLinkedApplicationType?
-    /// Which Bazarr is being configured. Linked applications are per-server
-    /// settings - each Bazarr keeps its own Sonarr and Radarr connection - so a
-    /// screen bound to whichever one happened to be active could only ever
-    /// configure half of a pair, and gave no hint the other half existed.
-    @State private var selectedInstanceID: UUID?
-    private let loadsOnAppear: Bool
+    /// Every Bazarr's settings, held side by side.
+    ///
+    /// This screen used to show one server at a time behind a scope bar, reloading
+    /// on each switch. Switching tore the list down to a spinner and rebuilt it,
+    /// which read as the page jumping, and the settings being cleared mid-flight
+    /// was load-bearing: they seed the editor sheet, so leaving the previous
+    /// server's values up risked saving one Bazarr's host and API key into the
+    /// other. Loading both up front and giving each its own section removes the
+    /// switch entirely - there is nothing to tear down, and no window in which the
+    /// visible values belong to a server other than the one their section names.
+    @State private var settingsByInstance: [UUID: [String: JSONValue]] = [:]
+    @State private var errorsByInstance: [UUID: String] = [:]
+    @State private var loadingInstanceIDs: Set<UUID> = []
+    @State private var editorTarget: BazarrLinkedApplicationTarget?
+    private let previewState: BazarrLinkedApplicationsPreviewState?
 
     init() {
-        loadsOnAppear = true
+        previewState = nil
+    }
+
+    private func settings(for instanceID: UUID) -> [String: JSONValue] {
+        previewState?.settings ?? settingsByInstance[instanceID] ?? [:]
+    }
+
+    private func errorMessage(for instanceID: UUID) -> String? {
+        previewState?.errorMessage ?? errorsByInstance[instanceID]
+    }
+
+    private func isLoading(for instanceID: UUID) -> Bool {
+        if let previewState { return previewState.isLoading }
+        return loadingInstanceIDs.contains(instanceID) && settingsByInstance[instanceID] == nil
     }
 
     private var availableInstances: [ArrInstanceRef] {
         serviceManager.bazarrRefs
     }
 
-    private var selectedInstance: ArrInstanceRef? {
-        availableInstances.first { $0.id == selectedInstanceID } ?? availableInstances.first
-    }
-
-    /// Every read and write on this screen goes to the selected server.
-    private var client: BazarrAPIClient? {
-        selectedInstance.flatMap { serviceManager.bazarrClient(for: $0.id) }
+    private var isLoadingEverything: Bool {
+        if let previewState { return previewState.isLoading }
+        return !loadingInstanceIDs.isEmpty && settingsByInstance.isEmpty && errorsByInstance.isEmpty
     }
 
     var body: some View {
         List {
-            if isLoading && settings.isEmpty {
+            if availableInstances.isEmpty {
+                ContentUnavailableView(
+                    "No Bazarr Servers",
+                    systemImage: "captions.bubble",
+                    description: Text("Connect Bazarr to manage the apps it syncs from.")
+                )
+                .listRowBackground(Color.clear)
+            } else if isLoadingEverything {
                 Section {
                     ProgressView("Loading linked applications...")
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
-            } else if let errorMessage {
-                ContentUnavailableView(
-                    "Could Not Load Apps",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage)
-                )
-                .listRowBackground(Color.clear)
             } else {
-                Section {
-                    ForEach(BazarrLinkedApplicationType.allCases) { appType in
-                        Button {
-                            editorContext = appType
-                        } label: {
-                            BazarrLinkedApplicationRow(
-                                appType: appType,
-                                settings: settings
-                            )
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            if settings.isBazarrLinkedApplicationEnabled(appType) {
-                                Button(role: .destructive) {
-                                    Task { await disable(appType) }
-                                } label: {
-                                    Label("Disable", systemImage: "nosign")
-                                }
-                            }
-
-                            Button {
-                                editorContext = appType
-                            } label: {
-                                Label("Edit", systemImage: "pencil")
-                            }
-                            .tint(.indigo)
-                        }
-                        .contextMenu {
-                            Button("Edit", systemImage: "pencil") {
-                                editorContext = appType
-                            }
-
-                            if settings.isBazarrLinkedApplicationEnabled(appType) {
-                                Button("Disable", systemImage: "nosign", role: .destructive) {
-                                    Task { await disable(appType) }
-                                }
-                            }
-                        }
-                    }
-                } footer: {
-                    Text("Bazarr uses these connections to sync series, episodes, and movies from Sonarr/Radarr.")
+                ForEach(availableInstances) { instance in
+                    instanceSection(instance)
                 }
             }
         }
         .navigationTitle("Linked Apps")
-        .navigationSubtitle(navigationSubtitleText)
-        .safeAreaInset(edge: .top) {
-            // Renders only when there is more than one Bazarr, so a single-server
-            // setup sees exactly what it saw before.
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
-        }
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.insetGrouped)
         #else
         .listStyle(.inset)
         #endif
-        .refreshable { await load() }
-        .task(id: selectedInstance?.id) {
-            guard loadsOnAppear else { return }
-            await load()
+        .refreshable { await loadAll() }
+        .task {
+            guard previewState == nil else { return }
+            await loadAll()
         }
-        .onChange(of: selectedInstance?.id) { _, _ in
-            // Drop the previous server's settings immediately rather than leaving
-            // them on screen until the next load lands. They are the values the
-            // editor sheet seeds itself from, so saving against a freshly selected
-            // server while they are still showing would write the other server's
-            // host, port and API key into it.
-            settings = [:]
-            errorMessage = nil
-        }
-        .sheet(item: $editorContext) { appType in
+        .sheet(item: $editorTarget) { target in
             BazarrLinkedApplicationEditorSheet(
-                appType: appType,
-                settings: settings
+                appType: target.appType,
+                settings: settings(for: target.instanceID)
             ) { formItems in
-                await save(appType: appType, formItems: formItems)
+                await save(target: target, formItems: formItems)
             }
             .environment(serviceManager)
         }
     }
 
-    /// Names the server being configured once there is a choice, so a screen full
-    /// of connection settings can't be read as belonging to the wrong one.
-    private var navigationSubtitleText: String {
-        guard availableInstances.count > 1, let selectedInstance else { return "Bazarr" }
-        return ArrInstanceScopeBar.label(for: selectedInstance, in: serviceManager)
-    }
+    /// One section per Bazarr, each carrying that server's own connections.
+    @ViewBuilder
+    private func instanceSection(_ instance: ArrInstanceRef) -> some View {
+        Section {
+            if let errorMessage = errorMessage(for: instance.id) {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            } else if isLoading(for: instance.id) {
+                ProgressView()
+                    .frame(maxWidth: .infinity, alignment: .center)
+            } else {
+                let settings = settings(for: instance.id)
+                ForEach(BazarrLinkedApplicationType.allCases) { appType in
+                    Button {
+                        editorTarget = BazarrLinkedApplicationTarget(instanceID: instance.id, appType: appType)
+                    } label: {
+                        BazarrLinkedApplicationRow(appType: appType, settings: settings)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        if settings.isBazarrLinkedApplicationEnabled(appType) {
+                            Button(role: .destructive) {
+                                Task { await disable(appType, on: instance) }
+                            } label: {
+                                Label("Disable", systemImage: "nosign")
+                            }
+                        }
 
-    private func load() async {
-        guard let client else { return }
-        isLoading = true
-        errorMessage = nil
-        do {
-            settings = try await client.getSettings()
-        } catch {
-            errorMessage = error.localizedDescription
+                        Button {
+                            editorTarget = BazarrLinkedApplicationTarget(instanceID: instance.id, appType: appType)
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(.indigo)
+                    }
+                    .contextMenu {
+                        Button("Edit", systemImage: "pencil") {
+                            editorTarget = BazarrLinkedApplicationTarget(instanceID: instance.id, appType: appType)
+                        }
+
+                        if settings.isBazarrLinkedApplicationEnabled(appType) {
+                            Button("Disable", systemImage: "nosign", role: .destructive) {
+                                Task { await disable(appType, on: instance) }
+                            }
+                        }
+                    }
+                }
+            }
+        } header: {
+            Text(sectionTitle(for: instance))
+        } footer: {
+            if instance.id == availableInstances.last?.id {
+                Text("Bazarr uses these connections to sync series, episodes, and movies from Sonarr/Radarr.")
+            }
         }
-        isLoading = false
     }
 
-    private func save(appType: BazarrLinkedApplicationType, formItems: [URLQueryItem]) async -> Bool {
-        guard let client else { return false }
+    /// "Bazarr" with one server, the server's own name with two, so a section full
+    /// of connection settings can't be read as belonging to the wrong Bazarr.
+    private func sectionTitle(for instance: ArrInstanceRef) -> String {
+        guard serviceManager.showsInstanceProvenance(for: .bazarr) else { return "Bazarr" }
+        return instance.displayName
+    }
+
+    private func loadAll() async {
+        let instances = availableInstances
+        guard !instances.isEmpty else { return }
+        loadingInstanceIDs = Set(instances.map(\.id))
+        // Concurrently, so a second Bazarr does not double the wait. Each result is
+        // filed under the server it came from, never merged.
+        await withTaskGroup(of: (UUID, Result<[String: JSONValue], Error>)?.self) { group in
+            for instance in instances {
+                guard let client = serviceManager.bazarrClient(for: instance.id) else { continue }
+                group.addTask {
+                    do {
+                        return (instance.id, .success(try await client.getSettings()))
+                    } catch {
+                        return (instance.id, .failure(error))
+                    }
+                }
+            }
+            for await outcome in group {
+                guard let (instanceID, result) = outcome else { continue }
+                switch result {
+                case .success(let settings):
+                    settingsByInstance[instanceID] = settings
+                    errorsByInstance[instanceID] = nil
+                case .failure(let error):
+                    errorsByInstance[instanceID] = error.localizedDescription
+                }
+                loadingInstanceIDs.remove(instanceID)
+            }
+        }
+        loadingInstanceIDs = []
+    }
+
+    /// Reloads one server. A save touches only the server it was made against, so
+    /// re-reading the other would be a request with nothing to learn from it.
+    private func reload(instanceID: UUID) async {
+        guard let client = serviceManager.bazarrClient(for: instanceID) else { return }
+        loadingInstanceIDs.insert(instanceID)
+        defer { loadingInstanceIDs.remove(instanceID) }
+        do {
+            settingsByInstance[instanceID] = try await client.getSettings()
+            errorsByInstance[instanceID] = nil
+        } catch {
+            errorsByInstance[instanceID] = error.localizedDescription
+        }
+    }
+
+    private func save(target: BazarrLinkedApplicationTarget, formItems: [URLQueryItem]) async -> Bool {
+        guard let client = serviceManager.bazarrClient(for: target.instanceID) else { return false }
         do {
             try await client.saveSettings(formItems)
-            InAppNotificationCenter.shared.showSuccess(title: "Linked App Saved", message: "\(appType.displayName) was saved in Bazarr.")
-            await load()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Linked App Saved",
+                message: "\(target.appType.displayName) was saved in \(savedInName(for: target.instanceID))."
+            )
+            await reload(instanceID: target.instanceID)
             return true
         } catch {
             InAppNotificationCenter.shared.showError(title: "Save Failed", message: error.localizedDescription)
@@ -162,31 +233,45 @@ struct BazarrLinkedApplicationsListView: View {
         }
     }
 
-    private func disable(_ appType: BazarrLinkedApplicationType) async {
-        guard let client else { return }
+    private func disable(_ appType: BazarrLinkedApplicationType, on instance: ArrInstanceRef) async {
+        guard let client = serviceManager.bazarrClient(for: instance.id) else { return }
         do {
             try await client.saveSettings([
                 URLQueryItem(name: "settings-general-\(appType.enabledSettingsKey)", value: "false")
             ])
-            InAppNotificationCenter.shared.showSuccess(title: "Linked App Disabled", message: "\(appType.displayName) was disabled in Bazarr.")
-            await load()
+            InAppNotificationCenter.shared.showSuccess(
+                title: "Linked App Disabled",
+                message: "\(appType.displayName) was disabled in \(savedInName(for: instance.id))."
+            )
+            await reload(instanceID: instance.id)
         } catch {
             InAppNotificationCenter.shared.showError(title: "Disable Failed", message: error.localizedDescription)
         }
+    }
+
+    /// Names the server in confirmations, so with a pair configured the user is told
+    /// which Bazarr the change landed in.
+    private func savedInName(for instanceID: UUID) -> String {
+        guard serviceManager.showsInstanceProvenance(for: .bazarr),
+              let instance = availableInstances.first(where: { $0.id == instanceID }) else { return "Bazarr" }
+        return instance.displayName
     }
 }
 
 #if DEBUG
 extension BazarrLinkedApplicationsListView {
+    /// Every configured Bazarr renders from the same values, which is all a
+    /// preview needs: the sections differ by server name, not by payload.
     init(
         previewSettings: [String: JSONValue],
         isLoading: Bool = false,
         errorMessage: String? = nil
     ) {
-        loadsOnAppear = false
-        _settings = State(wrappedValue: previewSettings)
-        _isLoading = State(wrappedValue: isLoading)
-        _errorMessage = State(wrappedValue: errorMessage)
+        previewState = BazarrLinkedApplicationsPreviewState(
+            settings: previewSettings,
+            isLoading: isLoading,
+            errorMessage: errorMessage
+        )
     }
 }
 

@@ -488,29 +488,79 @@ struct LibraryImportScanSelectionTests {
         return viewModel
     }
 
-    @Test("Toggling a file adds it then removes it")
-    func toggleFileRoundTrips() {
-        let viewModel = seededViewModel()
-
-        viewModel.toggleFile("/d/Andor.S01E01.mkv")
-        #expect(viewModel.selectedFiles == ["/d/Andor.S01E01.mkv"])
-        #expect(viewModel.hasAnySelection)
-
-        viewModel.toggleFile("/d/Andor.S01E01.mkv")
-        #expect(viewModel.selectedFiles.isEmpty)
-        #expect(viewModel.hasAnySelection == false)
+    /// Selecting a group the way the List does: it writes the whole tag set, so a
+    /// "tick" is that set gaining a tag and an "untick" is it losing one.
+    private func apply(_ tags: Set<String>, to viewModel: LibraryImportScanViewModel) {
+        viewModel.applySelectionTags(
+            tags,
+            ready: viewModel.groupedImportableFiles,
+            blocked: viewModel.groupedUnidentifiedFiles + viewModel.groupedIdentifiedPendingAddFiles + viewModel.groupedBlockedFiles
+        )
     }
 
-    @Test("Toggling a blocked file only touches the blocked selection")
-    func toggleBlockedFileRoundTrips() {
-        let viewModel = seededViewModel()
+    private func tags(of viewModel: LibraryImportScanViewModel) -> Set<String> {
+        viewModel.selectionTags(
+            ready: viewModel.groupedImportableFiles,
+            blocked: viewModel.groupedUnidentifiedFiles + viewModel.groupedIdentifiedPendingAddFiles + viewModel.groupedBlockedFiles
+        )
+    }
 
-        viewModel.toggleBlockedFile("/d/Severance.S01E01.mkv")
-        #expect(viewModel.selectedBlockedFiles == ["/d/Severance.S01E01.mkv"])
+    @Test("Ticking a ready group takes its files, unticking gives them back")
+    func readyGroupTagRoundTrips() throws {
+        let viewModel = seededViewModel()
+        let andor = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-7" })
+        let tag = LibraryImportScanViewModel.selectionTag(.ready, andor)
+
+        apply([tag], to: viewModel)
+        #expect(viewModel.selectedFiles == Set(andor.itemIDs))
+        #expect(viewModel.hasAnySelection)
+        #expect(tags(of: viewModel) == [tag])
+
+        apply([], to: viewModel)
+        #expect(viewModel.selectedFiles.isEmpty)
+        #expect(viewModel.hasAnySelection == false)
+        #expect(tags(of: viewModel).isEmpty)
+    }
+
+    @Test("Ticking a blocked group only touches the blocked selection")
+    func blockedGroupTagStaysInItsBucket() throws {
+        let viewModel = seededViewModel()
+        let severance = try #require(viewModel.groupedUnidentifiedFiles.first)
+        let tag = LibraryImportScanViewModel.selectionTag(.blocked, severance)
+
+        apply([tag], to: viewModel)
+        #expect(viewModel.selectedBlockedFiles == Set(severance.itemIDs))
         #expect(viewModel.selectedFiles.isEmpty)
         #expect(viewModel.hasAnySelection)
 
-        viewModel.toggleBlockedFile("/d/Severance.S01E01.mkv")
+        apply([], to: viewModel)
+        #expect(viewModel.selectedBlockedFiles.isEmpty)
+    }
+
+    @Test("A group ID shared across buckets selects only the bucket that was ticked")
+    func sameGroupIDInBothBucketsDoesNotCross() throws {
+        // The same series can be ready in one group and blocked in another, and both
+        // groups carry `id-7`. Tagging by group ID alone would tick both at once.
+        let viewModel = makeViewModel(service: .sonarr)
+        let ready = ScanFixture.item(path: "/d/Andor.S01E01.mkv", media: .series(title: "Andor", id: 7), seasonNumber: 1, episodeNumbers: [1])
+        let blocked = ScanFixture.item(
+            path: "/d/Andor.S01E02.mkv",
+            rejections: [ScanFixture.hardRejection],
+            media: .series(title: "Andor", id: 7),
+            seasonNumber: 1,
+            episodeNumbers: [2]
+        )
+        viewModel.importableFiles = [ready]
+        viewModel.blockedFiles = [blocked]
+        viewModel.recomputeGroups()
+
+        let readyGroup = try #require(viewModel.groupedImportableFiles.first)
+        let blockedGroup = try #require(viewModel.groupedBlockedFiles.first)
+        #expect(readyGroup.id == blockedGroup.id)
+
+        apply([LibraryImportScanViewModel.selectionTag(.ready, readyGroup)], to: viewModel)
+
+        #expect(viewModel.selectedFiles == [ready.id])
         #expect(viewModel.selectedBlockedFiles.isEmpty)
     }
 
@@ -535,8 +585,8 @@ struct LibraryImportScanSelectionTests {
     @Test("Select-all from a partial selection selects everything rather than clearing")
     func selectAllFromPartialSelectionSelectsEverything() {
         let viewModel = seededViewModel()
-        viewModel.toggleFile("/d/Zulu.S01E01.mkv")
-        viewModel.toggleBlockedFile("/d/Severance.S01E02.mkv")
+        viewModel.selectedFiles = ["/d/Zulu.S01E01.mkv"]
+        viewModel.selectedBlockedFiles = ["/d/Severance.S01E02.mkv"]
         #expect(viewModel.allSelected == false)
 
         viewModel.toggleSelectAll()
@@ -559,64 +609,97 @@ struct LibraryImportScanSelectionTests {
         #expect(viewModel.allSelected == false)
     }
 
-    @Test("Toggling a partially selected group selects the whole group")
-    func toggleGroupCompletesAPartialSelection() {
+    @Test("A partly selected group reads as selected and is not completed by a re-assert")
+    func partialGroupSurvivesAReAssert() throws {
+        // The List has no partial state: it reports the group ticked and writes that
+        // same tag straight back. Treating it as a fresh tick would quietly promote a
+        // one-file selection into the whole group.
         let viewModel = seededViewModel()
-        let andorIDs = ["/d/Andor.S01E01.mkv", "/d/Andor.S01E02.mkv"]
-        viewModel.toggleFile(andorIDs[0])
+        let andor = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-7" })
+        viewModel.selectedFiles = ["/d/Andor.S01E01.mkv"]
+        let tag = LibraryImportScanViewModel.selectionTag(.ready, andor)
 
-        viewModel.toggleGroup(itemIDs: andorIDs)
+        #expect(tags(of: viewModel) == [tag])
 
-        #expect(viewModel.selectedFiles == Set(andorIDs))
+        apply([tag], to: viewModel)
+
+        #expect(viewModel.selectedFiles == ["/d/Andor.S01E01.mkv"])
     }
 
-    @Test("Toggling a fully selected group deselects it and leaves other groups alone")
-    func toggleGroupOnFullSelectionDeselects() {
+    @Test("Unticking a group clears all of it and leaves other groups alone")
+    func untickingAGroupLeavesOthers() throws {
         let viewModel = seededViewModel()
-        let andorIDs = ["/d/Andor.S01E01.mkv", "/d/Andor.S01E02.mkv"]
-        viewModel.toggleGroup(itemIDs: andorIDs)
-        viewModel.toggleFile("/d/Zulu.S01E01.mkv")
+        let andor = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-7" })
+        let zulu = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-9" })
+        let zuluTag = LibraryImportScanViewModel.selectionTag(.ready, zulu)
 
-        viewModel.toggleGroup(itemIDs: andorIDs)
+        apply([LibraryImportScanViewModel.selectionTag(.ready, andor), zuluTag], to: viewModel)
+        #expect(viewModel.selectedFiles.count == 3)
+
+        apply([zuluTag], to: viewModel)
 
         #expect(viewModel.selectedFiles == ["/d/Zulu.S01E01.mkv"])
     }
 
-    @Test("Toggling an empty group is a no-op in both buckets")
-    func toggleEmptyGroupIsANoOp() {
+    @Test("Reconciling only the groups on screen leaves a hidden group's selection alone")
+    func offScreenSelectionSurvivesAWriteBack() throws {
+        // Two ways a selected group leaves the screen without being deselected: the
+        // search field filters it out, and auto-identification moves its files into a
+        // different group. Either way the write-back only sees what is on screen, so
+        // reconciling against that must not clear the rest.
         let viewModel = seededViewModel()
-        viewModel.toggleFile("/d/Zulu.S01E01.mkv")
-        viewModel.toggleBlockedFile("/d/Severance.S01E01.mkv")
+        let andor = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-7" })
+        let zulu = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-9" })
+        viewModel.selectedFiles = Set(andor.itemIDs)
+        viewModel.selectedBlockedFiles = ["/d/Severance.S01E01.mkv"]
 
-        viewModel.toggleGroup(itemIDs: [])
-        viewModel.toggleBlockedGroup(itemIDs: [])
+        // Only Zulu is listed - Andor and every blocked group are filtered out.
+        viewModel.applySelectionTags(
+            [LibraryImportScanViewModel.selectionTag(.ready, zulu)],
+            ready: [zulu],
+            blocked: []
+        )
+
+        #expect(viewModel.selectedFiles == Set(andor.itemIDs + zulu.itemIDs))
+        #expect(viewModel.selectedBlockedFiles == ["/d/Severance.S01E01.mkv"])
+    }
+
+    @Test("An empty group list reconciles nothing in either bucket")
+    func emptyGroupListIsANoOp() {
+        let viewModel = seededViewModel()
+        viewModel.selectedFiles = ["/d/Zulu.S01E01.mkv"]
+        viewModel.selectedBlockedFiles = ["/d/Severance.S01E01.mkv"]
+
+        viewModel.applySelectionTags([], ready: [], blocked: [])
 
         #expect(viewModel.selectedFiles == ["/d/Zulu.S01E01.mkv"])
         #expect(viewModel.selectedBlockedFiles == ["/d/Severance.S01E01.mkv"])
     }
 
-    @Test("Ready-group and blocked-group toggles never touch each other's selection")
-    func groupTogglesStayInTheirOwnBucket() {
+    @Test("Ready and blocked tags never touch each other's selection")
+    func groupTagsStayInTheirOwnBucket() throws {
         let viewModel = seededViewModel()
-        let andorIDs = ["/d/Andor.S01E01.mkv", "/d/Andor.S01E02.mkv"]
-        let severanceIDs = ["/d/Severance.S01E01.mkv", "/d/Severance.S01E02.mkv"]
+        let andor = try #require(viewModel.groupedImportableFiles.first { $0.id == "id-7" })
+        let severance = try #require(viewModel.groupedUnidentifiedFiles.first)
+        let andorTag = LibraryImportScanViewModel.selectionTag(.ready, andor)
+        let severanceTag = LibraryImportScanViewModel.selectionTag(.blocked, severance)
 
-        viewModel.toggleGroup(itemIDs: andorIDs)
+        apply([andorTag], to: viewModel)
         #expect(viewModel.selectedBlockedFiles.isEmpty)
 
-        viewModel.toggleBlockedGroup(itemIDs: severanceIDs)
-        #expect(viewModel.selectedFiles == Set(andorIDs))
-        #expect(viewModel.selectedBlockedFiles == Set(severanceIDs))
+        apply([andorTag, severanceTag], to: viewModel)
+        #expect(viewModel.selectedFiles == Set(andor.itemIDs))
+        #expect(viewModel.selectedBlockedFiles == Set(severance.itemIDs))
 
-        viewModel.toggleBlockedGroup(itemIDs: severanceIDs)
-        #expect(viewModel.selectedFiles == Set(andorIDs))
+        apply([andorTag], to: viewModel)
+        #expect(viewModel.selectedFiles == Set(andor.itemIDs))
         #expect(viewModel.selectedBlockedFiles.isEmpty)
     }
 
     @Test("selectedReadyGroups narrows a partially selected group to the selected files")
     func selectedReadyGroupsNarrowsPartialGroups() throws {
         let viewModel = seededViewModel()
-        viewModel.toggleFile("/d/Andor.S01E02.mkv")
+        viewModel.selectedFiles = ["/d/Andor.S01E02.mkv"]
 
         let groups = viewModel.selectedReadyGroups
 

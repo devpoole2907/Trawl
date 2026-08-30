@@ -63,32 +63,25 @@ struct SeerrJellyfinImportSheet: View {
         }
     }
 
+    /// Selection is the List's own rather than a checkmark drawn per row. The sheet
+    /// exists only to pick users, so edit mode is pinned on: there is no second mode
+    /// to enter, and the rows get the system's ticks, hit targets and accessibility.
     private var userList: some View {
-        List {
+        List(selection: $selectedIDs) {
             Section {
                 ForEach(availableUsers) { user in
-                    Button {
-                        toggle(user.id)
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: selectedIDs.contains(user.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedIDs.contains(user.id) ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(user.displayName)
-                                    .font(.subheadline.weight(.medium))
-                                    .foregroundStyle(.primary)
-                                if let email = user.email, !email.isEmpty, email != user.displayName {
-                                    Text(email)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(user.displayName)
+                            .font(.subheadline.weight(.medium))
+                            .foregroundStyle(.primary)
+                        if let email = user.email, !email.isEmpty, email != user.displayName {
+                            Text(email)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
             } header: {
                 Text("Jellyfin Users")
@@ -104,10 +97,14 @@ struct SeerrJellyfinImportSheet: View {
                         selectedIDs = Set(availableUsers.map(\.id))
                     }
                 }
+                .selectionDisabled()
             }
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
+        // `EditMode` is iOS-only and this file compiles into TrawlMac; macOS gets
+        // List's native click selection instead.
+        .environment(\.editMode, .constant(.active))
         #else
         .listStyle(.inset)
         #endif
@@ -115,14 +112,6 @@ struct SeerrJellyfinImportSheet: View {
 
     private var allSelected: Bool {
         !availableUsers.isEmpty && selectedIDs.count == availableUsers.count
-    }
-
-    private func toggle(_ id: String) {
-        if selectedIDs.contains(id) {
-            selectedIDs.remove(id)
-        } else {
-            selectedIDs.insert(id)
-        }
     }
 
     private func loadUsers() async {

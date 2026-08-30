@@ -74,6 +74,9 @@ struct DownloadsView: View {
     /// rather than by pushing: these are peers, not details of one another, and
     /// reaching a client's own queue by way of Client Management never made sense.
     @State private var titleDestination: DownloadsTitleDestination = .downloads
+    /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
+    /// this stands in for the large-title collapse the system would do for us.
+    @State private var isTitleCompact = false
     /// What the visible list can do. One toolbar serves all three destinations, so
     /// the buttons stay put and only their contents flex.
     @State private var chrome = DownloadsListChrome()
@@ -139,6 +142,7 @@ struct DownloadsView: View {
         // titles, two subtitles, and a polling task that stopped itself when the list
         // it was attached to went away. Those were symptoms of the same mistake.
         downloadsContent
+            .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .toolbar { titleMenuToolbarItem }
             .toolbar { sharedToolbarContent }
     }
@@ -172,7 +176,8 @@ struct DownloadsView: View {
                     options: availableTitleDestinations.map {
                         TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)
                     },
-                    selection: $titleDestination
+                    selection: $titleDestination,
+                    isCompact: isTitleCompact
                 )
             }
         }

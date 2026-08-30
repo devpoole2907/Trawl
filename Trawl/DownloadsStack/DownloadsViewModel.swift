@@ -159,8 +159,9 @@ final class DownloadsViewModel {
         switch section {
         case .active:
             let activeQueue = queueItems.filter { item in
-                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
-                return Self.isActive(record) && !record.isImportIssueQueueItem
+                guard case .arrQueue(let record, _, let torrent, let job, _) = item else { return false }
+                return Self.activity(of: record, linkedTorrent: torrent, linkedSABJob: job) == .active
+                    && !record.isImportIssueQueueItem
             }
             let activeTorrents = unmatchedTorrents
                 .filter { Self.isActive($0) }
@@ -173,8 +174,9 @@ final class DownloadsViewModel {
 
         case .queue:
             let waitingQueue = queueItems.filter { item in
-                guard case .arrQueue(let record, _, _, _, _) = item else { return false }
-                return !Self.isActive(record) && !record.isImportIssueQueueItem
+                guard case .arrQueue(let record, _, let torrent, let job, _) = item else { return false }
+                return Self.activity(of: record, linkedTorrent: torrent, linkedSABJob: job) == .waiting
+                    && !record.isImportIssueQueueItem
             }
             let waitingTorrents = unmatchedTorrents
                 .filter { Self.isWaiting($0) }
@@ -450,6 +452,36 @@ final class DownloadsViewModel {
     private static func isActive(_ item: ArrQueueItem) -> Bool {
         let state = item.normalizedState
         return state == "downloading" || state == "importing" || state == "moving"
+    }
+
+    /// Which of the two in-progress sections a blended queue row belongs in.
+    ///
+    /// The download client wins whenever it has an opinion. `ArrQueueItem`'s state
+    /// is the *import* lifecycle - downloading, importPending, imported - and stays
+    /// "downloading" while the client has the job paused, so classifying from it
+    /// alone put a paused SABnzbd download under Active in the blended list while
+    /// the SABnzbd-scoped list, which reads the real client status, filed the same
+    /// download under Queue. One download, two answers, depending only on which
+    /// scope the user was looking at. The client is the one that knows whether
+    /// bytes are moving.
+    ///
+    /// When the client's state is neither (seeding, completed, errored) the work
+    /// left is the Arr's import, so its state decides. That also keeps this total:
+    /// every non-issue queue row lands in exactly one section, as it did when this
+    /// was a plain `isActive` / `!isActive` split.
+    static func activity(
+        of item: ArrQueueItem,
+        linkedTorrent: Torrent?,
+        linkedSABJob: SABnzbdJob?
+    ) -> DownloadRowActivity {
+        if let linkedSABJob {
+            if isActive(linkedSABJob) { return .active }
+            if isWaiting(linkedSABJob) { return .waiting }
+        } else if let linkedTorrent {
+            if isActive(linkedTorrent) { return .active }
+            if isWaiting(linkedTorrent) { return .waiting }
+        }
+        return isActive(item) ? .active : .waiting
     }
 
     static func isActive(_ torrent: Torrent) -> Bool {

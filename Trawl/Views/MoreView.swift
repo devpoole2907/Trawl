@@ -3030,9 +3030,48 @@ private struct RequestsAndAccessHubView: View {
 /// unavailable state, so the rows stay visible even with nothing configured
 /// (matching how these rows behaved on the More dashboard before regrouping).
 private struct SystemHubView: View {
+    @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(ConfigurationAuditStore.self) private var auditStore
+    @Query private var qbittorrentServers: [ServerProfile]
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
+    @State private var showSetupCheck = false
+
+    /// The download clients Trawl itself is connected to. The audit compares these
+    /// against what each Arr has been told, which is the whole point of it.
+    private var trawlClientHosts: [DownloadClientLinkKind: String] {
+        var hosts: [DownloadClientLinkKind: String] = [:]
+        if let server = qbittorrentServers.first(where: { $0.isActive }) ?? qbittorrentServers.first {
+            hosts[.qbittorrent] = server.hostURL
+        }
+        if let profile = sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first {
+            hosts[.sabnzbd] = profile.hostURL
+        }
+        return hosts
+    }
+
+    private var setupCheckSubtitle: String {
+        guard auditStore.hasCompletedAnAudit else { return "How your services are wired to each other" }
+        let count = auditStore.problemCount
+        if count == 0 { return "Nothing needs attention" }
+        return count == 1 ? "1 problem found" : "\(count) problems found"
+    }
+
     var body: some View {
         List {
             Section {
+                Button {
+                    showSetupCheck = true
+                } label: {
+                    NavigationMenuRow(
+                        icon: auditStore.problemCount > 0 ? "exclamationmark.triangle.fill" : "checklist",
+                        color: auditStore.problemCount > 0 ? .orange : .teal,
+                        title: "Setup Check",
+                        subtitle: setupCheckSubtitle
+                    )
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("more-setup-check")
+
                 NavigationLink(value: MoreDestination.health) {
                     NavigationMenuRow(
                         icon: "heart.text.square.fill",
@@ -3082,6 +3121,29 @@ private struct SystemHubView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
+        // On the List, not on a Section: a sheet attached to a Section inside a
+        // List never presents - the Setup Check row toggled its flag and nothing
+        // appeared.
+        .sheet(isPresented: $showSetupCheck) {
+            ConfigurationWizardView(
+                issues: auditStore.issues,
+                onDismissIssue: { auditStore.dismiss($0) },
+                onRecheck: {
+                    await auditStore.refresh(
+                        serviceManager: arrServiceManager,
+                        trawlClients: trawlClientHosts
+                    )
+                }
+            )
+            .environment(arrServiceManager)
+        }
+        .task {
+            guard !auditStore.hasCompletedAnAudit else { return }
+            await auditStore.refresh(
+                serviceManager: arrServiceManager,
+                trawlClients: trawlClientHosts
+            )
+        }
         .navigationTitle("System")
         .moreDestinationBackground(.systemHub)
     }

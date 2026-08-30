@@ -287,19 +287,63 @@ final class LibraryImportScanViewModel {
         }
     }
 
-    func toggleFile(_ id: String) {
-        if selectedFiles.contains(id) {
-            selectedFiles.remove(id)
-        } else {
-            selectedFiles.insert(id)
-        }
+    // MARK: Native list selection
+
+    /// Which file-ID set a row belongs to. The scan view's rows are *groups*, while
+    /// selection is tracked per file across two sets, so `List(selection:)` selects
+    /// tagged groups and these two methods are the adapter between the two.
+    enum SelectionBucket: String, Sendable {
+        case ready, blocked
     }
 
-    func toggleBlockedFile(_ id: String) {
-        if selectedBlockedFiles.contains(id) {
-            selectedBlockedFiles.remove(id)
-        } else {
-            selectedBlockedFiles.insert(id)
+    /// A group ID is only unique within its bucket - an identified group can appear
+    /// both as ready and as blocked with the same media ID - so the tag carries the
+    /// bucket too.
+    static func selectionTag(_ bucket: SelectionBucket, _ group: LibraryImportGroup) -> String {
+        "\(bucket.rawValue)|\(group.id)"
+    }
+
+    /// The tags for every passed group holding at least one selected file. A group
+    /// only *partly* selected still reads as selected: the List has no third state,
+    /// and reporting it unselected would let the next write-back clear it.
+    func selectionTags(ready: [LibraryImportGroup], blocked: [LibraryImportGroup]) -> Set<String> {
+        var tags: Set<String> = []
+        for group in ready where group.items.contains(where: { selectedFiles.contains($0.id) }) {
+            tags.insert(Self.selectionTag(.ready, group))
+        }
+        for group in blocked where group.items.contains(where: { selectedBlockedFiles.contains($0.id) }) {
+            tags.insert(Self.selectionTag(.blocked, group))
+        }
+        return tags
+    }
+
+    /// Writes a `List` selection back onto the per-file sets.
+    ///
+    /// Only the groups passed in are reconciled - the ones on screen - so a selection
+    /// whose group is filtered out by the search field, or has moved between groups
+    /// after auto-identification, is left alone rather than silently dropped.
+    func applySelectionTags(_ tags: Set<String>, ready: [LibraryImportGroup], blocked: [LibraryImportGroup]) {
+        for group in ready {
+            let ids = group.items.map(\.id)
+            if tags.contains(Self.selectionTag(.ready, group)) {
+                // A group already partly selected stays partly selected: only a
+                // newly ticked group takes all of its files.
+                if !ids.contains(where: { selectedFiles.contains($0) }) {
+                    selectedFiles.formUnion(ids)
+                }
+            } else {
+                selectedFiles.subtract(ids)
+            }
+        }
+        for group in blocked {
+            let ids = group.items.map(\.id)
+            if tags.contains(Self.selectionTag(.blocked, group)) {
+                if !ids.contains(where: { selectedBlockedFiles.contains($0) }) {
+                    selectedBlockedFiles.formUnion(ids)
+                }
+            } else {
+                selectedBlockedFiles.subtract(ids)
+            }
         }
     }
 
@@ -1389,26 +1433,6 @@ final class LibraryImportScanViewModel {
         return message.contains("already been added")
             || message.contains("seriesexistsvalidator")
             || message.contains("movieexistsvalidator")
-    }
-
-    // MARK: - Group helpers
-
-    func toggleGroup(itemIDs: [String]) {
-        let allSelected = itemIDs.allSatisfy { selectedFiles.contains($0) }
-        if allSelected {
-            itemIDs.forEach { selectedFiles.remove($0) }
-        } else {
-            itemIDs.forEach { selectedFiles.insert($0) }
-        }
-    }
-
-    func toggleBlockedGroup(itemIDs: [String]) {
-        let allSelected = itemIDs.allSatisfy { selectedBlockedFiles.contains($0) }
-        if allSelected {
-            itemIDs.forEach { selectedBlockedFiles.remove($0) }
-        } else {
-            itemIDs.forEach { selectedBlockedFiles.insert($0) }
-        }
     }
 
     @discardableResult
