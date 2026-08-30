@@ -77,7 +77,8 @@ final class SearchViewModel {
     func createLookupViewModels(arrServiceManager: ArrServiceManager) {
         let nextSonarrKey = sonarrLookupKey(
             isConnected: arrServiceManager.sonarrConnected,
-            connectionKey: arrServiceManager.arrConnectionKey
+            connectionKey: arrServiceManager.arrConnectionKey,
+            activeInstanceID: arrServiceManager.activeSonarrInstanceID
         )
         if !arrServiceManager.sonarrConnected {
             sonarrLookupVM = nil
@@ -91,7 +92,8 @@ final class SearchViewModel {
 
         let nextRadarrKey = radarrLookupKey(
             isConnected: arrServiceManager.radarrConnected,
-            connectionKey: arrServiceManager.arrConnectionKey
+            connectionKey: arrServiceManager.arrConnectionKey,
+            activeInstanceID: arrServiceManager.activeRadarrInstanceID
         )
         if !arrServiceManager.radarrConnected {
             radarrLookupVM = nil
@@ -497,14 +499,21 @@ final class SearchViewModel {
     /// view models read the blended library, so a second server connecting has to
     /// rebuild them - keyed on the active instance alone it never changed, and the
     /// second server's titles stayed absent from search.
-    private func sonarrLookupKey(isConnected: Bool, connectionKey: String) -> String {
+    /// Both halves matter, and dropping either leaves stale results on screen.
+    ///
+    /// The connection key rebuilds the lookup when a server reconnects or its client
+    /// is replaced. The active instance rebuilds it when the user switches servers -
+    /// which changes no instance id, no connected flag and no client revision, so the
+    /// connection key alone does not move. Keying on it alone kept the previous
+    /// server's search results after a switch.
+    private func sonarrLookupKey(isConnected: Bool, connectionKey: String, activeInstanceID: UUID?) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(connectionKey)"
+        return "connected:\(connectionKey)|active:\(activeInstanceID?.uuidString ?? "none")"
     }
 
-    private func radarrLookupKey(isConnected: Bool, connectionKey: String) -> String {
+    private func radarrLookupKey(isConnected: Bool, connectionKey: String, activeInstanceID: UUID?) -> String {
         guard isConnected else { return "disconnected" }
-        return "connected:\(connectionKey)"
+        return "connected:\(connectionKey)|active:\(activeInstanceID?.uuidString ?? "none")"
     }
 }
 
