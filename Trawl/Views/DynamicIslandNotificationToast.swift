@@ -34,10 +34,10 @@ struct DynamicIslandNotificationToast: View {
                     height: height
                 ) {
                     if let displayedBanner {
-                        DynamicIslandNotificationContent(
-                            item: displayedBanner,
-                            hasAction: displayedBanner.action != nil
-                        )
+                        // No action affordance: every notification is tappable now,
+                        // so a chevron on only some of them advertised a difference
+                        // that no longer exists.
+                        DynamicIslandNotificationContent(item: displayedBanner)
                         .frame(width: expandedWidth, height: expandedHeight)
                         .scaleEffect(x: scaleX, y: scaleY)
                     }

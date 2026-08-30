@@ -3,7 +3,6 @@ import SwiftUI
 
 struct DynamicIslandNotificationContent: View {
     let item: InAppBannerItem
-    let hasAction: Bool
 
     var body: some View {
         HStack(spacing: 10) {
@@ -37,12 +36,6 @@ struct DynamicIslandNotificationContent: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.bottom, 12)
 
-            if hasAction {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.secondary)
-                    .padding(.bottom, 12)
-            }
         }
         .padding(.horizontal, 20)
         .compositingGroup()

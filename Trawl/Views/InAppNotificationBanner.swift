@@ -4,7 +4,6 @@ struct InAppNotificationBanner: View {
     let item: InAppBannerItem
     let onDismiss: () -> Void
     let onTap: () -> Void
-    var hasAction = false
 
     @State private var dragOffset: CGFloat = 0
     @State private var didDrag = false
@@ -34,11 +33,6 @@ struct InAppNotificationBanner: View {
 
                 Spacer(minLength: 0)
 
-                if hasAction {
-                    Image(systemName: "chevron.right")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 14)
@@ -82,14 +76,6 @@ struct InAppNotificationBanner: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
         .accessibilityAction { onTap() }
-    }
-}
-
-extension InAppNotificationBanner {
-    func withActionAffordance(_ hasAction: Bool) -> InAppNotificationBanner {
-        var copy = self
-        copy.hasAction = hasAction
-        return copy
     }
 }
 

@@ -31,6 +31,18 @@ final class InAppNotificationCenter {
     private var queuedBanners: [InAppBannerItem] = []
     private var dismissTask: Task<Void, Never>?
 
+    /// How close together banners have to arrive to be collapsed into one.
+    ///
+    /// Long enough to catch a burst - ten movies finishing an import land over a few
+    /// seconds, not instantly - and short enough that two genuinely separate events
+    /// still read as two. The window is measured from the *first* banner in a run, so
+    /// a steady trickle eventually starts a new summary rather than incrementing one
+    /// count forever.
+    private static let coalescingWindow: TimeInterval = 6
+
+    /// When the run currently on screen (or queued) started, per group.
+    private var coalescingRunStart: [String: Date] = [:]
+
     #if os(iOS)
     private let notificationGenerator = UINotificationFeedbackGenerator()
     private let impactGenerator = UIImpactFeedbackGenerator(style: .medium)
@@ -353,12 +365,53 @@ final class InAppNotificationCenter {
     }
 
     private func enqueue(_ banner: InAppBannerItem) {
+        if coalesce(banner) { return }
+
+        coalescingRunStart[banner.coalescingKey] = .now
         queuedBanners.append(banner)
 
         if currentBanner == nil {
             showNext()
         }
     }
+
+    /// Folds a banner into the run already on screen or waiting, if there is one.
+    ///
+    /// Ten imports finishing in a row produced ten banners, each replacing the last,
+    /// so the user watched a slot machine and could read none of them. Same title and
+    /// style within the window means the same event happening repeatedly, so the run
+    /// becomes one banner with a count. Returns true when the banner was absorbed.
+    ///
+    /// Progress banners are excluded: they are keyed and replaced in place by
+    /// `replaceProgressWith…`, which is its own, more specific form of the same idea.
+    private func coalesce(_ banner: InAppBannerItem) -> Bool {
+        guard banner.style != .progress, banner.key == nil else { return false }
+        let key = banner.coalescingKey
+
+        guard let runStart = coalescingRunStart[key],
+              Date.now.timeIntervalSince(runStart) < Self.coalescingWindow else { return false }
+
+        if let index = queuedBanners.firstIndex(where: { $0.coalescingKey == key }) {
+            queuedBanners[index] = queuedBanners[index].incrementingCoalescedCount()
+            return true
+        }
+
+        if let currentBanner, currentBanner.coalescingKey == key {
+            // Replace in place and restart the dismiss timer: the run is still
+            // going, so the summary should stay up rather than expiring on the
+            // first banner's clock.
+            present(currentBanner.incrementingCoalescedCount())
+            return true
+        }
+
+        return false
+    }
+
+    #if DEBUG
+    /// How many banners are still waiting. A coalesced run must not leave the rest
+    /// of its burst queued up behind the summary.
+    var queuedBannerCountForTesting: Int { queuedBanners.count }
+    #endif
 
     private func removeQueuedBanner(matching key: String) {
         queuedBanners.removeAll { $0.key == key }
@@ -503,6 +556,58 @@ struct InAppBannerItem: Identifiable, @unchecked Sendable {
     let key: String?
     let showsProgressView: Bool
     let automaticallyDismisses: Bool
+    /// How many events this banner stands for. 1 for an ordinary banner.
+    let coalescedCount: Int
+    /// The first message of a coalesced run, kept so that folding another event in
+    /// rebuilds the summary from the original rather than from the last summary -
+    /// otherwise a run reads "Us and 2 others and 3 others".
+    let baseMessage: String
+
+    init(
+        title: String,
+        message: String,
+        systemImage: String,
+        style: InAppBannerStyle,
+        action: InAppBannerAction?,
+        key: String?,
+        showsProgressView: Bool,
+        automaticallyDismisses: Bool,
+        coalescedCount: Int = 1,
+        baseMessage: String? = nil
+    ) {
+        self.title = title
+        self.message = message
+        self.systemImage = systemImage
+        self.style = style
+        self.action = action
+        self.key = key
+        self.showsProgressView = showsProgressView
+        self.automaticallyDismisses = automaticallyDismisses
+        self.coalescedCount = coalescedCount
+        self.baseMessage = baseMessage ?? message
+    }
+
+    /// Groups banners that describe the same kind of event. Title and style, not the
+    /// message: the message is what differs between the ten of them.
+    var coalescingKey: String { "\(style.rawValue)|\(title)" }
+
+    /// This banner, standing for one more event.
+    func incrementingCoalescedCount() -> InAppBannerItem {
+        let nextCount = coalescedCount + 1
+        let others = nextCount - 1
+        return InAppBannerItem(
+            title: title,
+            message: "\(baseMessage) and \(others) other\(others == 1 ? "" : "s")",
+            systemImage: systemImage,
+            style: style,
+            action: action,
+            key: key,
+            showsProgressView: showsProgressView,
+            automaticallyDismisses: automaticallyDismisses,
+            coalescedCount: nextCount,
+            baseMessage: baseMessage
+        )
+    }
 }
 
 struct NotificationLogEntry: Identifiable, Codable, Sendable {

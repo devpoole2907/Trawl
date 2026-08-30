@@ -103,14 +103,10 @@ struct ContentView: View {
                 InAppNotificationBanner(item: banner) {
                     inAppNotificationCenter.dismissCurrentBanner()
                 } onTap: {
-                    if inAppNotificationCenter.currentBannerHasAction {
-                        inAppNotificationCenter.fireCurrentBannerAction()
-                    } else {
-                        inAppNotificationCenter.showRecentNotifications()
-                        inAppNotificationCenter.dismissCurrentBanner()
-                    }
+                    // Same entry point as every other presentation, so the two
+                    // cannot drift: an action runs it, anything else opens history.
+                    inAppNotificationCenter.activateCurrentBanner()
                 }
-                .withActionAffordance(inAppNotificationCenter.currentBannerHasAction)
                 .padding(.top, topBannerPadding)
                 .transition(.move(edge: .top).combined(with: .opacity))
                 .zIndex(1)

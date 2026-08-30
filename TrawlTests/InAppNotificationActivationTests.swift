@@ -82,3 +82,91 @@ struct InAppNotificationActivationTests {
         #expect(bannerDuringHandler == nil)
     }
 }
+
+// MARK: - Banner coalescing
+
+/// Ten movies finishing an import produced ten banners, each replacing the last, so
+/// the user watched a slot machine and could read none of them. A run of the same
+/// event within a short window is now one banner with a count.
+@Suite("In-app notification coalescing")
+@MainActor
+struct InAppNotificationCoalescingTests {
+
+    private func center() -> InAppNotificationCenter {
+        let center = InAppNotificationCenter()
+        center.dismissCurrentBanner()
+        return center
+    }
+
+    @Test("A burst of the same success becomes one banner with a count")
+    func burstCollapsesIntoOneBanner() {
+        let center = center()
+        center.showSuccess(title: "Import Complete", message: "Us (2019)")
+        for index in 2...10 {
+            center.showSuccess(title: "Import Complete", message: "Movie \(index)")
+        }
+
+        let banner = center.currentBanner
+        #expect(banner?.coalescedCount == 10)
+        #expect(banner?.title == "Import Complete")
+        #expect(banner?.message == "Us (2019) and 9 others")
+        #expect(center.queuedBannerCountForTesting == 0, "A run must not leave nine more banners waiting to be shown.")
+    }
+
+    /// The summary is rebuilt from the first message each time, not from the previous
+    /// summary - otherwise it reads "Us and 2 others and 3 others".
+    @Test("Folding in more events does not compound the summary text")
+    func summaryDoesNotCompound() {
+        let center = center()
+        center.showSuccess(title: "Import Complete", message: "Us (2019)")
+        center.showSuccess(title: "Import Complete", message: "Heat (1995)")
+        #expect(center.currentBanner?.message == "Us (2019) and 1 other")
+
+        center.showSuccess(title: "Import Complete", message: "Alien (1979)")
+        #expect(center.currentBanner?.message == "Us (2019) and 2 others")
+    }
+
+    @Test("Different events stay separate")
+    func differentTitlesDoNotMerge() {
+        let center = center()
+        center.showSuccess(title: "Import Complete", message: "Us (2019)")
+        center.showSuccess(title: "Download Complete", message: "Heat (1995)")
+
+        #expect(center.currentBanner?.coalescedCount == 1)
+        #expect(center.queuedBannerCountForTesting == 1, "A different event is a second banner, not a bigger count.")
+    }
+
+    /// Style is part of the grouping: a failure in the middle of a run of successes
+    /// is the one the user most needs to see, so it must not be absorbed.
+    @Test("An error is never folded into a run of successes")
+    func errorsDoNotMergeIntoSuccesses() {
+        let center = center()
+        center.showSuccess(title: "Import Complete", message: "Us (2019)")
+        center.showError(title: "Import Complete", message: "Heat (1995) failed")
+
+        #expect(center.currentBanner?.coalescedCount == 1)
+        #expect(center.queuedBannerCountForTesting == 1)
+    }
+
+    @Test("A single notification is untouched")
+    func singleNotificationIsNotSummarised() {
+        let center = center()
+        center.showSuccess(title: "Import Complete", message: "Us (2019)")
+
+        #expect(center.currentBanner?.coalescedCount == 1)
+        #expect(center.currentBanner?.message == "Us (2019)")
+    }
+
+    /// Coalescing is a presentation decision. The history is an audit trail, so every
+    /// event stays in it individually even when one banner spoke for all of them.
+    @Test("Every event is still recorded in history")
+    func historyKeepsEveryEvent() {
+        let center = center()
+        let before = center.recentNotifications.count
+        for index in 1...10 {
+            center.showSuccess(title: "Import Complete", message: "Movie \(index)")
+        }
+
+        #expect(center.recentNotifications.count == before + 10)
+    }
+}
