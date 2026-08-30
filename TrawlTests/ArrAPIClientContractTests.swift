@@ -944,6 +944,236 @@ struct ProwlarrBazarrAPIClientContractTests {
     }
 }
 
+// MARK: - Manual import command
+
+/// The one call in the import stack that moves files on disk.
+///
+/// Everything else about Library Import is covered by view-model tests that stop at
+/// this boundary: they prove which files were selected, never what was sent. The
+/// body is assembled by `LibraryImportItem.importJSON`, whose every branch exists
+/// because of a past failure - Sonarr throws `ArgumentNullException` on a null
+/// `episodeIds`, the command handler reads the *flat* `seriesId`/`movieId` rather
+/// than the embedded object, and a re-identified file otherwise carries the previous
+/// match's object and imports into the wrong title. None of that is visible from the
+/// view model, and all of it fails silently on the server.
+@Suite("Arr manual import command contract", .serialized)
+@MainActor
+struct ArrManualImportContractTests {
+
+    /// A completed command with no `id`, which is what makes these fast: with no id
+    /// `postCommandAndWait` returns without entering its one-second poll loop, so the
+    /// test measures the request rather than the polling (covered separately).
+    private static let completedCommand = #"{"name":"ManualImport","status":"completed"}"#
+
+    private static func scanItem(_ json: String) throws -> LibraryImportItem {
+        let value = try JSONDecoder().decode(JSONValue.self, from: Data(json.utf8))
+        guard let item = LibraryImportItem(json: value) else {
+            Issue.record("The production parser rejected this manual-import row.")
+            throw ArrError.invalidResponse
+        }
+        return item
+    }
+
+    private static func commandBody(_ server: ArrContractTestServer) -> NSDictionary? {
+        server.requests.first { $0.method == "POST" && $0.path == "/api/v3/command" }?.jsonObjectBody
+    }
+
+    private static func files(in body: NSDictionary?) -> [NSDictionary] {
+        (body?["files"] as? [Any])?.compactMap { $0 as? NSDictionary } ?? []
+    }
+
+    /// Sonarr's ManualImport reads the flat `seriesId` and requires `episodeIds` to
+    /// be a present, non-null array. A row that carried only the embedded `series`
+    /// object imports nothing and the app still reports success.
+    @Test("Sonarr manual import sends a flat seriesId, a non-null episodeIds array and seasonFolder")
+    func sonarrManualImportBody() async throws {
+        let item = try Self.scanItem(#"""
+        {
+          "path": "/data/tv/Fixture/Fixture.S01E02.1080p.mkv",
+          "name": "Fixture.S01E02.1080p.mkv",
+          "size": 2048,
+          "series": {"id": 42, "title": "Fixture", "tvdbId": 700},
+          "seasonNumber": 1,
+          "episodes": [{"id": 1002, "episodeNumber": 2, "title": "Two"}],
+          "quality": {"quality": {"name": "WEB 1080p"}}
+        }
+        """#)
+
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-manualimport",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        _ = try await client.manualImport(
+            files: [item.importJSON(service: .sonarr, seasonFolder: true)],
+            importMode: "move"
+        )
+
+        let body = Self.commandBody(server)
+        #expect(body?["name"] as? String == "ManualImport")
+        #expect(body?["importMode"] as? String == "move")
+
+        let files = Self.files(in: body)
+        #expect(files.count == 1)
+        let file = try #require(files.first)
+
+        // The flat field is the one the command handler actually reads.
+        #expect(file["seriesId"] as? Int == 42)
+        // ... and the embedded object has to agree with it.
+        #expect((file["series"] as? NSDictionary)?["id"] as? Int == 42)
+        #expect(file["seasonFolder"] as? Bool == true)
+
+        // Present, an array, and not null: Sonarr throws ArgumentNullException
+        // otherwise, which surfaces as a failed import with no useful message.
+        let episodeIDs = file["episodeIds"] as? [Int]
+        #expect(episodeIDs == [1002])
+        #expect(!(file["episodeIds"] is NSNull))
+    }
+
+    @Test("Sonarr manual import carries seasonFolder false when the user turns it off")
+    func sonarrSeasonFolderIsSentAsChosen() async throws {
+        let item = try Self.scanItem(#"""
+        {
+          "path": "/data/tv/Fixture/Fixture.S01E02.mkv",
+          "name": "Fixture.S01E02.mkv",
+          "size": 1,
+          "series": {"id": 42, "title": "Fixture"},
+          "seasonNumber": 1,
+          "episodes": [{"id": 1002, "episodeNumber": 2}]
+        }
+        """#)
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-manualimport-seasonfolder",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "k")
+
+        _ = try await client.manualImport(files: [item.importJSON(service: .sonarr, seasonFolder: false)])
+
+        #expect(Self.files(in: Self.commandBody(server)).first?["seasonFolder"] as? Bool == false)
+    }
+
+    /// The re-identification case. Radarr's scan hands back `movie: {}` (or the
+    /// previous match) for a file it could not place, so after the user identifies
+    /// it the embedded object still names the wrong movie - or none. The command
+    /// keys off it, so this is how a file imports into the wrong title, or fails as
+    /// "Movie with id 0".
+    @Test("Radarr manual import forces both the flat movieId and the embedded movie onto the identified match")
+    func radarrManualImportOverwritesStaleMovieObject() async throws {
+        let scanned = try Self.scanItem(#"""
+        {
+          "path": "/data/movies/Fixture.2019.1080p.mkv",
+          "name": "Fixture.2019.1080p.mkv",
+          "size": 4096,
+          "movie": {"id": 0},
+          "rejections": [{"reason": "Unknown Movie"}]
+        }
+        """#)
+        let identified = scanned.withIdentification(mediaID: 77, title: "Fixture", posterURL: nil)
+
+        let server = try await ArrContractTestServer.routed(
+            label: "radarr-manualimport",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = RadarrAPIClient(baseURL: server.baseURL, apiKey: "radarr-contract-key")
+
+        _ = try await client.manualImport(files: [identified.importJSON(service: .radarr)], importMode: "copy")
+
+        let body = Self.commandBody(server)
+        #expect(body?["name"] as? String == "ManualImport")
+        // Copy leaves the original in place; sending "move" here would relocate a
+        // file the user asked to keep.
+        #expect(body?["importMode"] as? String == "copy")
+
+        let file = try #require(Self.files(in: body).first)
+        #expect(file["movieId"] as? Int == 77)
+        #expect((file["movie"] as? NSDictionary)?["id"] as? Int == 77, "The stale embedded movie must be overwritten, not left at 0.")
+        // Sonarr-only fields must not leak onto a Radarr import.
+        #expect(file["seriesId"] == nil)
+        #expect(file["seasonFolder"] == nil)
+    }
+
+    @Test("A multi-file import sends every selected file in one command")
+    func multipleFilesTravelInOneCommand() async throws {
+        let first = try Self.scanItem(#"""
+        {"path":"/data/tv/A.S01E01.mkv","name":"A.S01E01.mkv","size":1,
+         "series":{"id":42},"seasonNumber":1,"episodes":[{"id":1,"episodeNumber":1}]}
+        """#)
+        let second = try Self.scanItem(#"""
+        {"path":"/data/tv/A.S01E02.mkv","name":"A.S01E02.mkv","size":1,
+         "series":{"id":42},"seasonNumber":1,"episodes":[{"id":2,"episodeNumber":2}]}
+        """#)
+
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-manualimport-batch",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "k")
+
+        _ = try await client.manualImport(files: [
+            first.importJSON(service: .sonarr, seasonFolder: true),
+            second.importJSON(service: .sonarr, seasonFolder: true)
+        ])
+
+        // One command, not one per file: a per-file loop would race the server's
+        // own import queue and report success before the later files landed.
+        let posts = server.requests.filter { $0.method == "POST" && $0.path == "/api/v3/command" }
+        #expect(posts.count == 1)
+        let files = Self.files(in: Self.commandBody(server))
+        #expect(files.count == 2)
+        #expect(files.compactMap { $0["episodeIds"] as? [Int] } == [[1], [2]])
+    }
+
+    /// A file with no library id must not be dressed up as importable: `importJSON`
+    /// returns the original row untouched, so nothing invents a `movieId: 0` that
+    /// the server would reject or, worse, act on.
+    @Test("An unidentified file is sent exactly as scanned, with no invented id")
+    func unidentifiedFileIsNotRewritten() async throws {
+        let item = try Self.scanItem(#"""
+        {"path":"/data/movies/Mystery.mkv","name":"Mystery.mkv","size":1,
+         "rejections":[{"reason":"Unknown Movie"}]}
+        """#)
+
+        let server = try await ArrContractTestServer.routed(
+            label: "radarr-manualimport-unidentified",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = RadarrAPIClient(baseURL: server.baseURL, apiKey: "k")
+
+        _ = try await client.manualImport(files: [item.importJSON(service: .radarr)])
+
+        let file = try #require(Self.files(in: Self.commandBody(server)).first)
+        #expect(file["movieId"] == nil)
+        #expect(file["path"] as? String == "/data/movies/Mystery.mkv")
+    }
+
+    @Test("The command is authenticated and posted to the command endpoint")
+    func manualImportIsAuthenticatedAndPosted() async throws {
+        let item = try Self.scanItem(#"""
+        {"path":"/data/tv/A.S01E01.mkv","name":"A.S01E01.mkv","size":1,
+         "series":{"id":42},"seasonNumber":1,"episodes":[{"id":1,"episodeNumber":1}]}
+        """#)
+        let server = try await ArrContractTestServer.routed(
+            label: "sonarr-manualimport-auth",
+            routes: ["/api/v3/command": .json(Self.completedCommand)]
+        )
+        defer { server.stop() }
+        let client = SonarrAPIClient(baseURL: server.baseURL, apiKey: "sonarr-contract-key")
+
+        _ = try await client.manualImport(files: [item.importJSON(service: .sonarr, seasonFolder: true)])
+
+        let post = try #require(server.requests.first { $0.method == "POST" })
+        #expect(post.path == "/api/v3/command")
+        #expect(post.header("X-Api-Key") == "sonarr-contract-key")
+    }
+}
+
 // MARK: - Loopback contract server
 
 private nonisolated struct ArrContractRequest: Sendable, Equatable {
