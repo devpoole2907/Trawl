@@ -132,12 +132,15 @@ final class ArrRepointJourneyUITests: XCTestCase {
         )
         sonarrRow.tap()
 
-        let editServerButton = app.buttons["Edit Server"]
+        // The server row *is* the editor entry point. The separate "Edit Server"
+        // button was removed because it duplicated the row it sat under; this test
+        // kept looking for the button and so failed on a screen that was working.
+        let serverRow = firstElement(labelContains: "Fixture Sonarr", in: app)
         XCTAssertTrue(
-            editServerButton.waitForExistence(in: app, timeout: 5),
-            "ArrServiceSettingsView should offer an 'Edit Server' button once a Sonarr profile exists (ArrServiceSettingsDetailView.swift) - regression: the edit entry point is missing."
+            serverRow.waitForExistence(in: app, timeout: 5),
+            "ArrServiceSettingsView should list the Sonarr server as a tappable row (ArrServiceSettingsDetailView.swift) - regression: the edit entry point is missing."
         )
-        editServerButton.tap()
+        serverRow.tap()
 
         let editSheetTitle = app.navigationBars["Edit Sonarr"]
         XCTAssertTrue(

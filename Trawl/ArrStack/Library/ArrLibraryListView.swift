@@ -17,6 +17,20 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     let row: (Item, Bool) -> Row
     let retry: (() async -> Void)?
 
+    @Environment(\.editMode) private var editMode
+
+    private var isEditing: Bool { editMode?.wrappedValue.isEditing ?? false }
+
+    /// Present only while editing, and that is load-bearing.
+    ///
+    /// The rows are `NavigationLink(value:)`s carrying the item's own id, and the
+    /// selection set holds that same id type. Handing `List` a selection binding of
+    /// the matching type makes it treat each row as selection-driven navigation and
+    /// claim the tap, so tapping a title stopped pushing its detail screen. Outside
+    /// edit mode there is nothing to select, so the binding is absent and the links
+    /// behave as links again.
+    private var listSelection: Binding<Set<Item.ID>>? { isEditing ? $selection : nil }
+
     var body: some View {
         if isLoading && items.isEmpty {
             ProgressView()
@@ -73,7 +87,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     private var sectionedList: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            List(selection: $selection) {
+            List(selection: listSelection) {
                 ForEach(sections) { section in
                     Section(section.title) {
                         ForEach(section.items) { item in
@@ -96,7 +110,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     }
 
     private var sectionedListWithoutIndex: some View {
-        List(selection: $selection) {
+        List(selection: listSelection) {
             ForEach(sections) { section in
                 Section(section.title) {
                     ForEach(section.items) { item in
@@ -111,7 +125,7 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     }
 
     private var flatList: some View {
-        List(selection: $selection) {
+        List(selection: listSelection) {
             ForEach(items) { item in
                 row(item, selection.contains(item.id))
                     .listRowBackground(Color.clear)
