@@ -8,6 +8,11 @@ struct DynamicIslandNotificationToast: View {
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var displayedBanner: InAppBannerItem?
+    /// The banner's natural height at full width, measured from a hidden copy of
+    /// the content. Measuring a *separate* instance is what keeps this from
+    /// feeding back on itself: the copy is laid out with a free vertical axis, so
+    /// its height never depends on the height being computed from it.
+    @State private var measuredContentHeight: CGFloat = Self.minimumExpandedHeight
     @State private var presentationProgress: CGFloat = 0
     @State private var expansionTask: Task<Void, Never>?
     @State private var clearBannerTask: Task<Void, Never>?
@@ -15,7 +20,12 @@ struct DynamicIslandNotificationToast: View {
     var body: some View {
         GeometryReader { geometry in
             let expandedWidth = geometry.size.width - 20
-            let expandedHeight: CGFloat = 90
+            // Was a flat 90, which is why a long message could only truncate. The
+            // floor keeps a one-line banner pixel-identical to before.
+            let expandedHeight = min(
+                max(measuredContentHeight, Self.minimumExpandedHeight),
+                Self.maximumExpandedHeight
+            )
             let collapsedWidth: CGFloat = 120
             let collapsedHeight: CGFloat = 36
             let cappedProgress = max(min(presentationProgress, 1), 0)
@@ -58,6 +68,23 @@ struct DynamicIslandNotificationToast: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .ignoresSafeArea()
+            // A background never influences its parent's size, so the measuring
+            // copy can be laid out at full width without disturbing the layout it
+            // is measuring for.
+            .background(alignment: .topLeading) {
+                if let displayedBanner {
+                    DynamicIslandNotificationContent(item: displayedBanner)
+                        .frame(width: expandedWidth)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .hidden()
+                        .allowsHitTesting(false)
+                        .onGeometryChange(for: CGFloat.self) { proxy in
+                            proxy.size.height
+                        } action: { height in
+                            measuredContentHeight = height
+                        }
+                }
+            }
             .animation(
                 reduceMotion
                     ? .linear(duration: 0)
@@ -80,6 +107,12 @@ struct DynamicIslandNotificationToast: View {
             activateNotification()
         }
     }
+
+    /// A one-line banner keeps the height it has always had.
+    static let minimumExpandedHeight: CGFloat = 90
+    /// Past this the message truncates rather than the banner swallowing the
+    /// screen - four lines of caption plus the title and insets.
+    static let maximumExpandedHeight: CGFloat = 190
 
     private var dismissGesture: some Gesture {
         DragGesture()
