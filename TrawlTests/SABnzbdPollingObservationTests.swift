@@ -120,6 +120,45 @@ struct SABnzbdPollingObservationTests {
             #expect(manager.queue?.megabytesLeft == 10)
         }
     }
+
+    /// The regression the full plan caught, pinned.
+    ///
+    /// `queueRevision` was originally bumped inside `refresh()` only. An
+    /// unauthorized response clears the connection through a different path -
+    /// `clearActiveConnection()` nils `queue` and `history` directly - so the
+    /// revision did not move, and `DownloadsViewModel.items`, which memoises on it,
+    /// kept serving the disconnected server's jobs. On screen that was a stale
+    /// download row surviving a lost connection, which is exactly what
+    /// `SABnzbdUnauthorizedJourneyUITests` exists to prevent.
+    ///
+    /// The lesson is in the assertion: it is not enough for a cache key to move on
+    /// the paths its author remembered. This checks the property, not the poll.
+    @Test("Clearing the connection moves the cache key, so nothing can serve stale jobs")
+    @MainActor
+    func clearingTheConnectionMovesTheRevision() async throws {
+        PollingObservationRemote.shared.reset()
+        PollingObservationRemote.shared.setQueue(Self.queueJSON(mbLeft: 25))
+        PollingObservationRemote.shared.setHistory(Self.historyJSON)
+
+        let (manager, profile) = try await connectedManager()
+        try await withSavedAPIKey(for: profile) {
+            await manager.connectService(profile)
+            await manager.refresh()
+            #expect(manager.queue?.slots.count == 1)
+            let revisionWhileConnected = manager.queueRevision
+
+            // SABnzbd starts rejecting the key, which drops the client and the
+            // cached queue with it.
+            PollingObservationRemote.shared.setUnauthorized(true)
+            await manager.refresh()
+
+            #expect(manager.queue == nil, "An unauthorized response must clear the cached queue.")
+            #expect(
+                manager.queueRevision != revisionWhileConnected,
+                "Clearing the queue has to move the revision. A consumer memoising on it would otherwise keep rendering jobs from a server it is no longer connected to."
+            )
+        }
+    }
 }
 
 extension SABnzbdPollingObservationTests {
@@ -156,7 +195,11 @@ private final class PollingObservationRemote: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         queueBody = #"{"queue":{"slots":[]}}"#
         historyBody = #"{"history":{"last_history_update":0,"slots":[]}}"#
+        unauthorized = false
     }
+    private var unauthorized = false
+    func setUnauthorized(_ value: Bool) { lock.lock(); unauthorized = value; lock.unlock() }
+    var isUnauthorized: Bool { lock.lock(); defer { lock.unlock() }; return unauthorized }
     func setQueue(_ body: String) { lock.lock(); queueBody = body; lock.unlock() }
     func setHistory(_ body: String) { lock.lock(); historyBody = body; lock.unlock() }
     func body(for mode: String) -> String {
@@ -181,9 +224,10 @@ private final class PollingObservationURLProtocol: URLProtocol, @unchecked Senda
         let mode = URLComponents(url: url, resolvingAgainstBaseURL: false)?
             .queryItems?.first { $0.name == "mode" }?.value ?? ""
         let body = PollingObservationRemote.shared.body(for: mode)
+        let status = PollingObservationRemote.shared.isUnauthorized ? 401 : 200
         let response = HTTPURLResponse(
             url: url,
-            statusCode: 200,
+            statusCode: status,
             httpVersion: "HTTP/1.1",
             headerFields: ["Content-Type": "application/json"]
         )!

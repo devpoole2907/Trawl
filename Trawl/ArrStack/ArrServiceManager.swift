@@ -120,10 +120,18 @@ final class ArrServiceManager {
     // MARK: - Cached download queue & history
     // Owned here rather than by DownloadsViewModel so the tab-bar accessory can see
     // Arr download failures without standing up a second poller against Sonarr/Radarr.
-    private(set) var sonarrQueue: [ArrInstanced<ArrQueueItem>] = []
-    private(set) var radarrQueue: [ArrInstanced<ArrQueueItem>] = []
-    private(set) var sonarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
-    private(set) var radarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
+    private(set) var sonarrQueue: [ArrInstanced<ArrQueueItem>] = [] {
+        didSet { queueRevision &+= 1 }
+    }
+    private(set) var radarrQueue: [ArrInstanced<ArrQueueItem>] = [] {
+        didSet { queueRevision &+= 1 }
+    }
+    private(set) var sonarrHistory: [ArrInstanced<ArrHistoryRecord>] = [] {
+        didSet { queueRevision &+= 1 }
+    }
+    private(set) var radarrHistory: [ArrInstanced<ArrHistoryRecord>] = [] {
+        didSet { queueRevision &+= 1 }
+    }
     /// Observed, and deliberately only ever true during the *first* refresh - the
     /// only time a view shows a spinner for it. It used to flip on every poll,
     /// which meant two observer notifications every 5 seconds whether or not
@@ -1268,13 +1276,11 @@ final class ArrServiceManager {
         let sonarr = visibleSonarr
         let radarr = visibleRadarr
         guard !sonarr.isEmpty || !radarr.isEmpty else {
-            var changed = false
-            if !sonarrQueue.isEmpty { sonarrQueue = []; changed = true }
-            if !radarrQueue.isEmpty { radarrQueue = []; changed = true }
-            if !sonarrHistory.isEmpty { sonarrHistory = []; changed = true }
-            if !radarrHistory.isEmpty { radarrHistory = []; changed = true }
+            if !sonarrQueue.isEmpty { sonarrQueue = [] }
+            if !radarrQueue.isEmpty { radarrQueue = [] }
+            if !sonarrHistory.isEmpty { sonarrHistory = [] }
+            if !radarrHistory.isEmpty { radarrHistory = [] }
             if queueError != nil { queueError = nil }
-            if changed { queueRevision &+= 1 }
             return
         }
 
@@ -1285,15 +1291,13 @@ final class ArrServiceManager {
         // does not work here: passing an `@Observable` property `inout` performs a
         // get *and* a set, so the registrar fires the mutation even when the value
         // is unchanged - which is the whole thing being avoided.
-        var changed = false
-        if sonarrQueue != sv.queue { sonarrQueue = sv.queue; changed = true }
-        if sonarrHistory != sv.history { sonarrHistory = sv.history; changed = true }
-        if radarrQueue != rv.queue { radarrQueue = rv.queue; changed = true }
-        if radarrHistory != rv.history { radarrHistory = rv.history; changed = true }
+        if sonarrQueue != sv.queue { sonarrQueue = sv.queue }
+        if sonarrHistory != sv.history { sonarrHistory = sv.history }
+        if radarrQueue != rv.queue { radarrQueue = rv.queue }
+        if radarrHistory != rv.history { radarrHistory = rv.history }
         let errors = sv.errors + rv.errors
         let newError = errors.isEmpty ? nil : errors.joined(separator: "\n")
         if queueError != newError { queueError = newError }
-        if changed { queueRevision &+= 1 }
     }
 
 

@@ -17,8 +17,22 @@ final class SABnzbdServiceManager {
     /// once per cycle whenever the queue is empty.
     private(set) var hasRefreshedOnce: Bool = false
     private(set) var connectionError: String?
-    private(set) var queue: SABnzbdQueue?
-    private(set) var history: SABnzbdHistory?
+    /// The revision bump lives on the properties, not at the call sites that
+    /// assign them.
+    ///
+    /// It was originally bumped inside `refresh()` only, which missed every other
+    /// way these change - `clearActiveConnection()` nils both on an unauthorized
+    /// response, and a profile switch clears history. A consumer memoising on the
+    /// revision therefore kept serving the disconnected server's jobs, because as
+    /// far as the key was concerned nothing had happened. `didSet` makes the bump
+    /// impossible to forget; the equality guard in `refresh()` still stops an
+    /// unchanged poll from assigning at all, so the polling win is unaffected.
+    private(set) var queue: SABnzbdQueue? {
+        didSet { queueRevision &+= 1 }
+    }
+    private(set) var history: SABnzbdHistory? {
+        didSet { queueRevision &+= 1 }
+    }
 
     private var pollingTask: Task<Void, Never>?
     /// Whether a view has asked for polling, as distinct from whether polling is
@@ -210,7 +224,7 @@ final class SABnzbdServiceManager {
             // performs a get *and* a set, so a generic assign helper still fires the
             // mutation. `isRefreshing` deliberately keeps alternating - it genuinely
             // changes each poll, and only the settings screens read it.
-            if queue != fetchedQueue { queue = fetchedQueue; queueRevision &+= 1 }
+            if queue != fetchedQueue { queue = fetchedQueue }
             // A `nil` result means SABnzbd's `{ "history": false }` shape-changing
             // response - history hasn't changed since `lastHistoryUpdate`, so keep it.
             if let fetchedHistory {
@@ -218,7 +232,7 @@ final class SABnzbdServiceManager {
                 // whether the assignment lands: a run where history is unchanged
                 // has no new completions in it by definition, so this cannot drop
                 // a notification.
-                if history != fetchedHistory { history = fetchedHistory; queueRevision &+= 1 }
+                if history != fetchedHistory { history = fetchedHistory }
                 announceCompletions(
                     Self.newlyCompletedJobs(
                         previous: previousHistoryJobs,
