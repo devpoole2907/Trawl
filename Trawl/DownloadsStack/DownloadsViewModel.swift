@@ -119,9 +119,68 @@ final class DownloadsViewModel {
         }
     }
 
+    /// What `items` was last asked for, and what it answered.
+    ///
+    /// `DownloadsView` reads `items` a dozen times in one body pass - for the empty
+    /// checks, the row list, the animation key, the selection count, the toolbar
+    /// signature - and the body runs every frame while scrolling. Without this,
+    /// the whole merge/match/filter/sort ran a dozen times per frame.
+    ///
+    /// The key is built from revisions rather than from the collections themselves
+    /// so that checking it is O(1). Each revision moves when its source changes, so
+    /// a hit means the inputs are the ones the cached answer was computed from.
+    private struct ItemsCacheKey: Equatable {
+        let section: DownloadSection
+        let scope: DownloadScope
+        let searchText: String
+        let queueRevision: Int
+        let sabRevision: Int
+        let torrentsRevision: Int
+        let suppressedKeys: Int
+    }
+
+    @ObservationIgnored private var cachedItemsKey: ItemsCacheKey?
+    @ObservationIgnored private var cachedItems: [DownloadListItem] = []
+
     func items(
         for section: DownloadSection,
         scope: DownloadScope = .all,
+        serviceManager: ArrServiceManager,
+        torrents: [String: Torrent],
+        sabActiveJobs: [SABnzbdJob],
+        sabHistoryJobs: [SABnzbdJob],
+        sabRevision: Int,
+        torrentsRevision: Int
+    ) -> [DownloadListItem] {
+        // Read on every call, hit or miss, so the caller stays subscribed to the
+        // things that invalidate this. A cache that skipped these reads would stop
+        // the list updating at all.
+        let key = ItemsCacheKey(
+            section: section,
+            scope: scope,
+            searchText: searchText,
+            queueRevision: serviceManager.queueRevision,
+            sabRevision: sabRevision,
+            torrentsRevision: torrentsRevision,
+            suppressedKeys: removedQueueItemKeys.count
+        )
+        if cachedItemsKey == key { return cachedItems }
+        let result = computeItems(
+            for: section,
+            scope: scope,
+            serviceManager: serviceManager,
+            torrents: torrents,
+            sabActiveJobs: sabActiveJobs,
+            sabHistoryJobs: sabHistoryJobs
+        )
+        cachedItemsKey = key
+        cachedItems = result
+        return result
+    }
+
+    private func computeItems(
+        for section: DownloadSection,
+        scope: DownloadScope,
         serviceManager: ArrServiceManager,
         torrents: [String: Torrent],
         sabActiveJobs: [SABnzbdJob],
@@ -425,11 +484,34 @@ final class DownloadsViewModel {
         return queueIssues + torrentIssues + sabIssues
     }
 
+    /// Cached on `queueRevision`, which moves if and only if the history actually
+    /// changed.
+    ///
+    /// Building these is expensive in a way that is invisible from the call site:
+    /// every `HistoryItem` parses its date out of a *string* with an
+    /// `ISO8601DateFormatter`, which is ICU-backed. Rebuilding ~200 of them was
+    /// costing 1.5s of main-thread time across an 18-second scroll, because the
+    /// view recomputes `items` a dozen times per body pass and the body runs every
+    /// frame.
+    ///
+    /// The revision is read on every call, cache hit or miss, so the view stays
+    /// subscribed to it - a cache that skipped that read would stop the list ever
+    /// updating again, which is a far worse bug than the one being fixed.
     private func arrHistoryItems(serviceManager: ArrServiceManager) -> [HistoryItem] {
+        let revision = serviceManager.queueRevision
+        if let cachedArrHistory, cachedArrHistoryRevision == revision {
+            return cachedArrHistory
+        }
         let sonarr = historyItems(serviceManager.sonarrHistory, serviceManager: serviceManager)
         let radarr = historyItems(serviceManager.radarrHistory, serviceManager: serviceManager)
-        return (sonarr + radarr).sorted { $0.sortDate > $1.sortDate }
+        let merged = (sonarr + radarr).sorted { $0.sortDate > $1.sortDate }
+        cachedArrHistory = merged
+        cachedArrHistoryRevision = revision
+        return merged
     }
+
+    @ObservationIgnored private var cachedArrHistory: [HistoryItem]?
+    @ObservationIgnored private var cachedArrHistoryRevision: Int = -1
 
     /// History is one merged, date-sorted list across both services and both of
     /// their instances, so a row has to say which server imported or grabbed the
@@ -439,12 +521,20 @@ final class DownloadsViewModel {
         _ records: [ArrInstanced<ArrHistoryRecord>],
         serviceManager: ArrServiceManager
     ) -> [HistoryItem] {
-        records.map { record in
+        // Hoisted out of the map. `showsInstanceProvenance` rebuilds a dictionary
+        // from `storedProfiles` on every call, and the answer is a property of the
+        // *service*, not of the record - so asking it once per record made ~400
+        // dictionary allocations to compute two booleans.
+        var showsInstance: [ArrServiceType: Bool] = [:]
+        for serviceType in Set(records.map(\.instance.serviceType)) {
+            showsInstance[serviceType] = serviceManager.showsInstanceProvenance(for: serviceType)
+        }
+        return records.map { record in
             HistoryItem(
                 record: record.value,
                 source: record.instance.serviceType,
                 instance: record.instance,
-                showsInstance: serviceManager.showsInstanceProvenance(for: record.instance.serviceType)
+                showsInstance: showsInstance[record.instance.serviceType] ?? false
             )
         }
     }

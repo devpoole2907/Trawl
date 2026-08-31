@@ -494,7 +494,9 @@ struct DownloadsView: View {
             serviceManager: arrServiceManager,
             torrents: syncService.torrents,
             sabActiveJobs: sabnzbdServiceManager.activeJobs,
-            sabHistoryJobs: sabnzbdServiceManager.historyJobs
+            sabHistoryJobs: sabnzbdServiceManager.historyJobs,
+            sabRevision: sabnzbdServiceManager.queueRevision,
+            torrentsRevision: syncService.torrentsRevision
         )
         .sortedByDownloadOrder(sortOrder)
     }

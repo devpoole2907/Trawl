@@ -122,6 +122,11 @@ nonisolated struct ArrInstanced<Value: Sendable>: Identifiable, Sendable {
     }
 }
 
+/// Conditional so the wrapper never claims more than the thing it wraps. Used by
+/// the queue poller to skip assignments that would notify observers without
+/// changing anything - see the note on `ArrQueueItem: Equatable`.
+extension ArrInstanced: Equatable where Value: Equatable {}
+
 nonisolated extension ArrInstanced where Value: Identifiable {
     init(_ value: Value, on instance: ArrInstanceRef) {
         self.init(value, on: instance, elementID: String(describing: value.id))

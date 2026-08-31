@@ -3,8 +3,17 @@ import SwiftData
 import Foundation
 
 @MainActor
+// `ArrMonitorable & ArrTitleable & ArrSortable` are required rather than tested for
+// at runtime. Both conforming types - `SonarrSeries` and `RadarrMovie` - already
+// conform, so nothing is excluded, but the `as? any ArrMonitorable` casts these
+// replace were paid per copy, per row, on every frame of a scroll. A dynamic cast
+// to an existential goes through the runtime demangler and conformance checker,
+// which measured on device as ~250ms of `swift_getTypeByMangledName`,
+// `_checkGenericRequirements` and key-path pattern walking across a 28-second
+// scroll. Stating the requirement makes the same accesses static.
 struct ArrMediaListView<Item, VM, Row, Detail>: View
-where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryItem, Item.ID == Int,
+where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryItem,
+      Item: ArrMonitorable & ArrTitleable & ArrSortable, Item.ID == Int,
       VM: ArrMediaListViewModel & Observable, VM.Item == Item,
       Row: View, Detail: View {
     /// One row of the blended library: a title, with every server's copy of it.
@@ -226,7 +235,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             titleKeyPath: \.titlePlaceholder,
             sectionTitle: { entry in
                 let item = entry.primary
-                return (item as? any ArrSortable)?.sortTitle ?? (item as? any ArrTitleable)?.title ?? ""
+                return item.sortTitle ?? item.title
             },
             usesTitleSections: viewModel.sortOrder.rawValue == "Title",
             selection: $selectedIDs,
@@ -263,15 +272,18 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 // A swipe acts on the title, so it acts on every server holding
                 // it. Monitoring one copy and not the other would leave the row
                 // showing a state that is true of neither server.
+                // One answer, used three times: the label, the icon and the tint
+                // each asked the same question of every copy independently.
+                let monitored = isMonitored(entry)
                 Button {
                     Task { await viewModel.toggleMonitoredAcrossInstances(entry) }
                 } label: {
                     Label(
-                        isMonitored(entry) ? "Unmonitor" : "Monitor",
-                        systemImage: isMonitored(entry) ? "bookmark.slash" : "bookmark.fill"
+                        monitored ? "Unmonitor" : "Monitor",
+                        systemImage: monitored ? "bookmark.slash" : "bookmark.fill"
                     )
                 }
-                .tint(isMonitored(entry) ? .orange : .blue)
+                .tint(monitored ? .orange : .blue)
             }
         }
     }
@@ -279,7 +291,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// A merged row counts as monitored when any server is monitoring it, so the
     /// swipe offers "Unmonitor" while at least one copy is still being watched.
     private func isMonitored(_ entry: Entry) -> Bool {
-        entry.copies.contains { ($0 as? any ArrMonitorable)?.monitored ?? true }
+        entry.copies.contains { $0.monitored ?? true }
     }
 
     private func bulkDeleteItems(deleteFiles: Bool) {

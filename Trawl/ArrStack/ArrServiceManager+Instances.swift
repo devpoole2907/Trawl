@@ -33,14 +33,28 @@ extension ArrServiceManager {
         from entries: [(id: UUID, displayName: String)],
         serviceType: ArrServiceType
     ) -> [ArrInstanceRef] {
+        // `instancesRevision` is read on every call, hit or miss, so a view that
+        // asks for refs stays subscribed to the servers changing. Skipping that
+        // read on a hit would leave badges and scope bars frozen at whatever the
+        // configuration was when the cache filled.
+        let revision = instancesRevision
+        if refsCacheRevision == revision, let cached = refsCache[serviceType] {
+            return cached
+        }
+        if refsCacheRevision != revision {
+            refsCache.removeAll(keepingCapacity: true)
+            refsCacheRevision = revision
+        }
         let tiers = Dictionary(
             storedProfiles.map { ($0.id, $0.qualityTier) },
             uniquingKeysWith: { first, _ in first }
         )
-        return ArrInstanceRef.make(
+        let built = ArrInstanceRef.make(
             from: entries.map { (id: $0.id, displayName: $0.displayName, tier: tiers[$0.id] ?? .hd) },
             serviceType: serviceType
         )
+        refsCache[serviceType] = built
+        return built
     }
 
     func refs(for serviceType: ArrServiceType) -> [ArrInstanceRef] {

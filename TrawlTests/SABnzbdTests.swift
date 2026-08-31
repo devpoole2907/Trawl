@@ -159,7 +159,13 @@ struct SABnzbdDecodingTests {
             serviceManager: ArrServiceManager(),
             torrents: [:],
             sabActiveJobs: [],
-            sabHistoryJobs: [SABnzbdJob(historySlot: failedSlot), SABnzbdJob(historySlot: completedSlot)]
+            sabHistoryJobs: [SABnzbdJob(historySlot: failedSlot), SABnzbdJob(historySlot: completedSlot)],
+            // The revisions form the memoisation key. A fresh view model per call
+            // means any value misses the cache; they are passed explicitly rather
+            // than defaulted so a caller cannot accidentally share a key across
+            // different data.
+            sabRevision: 1,
+            torrentsRevision: 1
         )
         let sabJobs = items.compactMap { item -> SABnzbdJob? in
             guard case .sab(let job) = item else { return nil }

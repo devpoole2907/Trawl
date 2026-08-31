@@ -743,7 +743,21 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     @State private var releases: [ArrRelease] = []
     @State private var isLoading = false
     @State private var grabbingReleaseID: String?
+    /// True once a search has *finished*. Answers "should we search at all?".
     @State private var hasLoaded = false
+    /// True while a search is *in flight*. Answers "is one already running?".
+    ///
+    /// Separate from `hasLoaded` because they are different questions, and using
+    /// the completion flag for both left the guard open for the entire duration of
+    /// the search: `hasLoaded` is only set after the request returns *and* after
+    /// the results finish streaming in, so anything that called `loadReleases()`
+    /// during those seconds sailed past `guard !hasLoaded` and started a second
+    /// identical search against the indexers.
+    ///
+    /// Same shape as the `isLoadingQueue` / `isRefreshingQueues` split in
+    /// `ArrServiceManager`: one flag cannot be both a UI state and a reentrancy
+    /// guard.
+    @State private var isSearchInFlight = false
     @State private var searchText = ""
     @State private var releaseSort: ArrReleaseSort
     @State private var searchError: String?
@@ -828,17 +842,42 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
-    private var displayedReleases: [ArrRelease] {
-        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty else { return sortedFilteredReleases }
-        return sortedFilteredReleases.filter { release in
-            release.title?.localizedCaseInsensitiveContains(text) == true ||
-            release.indexer?.localizedCaseInsensitiveContains(text) == true
-        }
+    /// Everything the screen derives from `releases`, computed together.
+    ///
+    /// These used to be three computed properties that each re-ran the one below
+    /// them: `displayedReleases` recomputed `sortedFilteredReleases`, so did
+    /// `hiddenByFiltersCount`, and `releaseCountSubtitle` recomputed
+    /// `displayedReleases` on top of that. The body then read them again for the
+    /// empty state, the row list, the list's animation key and the footer - so a
+    /// full filter-and-sort of every release ran the better part of a dozen times
+    /// per body pass, and the body runs every frame.
+    ///
+    /// Measured on device at 95ms in `sortedFilteredReleases` inside 127ms of
+    /// `body` across one 36-second session. Computing the set once and passing it
+    /// down needs no cache and cannot go stale - it is the same work, done once.
+    struct DerivedReleases {
+        let sortedFiltered: [ArrRelease]
+        let displayed: [ArrRelease]
+        let hiddenByFilters: Int
     }
 
-    private var hiddenByFiltersCount: Int {
-        releases.count - sortedFilteredReleases.count
+    private func makeDerivedReleases() -> DerivedReleases {
+        let sortedFiltered = sortedFilteredReleases
+        let text = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let displayed: [ArrRelease]
+        if text.isEmpty {
+            displayed = sortedFiltered
+        } else {
+            displayed = sortedFiltered.filter { release in
+                release.title?.localizedCaseInsensitiveContains(text) == true ||
+                release.indexer?.localizedCaseInsensitiveContains(text) == true
+            }
+        }
+        return DerivedReleases(
+            sortedFiltered: sortedFiltered,
+            displayed: displayed,
+            hiddenByFilters: releases.count - sortedFiltered.count
+        )
     }
 
     private var qualityFilterItems: [TrawlSegmentBarItem<String>] {
@@ -846,9 +885,9 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
             + availableQualities.map { TrawlSegmentBarItem($0, value: $0) }
     }
 
-    private var releaseCountSubtitle: String {
+    private func releaseCountSubtitle(_ derived: DerivedReleases) -> String {
         guard !releases.isEmpty else { return "" }
-        let shown = displayedReleases.count
+        let shown = derived.displayed.count
         let total = releases.count
         if shown == total {
             return total == 1 ? "\(total) release" : "\(total) releases"
@@ -857,7 +896,10 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     }
 
     var body: some View {
-        NavigationStack {
+        // Derived once here and threaded down, rather than each consumer
+        // recomputing it. See `makeDerivedReleases()`.
+        let derived = makeDerivedReleases()
+        return NavigationStack {
             Group {
                 if let error = searchError, !error.isEmpty {
                     ContentUnavailableView {
@@ -879,7 +921,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                     } actions: {
                         Button("Search Again", systemImage: "arrow.clockwise", action: searchAgain)
                     }
-                } else if !releases.isEmpty && displayedReleases.isEmpty {
+                } else if !releases.isEmpty && derived.displayed.isEmpty {
                     ContentUnavailableView {
                         Label("No Releases", systemImage: "line.3.horizontal.decrease.circle")
                     } description: {
@@ -888,7 +930,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                         Button("Clear Filters") { clearFilters() }
                     }
                 } else {
-                    releaseList
+                    releaseList(derived)
                 }
             }
             .safeAreaInset(edge: .top) {
@@ -898,7 +940,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
                 }
             }
             .navigationTitle(title)
-            .navigationSubtitle(releaseCountSubtitle)
+            .navigationSubtitle(releaseCountSubtitle(derived))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
@@ -927,16 +969,16 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         }
     }
 
-    private var releaseList: some View {
+    private func releaseList(_ derived: DerivedReleases) -> some View {
         List {
             loadingSection
 
-            ForEach(displayedReleases) { release in
+            ForEach(derived.displayed) { release in
                 releaseNavigationLink(for: release)
             }
-            .animation(.default, value: displayedReleases.count)
+            .animation(.default, value: derived.displayed.count)
 
-            hiddenReleasesFooter
+            hiddenReleasesFooter(derived.hiddenByFilters)
         }
         #if os(iOS)
         .listStyle(.insetGrouped)
@@ -1017,7 +1059,7 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     }
 
     @ViewBuilder
-    private var hiddenReleasesFooter: some View {
+    private func hiddenReleasesFooter(_ hiddenByFiltersCount: Int) -> some View {
         if releaseSort.isFiltered && hiddenByFiltersCount > 0 {
             Section {
                 EmptyView()
@@ -1160,7 +1202,9 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
     }
 
     private func loadReleases() async {
-        guard !hasLoaded else { return }
+        guard !hasLoaded, !isSearchInFlight else { return }
+        isSearchInFlight = true
+        defer { isSearchInFlight = false }
         isLoading = true
         releases = []
         searchError = nil

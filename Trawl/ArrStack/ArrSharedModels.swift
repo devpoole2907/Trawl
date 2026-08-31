@@ -1742,3 +1742,27 @@ nonisolated struct ArrBackup: Codable, Identifiable, Sendable {
     let size: Int?
     let path: String?
 }
+
+
+// MARK: - Change detection for the queue poller
+
+/// `Equatable` here exists for one purpose: letting `ArrServiceManager.refreshQueues`
+/// tell "the server sent new data" apart from "a poll happened".
+///
+/// The queue poller runs every 5 seconds while a queue-facing view is on screen. It
+/// used to assign `sonarrQueue`, `radarrQueue`, `sonarrHistory` and `radarrHistory`
+/// unconditionally, and `@Observable` notifies on assignment rather than on change -
+/// so an idle server still invalidated every view reading them, twice a poll, for as
+/// long as the app was open. On a detail screen that rebuilds the toolbar `Menu`,
+/// and UIKit dismisses a presented menu when its element tree is replaced: an open
+/// submenu closed itself every few seconds.
+///
+/// Comparing before assigning cannot cost freshness. Identical data has nothing to
+/// redraw, so a suppressed notification is one that would have produced an identical
+/// frame - while any real change still assigns and still notifies.
+extension ArrQuality: Equatable {}
+extension ArrStatusMessage: Equatable {}
+extension ArrReleaseQuality: Equatable {}
+extension ArrHistoryQuality: Equatable {}
+extension ArrQueueItem: Equatable {}
+extension ArrHistoryRecord: Equatable {}

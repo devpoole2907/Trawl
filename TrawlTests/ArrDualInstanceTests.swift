@@ -695,7 +695,11 @@ struct ArrDualInstanceRoutingTests {
 
 /// A loopback Radarr that records the deletes and commands it is sent, so a test
 /// can assert *which* server received an action rather than only that it succeeded.
-private final class DualInstanceRadarrServer: @unchecked Sendable {
+/// Internal rather than file-private because `ArrQueuePollingObservationTests`
+/// needs the same server: a connected Radarr answering `/api/v3/movie` and
+/// `/api/v3/queue`. A third near-identical loopback fixture would be a copy whose
+/// only distinguishing feature is which file it sits in.
+final class DualInstanceRadarrServer: @unchecked Sendable {
     private let listener: NWListener
     private let queue: DispatchQueue
     private let moviesBody: String
@@ -704,6 +708,14 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
     private var deletes: [String] = []
     private var commands: [String] = []
     private var requests: [String] = []
+
+    /// Queue payload for `GET /api/v3/queue`, settable so one test can hand out
+    /// identical data twice and another can change it between polls.
+    var queueBody: String {
+        get { lock.lock(); defer { lock.unlock() }; return _queueBody }
+        set { lock.lock(); _queueBody = newValue; lock.unlock() }
+    }
+    private var _queueBody = #"{"page":1,"pageSize":100,"totalRecords":0,"records":[]}"#
 
     init(label: String, movies: String, rootFolders: String = "[]") async throws {
         self.queue = DispatchQueue(label: "DualInstanceRadarrServer.\(label)")
@@ -774,6 +786,12 @@ private final class DualInstanceRadarrServer: @unchecked Sendable {
             switch (method, path) {
             case ("GET", "/api/v3/movie"): body = self.moviesBody
             case ("GET", "/api/v3/rootfolder"): body = self.rootFoldersBody
+            case ("GET", "/api/v3/queue"): body = self.queueBody
+            // `ArrServiceManager.fetchQueueSnapshot` awaits queue and history
+            // together, so an undecodable history throws the whole snapshot away
+            // and the queue silently arrives empty. The default "[]" is not a page.
+            case ("GET", "/api/v3/history"):
+                body = #"{"page":1,"pageSize":100,"totalRecords":0,"records":[]}"#
             case ("GET", "/api/v3/system/status"): body = "{}"
             case ("POST", "/api/v3/command"): body = #"{"id":1,"name":"MoviesSearch"}"#
             case ("DELETE", _): body = "{}"

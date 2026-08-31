@@ -63,7 +63,12 @@ protocol JellyfinMatchable: Sendable {
 
 @MainActor
 class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Item.ID == Int {
-    var items: [Item] = []
+    var items: [Item] = [] {
+        didSet { libraryRevision &+= 1 }
+    }
+    /// Moves whenever the library is replaced. Lets a screen memoise work derived
+    /// from `items` without inventing its own change test - see `mergedEntries()`.
+    private(set) var libraryRevision: Int = 0
     var isLoading = false
     var error: String?
 
@@ -290,6 +295,28 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     typealias LibraryItem = Client.LibraryItem
     typealias WantedRecord = Client.WantedRecord
     typealias Item = LibraryItem
+
+    /// The library merged into one entry per title, cached on `libraryRevision`.
+    ///
+    /// A detail screen resolves its subject through this. `entry` is read ~35 times
+    /// in one body pass - by `movie`, `actionCopy`, `instanceRefs`, `isInLibrary`,
+    /// `serverChoices`, `fileLoadKey` and the rest - and each read used to merge and
+    /// group the *entire* library to find one title. On device that measured 78ms of
+    /// `mergedByTitle` inside 94ms of `entry.getter` across a 28-second session.
+    ///
+    /// `libraryRevision` is read on every call, hit or miss, so a caller stays
+    /// subscribed and a library reload still invalidates it.
+    func mergedEntries() -> [ArrLibraryEntry<Item>] {
+        let revision = libraryRevision
+        if mergedEntriesRevision == revision { return cachedMergedEntries }
+        let merged = items.mergedByTitle()
+        cachedMergedEntries = merged
+        mergedEntriesRevision = revision
+        return merged
+    }
+
+    @ObservationIgnored private var cachedMergedEntries: [ArrLibraryEntry<Item>] = []
+    @ObservationIgnored private var mergedEntriesRevision: Int = -1
 
     // List State
     var searchText: String = "" { didSet { rebuildFilteredItems() } }

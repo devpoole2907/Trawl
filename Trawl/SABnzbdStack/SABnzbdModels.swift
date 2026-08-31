@@ -992,3 +992,21 @@ nonisolated enum SABnzbdCategoryPriority: Int, CaseIterable, Identifiable, Senda
         }
     }
 }
+
+
+// MARK: - Change detection for the poller
+
+/// `Equatable` here exists so `SABnzbdServiceManager.refresh` can tell "SABnzbd
+/// sent something new" apart from "four seconds elapsed".
+///
+/// Measured on an iPhone 15 Pro Max with a Release build and *nothing downloading*:
+/// reassigning `queue` every poll cost ~48ms of main-thread work per tick - a full
+/// SwiftUI graph update plus a `UICollectionViewListCoordinatorBase.performUpdates`
+/// list diff, with `DownloadsViewModel.match` re-running underneath it. At 120Hz
+/// that is roughly six frames, every four seconds, forever.
+///
+/// The slot types are already `Hashable`, so these are the two containers that were
+/// missing. Comparing before assigning cannot cost freshness: identical data
+/// produces an identical frame.
+extension SABnzbdQueue: Equatable {}
+extension SABnzbdHistory: Equatable {}

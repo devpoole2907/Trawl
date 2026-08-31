@@ -11,7 +11,13 @@ extension QBittorrentAPIClient: SyncDataFetching {}
 @Observable
 final class SyncService {
     // MARK: - Published State (read by ViewModels)
-    private(set) var torrents: [String: Torrent] = [:]
+    private(set) var torrents: [String: Torrent] = [:] {
+        didSet { torrentsRevision &+= 1 }
+    }
+    /// Moves whenever `torrents` is written. Coarser than the Arr and SABnzbd
+    /// revisions - this one bumps on any assignment rather than only on a real
+    /// change - which costs a cache miss, never a stale read.
+    private(set) var torrentsRevision: Int = 0
     private(set) var categories: [String: SyncCategory] = [:]
     private(set) var tags: [String] = []
     private(set) var serverState: ServerState?
