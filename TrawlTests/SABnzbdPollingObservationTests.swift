@@ -121,6 +121,52 @@ struct SABnzbdPollingObservationTests {
         }
     }
 
+    /// A rejected key is not a retryable failure.
+    ///
+    /// Clearing the connection flips `isConnected` to false, which is also the
+    /// signal `ContentView.retryDisconnectedConnections()` used to decide whether
+    /// to reconnect - so after a 401 the app immediately reconnected to the server
+    /// that had just turned it away, issuing a `version` handshake and a `queue`
+    /// poll against someone else's machine. A wrong key does not fix itself on a
+    /// timer, and retrying silently contradicts the error the user is shown.
+    ///
+    /// `SABnzbdUnauthorizedJourneyUITests` caught this only once its polling
+    /// assertion was made *stricter*: the previous version sampled every 0.5s
+    /// against a 4s poll cadence and broke out on the first two quiet samples, so
+    /// it could settle mid-interval and miss the reconnect entirely. Relaxing a
+    /// timing-sensitive assertion because it goes red is how this stayed hidden.
+    @Test("A rejected key is not retried automatically, but a deliberate reconnect clears that")
+    @MainActor
+    func rejectedCredentialsAreNotRetriedAutomatically() async throws {
+        PollingObservationRemote.shared.reset()
+        PollingObservationRemote.shared.setQueue(Self.queueJSON(mbLeft: 25))
+        PollingObservationRemote.shared.setHistory(Self.historyJSON)
+
+        let (manager, profile) = try await connectedManager()
+        try await withSavedAPIKey(for: profile) {
+            await manager.connectService(profile)
+            #expect(manager.didRejectCredentials == false)
+
+            PollingObservationRemote.shared.setUnauthorized(true)
+            await manager.refresh()
+
+            #expect(manager.isConnected == false)
+            #expect(
+                manager.didRejectCredentials,
+                "A 401 has to be distinguishable from being unreachable, or the automatic retry cannot tell them apart."
+            )
+
+            // The user corrects the key in Settings, which connects directly rather
+            // than waiting for the retry loop. That must not be blocked.
+            PollingObservationRemote.shared.setUnauthorized(false)
+            await manager.connectService(profile)
+            #expect(
+                manager.didRejectCredentials == false,
+                "A deliberate reconnect supersedes the rejection - otherwise fixing the key would never take effect."
+            )
+        }
+    }
+
     /// The regression the full plan caught, pinned.
     ///
     /// `queueRevision` was originally bumped inside `refresh()` only. An

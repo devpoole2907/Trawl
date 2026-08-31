@@ -890,7 +890,13 @@ struct ContentView: View {
             await jellyfinServiceManager.initialize(from: jellyfinProfiles)
         }
 
-        if !sabnzbdProfiles.isEmpty && !sabnzbdServiceManager.isConnected && !sabnzbdServiceManager.isConnecting {
+        // `didRejectCredentials` and not merely `!isConnected`: a 401 clears the
+        // connection, which re-keys this retry loop and lands straight back here,
+        // so the app reconnected to the server that had just rejected its key. A
+        // wrong key does not fix itself on a timer; the user has been told to
+        // update it in Settings, and saving there connects directly.
+        if !sabnzbdProfiles.isEmpty && !sabnzbdServiceManager.isConnected
+            && !sabnzbdServiceManager.isConnecting && !sabnzbdServiceManager.didRejectCredentials {
             await sabnzbdServiceManager.initialize(from: sabnzbdProfiles)
         }
 

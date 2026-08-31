@@ -11,6 +11,26 @@ final class SABnzbdServiceManager {
     /// Bumped only when a poll actually brought new queue or history data - see
     /// `ArrServiceManager.queueRevision`.
     private(set) var queueRevision: Int = 0
+
+    /// True when SABnzbd rejected the API key, as opposed to being unreachable.
+    ///
+    /// The distinction decides whether an automatic retry makes sense. A server
+    /// that is down may well be up in thirty seconds, so retrying is right. A key
+    /// the server has rejected will be rejected again by exactly the same request,
+    /// so retrying is pure noise against someone else's machine - and it silently
+    /// contradicts the error the user is being shown, which tells them to go and
+    /// update the key in Settings.
+    ///
+    /// Found because `SABnzbdUnauthorizedJourneyUITests` kept seeing two extra
+    /// requests after a 401: a `version` handshake and a `queue` poll. Clearing the
+    /// connection flips `isConnected` to false, which re-keyed ContentView's retry
+    /// loop and re-entered `retryDisconnectedConnections()`, whose only test was
+    /// `!isConnected` - so the app immediately reconnected to the server that had
+    /// just turned it away.
+    ///
+    /// Cleared by any *deliberate* connect attempt, so updating the key in Settings
+    /// tries again straight away; only the automatic retry defers to it.
+    private(set) var didRejectCredentials = false
     private(set) var isRefreshing: Bool = false
     /// Whether a refresh has ever completed. `isRefreshing` flips true on every
     /// poll, so a first-load spinner keyed off it alone blinks the whole view
@@ -99,6 +119,10 @@ final class SABnzbdServiceManager {
         let generation = connectionGeneration
         isConnecting = true
         connectionError = nil
+        // A deliberate attempt supersedes a previous rejection - the key may have
+        // just been corrected. The automatic retry path checks the flag *before*
+        // calling this, so it does not clear what it is meant to respect.
+        didRejectCredentials = false
         // Only the newest attempt owns the spinner; an older one finishing late
         // must not declare the connection settled.
         defer {
@@ -245,6 +269,7 @@ final class SABnzbdServiceManager {
             guard isCurrentConnection(generation: generation, client: client) else { return }
             cancelPollingTask()
             clearActiveConnection()
+            didRejectCredentials = true
             connectionError = "SABnzbd rejected the API key. Update it in Settings."
         } catch {
             guard isCurrentConnection(generation: generation, client: client) else { return }

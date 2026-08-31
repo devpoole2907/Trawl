@@ -253,20 +253,41 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
     ) {
         let neverExists = app.staticTexts["__sabnzbd_polling_probe__"]
 
+        // Settling has to outlast a poll interval, not merely a sample.
+        //
+        // This used to break out the first time two 0.5s samples agreed - against a
+        // 4s polling cadence, so two quiet samples are the *normal* case while
+        // polling is still running. It could therefore declare the loop stopped
+        // mid-interval and then fail when the next tick landed, which is exactly how
+        // it failed inside one full-plan run while passing in isolation every time.
+        //
+        // Requiring the count to hold across a window longer than one interval makes
+        // the check stricter, not more patient: a poller that is still alive cannot
+        // stay quiet that long, so a real failure to stop still fails here.
+        let interval: TimeInterval = 0.5
+        let samplesPerPollInterval = Int((5.0 / interval).rounded(.up))   // > SABnzbd's 4s
+
         var baseline = server.requestCount
-        for _ in 0..<6 {
-            _ = neverExists.waitForExistence(timeout: 0.5)
+        var stableSamples = 0
+        for _ in 0..<24 {
+            _ = neverExists.waitForExistence(timeout: interval)
             let current = server.requestCount
-            if current == baseline { break }
-            baseline = current
+            if current == baseline {
+                stableSamples += 1
+                if stableSamples >= samplesPerPollInterval { break }
+            } else {
+                baseline = current
+                stableSamples = 0
+            }
         }
 
-        for _ in 0..<12 {
-            _ = neverExists.waitForExistence(timeout: 0.5)
+        // Then hold it for another full interval and a bit.
+        for _ in 0..<samplesPerPollInterval {
+            _ = neverExists.waitForExistence(timeout: interval)
             XCTAssertEqual(
                 server.requestCount,
                 baseline,
-                "H-05 regression: SABnzbd polling should stop once the manager clears its client after an unauthorized response, but the fixture kept receiving requests.",
+                "H-05 regression: SABnzbd polling should stop once the manager clears its client after an unauthorized response, but the fixture kept receiving requests. Modes seen: \(server.requests.compactMap(\.mode).joined(separator: ","))",
                 file: file,
                 line: line
             )
