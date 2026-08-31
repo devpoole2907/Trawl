@@ -114,6 +114,41 @@ nothing is precisely the failure being guarded against.
 | `Trawl/ArrStack/SonarrSeriesSearchViews.swift` - the season and episode drill-down | `TrawlUITests/SonarrSeasonEpisodeJourneyUITests.swift` | The largest gap in the app: 3,616 executable lines at 12.7%, most of it `SonarrSeasonSearchView` and `SonarrEpisodeSearchView`. Never opened with real data because no journey had ever given `SonarrFixtureServer` an episode list - `episodesJSON` existed and every test left it empty. The fixture serves **one episode with a file and one without**, because the season screen renders those states differently and a fixture carrying only the downloaded case exercises half the view. The episode screen is asserted by its navigation title, which is `episodeIdentifier` - *derived* (`String(format: "S%02dE%02d", …)`) rather than served, so a formatting regression there renames every episode screen in the app and nothing else pins it. These are the screens a user reaches while chasing a single missing episode, so a rendering failure here surfaces at the worst possible moment. |
 | `Trawl/JellyfinStack/JellyfinUserEditorView.swift`, `policyRow` accessibility | `TrawlUITests/JellyfinUserEditorJourneyUITests.swift` | 2,353 lines at 0% and the most consequential of the never-rendered set, because it displays a Jellyfin user's *permissions*. Deliberately read-only: it proves the editor seeds from the policy the server returned and asserts no `POST …/Policy` was made. A test that flips permissions to prove it can is one that will eventually flip them somewhere it should not, and seeding is where the risk actually lives - a row showing the opposite of the server invites an administrator to "correct" something that was never wrong. Administrator and Disabled are asserted together and must **disagree**, so a view rendering defaults instead of the server fails rather than coincidentally agreeing. Writing this surfaced a real accessibility defect, now fixed: `policyRow` conveyed granted-vs-denied with a green tick alone, so VoiceOver read every permission as just its name and a blind administrator could not tell an enabled permission from a disabled one. It now carries an `accessibilityValue`. The reason the row was untestable and the reason it was inaccessible were the same fact - state encoded only in pixels is invisible to both. |
 
+**`TrawlIconSegmentedPicker` is deliberately uncovered.** It is a self-contained
+component with no production call site yet - built to match Apple Weather's inline
+conditions picker so it is ready when a card header needs one. A UI journey cannot
+reach a view nothing mounts, and a unit test over a pure SwiftUI body would assert
+its own construction. Its two `#Preview`s are the check that it renders, in both
+appearances. **Whoever adopts it owns its first real test**, and that test belongs to
+the screen that adopts it, not to the component.
+
+**Library identity is not lookup identity.** `RadarrMovie`/`SonarrSeries` hash on
+`(id, instanceID)`, which is correct for a row that came from a server and meaningless
+for a lookup result: Radarr and Sonarr report `id == 0` for everything they have not
+added, and a lookup result carries no `instanceID`. Every un-added result was therefore
+`==` to every other one, which broke four things at once - `ForEach` rendered a single
+row no matter how many results a search returned, the Add sheets highlighted every row
+when one was picked, and `NavigationStack`, which keys destinations on value identity,
+reused the screen it had already built, so tapping a second trending card opened the
+first card's film. Both models now carry a `lookupIdentity` built from the external ids
+the result actually carries, and every collection or navigation value that can hold a
+lookup result keys on it; `id` still means library identity, unchanged.
+
+`ArrMediaDestinationTests` had **pinned the collision as correct** - `#expect(destinations.count == 1)`
+under a comment calling it "occasionally-surprising behavior". A test that documents a
+defect precisely enough to describe its consequences, and asserts it anyway, is worse
+than no test: it makes the bug look deliberate and stops anyone else reporting it. The
+suite now asserts distinctness, and `RadarrSearchAddJourneyUITests` drives the tap
+sequence end to end, because the equality is only half the story - what the user
+experiences is the second screen, and nothing but a real push proves the stack agrees.
+The journey uses two lookup results whose *titles* differ and whose library ids are
+both `0`, which is exactly the payload real Radarr returns.
+
+| Production surface | Owning tests | What the tests pin, and why it matters |
+| --- | --- | --- |
+| `ArrMediaDestination` equality/hash; `RadarrMovie.lookupIdentity`, `SonarrSeries.lookupIdentity` | `TrawlTests/ArrMediaDestinationTests.swift`; `TrawlUITests/RadarrSearchAddJourneyUITests.swift` | The unit suite pins that two un-added results stay distinct while an identical copy still compares equal - both halves matter, since over-distinguishing would break the zoom transition's source/destination match. The journey asserts the *second* result's own detail screen opens and the first is gone. |
+| `SearchView.SearchResultEntry`, `RadarrAddMovieSheet`, `SonarrAddSeriesSheet` result lists | `TrawlUITests/RadarrSearchAddJourneyUITests.swift` | The journey asserts **both** lookup results render before it taps either. That assertion is what caught the `ForEach` collapse - the navigation bug was the reported symptom, but the list had been silently showing one result out of every N since the search screen was written. |
+
 **A disappearance is waited for, not sampled.** `SABnzbdUnauthorizedJourneyUITests`
 asserted a stale job row was gone the instant the unauthorized error text appeared.
 The app was right - `clearActiveConnection()` nils the queue alongside the error, and
