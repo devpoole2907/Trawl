@@ -61,11 +61,15 @@ enum ArrNotificationSetupStatus: Sendable {
 final class ArrServiceManager {
 
     // MARK: - Sonarr (multi-instance)
-    private(set) var sonarrInstances: [SonarrClientEntry] = []
+    private(set) var sonarrInstances: [SonarrClientEntry] = [] {
+        didSet { instancesRevision &+= 1 }
+    }
     private(set) var activeSonarrProfileID: UUID?
 
     // MARK: - Radarr (multi-instance)
-    private(set) var radarrInstances: [RadarrClientEntry] = []
+    private(set) var radarrInstances: [RadarrClientEntry] = [] {
+        didSet { instancesRevision &+= 1 }
+    }
     private(set) var activeRadarrProfileID: UUID?
 
     // MARK: - Prowlarr (single instance)
@@ -77,14 +81,18 @@ final class ArrServiceManager {
     private(set) var prowlarrTags: [ArrTag] = []
 
     // MARK: - Bazarr (multi-instance)
-    private(set) var bazarrInstances: [BazarrClientEntry] = []
+    private(set) var bazarrInstances: [BazarrClientEntry] = [] {
+        didSet { instancesRevision &+= 1 }
+    }
     private(set) var activeBazarrProfileID: UUID?
 
     // MARK: - Global state
     var lastLibraryImportTimestamp: Date = .distantPast
     private(set) var isInitializing: Bool = false
     private(set) var connectionErrors: [String: String] = [:]
-    private(set) var storedProfiles: [ArrServiceProfile] = []
+    private(set) var storedProfiles: [ArrServiceProfile] = [] {
+        didSet { instancesRevision &+= 1 }
+    }
 
     /// Which instances the blended library is currently showing. Restored from
     /// preferences at init so a narrowed filter survives a launch; no UI exposes
@@ -116,12 +124,44 @@ final class ArrServiceManager {
     private(set) var radarrQueue: [ArrInstanced<ArrQueueItem>] = []
     private(set) var sonarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
     private(set) var radarrHistory: [ArrInstanced<ArrHistoryRecord>] = []
+    /// Observed, and deliberately only ever true during the *first* refresh - the
+    /// only time a view shows a spinner for it. It used to flip on every poll,
+    /// which meant two observer notifications every 5 seconds whether or not
+    /// anything had changed.
     private(set) var isLoadingQueue = false
+    /// Reentrancy guard, kept out of observation: it says a refresh is in flight,
+    /// which is bookkeeping no view renders. Sharing one flag for both jobs is why
+    /// the observed one had to keep flipping.
+    @ObservationIgnored private var isRefreshingQueues = false
     /// True once a queue refresh has completed, successfully or not. Views use this to
-    /// show a spinner on first load only - `isLoadingQueue` alone flips on every poll,
-    /// so an empty queue would flicker between spinner and empty state every cycle.
+    /// show a spinner on first load only.
     private(set) var hasLoadedQueueOnce = false
     private(set) var queueError: String?
+    /// Bumped only when a poll actually brought new queue or history data.
+    ///
+    /// Exists so a view can memoise work derived from the queue without inventing
+    /// its own "did this change" test: reading this is O(1), reading it keeps the
+    /// view subscribed, and it moves if and only if one of the arrays above did.
+    /// A cache keyed on it therefore cannot go stale - the same guarantee the
+    /// guarded assignments give, expressed as a value a consumer can hold on to.
+    private(set) var queueRevision: Int = 0
+
+    /// Moves whenever the configured servers change: added, removed, reconnected,
+    /// renamed, or re-tiered.
+    ///
+    /// `refs(for:)` is on the hot path of practically every list in the app - each
+    /// library row asks for badges, each history row asked whether provenance is
+    /// worth showing - and it rebuilt a `Dictionary` from `storedProfiles` on every
+    /// call. Profiling a Release build on device put `refs(from:serviceType:)` at
+    /// 110ms of a 28-second scroll purely from that. Servers change a handful of
+    /// times in a session, so the answer is cacheable; this is the key that says
+    /// when to throw the cache away.
+    private(set) var instancesRevision: Int = 0
+    /// Built refs per service, thrown away whole whenever `instancesRevision` moves.
+    // Internal, not fileprivate: `refs(from:serviceType:)` lives in the
+    // +Instances extension in another file.
+    @ObservationIgnored var refsCache: [ArrServiceType: [ArrInstanceRef]] = [:]
+    @ObservationIgnored var refsCacheRevision: Int = -1
 
     /// Cadence while a queue-facing view is on screen. Sonarr and Radarr each return
     /// 100 queue plus 100 history records per poll, so this sits a little slower than
@@ -891,10 +931,22 @@ final class ArrServiceManager {
         }
     }
 
+    /// Refills one Bazarr's subtitle cache.
+    ///
+    /// The write is dropped if the entry has moved to a different client while the
+    /// two fetches were in flight. `connectService` kicks this off in an unawaited
+    /// `Task`, so repointing a Bazarr profile at another host leaves the previous
+    /// host's refresh still running against the client it captured - and with no
+    /// guard, whichever finishes *last* wins. A slower old host therefore overwrote
+    /// the new host's cache with the old server's subtitle state, which then served
+    /// every `cachedBazarrSeries`/`cachedBazarrMovie` lookup until something
+    /// refreshed it again. Identity is the exact invariant, so it is what gets
+    /// compared: the client this refresh used must still be the entry's client.
     func refreshBazarrSubtitleCache(for id: UUID, client: BazarrAPIClient) async {
         async let seriesPage = try? client.getSeries(start: 0, length: -1)
         async let moviesPage = try? client.getMovies(start: 0, length: -1)
         let (series, movies) = await (seriesPage, moviesPage)
+        guard bazarrInstances.first(where: { $0.id == id })?.client === client else { return }
         updateEntry(in: &bazarrInstances, id: id) { entry in
             if let s = series { entry.cachedSeries = s.data }
             if let m = movies { entry.cachedMovies = m.data }
@@ -921,16 +973,57 @@ final class ArrServiceManager {
     }
 
     /// Cached Bazarr movie for a Radarr id, if Bazarr is connected and tracking it.
+    ///
+    /// Indexed rather than scanned. Every library row asks for this while it
+    /// renders, so a linear scan made list rendering O(rows x cached movies) per
+    /// frame - 152ms of a 28-second scroll on device, most of it copying
+    /// `BazarrMovie` values in and out of the search.
     func cachedBazarrMovie(forRadarrId radarrId: Int) -> BazarrMovie? {
         guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
-        return entry.cachedMovies.first { $0.radarrId == radarrId }
+        return bazarrMovieIndex(for: entry)[radarrId]
     }
 
     /// Cached Bazarr series for a Sonarr id, if Bazarr is connected and tracking it.
     func cachedBazarrSeries(forSonarrSeriesId sonarrId: Int) -> BazarrSeries? {
         guard let entry = activeBazarrEntry, entry.isConnected else { return nil }
-        return entry.cachedSeries.first { $0.sonarrSeriesId == sonarrId }
+        return bazarrSeriesIndex(for: entry)[sonarrId]
     }
+
+    /// The indexes are rebuilt whenever the cache they describe is replaced, which
+    /// only happens on a subtitle-cache refresh - not per row and not per frame.
+    private func bazarrMovieIndex(for entry: BazarrClientEntry) -> [Int: BazarrMovie] {
+        if bazarrIndexKey == entry.id, bazarrIndexCount == entry.cachedMovies.count + entry.cachedSeries.count {
+            return bazarrMovieLookup
+        }
+        rebuildBazarrIndexes(for: entry)
+        return bazarrMovieLookup
+    }
+
+    private func bazarrSeriesIndex(for entry: BazarrClientEntry) -> [Int: BazarrSeries] {
+        if bazarrIndexKey == entry.id, bazarrIndexCount == entry.cachedMovies.count + entry.cachedSeries.count {
+            return bazarrSeriesLookup
+        }
+        rebuildBazarrIndexes(for: entry)
+        return bazarrSeriesLookup
+    }
+
+    private func rebuildBazarrIndexes(for entry: BazarrClientEntry) {
+        bazarrMovieLookup = Dictionary(
+            entry.cachedMovies.map { ($0.radarrId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        bazarrSeriesLookup = Dictionary(
+            entry.cachedSeries.map { ($0.sonarrSeriesId, $0) },
+            uniquingKeysWith: { first, _ in first }
+        )
+        bazarrIndexKey = entry.id
+        bazarrIndexCount = entry.cachedMovies.count + entry.cachedSeries.count
+    }
+
+    @ObservationIgnored private var bazarrMovieLookup: [Int: BazarrMovie] = [:]
+    @ObservationIgnored private var bazarrSeriesLookup: [Int: BazarrSeries] = [:]
+    @ObservationIgnored private var bazarrIndexKey: UUID?
+    @ObservationIgnored private var bazarrIndexCount: Int = -1
 
     /// Unified subtitle coverage for a movie, merging Bazarr (when tracking) with
     /// the embedded subtitle tracks reported by Radarr's media info.
@@ -1145,35 +1238,64 @@ final class ArrServiceManager {
     /// Refreshes the cached queue and history across every visible instance of
     /// both services in parallel, errors folded into one string. No-ops while a
     /// refresh is already in flight so overlapping polls can't stack.
+    /// Refreshes the merged queue and history.
+    ///
+    /// Every assignment below is guarded on the value actually differing.
+    /// `@Observable` notifies on *assignment*, not on change, so the previous
+    /// unconditional writes invalidated every observing view twice per 5-second
+    /// poll even when the servers returned byte-identical data - which is what
+    /// closed an open toolbar menu on a detail screen every few seconds.
+    ///
+    /// This cannot make the UI staler: a skipped assignment is one where the new
+    /// value equals the old, so the frame it would have produced is the frame
+    /// already on screen. Any real change still assigns and still notifies.
     func refreshQueues() async {
-        guard !isLoadingQueue else { return }
+        guard !isRefreshingQueues else { return }
+        isRefreshingQueues = true
+        defer { isRefreshingQueues = false }
+
+        // The spinner is a first-load affordance only, so the flag is only worth
+        // flipping - and notifying about - before that first load completes.
+        let isFirstLoad = !hasLoadedQueueOnce
+        if isFirstLoad { isLoadingQueue = true }
+        defer {
+            if isFirstLoad {
+                isLoadingQueue = false
+                hasLoadedQueueOnce = true
+            }
+        }
+
         let sonarr = visibleSonarr
         let radarr = visibleRadarr
         guard !sonarr.isEmpty || !radarr.isEmpty else {
-            sonarrQueue = []
-            radarrQueue = []
-            sonarrHistory = []
-            radarrHistory = []
-            queueError = nil
-            hasLoadedQueueOnce = true
+            var changed = false
+            if !sonarrQueue.isEmpty { sonarrQueue = []; changed = true }
+            if !radarrQueue.isEmpty { radarrQueue = []; changed = true }
+            if !sonarrHistory.isEmpty { sonarrHistory = []; changed = true }
+            if !radarrHistory.isEmpty { radarrHistory = []; changed = true }
+            if queueError != nil { queueError = nil }
+            if changed { queueRevision &+= 1 }
             return
-        }
-        isLoadingQueue = true
-        defer {
-            isLoadingQueue = false
-            hasLoadedQueueOnce = true
         }
 
         async let s = fanOutQueueSnapshots(sonarr)
         async let r = fanOutQueueSnapshots(radarr)
         let (sv, rv) = await (s, r)
-        sonarrQueue = sv.queue
-        sonarrHistory = sv.history
-        radarrQueue = rv.queue
-        radarrHistory = rv.history
+        // Compared at the call site, deliberately. A generic `assign(&x, v)` helper
+        // does not work here: passing an `@Observable` property `inout` performs a
+        // get *and* a set, so the registrar fires the mutation even when the value
+        // is unchanged - which is the whole thing being avoided.
+        var changed = false
+        if sonarrQueue != sv.queue { sonarrQueue = sv.queue; changed = true }
+        if sonarrHistory != sv.history { sonarrHistory = sv.history; changed = true }
+        if radarrQueue != rv.queue { radarrQueue = rv.queue; changed = true }
+        if radarrHistory != rv.history { radarrHistory = rv.history; changed = true }
         let errors = sv.errors + rv.errors
-        queueError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        let newError = errors.isEmpty ? nil : errors.joined(separator: "\n")
+        if queueError != newError { queueError = newError }
+        if changed { queueRevision &+= 1 }
     }
+
 
     /// Fetches queue and history from every instance of one service concurrently.
     /// One server being down degrades its own rows only - the other instance's
@@ -1854,6 +1976,13 @@ extension ArrServiceManager {
         case noneConfigured
         case sonarrConnecting
         case sonarrConnectionError(String)
+        /// A Default + 4K Radarr pair. The only state in which server-choice UI
+        /// renders at all: with one server every picker, badge and scope bar
+        /// deliberately hides itself, so a single-instance preview cannot show
+        /// whether that UI is right.
+        case radarrPair
+        /// The Sonarr equivalent.
+        case sonarrPair
     }
 
     static func preview(_ state: PreviewState = .allConfigured) -> ArrServiceManager {
@@ -1874,8 +2003,66 @@ extension ArrServiceManager {
             manager.installPreviewSonarr(connected: false, isConnecting: true)
         case .sonarrConnectionError(let msg):
             manager.installPreviewSonarr(connected: false, error: msg)
+        case .radarrPair:
+            manager.installPreviewRadarrPair()
+        case .sonarrPair:
+            manager.installPreviewSonarrPair()
         }
         return manager
+    }
+
+    /// Two connected Radarrs, one per tier, each with its *own* quality profiles
+    /// and root folders - not the same list twice. A preview that gave both
+    /// servers identical settings would render correctly whether or not the code
+    /// scopes them per server, which is the bug worth seeing.
+    fileprivate func installPreviewRadarrPair() {
+        let (hd, uhd) = Self.previewTierProfiles(named: "Radarr", serviceType: .radarr)
+        radarrInstances = [
+            Self.previewRadarrEntry(id: hd.id, displayName: hd.displayName, tier: .hd),
+            Self.previewRadarrEntry(id: uhd.id, displayName: uhd.displayName, tier: .uhd)
+        ]
+        storedProfiles.append(contentsOf: [hd, uhd])
+        activeRadarrProfileID = hd.id
+    }
+
+    fileprivate func installPreviewSonarrPair() {
+        let (hd, uhd) = Self.previewTierProfiles(named: "Sonarr", serviceType: .sonarr)
+        sonarrInstances = [
+            Self.previewSonarrEntry(id: hd.id, displayName: hd.displayName, tier: .hd),
+            Self.previewSonarrEntry(id: uhd.id, displayName: uhd.displayName, tier: .uhd)
+        ]
+        storedProfiles.append(contentsOf: [hd, uhd])
+        activeSonarrProfileID = hd.id
+    }
+
+    private static func previewTierProfiles(
+        named name: String,
+        serviceType: ArrServiceType
+    ) -> (ArrServiceProfile, ArrServiceProfile) {
+        (
+            ArrServiceProfile(displayName: name, hostURL: "http://127.0.0.1:7878", serviceType: serviceType, qualityTier: .hd),
+            ArrServiceProfile(displayName: "\(name) 4K", hostURL: "http://127.0.0.1:7879", serviceType: serviceType, qualityTier: .uhd)
+        )
+    }
+
+    private static func previewRadarrEntry(id: UUID, displayName: String, tier: ArrQualityTier) -> RadarrClientEntry {
+        var entry = RadarrClientEntry(id: id, displayName: displayName)
+        entry.client = .preview()
+        entry.isConnected = true
+        entry.qualityProfiles = ArrQualityProfile.previewTierList(tier)
+        entry.rootFolders = ArrRootFolder.previewTierList(tier)
+        entry.tags = ArrTag.previewList
+        return entry
+    }
+
+    private static func previewSonarrEntry(id: UUID, displayName: String, tier: ArrQualityTier) -> SonarrClientEntry {
+        var entry = SonarrClientEntry(id: id, displayName: displayName)
+        entry.client = .preview()
+        entry.isConnected = true
+        entry.qualityProfiles = ArrQualityProfile.previewTierList(tier)
+        entry.rootFolders = ArrRootFolder.previewTierList(tier)
+        entry.tags = ArrTag.previewList
+        return entry
     }
 
     fileprivate func installPreviewSonarr(connected: Bool, isConnecting: Bool = false, error: String? = nil) {

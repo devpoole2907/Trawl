@@ -103,7 +103,7 @@ struct SonarrSeriesDetailView: View {
     /// arriving from a widget or a Siri intent lands on the same screen as
     /// tapping the row in the library.
     private var entry: ArrLibraryEntry<SonarrSeries>? {
-        let merged = viewModel.series.mergedByTitle()
+        let merged = viewModel.mergedEntries()
         if let mergeKey {
             return merged.first { $0.id == mergeKey }
         }
@@ -577,6 +577,34 @@ struct SonarrSeriesDetailView: View {
         }
     }
 
+    /// Offers the server that does not have this series yet - the Sonarr twin of
+    /// `RadarrMovieDetailView.addToOtherServerCard`, and there for the same reason:
+    /// `isInLibrary` is true when *any* server holds the show, so with a pair
+    /// configured there was no route to put it on the other one.
+    @ViewBuilder
+    private var addToOtherServerCard: some View {
+        ForEach(missingInstances, id: \.id) { ref in
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add to \(serviceManager.scopeLabel(for: ref))", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    private var missingInstances: [ArrInstanceRef] {
+        guard let entry else { return [] }
+        let refs = serviceManager.refs(for: .sonarr)
+        guard refs.count > 1 else { return [] }
+        return entry.instancesMissingThis(from: refs)
+    }
+
     @ViewBuilder
     private func cardsSection(_ series: SonarrSeries) -> some View {
         if !isInLibrary {
@@ -595,6 +623,7 @@ struct SonarrSeriesDetailView: View {
 
         if isInLibrary {
             seriesSearchCard(series)
+            addToOtherServerCard
         }
 
         if !activeQueueItems.isEmpty {

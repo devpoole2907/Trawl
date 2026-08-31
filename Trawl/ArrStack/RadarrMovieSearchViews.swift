@@ -8,12 +8,60 @@ struct RadarrAddToLibrarySheet: View {
     let movie: RadarrMovie
     let onAdded: () async -> Void
 
-    @State private var selectedQualityProfileId: Int?
-    @State private var selectedRootFolderPath: String?
+    /// Quality profile and root folder per server, because both are per-server
+    /// facts: an id issued by one Radarr means nothing on the other. Keeping a
+    /// dictionary rather than one pair is what lets "Both Servers" show - and let
+    /// you set - a real choice for each destination instead of applying one
+    /// server's answer to a server that never offered it. It also means switching
+    /// destination and switching back does not discard what you already picked.
+    @State private var profileByInstance: [UUID: Int] = [:]
+    @State private var rootFolderByInstance: [UUID: String] = [:]
     @State private var minimumAvailability = "released"
     @State private var monitorOption = "movieOnly"
     @State private var searchForMovie = true
     @State private var isAdding = false
+    /// Optional because "not chosen yet" and "add to both" are different things.
+    /// Using `.everyCandidate` as the unresolved value made adding to *both*
+    /// servers the state the sheet sat in before its task ran - so a slow or failed
+    /// configuration refresh left the most destructive option preselected.
+    @State private var destination: ArrAddDestination?
+
+    /// What the picker shows and the add uses: the explicit choice when there is
+    /// one, otherwise the remembered or first candidate. Never `.everyCandidate`
+    /// unless the user picked it.
+    private var resolvedDestination: ArrAddDestination {
+        if let destination { return destination }
+        let preferred = ArrAddDestinationMemory.preferredServer(for: .radarr, candidates: candidates)
+        return preferred.map { ArrAddDestination.instance($0) } ?? .everyCandidate
+    }
+    @Environment(ArrServiceManager.self) private var serviceManager
+
+    /// The servers that could still take this movie - every configured Radarr the
+    /// library does not already show it on. With one server this is that server;
+    /// opened from a detail screen where one of a pair already holds the film, it
+    /// is the other one, and the sheet adds there without asking.
+    private var candidates: [ArrInstanceRef] {
+        let holding = Set(
+            viewModel.movies
+                .filter { $0.tmdbId != nil && $0.tmdbId == movie.tmdbId }
+                .compactMap(\.instanceID)
+        )
+        return viewModel.routedInstances.map(\.ref).filter { !holding.contains($0.id) }
+    }
+
+    /// Where a single add lands. `.everyCandidate` has no one server, so the
+    /// per-server pickers follow the first candidate for display purposes.
+    private var targetInstanceID: UUID? {
+        resolvedDestination.instanceID ?? candidates.first?.id
+    }
+
+    /// The servers this add will actually touch - one, or both.
+    private var targets: [ArrInstanceRef] {
+        switch resolvedDestination {
+        case .instance(let id): candidates.filter { $0.id == id }
+        case .everyCandidate: candidates
+        }
+    }
 
     var body: some View {
         AppSheetShell(
@@ -22,6 +70,7 @@ struct RadarrAddToLibrarySheet: View {
             isConfirmDisabled: !canAdd,
             isConfirmLoading: isAdding,
             onConfirm: { Task { await addMovie() } },
+            confirmPlacement: .prominentBottom,
             detents: [.medium, .large],
             dragIndicator: .visible
         ) {
@@ -52,16 +101,28 @@ struct RadarrAddToLibrarySheet: View {
                 }
 
                 Section("Library Settings") {
-                    ArrQualityProfilePicker(
-                        selection: $selectedQualityProfileId,
-                        profiles: viewModel.qualityProfiles,
-                        showInfoButton: false
+                    ArrAddDestinationPicker(
+                        candidates: candidates,
+                        selection: Binding(
+                            get: { resolvedDestination },
+                            set: { destination = $0 }
+                        ),
+                        // "Both" is only meaningful while both servers are still
+                        // candidates; opened for a film one of them already has,
+                        // it would mean the same as the single remaining server.
+                        allowsEveryCandidate: candidates.count > 1
                     )
+                    .onChange(of: resolvedDestination) { _, _ in
+                        seedDefaultsForEveryCandidate()
+                    }
 
-                    ArrRootFolderPicker(
-                        selection: $selectedRootFolderPath,
-                        folders: viewModel.rootFolders
-                    )
+                    // One destination puts its two pickers inline, exactly as
+                    // before. Two destinations get a labelled group each, because
+                    // an unlabelled second pair would be indistinguishable from
+                    // the first.
+                    if targets.count == 1, let target = targets.first {
+                        serverSettings(for: target, showsHeader: false)
+                    }
 
                     Picker("Minimum Availability", selection: $minimumAvailability) {
                         ForEach(RadarrDiscoverMinimumAvailability.allCases) { option in
@@ -76,6 +137,14 @@ struct RadarrAddToLibrarySheet: View {
                     }
 
                     Toggle("Search Immediately", isOn: $searchForMovie)
+                }
+
+                if targets.count > 1 {
+                    ForEach(targets, id: \.id) { target in
+                        Section(serviceManager.scopeLabel(for: target)) {
+                            serverSettings(for: target, showsHeader: true)
+                        }
+                    }
                 }
 
                 if let error = viewModel.error, !error.isEmpty {
@@ -97,46 +166,100 @@ struct RadarrAddToLibrarySheet: View {
         .preferredColorScheme(.dark)
     }
 
+    @ViewBuilder
+    private func serverSettings(for target: ArrInstanceRef, showsHeader: Bool) -> some View {
+        ArrQualityProfilePicker(
+            selection: Binding(
+                get: { profileByInstance[target.id] },
+                set: { profileByInstance[target.id] = $0 }
+            ),
+            profiles: viewModel.qualityProfiles(on: target.id),
+            showInfoButton: false
+        )
+
+        ArrRootFolderPicker(
+            selection: Binding(
+                get: { rootFolderByInstance[target.id] },
+                set: { rootFolderByInstance[target.id] = $0 }
+            ),
+            folders: viewModel.rootFolders(on: target.id)
+        )
+    }
+
     private var canAdd: Bool {
-        !isAdding &&
-        selectedQualityProfileId != nil &&
-        selectedRootFolderPath != nil &&
-        movie.tmdbId != nil
+        guard !isAdding, movie.tmdbId != nil, !targets.isEmpty else { return false }
+        // Every destination, not just the visible one: an add to both that is
+        // missing the second server's root folder would half-succeed.
+        return targets.allSatisfy {
+            profileByInstance[$0.id] != nil && rootFolderByInstance[$0.id] != nil
+        }
     }
 
     private func refreshConfigurationAndDefaults() async {
         await viewModel.refreshConfiguration()
-        if selectedQualityProfileId == nil {
-            selectedQualityProfileId = viewModel.qualityProfiles.first?.id
-        }
-        if selectedRootFolderPath == nil {
-            selectedRootFolderPath = viewModel.rootFolders.first?.path
+        seedDefaultsForEveryCandidate()
+    }
+
+    /// Seeds every candidate at once, not just the selected one, so switching to
+    /// "Both Servers" never reveals an unset picker - and so a value the user has
+    /// already chosen for one server survives switching away and back.
+    ///
+    /// A remembered value is used only while that server still offers it: a
+    /// profile deleted in Radarr must not come back as a phantom preselection that
+    /// then fails at the API.
+    private func seedDefaultsForEveryCandidate() {
+        for ref in candidates {
+            let profiles = viewModel.qualityProfiles(on: ref.id)
+            if profileByInstance[ref.id] == nil || !profiles.contains(where: { $0.id == profileByInstance[ref.id] }) {
+                let remembered = ArrAddDestinationMemory.lastQualityProfile(on: ref.id)
+                profileByInstance[ref.id] = profiles.first(where: { $0.id == remembered })?.id ?? profiles.first?.id
+            }
+
+            let folders = viewModel.rootFolders(on: ref.id)
+            if rootFolderByInstance[ref.id] == nil || !folders.contains(where: { $0.path == rootFolderByInstance[ref.id] }) {
+                let remembered = ArrAddDestinationMemory.lastRootFolder(on: ref.id)
+                rootFolderByInstance[ref.id] = folders.first(where: { $0.path == remembered })?.path ?? folders.first?.path
+            }
         }
     }
 
     private func addMovie() async {
-        guard !isAdding else { return }
-        guard let tmdbId = movie.tmdbId,
-              let qualityProfileId = selectedQualityProfileId,
-              let rootFolderPath = selectedRootFolderPath else { return }
+        guard !isAdding, let tmdbId = movie.tmdbId else { return }
 
         isAdding = true
         defer { isAdding = false }
-        let success = await viewModel.addMovie(
-            title: movie.title,
-            tmdbId: tmdbId,
-            qualityProfileId: qualityProfileId,
-            rootFolderPath: rootFolderPath,
-            minimumAvailability: minimumAvailability,
-            monitorOption: monitorOption,
-            searchForMovie: searchForMovie
-        )
 
-        if success {
+        var addedAnywhere = false
+        for target in targets {
+            // Each server's own picked profile and folder. Sending one server's
+            // pair to both would post an id the other has never issued, which
+            // fails at the API rather than in the UI.
+            guard let profileID = profileByInstance[target.id],
+                  let folderPath = rootFolderByInstance[target.id] else { continue }
+            let success = await viewModel.addMovie(
+                title: movie.title,
+                tmdbId: tmdbId,
+                qualityProfileId: profileID,
+                rootFolderPath: folderPath,
+                minimumAvailability: minimumAvailability,
+                monitorOption: monitorOption,
+                searchForMovie: searchForMovie,
+                instanceID: target.id
+            )
+            if success {
+                addedAnywhere = true
+                ArrAddDestinationMemory.rememberQualityProfile(profileID, on: target.id)
+                ArrAddDestinationMemory.rememberRootFolder(folderPath, on: target.id)
+            }
+        }
+
+        if addedAnywhere {
+            ArrAddDestinationMemory.rememberServer(resolvedDestination.instanceID, for: .radarr)
             await onAdded()
             dismiss()
         }
     }
+
 }
 
 #if DEBUG
@@ -144,17 +267,27 @@ extension RadarrAddToLibrarySheet {
     init(
         previewViewModel viewModel: RadarrViewModel,
         movie: RadarrMovie,
-        isAdding: Bool = false
+        isAdding: Bool = false,
+        destination: ArrAddDestination? = nil
     ) {
         self.viewModel = viewModel
         self.movie = movie
         self.onAdded = {}
-        let previewRootFolder = viewModel.rootFolders.first {
-            $0.path.localizedCaseInsensitiveContains("movie")
-        }?.path ?? viewModel.rootFolders.first?.path
-        _selectedQualityProfileId = State(initialValue: viewModel.qualityProfiles.first?.id)
-        _selectedRootFolderPath = State(initialValue: previewRootFolder)
+        // Seeded per server, the way `seedDefaultsForEveryCandidate` does at
+        // runtime, so a preview of the pair shows each server's own settings
+        // rather than one server's applied to both.
+        var profiles: [UUID: Int] = [:]
+        var folders: [UUID: String] = [:]
+        for ref in viewModel.serviceManager.refs(for: .radarr) {
+            profiles[ref.id] = viewModel.qualityProfiles(on: ref.id).first?.id
+            let onServer = viewModel.rootFolders(on: ref.id)
+            folders[ref.id] = onServer.first { $0.path.localizedCaseInsensitiveContains("movie") }?.path
+                ?? onServer.first?.path
+        }
+        _profileByInstance = State(initialValue: profiles)
+        _rootFolderByInstance = State(initialValue: folders)
         _isAdding = State(initialValue: isAdding)
+        _destination = State(initialValue: destination)
     }
 }
 #endif
@@ -568,6 +701,22 @@ struct RadarrInteractiveSearchSheet: View {
 #if DEBUG
 #Preview("Add To Library Ready") {
     let vm = RadarrViewModel(previewMovies: [])
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        RadarrAddToLibrarySheet(previewViewModel: vm, movie: .previewAnnounced)
+    }
+}
+
+/// One Radarr, one 4K Radarr, and a film on neither: the Server row appears and
+/// offers both plus "Both Servers".
+#Preview("Add To Library - Both Servers") {
+    let vm = RadarrViewModel(previewMovies: [], serviceManager: .preview(.radarrPair))
+    RadarrPreviewHost(arr: vm.serviceManager) {
+        RadarrAddToLibrarySheet(previewViewModel: vm, movie: .previewAnnounced, destination: .everyCandidate)
+    }
+}
+
+#Preview("Add To Library - Server Choice") {
+    let vm = RadarrViewModel(previewMovies: [], serviceManager: .preview(.radarrPair))
     RadarrPreviewHost(arr: vm.serviceManager) {
         RadarrAddToLibrarySheet(previewViewModel: vm, movie: .previewAnnounced)
     }

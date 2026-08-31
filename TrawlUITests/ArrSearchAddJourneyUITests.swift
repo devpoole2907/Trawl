@@ -66,8 +66,12 @@
 //
 //  `SonarrAddToLibrarySheet`:
 //  - `AppSheetShell(title: "Add to Sonarr", confirmTitle: "Add", ...)` means the
-//    sheet is `app.navigationBars["Add to Sonarr"]` and its confirm control is
-//    `app.navigationBars["Add to Sonarr"].buttons["Add"]`
+//    sheet is `app.navigationBars["Add to Sonarr"]`. Its confirm control is *not*
+//    in that navigation bar: the shell is configured `confirmPlacement:
+//    .prominentBottom`, so "Add" is the full-width capsule in the sheet's bottom
+//    safe-area inset and is addressed as `app.buttons["Add"]`. Cancel stays in the
+//    navigation bar. Exact-label matching keeps these apart - the detail screen's
+//    own "Add to Sonarr" button does not match `buttons["Add"]`.
 //    (`Trawl/ArrStack/ArrSheetShell.swift` renders `confirmTitle`/`onConfirm` as a
 //    `.confirmationAction` toolbar `Button`), mirroring
 //    `ArrRepointJourneyUITests`'s already-proven `app.navigationBars["Edit
@@ -166,7 +170,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
             "Tapping 'Add to Sonarr' should present SonarrAddToLibrarySheet (AppSheetShell titled 'Add to Sonarr')."
         )
 
-        let confirmButton = app.navigationBars["Add to Sonarr"].buttons["Add"]
+        let confirmButton = app.buttons["Add"]
         XCTAssertTrue(
             waitForEnabled(confirmButton, timeout: 15),
             "The sheet's 'Add' confirm button should become enabled once refreshConfigurationAndDefaults() defaults the quality profile and root folder pickers from the fixture's non-empty lists - regression: canAdd never became true."
@@ -330,7 +334,7 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
         let sheetTitle = app.navigationBars["Add to Sonarr"]
         XCTAssertTrue(sheetTitle.waitForExistence(timeout: 10), "The add sheet should present.")
 
-        let confirmButton = app.navigationBars["Add to Sonarr"].buttons["Add"]
+        let confirmButton = app.buttons["Add"]
         XCTAssertTrue(
             waitForEnabled(confirmButton, timeout: 15),
             "The 'Add' confirm button should become enabled from the fixture's defaulted quality profile / root folder, independent of what the add itself will do."

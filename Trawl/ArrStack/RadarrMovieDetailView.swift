@@ -119,7 +119,7 @@ struct RadarrMovieDetailView: View {
     /// arriving from a widget or a Siri intent lands on the same screen as
     /// tapping the row in the library.
     private var entry: ArrLibraryEntry<RadarrMovie>? {
-        let merged = viewModel.movies.mergedByTitle()
+        let merged = viewModel.mergedEntries()
         if let mergeKey {
             return merged.first { $0.id == mergeKey }
         }
@@ -632,6 +632,7 @@ struct RadarrMovieDetailView: View {
 
         if isInLibrary {
             searchActionsCard(movie)
+            addToOtherServerCard
         }
 
         if !activeQueueItems.isEmpty {
@@ -845,6 +846,42 @@ struct RadarrMovieDetailView: View {
                 .frame(maxWidth: .infinity)
             }
         }
+    }
+
+    /// Offers the server that does not have this title yet.
+    ///
+    /// `isInLibrary` is true when *any* server holds the film, which is what used
+    /// to hide the add button entirely: with a pair configured and the film on one
+    /// of them, there was no way to put it on the other from anywhere in the app.
+    /// Named rather than generic, because there is exactly one candidate here - a
+    /// title on neither server takes the plain "Add to Radarr" button above, where
+    /// the sheet does the choosing.
+    @ViewBuilder
+    private var addToOtherServerCard: some View {
+        // At most one: reaching this means some server already holds the title, and
+        // a service is capped at two.
+        ForEach(missingInstances, id: \.id) { ref in
+            Button {
+                showAddSheet = true
+            } label: {
+                Label("Add to \(serviceManager.scopeLabel(for: ref))", systemImage: "plus.circle.fill")
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16))
+        }
+    }
+
+    /// The configured servers that do not hold this title. Empty with one server,
+    /// and empty when both already have it.
+    private var missingInstances: [ArrInstanceRef] {
+        guard let entry else { return [] }
+        let refs = serviceManager.refs(for: .radarr)
+        guard refs.count > 1 else { return [] }
+        return entry.instancesMissingThis(from: refs)
     }
 
     /// The servers this title is on, paired with the copy each one holds. Empty

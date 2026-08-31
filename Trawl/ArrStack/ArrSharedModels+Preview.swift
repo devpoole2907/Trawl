@@ -90,6 +90,28 @@ extension ArrQualityProfile {
     ]
 }
 
+extension ArrQualityProfile {
+    /// Profiles for one server of a Default/4K pair, named so a preview shows at a
+    /// glance *which* server's list is on screen. Deliberately disjoint between the
+    /// tiers: a pair given identical profiles renders the same whether or not the
+    /// code scopes them per server, so it could not reveal a picker showing the
+    /// wrong server's settings.
+    static func previewTierList(_ tier: ArrQualityTier) -> [ArrQualityProfile] {
+        switch tier {
+        case .hd:
+            [
+                ArrQualityProfile(id: 1, name: "HD-1080p", upgradeAllowed: true, cutoff: 1, items: nil, minFormatScore: nil, cutoffFormatScore: nil, minUpgradeFormatScore: nil, formatItems: nil, language: nil),
+                ArrQualityProfile(id: 2, name: "HD-720p", upgradeAllowed: false, cutoff: 2, items: nil, minFormatScore: nil, cutoffFormatScore: nil, minUpgradeFormatScore: nil, formatItems: nil, language: nil)
+            ]
+        case .uhd:
+            [
+                ArrQualityProfile(id: 7, name: "Ultra-HD", upgradeAllowed: true, cutoff: 7, items: nil, minFormatScore: nil, cutoffFormatScore: nil, minUpgradeFormatScore: nil, formatItems: nil, language: nil),
+                ArrQualityProfile(id: 8, name: "Remux + Bluray", upgradeAllowed: true, cutoff: 8, items: nil, minFormatScore: nil, cutoffFormatScore: nil, minUpgradeFormatScore: nil, formatItems: nil, language: nil)
+            ]
+        }
+    }
+}
+
 // MARK: - ArrRootFolder
 
 extension ArrRootFolder {
@@ -99,6 +121,17 @@ extension ArrRootFolder {
         .init(id: 2, path: "/movies", accessible: true, freeSpace: 800_000_000_000, totalSpace: 4_000_000_000_000),
         .init(id: 3, path: "/archive/offline", accessible: false, freeSpace: nil, totalSpace: nil),
     ]
+
+    /// Root folders for one server of a pair - disjoint for the same reason as
+    /// `ArrQualityProfile.previewTierList`.
+    static func previewTierList(_ tier: ArrQualityTier) -> [ArrRootFolder] {
+        switch tier {
+        case .hd:
+            [.init(id: 1, path: "/media/movies", accessible: true, freeSpace: 800_000_000_000, totalSpace: 4_000_000_000_000)]
+        case .uhd:
+            [.init(id: 1, path: "/media/movies-4k", accessible: true, freeSpace: 12_000_000_000_000, totalSpace: 20_000_000_000_000)]
+        }
+    }
 }
 
 // MARK: - ArrTag
