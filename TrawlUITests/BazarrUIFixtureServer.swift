@@ -33,6 +33,24 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
     static let missingLanguageName = "English"
     static let missingLanguageCode = "en"
 
+    // MARK: - Series + episodes, for the subtitle detail journey
+
+    /// Deliberately not round numbers, and deliberately different from each other:
+    /// the detail screen renders "\(episodeFileCount) (\(episodeMissingCount) missing)"
+    /// from these two, so a view that swapped them, or that read a count off the
+    /// episode array instead of the series record, still has to fail.
+    static let seriesID = 4242
+    static let seriesTitle = "Fixture Subtitle Series"
+    static let seriesEpisodeFileCount = 5
+    static let seriesEpisodeMissingCount = 2
+    /// Season 1 gets two episodes and season 2 gets one, so the row's singular /
+    /// plural derivation ("1 episode" vs "2 episodes") is exercised both ways in a
+    /// single render. Season 2 also has the episode whose subtitles are complete,
+    /// so the two season rows do not agree on completeness either.
+    static let seasonOneEpisodeCount = 2
+    static let seasonTwoEpisodeCount = 1
+
+
     private let listener: NWListener
     private let queue: DispatchQueue
     private let radarrMovieID: Int
@@ -167,7 +185,12 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
         case ("GET", "/api/movies"):
             return moviesPageJSON()
         case ("GET", "/api/series"):
-            return #"{"data":[],"total":0}"#
+            // Serves the same record whether the caller is the wanted list (no
+            // filter) or the detail screen (`seriesid[]`), which is what real
+            // Bazarr does - the filter narrows the same collection.
+            return seriesPageJSON()
+        case ("GET", "/api/episodes"):
+            return episodesJSON()
         default:
             // Array-style Bazarr endpoints decode this wrapped empty collection.
             return #"{"data":[]}"#
@@ -192,6 +215,22 @@ final class BazarrUIFixtureServer: @unchecked Sendable {
     /// profile and one missing language. The card's tracked-state calculation must
     /// therefore render this as a missing subtitle rather than infer state from
     /// Radarr's embedded media info.
+    private func seriesPageJSON() -> String {
+        #"""
+        {"data":[{"sonarrSeriesId":\#(Self.seriesID),"title":"\#(Self.seriesTitle)","year":"2024","overview":"A fixture series carrying a real language profile.","poster":null,"fanart":null,"audio_language":[{"name":"English","code2":"en","code3":"eng"}],"episodeFileCount":\#(Self.seriesEpisodeFileCount),"episodeMissingCount":\#(Self.seriesEpisodeMissingCount),"monitored":true,"profileId":\#(Self.languageProfileID),"seriesType":"standard","tags":[],"alternativeTitles":[],"ended":false,"lastAired":null}],"total":1}
+        """#
+    }
+
+    private func episodesJSON() -> String {
+        #"""
+        {"data":[
+        {"sonarrEpisodeId":9001,"sonarrSeriesId":\#(Self.seriesID),"season":1,"episode":1,"title":"Fixture Episode One","monitored":true,"subtitles":[],"missing_subtitles":[{"name":"\#(Self.missingLanguageName)","code2":"\#(Self.missingLanguageCode)","code3":"eng","forced":false,"hi":false}],"audio_language":[{"name":"English","code2":"en","code3":"eng"}],"path":null,"sceneName":null},
+        {"sonarrEpisodeId":9002,"sonarrSeriesId":\#(Self.seriesID),"season":1,"episode":2,"title":"Fixture Episode Two","monitored":true,"subtitles":[],"missing_subtitles":[{"name":"\#(Self.missingLanguageName)","code2":"\#(Self.missingLanguageCode)","code3":"eng","forced":false,"hi":false}],"audio_language":[{"name":"English","code2":"en","code3":"eng"}],"path":null,"sceneName":null},
+        {"sonarrEpisodeId":9003,"sonarrSeriesId":\#(Self.seriesID),"season":2,"episode":1,"title":"Fixture Episode Three","monitored":true,"subtitles":[{"name":"\#(Self.missingLanguageName)","code2":"\#(Self.missingLanguageCode)","code3":"eng","path":"/subs/three.srt","forced":false,"hi":false}],"missing_subtitles":[],"audio_language":[{"name":"English","code2":"en","code3":"eng"}],"path":null,"sceneName":null}
+        ],"total":3}
+        """#
+    }
+
     private func moviesPageJSON() -> String {
         #"""
         {"data":[{"radarrId":\#(radarrMovieID),"title":"\#(radarrMovieTitle)","year":"2024","overview":"Fixture Bazarr state for a Radarr movie detail.","poster":null,"fanart":null,"audio_language":[],"monitored":true,"profileId":\#(Self.languageProfileID),"subtitles":[],"missing_subtitles":[{"name":"\#(Self.missingLanguageName)","code2":"en","code3":"eng","forced":false,"hi":false}],"tags":[],"alternativeTitles":[],"sceneName":null}],"total":1}
