@@ -48,7 +48,7 @@ struct RadarrAddMovieSheet: View {
                     }
                 } else if !viewModel.searchResults.isEmpty {
                     Section("Results") {
-                        ForEach(viewModel.searchResults) { result in
+                        ForEach(viewModel.searchResults, id: \.lookupIdentity) { result in
                             movieSearchResultRow(for: result)
                         }
                     }
@@ -182,7 +182,7 @@ struct RadarrAddMovieSheet: View {
 
     @ViewBuilder
     private func movieSearchResultRow(for result: RadarrMovie) -> some View {
-        let isSelected = selectedMovie?.id == result.id
+        let isSelected = selectedMovie?.lookupIdentity == result.lookupIdentity
         let existsInLibrary = isInLibrary(result)
 
         MovieSearchResultRow(

@@ -50,7 +50,7 @@ struct SonarrAddSeriesSheet: View {
                     }
                 } else if !viewModel.searchResults.isEmpty {
                     Section("Results") {
-                        ForEach(viewModel.searchResults) { result in
+                        ForEach(viewModel.searchResults, id: \.lookupIdentity) { result in
                             searchResultRow(for: result)
                         }
                     }
@@ -185,7 +185,7 @@ struct SonarrAddSeriesSheet: View {
 
     @ViewBuilder
     private func searchResultRow(for result: SonarrSeries) -> some View {
-        let isSelected = selectedSeries?.id == result.id
+        let isSelected = selectedSeries?.lookupIdentity == result.lookupIdentity
         let existsInLibrary = isInLibrary(result)
 
         SearchResultRow(

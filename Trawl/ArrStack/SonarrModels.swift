@@ -54,6 +54,21 @@ nonisolated struct SonarrSeries: Codable, Identifiable, Hashable, Sendable {
         hasher.combine(instanceID)
     }
 
+    /// A stable identity for a series that may not be in any library yet - the Sonarr
+    /// counterpart of `RadarrMovie.lookupIdentity`, and there for the same reason:
+    /// Sonarr reports `id == 0` for every un-added `/series/lookup` result, so library
+    /// identity collapses distinct search results onto one another.
+    var lookupIdentity: String {
+        [
+            String(id),
+            instanceID?.uuidString ?? "-",
+            tvdbId.map(String.init) ?? "-",
+            imdbId ?? "-",
+            title,
+            year.map(String.init) ?? "-"
+        ].joined(separator: "|")
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case title

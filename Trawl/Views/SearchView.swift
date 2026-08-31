@@ -1100,10 +1100,14 @@ fileprivate enum SearchResultEntry: Identifiable {
     case series(SonarrSeries)
     case movie(RadarrMovie)
 
+    /// Keyed on `lookupIdentity`, not the library `id`: these rows are Sonarr/Radarr
+    /// *lookup* results, and both services report `id == 0` for anything not yet
+    /// added, so an `id`-keyed `ForEach` collapsed every un-added result onto the
+    /// first one and rendered a single row no matter how many the search returned.
     var id: String {
         switch self {
-        case .series(let s): "s-\(s.id)"
-        case .movie(let m): "m-\(m.id)"
+        case .series(let s): "s-\(s.lookupIdentity)"
+        case .movie(let m): "m-\(m.lookupIdentity)"
         }
     }
 

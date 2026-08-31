@@ -1,13 +1,15 @@
 import Testing
 @testable import Trawl
 
-/// `RadarrMovie`/`SonarrSeries` both implement `Hashable` purely in terms of `id`
-/// (see `RadarrModels.swift`/`SonarrModels.swift`: `static func == (lhs, rhs) { lhs.id == rhs.id }`).
-/// `ArrMediaDestination`'s synthesized `Hashable` conformance therefore inherits that ID-based
-/// equality for the `.movieLookup`/`.seriesLookup` cases: two lookup results that share an `id`
-/// (Radarr/Sonarr both report `id == 0` for anything not yet in the library) compare equal even
-/// if every other field differs. These tests pin down that actual, occasionally-surprising
-/// behavior rather than an idealized one.
+/// `RadarrMovie`/`SonarrSeries` implement `Hashable` as `(id, instanceID)` - *library*
+/// identity, which is right for a row that came from a server and wrong for a lookup result,
+/// which has no server (`instanceID == nil`) and whose `id` is `0` until something adds it.
+///
+/// `ArrMediaDestination` therefore spells its own `Hashable` out rather than synthesizing it,
+/// keying the two lookup cases on `lookupIdentity`. Before it did, every un-added lookup result
+/// compared equal to every other one, and a `NavigationStack` keyed on those values reused the
+/// screen it had already built - tapping a second trending card opened the first card's movie.
+/// These tests pin that down at the level the navigation stack actually cares about.
 @Suite("ArrMediaDestination Tests")
 @MainActor
 struct ArrMediaDestinationTests {
@@ -38,28 +40,37 @@ struct ArrMediaDestinationTests {
 
     // MARK: - Discover-mode cases (.movieLookup / .seriesLookup)
 
-    @Test("Movie lookup equality is ID-based, not value-based")
-    func movieLookupEqualityIsIDBased() {
-        // Same id, wildly different titles: RadarrMovie's own `==` only compares `id`
-        // (`RadarrModels.swift`), so these two lookup destinations are considered equal
-        // despite representing different movies.
+    @Test("Two movies sharing a library id are still distinct destinations")
+    func movieLookupDistinguishesTitlesSharingALibraryID() {
+        // The models' own `==` compares (id, instanceID), so these two are equal *as
+        // movies* - that is library identity and it stays as it is. The destination
+        // must not inherit it, or the stack cannot tell the two screens apart.
         let movieA = RadarrMovie.makeLookupResult(id: 99, title: "Movie A")
         let movieB = RadarrMovie.makeLookupResult(id: 99, title: "Movie B")
 
-        #expect(movieA == movieB) // confirms the premise: RadarrMovie equality is id-only.
-        #expect(ArrMediaDestination.movieLookup(movieA) == .movieLookup(movieB))
-        #expect(ArrMediaDestination.movieLookup(movieA).hashValue == ArrMediaDestination.movieLookup(movieB).hashValue)
+        #expect(movieA == movieB) // the premise: RadarrMovie equality is library identity.
+        #expect(ArrMediaDestination.movieLookup(movieA) != .movieLookup(movieB))
     }
 
-    @Test("Movie lookup results that Radarr hasn't added yet all collapse to id 0")
-    func unaddedMovieLookupResultsCollide() {
-        // Radarr's /movie/lookup endpoint reports id 0 for anything not in the library yet.
-        // Two distinct search results therefore produce colliding ArrMediaDestination values.
+    @Test("A movie lookup destination equals itself")
+    func movieLookupEqualsAnIdenticalCopy() {
+        let movie = RadarrMovie.makeLookupResult(id: 0, title: "Dune")
+        let same = RadarrMovie.makeLookupResult(id: 0, title: "Dune")
+
+        #expect(ArrMediaDestination.movieLookup(movie) == .movieLookup(same))
+        #expect(ArrMediaDestination.movieLookup(movie).hashValue == ArrMediaDestination.movieLookup(same).hashValue)
+    }
+
+    @Test("Movie lookup results Radarr hasn't added yet stay distinct despite sharing id 0")
+    func unaddedMovieLookupResultsStayDistinct() {
+        // Radarr's /movie/lookup endpoint reports id 0 for everything not in the library
+        // yet, which is the exact shape that used to collapse a whole page of search
+        // results onto one destination.
         let dune = RadarrMovie.makeLookupResult(id: 0, title: "Dune")
         let oppenheimer = RadarrMovie.makeLookupResult(id: 0, title: "Oppenheimer")
 
         let destinations: Set<ArrMediaDestination> = [.movieLookup(dune), .movieLookup(oppenheimer)]
-        #expect(destinations.count == 1)
+        #expect(destinations.count == 2)
     }
 
     @Test("Movie lookup destinations with different ids are not equal")
@@ -69,22 +80,22 @@ struct ArrMediaDestinationTests {
         #expect(ArrMediaDestination.movieLookup(movieA) != .movieLookup(movieB))
     }
 
-    @Test("Series lookup equality is ID-based, not value-based")
-    func seriesLookupEqualityIsIDBased() {
+    @Test("Two series sharing a library id are still distinct destinations")
+    func seriesLookupDistinguishesTitlesSharingALibraryID() {
         let seriesA = SonarrSeries.makeLookupResult(id: 55, title: "Series A")
         let seriesB = SonarrSeries.makeLookupResult(id: 55, title: "Series B")
 
-        #expect(ArrMediaDestination.seriesLookup(seriesA) == .seriesLookup(seriesB))
-        #expect(ArrMediaDestination.seriesLookup(seriesA).hashValue == ArrMediaDestination.seriesLookup(seriesB).hashValue)
+        #expect(seriesA == seriesB) // the premise: SonarrSeries equality is library identity.
+        #expect(ArrMediaDestination.seriesLookup(seriesA) != .seriesLookup(seriesB))
     }
 
-    @Test("Series lookup results Sonarr hasn't added yet all collapse to id 0")
-    func unaddedSeriesLookupResultsCollide() {
+    @Test("Series lookup results Sonarr hasn't added yet stay distinct despite sharing id 0")
+    func unaddedSeriesLookupResultsStayDistinct() {
         let severance = SonarrSeries.makeLookupResult(id: 0, title: "Severance")
         let theBear = SonarrSeries.makeLookupResult(id: 0, title: "The Bear")
 
         let destinations: Set<ArrMediaDestination> = [.seriesLookup(severance), .seriesLookup(theBear)]
-        #expect(destinations.count == 1)
+        #expect(destinations.count == 2)
     }
 
     @Test("Series lookup destinations with different ids are not equal")

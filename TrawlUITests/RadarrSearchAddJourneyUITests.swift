@@ -93,7 +93,10 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
 
         let sheet = app.navigationBars["Add to Radarr"]
         XCTAssertTrue(sheet.waitForExistence(timeout: 10))
-        let confirm = sheet.buttons["Add"]
+        // The confirm is the sheet's prominent bottom capsule, not a navigation-bar
+        // item (`confirmPlacement: .prominentBottom`). Exact-label matching keeps it
+        // distinct from the detail screen's own "Add to Radarr" button underneath.
+        let confirm = app.buttons["Add"]
         XCTAssertTrue(
             waitForEnabled(confirm, timeout: 15),
             "The real quality-profile/root-folder refresh should default both pickers and enable Add."
@@ -131,6 +134,108 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
         let options = try XCTUnwrap(body["addOptions"] as? [String: Any])
         XCTAssertEqual(options["searchForMovie"] as? Bool, true)
         XCTAssertEqual(options["monitor"] as? String, "movieOnly")
+    }
+
+    /// Two Radarr lookup results that are not yet in the library both carry `id: 0`
+    /// - Radarr's own marker for "not added". `ArrMediaDestination.movieLookup`
+    /// wraps `RadarrMovie`, whose `Hashable` conformance is `(id, instanceID)`, and
+    /// a lookup result belongs to no server, so `instanceID` is nil for both. Every
+    /// un-added result therefore hashes and compares identically, and a
+    /// `NavigationStack` keyed on those values reuses the destination it already
+    /// built for the first one: tapping the second result opens the first movie's
+    /// screen.
+    ///
+    /// The user hit this on Search's trending shelf, which pushes the very same
+    /// `.movieLookup` value; this test drives the lookup-results list instead
+    /// because that surface already has a real loopback fixture, and both share the
+    /// one destination type.
+    @MainActor
+    func testTappingASecondUnaddedResultOpensItsOwnDetailScreen() async throws {
+        let firstTitle = "Fixture The Ant Bully"
+        let secondTitle = "Fixture Obsession"
+        // Both ids are 0 on purpose: that is exactly what Radarr returns for a
+        // lookup result it has never added, and it is the collision under test.
+        let lookupJSON = #"""
+        [{
+          "id": 0,
+          "title": "\#(firstTitle)",
+          "sortTitle": "fixture the ant bully",
+          "tmdbId": 900001,
+          "year": 2006,
+          "runtime": 88,
+          "monitored": false,
+          "status": "released"
+        },
+        {
+          "id": 0,
+          "title": "\#(secondTitle)",
+          "sortTitle": "fixture obsession",
+          "tmdbId": 900002,
+          "year": 1976,
+          "runtime": 98,
+          "monitored": false,
+          "status": "released"
+        }]
+        """#
+
+        let server = try await RadarrFixtureServer(lookupResponseJSON: lookupJSON)
+        self.server = server
+
+        let app = XCUIApplication()
+        app.launchArguments += ["-TrawlUITestInMemoryStore"]
+        app.launchEnvironment["TRAWL_UITEST_RADARR_BASE_URL"] = server.baseURL
+        app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
+        app.launch()
+
+        let searchTab = app.tabBars.buttons["Search"]
+        XCTAssertTrue(searchTab.waitForExistence(timeout: 15))
+        searchTab.tap()
+
+        let searchField = app.searchFields.firstMatch
+        XCTAssertTrue(searchField.waitForExistence(timeout: 10))
+        searchField.tap()
+        searchField.typeText("Fixture\n")
+
+        let firstRow = app.staticTexts[firstTitle]
+        XCTAssertTrue(
+            firstRow.waitForExistence(in: app, timeout: 15),
+            "Both lookup results should render. Requests: \(server.requests)"
+        )
+        XCTAssertTrue(
+            app.staticTexts[secondTitle].waitForExistence(in: app, timeout: 10),
+            "The second lookup result should render alongside the first."
+        )
+
+        firstRow.tap()
+        XCTAssertTrue(
+            app.navigationBars[firstTitle].waitForExistence(timeout: 15),
+            "Tapping the first result should open the first movie."
+        )
+
+        let back = app.navigationBars[firstTitle].buttons.firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 10))
+        back.tap()
+        XCTAssertTrue(
+            app.navigationBars[firstTitle].waitForNonExistence(timeout: 10),
+            "Going back should leave the first movie's screen."
+        )
+
+        let secondRow = app.staticTexts[secondTitle]
+        XCTAssertTrue(secondRow.waitForExistence(in: app, timeout: 10))
+        secondRow.tap()
+
+        XCTAssertTrue(
+            app.navigationBars[secondTitle].waitForExistence(timeout: 15),
+            """
+            Tapping the second un-added result opened the wrong movie. Both results \
+            carry Radarr's id 0, so the two ArrMediaDestination.movieLookup values \
+            compare equal and the stack reuses the first movie's detail screen.
+            """
+        )
+        XCTAssertFalse(
+            app.navigationBars[firstTitle].exists,
+            "The first movie's screen must not still be on the stack."
+        )
     }
 
     @MainActor

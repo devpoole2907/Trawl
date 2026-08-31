@@ -12,15 +12,46 @@ enum ArrMediaDestination: Hashable {
     /// An in-library Radarr movie, resolved by its Radarr library ID.
     case movie(id: Int)
     /// A Radarr discover/lookup result that may or may not already be in the library.
-    /// `RadarrMovie`'s `Hashable` conformance is ID-based, so two lookup results that share
-    /// the same `id` (e.g. `0` for anything Radarr hasn't added yet) are considered equal here too.
     case movieLookup(RadarrMovie)
     /// An in-library Sonarr series, resolved by its Sonarr library ID.
     case series(id: Int)
     /// A Sonarr discover/lookup result that may or may not already be in the library.
-    /// `SonarrSeries`'s `Hashable` conformance is ID-based, so two lookup results that share
-    /// the same `id` (e.g. `0` for anything Sonarr hasn't added yet) are considered equal here too.
     case seriesLookup(SonarrSeries)
+
+    /// Equality is spelled out rather than synthesized because the synthesized version
+    /// inherits `RadarrMovie`/`SonarrSeries`'s *library* identity - `(id, instanceID)` -
+    /// for the two lookup cases. Radarr and Sonarr both report `id == 0` for anything
+    /// they have not added yet, and a lookup result carries no `instanceID`, so every
+    /// un-added result compared equal to every other one. A `NavigationStack` keyed on
+    /// those values reuses the destination it already built, which is how tapping a
+    /// second trending card opened the first card's movie. Lookup cases therefore
+    /// compare on `lookupIdentity`, which is built from the external ids the result
+    /// actually carries.
+    static func == (lhs: ArrMediaDestination, rhs: ArrMediaDestination) -> Bool {
+        lhs.identity == rhs.identity
+    }
+
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(identity)
+    }
+
+    private var identity: Identity {
+        switch self {
+        case .movie(let id): .movie(id)
+        case .series(let id): .series(id)
+        case .movieLookup(let movie): .movieLookup(movie.lookupIdentity)
+        case .seriesLookup(let series): .seriesLookup(series.lookupIdentity)
+        }
+    }
+
+    /// Kept as a separate type so the four cases can never collide with one another,
+    /// the way a single flattened string key eventually would.
+    private enum Identity: Hashable {
+        case movie(Int)
+        case series(Int)
+        case movieLookup(String)
+        case seriesLookup(String)
+    }
 }
 
 /// Registers `navigationDestination(for: ArrMediaDestination.self)` once and builds the

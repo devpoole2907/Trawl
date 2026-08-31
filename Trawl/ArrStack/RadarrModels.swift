@@ -62,6 +62,31 @@ nonisolated struct RadarrMovie: Codable, Identifiable, Hashable, Sendable {
         hasher.combine(instanceID)
     }
 
+    /// A stable identity for a movie that may not be in any library yet.
+    ///
+    /// `id`/`==`/`hash` above are library identity, and Radarr reports `id == 0` for
+    /// every result its `/movie/lookup` endpoints hand back that it has not added -
+    /// with no `instanceID` either, since a lookup result belongs to no server. Every
+    /// un-added result is therefore `==` to every other one, which silently breaks
+    /// anything keyed on identity: a `ForEach` over search results renders only the
+    /// first, a selected row highlights all of them, and a `NavigationStack` reuses
+    /// the screen it built for the first, so tapping a second result opens the first
+    /// movie. Use this wherever the collection can contain lookup results; keep using
+    /// `id` for rows that are definitely in a library.
+    ///
+    /// Prefers the external ids the result actually carries, and falls back to title
+    /// and year for the rare result that has none.
+    var lookupIdentity: String {
+        [
+            String(id),
+            instanceID?.uuidString ?? "-",
+            tmdbId.map(String.init) ?? "-",
+            imdbId ?? "-",
+            title,
+            year.map(String.init) ?? "-"
+        ].joined(separator: "|")
+    }
+
     enum CodingKeys: String, CodingKey {
         case id
         case title
