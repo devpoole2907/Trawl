@@ -8,6 +8,9 @@ final class SABnzbdServiceManager {
     private(set) var activeProfileID: UUID?
     private(set) var isConnected: Bool = false
     private(set) var isConnecting: Bool = false
+    /// Bumped only when a poll actually brought new queue or history data - see
+    /// `ArrServiceManager.queueRevision`.
+    private(set) var queueRevision: Int = 0
     private(set) var isRefreshing: Bool = false
     /// Whether a refresh has ever completed. `isRefreshing` flips true on every
     /// poll, so a first-load spinner keyed off it alone blinks the whole view
@@ -183,7 +186,7 @@ final class SABnzbdServiceManager {
                 isRefreshing = false
             }
             if connectionGeneration == generation {
-                hasRefreshedOnce = true
+                if !hasRefreshedOnce { hasRefreshedOnce = true }
             }
             didFinishRefresh()
         }
@@ -200,11 +203,22 @@ final class SABnzbdServiceManager {
             // manager has since moved on, publishing it would show the old
             // server's queue under the new profile and misattribute completions.
             guard isCurrentConnection(generation: generation, client: client) else { return }
-            queue = fetchedQueue
+            // Guarded: `@Observable` notifies on assignment, not on change, so
+            // publishing an identical queue every four seconds rebuilt the whole
+            // downloads list for nothing. See the note on `SABnzbdQueue: Equatable`.
+            // Compared at the call site: passing an `@Observable` property `inout`
+            // performs a get *and* a set, so a generic assign helper still fires the
+            // mutation. `isRefreshing` deliberately keeps alternating - it genuinely
+            // changes each poll, and only the settings screens read it.
+            if queue != fetchedQueue { queue = fetchedQueue; queueRevision &+= 1 }
             // A `nil` result means SABnzbd's `{ "history": false }` shape-changing
             // response - history hasn't changed since `lastHistoryUpdate`, so keep it.
             if let fetchedHistory {
-                history = fetchedHistory
+                // Completions are announced from the *fetched* jobs regardless of
+                // whether the assignment lands: a run where history is unchanged
+                // has no new completions in it by definition, so this cannot drop
+                // a notification.
+                if history != fetchedHistory { history = fetchedHistory; queueRevision &+= 1 }
                 announceCompletions(
                     Self.newlyCompletedJobs(
                         previous: previousHistoryJobs,
@@ -212,7 +226,7 @@ final class SABnzbdServiceManager {
                     )
                 )
             }
-            connectionError = nil
+            if connectionError != nil { connectionError = nil }
         } catch SABnzbdAPIError.unauthorized {
             guard isCurrentConnection(generation: generation, client: client) else { return }
             cancelPollingTask()

@@ -76,7 +76,7 @@ nonisolated final class BazarrFixtureServer: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [BazarrFixtureRequest] = []
     private var parkedConnections: [NWConnection] = []
-    private var receivedWaiters: [(threshold: Int, continuation: CheckedContinuation<Void, Never>)] = []
+    private var receivedWaiters: [(threshold: Int, path: String?, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(label: String, handler: @escaping Handler) async throws {
         self.queue = DispatchQueue(label: "BazarrFixtureServer.\(label)")
@@ -151,16 +151,35 @@ nonisolated final class BazarrFixtureServer: @unchecked Sendable {
 
     /// Resumes once `count` requests have arrived, whether or not they were answered yet.
     func waitForReceivedRequests(_ count: Int) async {
+        await waitForReceived(count, path: nil)
+    }
+
+    /// Resumes once `count` requests **for one path** have arrived, answered or not.
+    ///
+    /// The count-only barrier above forces a test to know the exact length of the
+    /// connect sequence, which makes it fail for an unrelated reason the moment that
+    /// sequence gains a request. Waiting on the path a test actually cares about says
+    /// what it means and survives that change.
+    func waitForReceivedRequests(_ count: Int, path: String) async {
+        await waitForReceived(count, path: path)
+    }
+
+    private func waitForReceived(_ count: Int, path: String?) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             lock.lock()
-            if recorded.count >= count {
+            if Self.matchCount(in: recorded, path: path) >= count {
                 lock.unlock()
                 continuation.resume()
                 return
             }
-            receivedWaiters.append((threshold: count, continuation: continuation))
+            receivedWaiters.append((threshold: count, path: path, continuation: continuation))
             lock.unlock()
         }
+    }
+
+    private static func matchCount(in recorded: [BazarrFixtureRequest], path: String?) -> Int {
+        guard let path else { return recorded.count }
+        return recorded.filter { $0.path == path }.count
     }
 
     // MARK: - Connection handling
@@ -212,9 +231,12 @@ nonisolated final class BazarrFixtureServer: @unchecked Sendable {
     private func recordReceived(_ request: BazarrFixtureRequest) {
         lock.lock()
         recorded.append(request)
-        let count = recorded.count
-        let ready = receivedWaiters.filter { $0.threshold <= count }
-        receivedWaiters.removeAll { $0.threshold <= count }
+        let snapshot = recorded
+        let isReady: ((threshold: Int, path: String?, continuation: CheckedContinuation<Void, Never>)) -> Bool = {
+            Self.matchCount(in: snapshot, path: $0.path) >= $0.threshold
+        }
+        let ready = receivedWaiters.filter(isReady)
+        receivedWaiters.removeAll(where: isReady)
         lock.unlock()
         for waiter in ready { waiter.continuation.resume() }
     }

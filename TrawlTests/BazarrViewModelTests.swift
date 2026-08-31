@@ -400,6 +400,14 @@ struct BazarrViewModelTests {
             let vm = BazarrViewModel(serviceManager: manager)
             await vm.loadSeries()
             #expect(vm.series.map(\.title) == ["From A"])
+
+            // `connectService` kicks off `refreshBazarrSubtitleCache` in an unawaited
+            // Task, and that hits /api/series too. Sampling the baseline before it
+            // lands makes the final equality fail for a reason that has nothing to do
+            // with a stale client - which is exactly how this test failed inside the
+            // full plan while passing on its own. Wait for the connect-triggered
+            // refresh to arrive, then sample.
+            await serverA.waitForReceivedRequests(2, path: "/api/series")
             let requestsToABeforeReconnect = serverA.requestCount(path: "/api/series")
 
             profile.hostURL = serverB.baseURL
@@ -415,6 +423,84 @@ struct BazarrViewModelTests {
             #expect(serverA.requestCount(path: "/api/series") == requestsToABeforeReconnect)
             #expect(serverB.requestCount(path: "/api/series") >= 1)
         }
+    }
+
+    /// The other half of the stale-client story, one layer below the view model.
+    ///
+    /// `connectService` ends with `Task { await refreshBazarrSubtitleCache(...) }` -
+    /// unawaited, and holding the client it was created with. Repointing a Bazarr
+    /// profile at a different host therefore leaves the previous host's refresh in
+    /// flight, and without a guard the write is last-one-wins: a slower old server
+    /// finishes after the new one and overwrites the cache with its own subtitle
+    /// state. Nothing surfaces that - `cachedBazarrSeries`/`cachedBazarrMovie` keep
+    /// answering from it, so every subtitle badge in the app reports the old server
+    /// until something happens to refresh again.
+    ///
+    /// Ordering here is forced with the fixture's park/release barriers rather than
+    /// timing: A's `/api/series` and `/api/movies` are held open until after B's
+    /// refresh has completed and been asserted, which is the losing race made
+    /// deterministic.
+    @Test("A slow refresh from the previous host does not overwrite the reconnected one's cache")
+    func staleSubtitleCacheRefreshDoesNotOverwriteReconnectedHost() async throws {
+        // Plain constants, not a closure: the fixture's handler is `@Sendable`, and
+        // capturing a non-Sendable `(String) -> String` in it does not compile.
+        let seriesFromA = Self.seriesPageJSON(title: "From A")
+        let seriesFromB = Self.seriesPageJSON(title: "From B")
+
+        // A answers its connect sequence normally but parks the two cache fetches,
+        // so the refresh against A is still in flight when B takes over.
+        let serverA = try await BazarrFixtureServer(label: "stale-cache-a") { request in
+            switch request.path {
+            case "/api/series", "/api/movies": nil
+            default: .genericOK
+            }
+        }
+        defer { serverA.stop() }
+        let serverB = try await BazarrFixtureServer(label: "stale-cache-b") { request in
+            request.path == "/api/series" ? .json(seriesFromB) : .genericOK
+        }
+        defer { serverB.stop() }
+
+        let profile = ArrServiceProfile(displayName: "Bazarr", hostURL: serverA.baseURL, serviceType: .bazarr)
+        let manager = ArrServiceManager()
+        try await withSavedAPIKey(for: profile) {
+            await manager.connectService(profile)
+            let clientA = try #require(manager.bazarrClient(for: profile.id))
+
+            // Drive the refresh explicitly rather than racing the one `connectService`
+            // spawned: same production method, but the test can await its completion.
+            //
+            // The id is hoisted out because `async let` evaluates its expression in a
+            // child task: reading `profile.id` inside it would send the non-Sendable
+            // profile into that task while this one goes on mutating `hostURL`.
+            let profileID = profile.id
+            async let staleRefresh: Void = manager.refreshBazarrSubtitleCache(for: profileID, client: clientA)
+            await serverA.waitForReceivedRequests(1, path: "/api/series")
+            await serverA.waitForReceivedRequests(1, path: "/api/movies")
+
+            profile.hostURL = serverB.baseURL
+            await manager.connectService(profile)
+            let clientB = try #require(manager.bazarrClient(for: profileID))
+            #expect(clientB !== clientA, "Reconnecting to another host must build a new client.")
+            await manager.refreshBazarrSubtitleCache(for: profileID, client: clientB)
+            #expect(manager.bazarrInstances.first?.cachedSeries.map(\.title) == ["From B"])
+
+            // Now let A's refresh finish. It resolved against the host the profile
+            // has left, so its answer must be discarded rather than applied.
+            serverA.releaseParked(with: .json(seriesFromA))
+            await staleRefresh
+
+            #expect(
+                manager.bazarrInstances.first?.cachedSeries.map(\.title) == ["From B"],
+                "A refresh that finished after the profile moved hosts overwrote the cache with the old server's subtitles."
+            )
+        }
+    }
+
+    /// One decodable `BazarrSeries` page whose only varying field is the title, so a
+    /// test can tell which server answered.
+    private static func seriesPageJSON(title: String) -> String {
+        #"{"data":[{"sonarrSeriesId":1,"title":"\#(title)","year":null,"overview":null,"poster":null,"fanart":null,"audio_language":[],"episodeFileCount":1,"episodeMissingCount":0,"monitored":true,"profileId":1,"seriesType":null,"tags":[],"alternativeTitles":[],"ended":null,"lastAired":null}],"total":1}"#
     }
 
     // MARK: - Helpers
