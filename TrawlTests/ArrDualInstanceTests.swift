@@ -364,6 +364,42 @@ struct ArrDualInstanceTests {
         defaults.removePersistentDomain(forName: "ArrDualInstanceTests.filter")
     }
 
+    @Test("A partial add stays open and retries only the failed server")
+    func partialAddRetriesOnlyFailures() async {
+        let hd = ArrInstanceRef(id: UUID(), serviceType: .radarr, displayName: "Movies", tier: .hd)
+        let uhd = ArrInstanceRef(id: UUID(), serviceType: .radarr, displayName: "Movies 4K", tier: .uhd)
+        let state = ArrAddDestinationState(serviceType: .radarr)
+        state.destination = .everyCandidate
+        state.profileByInstance = [hd.id: 1, uhd.id: 2]
+        state.rootFolderByInstance = [hd.id: "/hd", uhd.id: "/4k"]
+
+        var attempts: [UUID] = []
+        let notificationsBefore = InAppNotificationCenter.shared.recentNotifications.count
+        let firstSucceeded = await state.execute(targets: [hd, uhd], itemName: "Arrival") { target, _, _ in
+            attempts.append(target.id)
+            return target.id == hd.id
+        }
+
+        #expect(firstSucceeded == false)
+        #expect(attempts == [hd.id, uhd.id])
+        #expect(state.destination == .instance(uhd.id))
+        #expect(state.failureMessage?.contains(uhd.qualifiedLabel) == true)
+        #expect(InAppNotificationCenter.shared.recentNotifications.count == notificationsBefore + 1)
+        #expect(InAppNotificationCenter.shared.recentNotifications.first?.title == "Add Failed")
+
+        let retryTargets = state.targets(in: [hd, uhd])
+        let retrySucceeded = await state.execute(targets: retryTargets, itemName: "Arrival") { target, _, _ in
+            attempts.append(target.id)
+            return true
+        }
+
+        #expect(retrySucceeded)
+        #expect(attempts == [hd.id, uhd.id, uhd.id])
+        #expect(state.failureMessage == nil)
+        #expect(InAppNotificationCenter.shared.recentNotifications.count == notificationsBefore + 2)
+        #expect(InAppNotificationCenter.shared.recentNotifications.first?.title == "Added")
+    }
+
     // MARK: - Capacity
 
     @Test("Sonarr and Radarr are tiered; Prowlarr and Bazarr are not")
@@ -561,6 +597,47 @@ struct ArrDualInstanceRoutingTests {
 
             #expect(uhd.commandBodies.count == 1)
             #expect(hd.commandBodies.isEmpty)
+        }
+    }
+
+    @Test("An unknown explicit destination never falls back to the active server")
+    func unknownDestinationFailsClosed() async throws {
+        let hd = try await DualInstanceRadarrServer(label: "hd-fail-closed", movies: "[]")
+        let uhd = try await DualInstanceRadarrServer(label: "4k-fail-closed", movies: "[]")
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, _, _ in
+            let viewModel = RadarrViewModel(serviceManager: manager)
+            let before = hd.requestedPaths
+
+            let added = await viewModel.addMovie(
+                title: "Dune",
+                tmdbId: 438631,
+                qualityProfileId: 1,
+                rootFolderPath: "/movies",
+                instanceID: UUID()
+            )
+
+            #expect(added == false)
+            #expect(hd.requestedPaths == before)
+        }
+    }
+
+    @Test("A hidden server remains an explicit command destination")
+    func hiddenDestinationStillRoutesExplicitly() async throws {
+        let hd = try await DualInstanceRadarrServer(label: "hd-hidden-route", movies: "[]")
+        let uhd = try await DualInstanceRadarrServer(label: "4k-hidden-route", movies: "[]")
+        defer { hd.stop(); uhd.stop() }
+
+        try await withPair(hd: hd, uhd: uhd) { manager, hdID, uhdID in
+            manager.showOnlyInstance(hdID, serviceType: .radarr)
+            let viewModel = RadarrViewModel(serviceManager: manager)
+
+            let searched = await viewModel.searchMovie(movieId: 77, instanceID: uhdID)
+
+            #expect(searched)
+            #expect(hd.commandBodies.isEmpty)
+            #expect(uhd.commandBodies.count == 1)
         }
     }
 

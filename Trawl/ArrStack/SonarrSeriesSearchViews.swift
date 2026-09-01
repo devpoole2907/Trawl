@@ -93,46 +93,32 @@ struct SonarrAddToLibrarySheet: View {
     /// Using `.everyCandidate` as the unresolved value made adding to *both*
     /// servers the state the sheet sat in before its task ran - so a slow or failed
     /// configuration refresh left the most destructive option preselected.
-    @State private var destination: ArrAddDestination?
+    @State private var addState = ArrAddDestinationState(serviceType: .sonarr)
 
     /// What the picker shows and the add uses: the explicit choice when there is
     /// one, otherwise the remembered or first candidate. Never `.everyCandidate`
     /// unless the user picked it.
     private var resolvedDestination: ArrAddDestination {
-        if let destination { return destination }
-        let preferred = ArrAddDestinationMemory.preferredServer(for: .sonarr, candidates: candidates)
-        return preferred.map { ArrAddDestination.instance($0) } ?? .everyCandidate
+        addState.resolvedDestination(in: candidates)
     }
     @Environment(ArrServiceManager.self) private var serviceManager
 
     /// Every configured Sonarr the library does not already show this series on -
     /// see `RadarrAddToLibrarySheet.candidates`, which is the same rule for movies.
     private var candidates: [ArrInstanceRef] {
-        let holding = Set(
-            viewModel.series
-                .filter { $0.tvdbId != nil && $0.tvdbId == series.tvdbId }
-                .compactMap(\.instanceID)
-        )
-        return viewModel.routedInstances.map(\.ref).filter { !holding.contains($0.id) }
-    }
-
-    private var targetInstanceID: UUID? {
-        resolvedDestination.instanceID ?? candidates.first?.id
+        serviceManager.connectedSonarr.map(\.ref).filter { ref in
+            !serviceManager.seriesLibrary.items(for: ref.id).contains { $0.tvdbId == series.tvdbId }
+        }
     }
 
     /// The servers this add will actually touch - one, or both.
     private var targets: [ArrInstanceRef] {
-        switch resolvedDestination {
-        case .instance(let id): candidates.filter { $0.id == id }
-        case .everyCandidate: candidates
-        }
+        addState.targets(in: candidates)
     }
 
     /// Per server, for the reason given on `RadarrAddToLibrarySheet`: a quality
     /// profile id and a root folder path only mean something on the Sonarr that
     /// issued them, so an add to both needs a real answer for each.
-    @State private var profileByInstance: [UUID: Int] = [:]
-    @State private var rootFolderByInstance: [UUID: String] = [:]
     @State private var searchForMissing = true
     @State private var isAdding = false
     @State private var seasonMonitored: [Int: Bool] = [:]
@@ -184,7 +170,7 @@ struct SonarrAddToLibrarySheet: View {
                         candidates: candidates,
                         selection: Binding(
                             get: { resolvedDestination },
-                            set: { destination = $0 }
+                            set: { addState.destination = $0 }
                         ),
                         allowsEveryCandidate: candidates.count > 1
                     )
@@ -218,7 +204,7 @@ struct SonarrAddToLibrarySheet: View {
                     }
                 }
 
-                if let error = viewModel.error, !error.isEmpty {
+                if let error = addState.failureMessage ?? viewModel.error, !error.isEmpty {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -247,8 +233,8 @@ struct SonarrAddToLibrarySheet: View {
     @ViewBuilder
     private func serverSettings(for target: ArrInstanceRef) -> some View {
         Picker("Quality Profile", selection: Binding(
-            get: { profileByInstance[target.id] },
-            set: { profileByInstance[target.id] = $0 }
+            get: { addState.profileByInstance[target.id] },
+            set: { addState.profileByInstance[target.id] = $0 }
         )) {
             ForEach(viewModel.qualityProfiles(on: target.id), id: \.id) { profile in
                 Text(profile.name).tag(Optional(profile.id))
@@ -256,8 +242,8 @@ struct SonarrAddToLibrarySheet: View {
         }
 
         Picker("Root Folder", selection: Binding(
-            get: { rootFolderByInstance[target.id] },
-            set: { rootFolderByInstance[target.id] = $0 }
+            get: { addState.rootFolderByInstance[target.id] },
+            set: { addState.rootFolderByInstance[target.id] = $0 }
         )) {
             ForEach(viewModel.rootFolders(on: target.id), id: \.path) { folder in
                 HStack {
@@ -282,19 +268,11 @@ struct SonarrAddToLibrarySheet: View {
     /// Seeds every candidate at once - see the Radarr twin. A remembered value is
     /// used only while that server still offers it.
     private func seedDefaultsForEveryCandidate() {
-        for ref in candidates {
-            let profiles = viewModel.qualityProfiles(on: ref.id)
-            if profileByInstance[ref.id] == nil || !profiles.contains(where: { $0.id == profileByInstance[ref.id] }) {
-                let remembered = ArrAddDestinationMemory.lastQualityProfile(on: ref.id)
-                profileByInstance[ref.id] = profiles.first(where: { $0.id == remembered })?.id ?? profiles.first?.id
-            }
-
-            let folders = viewModel.rootFolders(on: ref.id)
-            if rootFolderByInstance[ref.id] == nil || !folders.contains(where: { $0.path == rootFolderByInstance[ref.id] }) {
-                let remembered = ArrAddDestinationMemory.lastRootFolder(on: ref.id)
-                rootFolderByInstance[ref.id] = folders.first(where: { $0.path == remembered })?.path ?? folders.first?.path
-            }
-        }
+        addState.seedDefaults(
+            for: candidates,
+            profiles: { viewModel.qualityProfiles(on: $0) },
+            folders: { viewModel.rootFolders(on: $0) }
+        )
     }
 
     private var resolvedSeasons: [SonarrSeason] {
@@ -308,9 +286,7 @@ struct SonarrAddToLibrarySheet: View {
         guard !isAdding, series.tvdbId != nil, series.titleSlug != nil, !targets.isEmpty else { return false }
         // Every destination, not just the visible one: an add to both missing the
         // second server's root folder would half-succeed.
-        return targets.allSatisfy {
-            profileByInstance[$0.id] != nil && rootFolderByInstance[$0.id] != nil
-        }
+        return addState.isConfigured(targets)
     }
 
     private func addSeries() async {
@@ -321,11 +297,8 @@ struct SonarrAddToLibrarySheet: View {
         isAdding = true
         defer { isAdding = false }
 
-        var addedAnywhere = false
-        for target in targets {
-            guard let profileID = profileByInstance[target.id],
-                  let folderPath = rootFolderByInstance[target.id] else { continue }
-            let success = await viewModel.addSeries(
+        let success = await addState.execute(targets: targets, itemName: series.title) { target, profileID, folderPath in
+            await viewModel.addSeries(
                 tvdbId: tvdbId,
                 title: series.title,
                 titleSlug: titleSlug,
@@ -335,17 +308,12 @@ struct SonarrAddToLibrarySheet: View {
                 rootFolderPath: folderPath,
                 monitorOption: "none",
                 searchForMissing: searchForMissing,
-                instanceID: target.id
+                instanceID: target.id,
+                announcesResult: false
             )
-            if success {
-                addedAnywhere = true
-                ArrAddDestinationMemory.rememberQualityProfile(profileID, on: target.id)
-                ArrAddDestinationMemory.rememberRootFolder(folderPath, on: target.id)
-            }
         }
 
-        if addedAnywhere {
-            ArrAddDestinationMemory.rememberServer(resolvedDestination.instanceID, for: .sonarr)
+        if success {
             await onAdded()
             dismiss()
         }

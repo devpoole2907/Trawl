@@ -96,11 +96,13 @@ struct AddImportLocationSheet: View {
     }
 
     private var sonarrClient: SonarrAPIClient? {
-        instanceID.flatMap { serviceManager.sonarrClient(for: $0) } ?? serviceManager.sonarrClient
+        if let instanceID { return serviceManager.sonarrClient(for: instanceID) }
+        return serviceManager.sonarrClient
     }
 
     private var radarrClient: RadarrAPIClient? {
-        instanceID.flatMap { serviceManager.radarrClient(for: $0) } ?? serviceManager.radarrClient
+        if let instanceID { return serviceManager.radarrClient(for: instanceID) }
+        return serviceManager.radarrClient
     }
 
     private static func source<Client: SharedArrClient>(serviceName: String, client: Client) -> RemotePathBrowserSource {
@@ -221,11 +223,13 @@ final class LibraryImportScanViewModel {
     /// there. They fall back to the active client only when no server was named -
     /// a single-instance setup, or a caller that predates the pair.
     private var sonarrClient: SonarrAPIClient? {
-        instanceID.flatMap { serviceManager.sonarrClient(for: $0) } ?? serviceManager.sonarrClient
+        if let instanceID { return serviceManager.sonarrClient(for: instanceID) }
+        return serviceManager.sonarrClient
     }
 
     private var radarrClient: RadarrAPIClient? {
-        instanceID.flatMap { serviceManager.radarrClient(for: $0) } ?? serviceManager.radarrClient
+        if let instanceID { return serviceManager.radarrClient(for: instanceID) }
+        return serviceManager.radarrClient
     }
 
     private var rootFolders: [ArrRootFolder] {

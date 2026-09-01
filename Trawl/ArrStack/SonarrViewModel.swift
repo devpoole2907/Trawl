@@ -40,7 +40,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     /// named - a preview, or a caller that predates the pair.
     private func client(for instanceID: UUID?) -> SonarrAPIClient? {
         guard let instanceID else { return client }
-        return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
+        return serviceManager.sonarrClient(for: instanceID)
     }
 
     init(serviceManager: ArrServiceManager, jellyfinManager: JellyfinServiceManager? = nil) {
@@ -164,7 +164,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 deleted.contains { $0.instanceID == item.instanceID && $0.id == item.id }
             }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(
+            ArrOperationFeedback.showSuccess(
                 title: "Deleted",
                 message: Self.bulkDeleteSuccessMessage(count: entries.count, singular: "series", plural: "series")
             )
@@ -174,7 +174,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             error = nil
         } else {
             error = failures.first
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Delete Failed",
                 message: Self.bulkDeleteFailureMessage(failures, singular: "series", plural: "series")
             )
@@ -215,6 +215,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         serviceManager.visibleSonarr
     }
 
+    override func client(forExplicitInstanceID instanceID: UUID) -> SonarrAPIClient? {
+        serviceManager.sonarrClient(for: instanceID)
+    }
+
     // MARK: - Library
 
     /// Domain-named alias for `loadLibraryItems(maxAge:)`, which is where the
@@ -227,7 +231,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     func refreshSeries() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.refreshSeries()
-        InAppNotificationCenter.shared.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
+        ArrOperationFeedback.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
         // Re-fetch after a brief delay for the refresh command to process
         try? await Task.sleep(for: .seconds(2))
         await loadSeries()
@@ -236,7 +240,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     // MARK: - Episodes
 
     func loadEpisodes(for seriesId: Int, instanceID: UUID? = nil) async {
-        guard let client = client(for: instanceID) else { return }
+        guard let client = client(for: instanceID) else {
+            captureEpisodeLoadFailure(ArrServiceError.clientNotAvailable)
+            return
+        }
         isLoadingEpisodes = true
         do {
             let eps = try await client.getEpisodes(seriesId: seriesId).stamped(with: instanceID)
@@ -244,13 +251,16 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         } catch is CancellationError {
             // ignore
         } catch {
-            self.error = error.localizedDescription
+            captureEpisodeLoadFailure(error)
         }
         isLoadingEpisodes = false
     }
 
     func loadEpisodeFiles(for seriesId: Int, instanceID: UUID? = nil) async {
-        guard let client = client(for: instanceID) else { return }
+        guard let client = client(for: instanceID) else {
+            captureEpisodeLoadFailure(ArrServiceError.clientNotAvailable)
+            return
+        }
         do {
             let files = try await client.getEpisodeFiles(seriesId: seriesId)
             episodeFiles[ArrScopedID(instanceID, seriesId)] = files.sorted {
@@ -259,8 +269,12 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         } catch is CancellationError {
             // ignore
         } catch {
-            self.error = error.localizedDescription
+            captureEpisodeLoadFailure(error)
         }
+    }
+
+    private func captureEpisodeLoadFailure(_ failure: Error) {
+        capture(failure, notificationTitle: "Episode Load Failed")
     }
 
     func toggleEpisodeMonitored(_ episode: SonarrEpisode) async {
@@ -272,8 +286,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 await loadEpisodes(for: seriesId, instanceID: episode.instanceID)
             }
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
         }
     }
 
@@ -319,8 +332,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
                 isMonitoring: newMonitored
             )
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
             await loadSeries() // Revert on failure
         }
     }
@@ -334,8 +346,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             // feedback card) so this doesn't stack a redundant banner on top of it.
             InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for episode.")
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Search Failed")
         }
     }
 
@@ -353,8 +364,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching for season \(seasonNumber).")
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Search Failed")
             return false
         }
     }
@@ -373,8 +383,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             InAppNotificationCenter.shared.logSilently(title: "Search Started", message: "Searching all monitored episodes.")
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Search Failed")
             return false
         }
     }
@@ -511,13 +520,18 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         seriesType: String = "standard",
         monitorOption: String = "all",
         searchForMissing: Bool = true,
-        instanceID: UUID? = nil
+        instanceID: UUID? = nil,
+        announcesResult: Bool = true
     ) async -> Bool {
         // The server is part of the request, not a detail of it: the quality profile
         // ID and root folder path below only mean anything on the server they were
         // read from, so an add that routes elsewhere posts one server's IDs to
         // another's library.
-        guard let client = client(for: instanceID) else { return false }
+        guard let client = client(for: instanceID) else {
+            let failure = ArrServiceError.clientNotAvailable
+            capture(failure, notificationTitle: announcesResult ? "Add Failed" : nil)
+            return false
+        }
         let addSeasons = seasons.map { SonarrAddSeason(seasonNumber: $0.seasonNumber, monitored: $0.monitored ?? true) }
         let body = SonarrAddSeriesBody(
             tvdbId: tvdbId,
@@ -542,15 +556,16 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             _ = try await client.addSeries(body)
             await loadSeries()
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showMonitoringChanged(
-                itemName: title,
-                itemType: "Series",
-                isMonitoring: monitored
-            )
+            if announcesResult {
+                InAppNotificationCenter.shared.showMonitoringChanged(
+                    itemName: title,
+                    itemType: "Series",
+                    isMonitoring: monitored
+                )
+            }
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Add Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: announcesResult ? "Add Failed" : nil)
             return false
         }
     }
@@ -596,11 +611,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             } else {
                 message = series.title
             }
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: message)
+            ArrOperationFeedback.showSuccess(title: "Updated", message: message)
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
             return false
         }
     }
@@ -608,7 +622,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     /// Marks every episode of a series as monitored. Used when a user re-enables series
     /// monitoring and opts to cascade that to episodes, since Sonarr does not do this itself.
     func monitorAllEpisodes(seriesId: Int, instanceID: UUID? = nil) async -> Bool {
-        guard let client = client(for: instanceID) else { return false }
+        guard let client = client(for: instanceID) else {
+            capture(ArrServiceError.clientNotAvailable, notificationTitle: "Update Failed")
+            return false
+        }
         do {
             let existing = episodes(forSeries: seriesId, on: instanceID)
             let eps = existing.isEmpty ? try await client.getEpisodes(seriesId: seriesId) : existing
@@ -616,11 +633,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             if !episodeIds.isEmpty {
                 _ = try await client.setEpisodeMonitored(episodeIds: episodeIds, monitored: true)
             }
-            await loadEpisodes(for: seriesId)
+            await loadEpisodes(for: seriesId, instanceID: instanceID)
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
             return false
         }
     }
@@ -634,10 +650,9 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             try await client.deleteSeries(id: id, deleteFiles: deleteFiles)
             series.removeAll { $0.id == id }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: seriesTitle)
+            ArrOperationFeedback.showSuccess(title: "Deleted", message: seriesTitle)
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Delete Failed")
         }
     }
 
@@ -645,11 +660,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         let idsToDelete = ids.sorted()
         guard !idsToDelete.isEmpty else { return }
         guard let client else {
-            error = ArrServiceError.clientNotAvailable.localizedDescription
-            InAppNotificationCenter.shared.showError(
-                title: "Delete Failed",
-                message: ArrServiceError.clientNotAvailable.localizedDescription
-            )
+            capture(ArrServiceError.clientNotAvailable, notificationTitle: "Delete Failed")
             return
         }
 
@@ -678,7 +689,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
         if !deletedIDs.isEmpty {
             series.removeAll { deletedIDs.contains($0.id) }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(
+            ArrOperationFeedback.showSuccess(
                 title: "Deleted",
                 message: Self.bulkDeleteSuccessMessage(count: deletedIDs.count, singular: "series", plural: "series")
             )
@@ -688,7 +699,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             error = nil
         } else {
             error = failures.first
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Delete Failed",
                 message: Self.bulkDeleteFailureMessage(failures, singular: "series", plural: "series")
             )
@@ -696,7 +707,10 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
     }
 
     func deleteEpisodeFile(id: Int, instanceID: UUID? = nil) async -> Bool {
-        guard let client = client(for: instanceID) else { return false }
+        guard let client = client(for: instanceID) else {
+            capture(ArrServiceError.clientNotAvailable)
+            return false
+        }
         // The cache key already carries the server, so the reload below goes back to
         // the one the file actually came from.
         let scopedID = episodeFiles.first(where: { $0.value.contains(where: { $0.id == id }) })?.key
@@ -712,7 +726,7 @@ final class SonarrViewModel: ArrMediaLibraryViewModel<SonarrAPIClient, SonarrFil
             }
             return true
         } catch {
-            self.error = error.localizedDescription
+            capture(error)
             return false
         }
     }

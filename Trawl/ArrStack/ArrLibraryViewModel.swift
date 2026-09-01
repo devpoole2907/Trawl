@@ -127,17 +127,20 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
         }
     }
 
-    func captureAndNotify(_ error: Error, title: String) {
-        self.error = error.localizedDescription
-        InAppNotificationCenter.shared.showError(
-            title: title,
-            message: error.localizedDescription
-        )
+    func capture(_ failure: Error, notificationTitle: String? = nil) {
+        error = failure.localizedDescription
+        if let notificationTitle {
+            ArrOperationFeedback.showFailure(title: notificationTitle, message: failure.localizedDescription)
+        }
+    }
+
+    func captureAndNotify(_ failure: Error, title: String) {
+        capture(failure, notificationTitle: title)
     }
 
     func notifySuccess(title: String, message: String) {
         error = nil
-        InAppNotificationCenter.shared.showSuccess(title: title, message: message)
+        ArrOperationFeedback.showSuccess(title: title, message: message)
     }
 
     func setLibraryItems(_ items: [Item]) {
@@ -163,6 +166,14 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
     /// falling back to their single bound client.
     var routedInstances: [(ref: ArrInstanceRef, client: Client)] { [] }
 
+    /// Resolves an explicitly named server independently of the library visibility
+    /// filter. Subclasses with multiple instances override this to consult the
+    /// service manager directly. Returning nil must fail closed: an ID intended
+    /// for one server must never fall through to the active server.
+    func client(forExplicitInstanceID instanceID: UUID) -> Client? {
+        routedInstances.first { $0.ref.id == instanceID }?.client
+    }
+
     /// History for one server.
     ///
     /// Unlike the queue this is not merged, because its only caller wants the
@@ -172,10 +183,16 @@ class ArrLibraryViewModel<Item: Identifiable, Client: SharedArrClient> where Ite
     /// owns the item being shown; nil keeps the pre-pair behaviour of reading the
     /// bound client.
     func loadHistory(page: Int = 1, instanceID: UUID? = nil) async {
-        let scopedClient = instanceID.flatMap { id in
-            routedInstances.first { $0.ref.id == id }?.client
+        let resolvedClient: Client?
+        if let instanceID {
+            resolvedClient = client(forExplicitInstanceID: instanceID)
+        } else {
+            resolvedClient = client
         }
-        guard let client = scopedClient ?? client else { return }
+        guard let client = resolvedClient else {
+            captureAndNotify(ArrServiceError.clientNotAvailable, title: "History Load Failed")
+            return
+        }
         guard !isLoadingHistory else { return }
         isLoadingHistory = true
         defer { isLoadingHistory = false }
@@ -515,7 +532,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         if !failures.isEmpty {
             // Partial success still has to name the server that missed out,
             // otherwise the command looks like it covered the whole library.
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Not Sent Everywhere",
                 message: failures.joined(separator: "\n")
             )
@@ -534,7 +551,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     func refreshLibrary() async throws {
         let reached = try await broadcast { _ = try await $0.refreshLibrary() }
-        InAppNotificationCenter.shared.showSuccess(
+        ArrOperationFeedback.showSuccess(
             title: "Refresh Started",
             message: "Library refresh command sent.\(reachedSuffix(reached))"
         )
@@ -545,7 +562,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     func rssSync() async throws {
         let reached = try await broadcast { _ = try await $0.rssSync() }
-        InAppNotificationCenter.shared.showSuccess(
+        ArrOperationFeedback.showSuccess(
             title: "RSS Sync",
             message: "Sync command sent.\(reachedSuffix(reached))"
         )
@@ -553,7 +570,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
 
     func searchAllMissing(noun: String) async throws {
         let reached = try await broadcast { _ = try await $0.searchAllMissing() }
-        InAppNotificationCenter.shared.showSuccess(
+        ArrOperationFeedback.showSuccess(
             title: "Search Started",
             message: "Searching for all missing \(noun).\(reachedSuffix(reached))"
         )
@@ -565,7 +582,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
             try await client.deleteLibraryItem(id: id, deleteFiles: deleteFiles)
             items.removeAll { $0.id == id }
             await afterMutation(reload: { await loadLibraryItems() })
-            InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: noun.capitalized)
+            ArrOperationFeedback.showSuccess(title: "Deleted", message: noun.capitalized)
         } catch {
             captureAndNotify(error, title: "Delete Failed")
         }
@@ -594,14 +611,14 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
         if !deletedIDs.isEmpty {
             items.removeAll { deletedIDs.contains($0.id) }
             await afterMutation(reload: { await loadLibraryItems() })
-            InAppNotificationCenter.shared.showSuccess(
+            ArrOperationFeedback.showSuccess(
                 title: "Deleted",
                 message: Self.bulkDeleteSuccessMessage(count: deletedIDs.count, singular: nounSingular, plural: nounPlural)
             )
         }
 
         if !failures.isEmpty {
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Delete Failed",
                 message: Self.bulkDeleteFailureMessage(failures, singular: nounSingular, plural: nounPlural)
             )
@@ -691,7 +708,7 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
     func installUpdate() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.installUpdate()
-        InAppNotificationCenter.shared.showSuccess(title: "Update Started", message: "Application update command sent.")
+        ArrOperationFeedback.showSuccess(title: "Update Started", message: "Application update command sent.")
     }
 
     // MARK: - Release grab
@@ -707,13 +724,12 @@ where Client.LibraryItem: JellyfinMatchable, Client.LibraryItem: Equatable,
                 // banner - log this one silently to avoid a duplicate.
                 InAppNotificationCenter.shared.logSilently(title: "Release Sent", message: release.title ?? "Release")
             } else {
-                InAppNotificationCenter.shared.showSuccess(title: "Grabbed", message: release.title ?? "Release")
+                ArrOperationFeedback.showSuccess(title: "Grabbed", message: release.title ?? "Release")
             }
             await loadQueue()
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Grab Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Grab Failed")
             return false
         }
     }

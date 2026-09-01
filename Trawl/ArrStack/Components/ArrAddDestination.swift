@@ -15,6 +15,114 @@ enum ArrAddDestination: Hashable {
     }
 }
 
+/// Shared state and orchestration for the Sonarr and Radarr add sheets. Keeping
+/// destination resolution, per-server configuration, persistence, and partial
+/// failure semantics here prevents the two services from drifting apart.
+@MainActor
+@Observable
+final class ArrAddDestinationState {
+    let serviceType: ArrServiceType
+    var destination: ArrAddDestination?
+    var profileByInstance: [UUID: Int] = [:]
+    var rootFolderByInstance: [UUID: String] = [:]
+    var failureMessage: String?
+
+    init(serviceType: ArrServiceType) {
+        self.serviceType = serviceType
+    }
+
+    func resolvedDestination(in candidates: [ArrInstanceRef]) -> ArrAddDestination {
+        if let destination { return destination }
+        let preferred = ArrAddDestinationMemory.preferredServer(for: serviceType, candidates: candidates)
+        return preferred.map(ArrAddDestination.instance) ?? .everyCandidate
+    }
+
+    func targets(in candidates: [ArrInstanceRef]) -> [ArrInstanceRef] {
+        switch resolvedDestination(in: candidates) {
+        case .instance(let id): candidates.filter { $0.id == id }
+        case .everyCandidate: candidates
+        }
+    }
+
+    func seedDefaults(
+        for candidates: [ArrInstanceRef],
+        profiles: (UUID) -> [ArrQualityProfile],
+        folders: (UUID) -> [ArrRootFolder]
+    ) {
+        for ref in candidates {
+            let availableProfiles = profiles(ref.id)
+            if profileByInstance[ref.id] == nil
+                || !availableProfiles.contains(where: { $0.id == profileByInstance[ref.id] }) {
+                let remembered = ArrAddDestinationMemory.lastQualityProfile(on: ref.id)
+                profileByInstance[ref.id] = availableProfiles.first(where: { $0.id == remembered })?.id
+                    ?? availableProfiles.first?.id
+            }
+
+            let availableFolders = folders(ref.id)
+            if rootFolderByInstance[ref.id] == nil
+                || !availableFolders.contains(where: { $0.path == rootFolderByInstance[ref.id] }) {
+                let remembered = ArrAddDestinationMemory.lastRootFolder(on: ref.id)
+                rootFolderByInstance[ref.id] = availableFolders.first(where: { $0.path == remembered })?.path
+                    ?? availableFolders.first?.path
+            }
+        }
+    }
+
+    func isConfigured(_ targets: [ArrInstanceRef]) -> Bool {
+        !targets.isEmpty && targets.allSatisfy {
+            profileByInstance[$0.id] != nil && rootFolderByInstance[$0.id] != nil
+        }
+    }
+
+    /// Runs every requested add and succeeds only when every server succeeds.
+    /// Successful destinations are remembered immediately, but a partial failure
+    /// remains on screen so the user can retry the servers that did not accept it.
+    func execute(
+        targets: [ArrInstanceRef],
+        itemName: String? = nil,
+        operation: (ArrInstanceRef, Int, String) async -> Bool
+    ) async -> Bool {
+        var failed: [ArrInstanceRef] = []
+
+        for target in targets {
+            guard let profileID = profileByInstance[target.id],
+                  let folderPath = rootFolderByInstance[target.id] else {
+                failed.append(target)
+                continue
+            }
+            if await operation(target, profileID, folderPath) {
+                ArrAddDestinationMemory.rememberQualityProfile(profileID, on: target.id)
+                ArrAddDestinationMemory.rememberRootFolder(folderPath, on: target.id)
+            } else {
+                failed.append(target)
+            }
+        }
+
+        guard failed.isEmpty else {
+            failureMessage = "Could not add to \(failed.map(\.qualifiedLabel).joined(separator: ", ")). You can retry without repeating successful destinations."
+            destination = failed.count == 1 ? .instance(failed[0].id) : .everyCandidate
+            if itemName != nil, let failureMessage {
+                ArrOperationFeedback.showFailure(title: "Add Failed", message: failureMessage)
+            }
+            return false
+        }
+
+        failureMessage = nil
+        ArrAddDestinationMemory.rememberServer(
+            resolvedDestination(in: targets).instanceID,
+            for: serviceType
+        )
+        if let itemName {
+            let destinationNames = targets.map(\.qualifiedLabel).joined(separator: ", ")
+            ArrOperationFeedback.showSuccess(
+                title: "Added",
+                message: "\(itemName) was added to \(destinationNames)."
+            )
+        }
+        return true
+    }
+}
+
 /// Remembers the server, quality profile and root folder an add last used, so the
 /// sheet opens on the answer that was right last time.
 ///

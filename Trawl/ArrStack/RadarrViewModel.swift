@@ -139,7 +139,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                 deleted.contains { $0.instanceID == movie.instanceID && $0.id == movie.id }
             }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(
+            ArrOperationFeedback.showSuccess(
                 title: "Deleted",
                 message: Self.bulkDeleteSuccessMessage(count: entries.count, singular: "movie", plural: "movies")
             )
@@ -149,7 +149,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             error = nil
         } else {
             error = failures.first
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Delete Failed",
                 message: Self.bulkDeleteFailureMessage(failures, singular: "movie", plural: "movies")
             )
@@ -160,7 +160,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     /// named - a preview, or a caller that predates the pair.
     private func client(for instanceID: UUID?) -> RadarrAPIClient? {
         guard let instanceID else { return client }
-        return routedInstances.first { $0.ref.id == instanceID }?.client ?? client
+        return serviceManager.radarrClient(for: instanceID)
     }
 
     /// Config for one server. The pair do not share quality profiles or root
@@ -216,6 +216,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         serviceManager.visibleRadarr
     }
 
+    override func client(forExplicitInstanceID instanceID: UUID) -> RadarrAPIClient? {
+        serviceManager.radarrClient(for: instanceID)
+    }
+
     // MARK: - Library
 
     /// Domain-named alias for `loadLibraryItems(maxAge:)`, which is where the
@@ -263,7 +267,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     func refreshMovies() async throws {
         guard let client else { throw ArrServiceError.clientNotAvailable }
         _ = try await client.refreshMovie()
-        InAppNotificationCenter.shared.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
+        ArrOperationFeedback.showSuccess(title: "Refresh Started", message: "Library refresh command sent.")
         try? await Task.sleep(for: .seconds(2))
         await loadMovies()
     }
@@ -308,11 +312,16 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         minimumAvailability: String = "released",
         monitorOption: String = "movieOnly",
         searchForMovie: Bool = true,
-        instanceID: UUID? = nil
+        instanceID: UUID? = nil,
+        announcesResult: Bool = true
     ) async -> Bool {
         // See `SonarrViewModel.addSeries`: the profile ID and root folder path are
         // only meaningful on the server they came from.
-        guard let client = client(for: instanceID) else { return false }
+        guard let client = client(for: instanceID) else {
+            let failure = ArrServiceError.clientNotAvailable
+            capture(failure, notificationTitle: announcesResult ? "Add Failed" : nil)
+            return false
+        }
         let body = RadarrAddMovieBody(
             title: title,
             tmdbId: tmdbId,
@@ -330,15 +339,16 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             _ = try await client.addMovie(body)
             await loadMovies()
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showMonitoringChanged(
-                itemName: title,
-                itemType: "Movies",
-                isMonitoring: monitored
-            )
+            if announcesResult {
+                InAppNotificationCenter.shared.showMonitoringChanged(
+                    itemName: title,
+                    itemType: "Movies",
+                    isMonitoring: monitored
+                )
+            }
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Add Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: announcesResult ? "Add Failed" : nil)
             return false
         }
     }
@@ -379,11 +389,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             } else {
                 message = movie.title
             }
-            InAppNotificationCenter.shared.showSuccess(title: "Updated", message: message)
+            ArrOperationFeedback.showSuccess(title: "Updated", message: message)
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
             return false
         }
     }
@@ -426,8 +435,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
                 isMonitoring: newMonitored
             )
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Update Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Update Failed")
             await loadMovies() // Revert on failure
         }
     }
@@ -440,11 +448,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             try await client.deleteMovie(id: id, deleteFiles: deleteFiles)
             movies.removeAll { $0.id == id && $0.instanceID == owner }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(title: "Deleted", message: movieTitle)
+            ArrOperationFeedback.showSuccess(title: "Deleted", message: movieTitle)
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Delete Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Delete Failed")
             return false
         }
     }
@@ -453,11 +460,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         let idsToDelete = ids.sorted()
         guard !idsToDelete.isEmpty else { return }
         guard let client else {
-            error = ArrServiceError.clientNotAvailable.localizedDescription
-            InAppNotificationCenter.shared.showError(
-                title: "Delete Failed",
-                message: ArrServiceError.clientNotAvailable.localizedDescription
-            )
+            capture(ArrServiceError.clientNotAvailable, notificationTitle: "Delete Failed")
             return
         }
 
@@ -486,7 +489,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
         if !deletedIDs.isEmpty {
             movies.removeAll { deletedIDs.contains($0.id) }
             await serviceManager.calendarViewModel.refresh()
-            InAppNotificationCenter.shared.showSuccess(
+            ArrOperationFeedback.showSuccess(
                 title: "Deleted",
                 message: Self.bulkDeleteSuccessMessage(count: deletedIDs.count, singular: "movie", plural: "movies")
             )
@@ -496,7 +499,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             error = nil
         } else {
             error = failures.first
-            InAppNotificationCenter.shared.showError(
+            ArrOperationFeedback.showFailure(
                 title: "Delete Failed",
                 message: Self.bulkDeleteFailureMessage(failures, singular: "movie", plural: "movies")
             )
@@ -520,8 +523,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             error = nil
             return true
         } catch {
-            self.error = error.localizedDescription
-            InAppNotificationCenter.shared.showError(title: "Search Failed", message: error.localizedDescription)
+            capture(error, notificationTitle: "Search Failed")
             return false
         }
     }
@@ -558,7 +560,10 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
     func deleteMovieFile(id: Int, instanceID: UUID? = nil) async -> Bool {
         let owner = instanceID ?? movies.first(where: { $0.movieFile?.id == id })?.instanceID
         let movieId = movies.first(where: { $0.movieFile?.id == id })?.id ?? movieFiles.first(where: { $0.id == id })?.movieId
-        guard let client = routedClient(forMovieID: movieId ?? 0, instanceID: owner) else { return false }
+        guard let client = routedClient(forMovieID: movieId ?? 0, instanceID: owner) else {
+            capture(ArrServiceError.clientNotAvailable)
+            return false
+        }
 
         do {
             try await client.deleteMovieFile(id: id)
@@ -569,7 +574,7 @@ final class RadarrViewModel: ArrMediaLibraryViewModel<RadarrAPIClient, RadarrFil
             }
             return true
         } catch {
-            self.error = error.localizedDescription
+            capture(error)
             return false
         }
     }

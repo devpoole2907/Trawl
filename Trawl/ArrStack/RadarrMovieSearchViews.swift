@@ -14,8 +14,7 @@ struct RadarrAddToLibrarySheet: View {
     /// you set - a real choice for each destination instead of applying one
     /// server's answer to a server that never offered it. It also means switching
     /// destination and switching back does not discard what you already picked.
-    @State private var profileByInstance: [UUID: Int] = [:]
-    @State private var rootFolderByInstance: [UUID: String] = [:]
+    @State private var addState = ArrAddDestinationState(serviceType: .radarr)
     @State private var minimumAvailability = "released"
     @State private var monitorOption = "movieOnly"
     @State private var searchForMovie = true
@@ -24,15 +23,8 @@ struct RadarrAddToLibrarySheet: View {
     /// Using `.everyCandidate` as the unresolved value made adding to *both*
     /// servers the state the sheet sat in before its task ran - so a slow or failed
     /// configuration refresh left the most destructive option preselected.
-    @State private var destination: ArrAddDestination?
-
-    /// What the picker shows and the add uses: the explicit choice when there is
-    /// one, otherwise the remembered or first candidate. Never `.everyCandidate`
-    /// unless the user picked it.
     private var resolvedDestination: ArrAddDestination {
-        if let destination { return destination }
-        let preferred = ArrAddDestinationMemory.preferredServer(for: .radarr, candidates: candidates)
-        return preferred.map { ArrAddDestination.instance($0) } ?? .everyCandidate
+        addState.resolvedDestination(in: candidates)
     }
     @Environment(ArrServiceManager.self) private var serviceManager
 
@@ -41,26 +33,14 @@ struct RadarrAddToLibrarySheet: View {
     /// opened from a detail screen where one of a pair already holds the film, it
     /// is the other one, and the sheet adds there without asking.
     private var candidates: [ArrInstanceRef] {
-        let holding = Set(
-            viewModel.movies
-                .filter { $0.tmdbId != nil && $0.tmdbId == movie.tmdbId }
-                .compactMap(\.instanceID)
-        )
-        return viewModel.routedInstances.map(\.ref).filter { !holding.contains($0.id) }
-    }
-
-    /// Where a single add lands. `.everyCandidate` has no one server, so the
-    /// per-server pickers follow the first candidate for display purposes.
-    private var targetInstanceID: UUID? {
-        resolvedDestination.instanceID ?? candidates.first?.id
+        serviceManager.connectedRadarr.map(\.ref).filter { ref in
+            !serviceManager.movieLibrary.items(for: ref.id).contains { $0.tmdbId == movie.tmdbId }
+        }
     }
 
     /// The servers this add will actually touch - one, or both.
     private var targets: [ArrInstanceRef] {
-        switch resolvedDestination {
-        case .instance(let id): candidates.filter { $0.id == id }
-        case .everyCandidate: candidates
-        }
+        addState.targets(in: candidates)
     }
 
     var body: some View {
@@ -105,7 +85,7 @@ struct RadarrAddToLibrarySheet: View {
                         candidates: candidates,
                         selection: Binding(
                             get: { resolvedDestination },
-                            set: { destination = $0 }
+                            set: { addState.destination = $0 }
                         ),
                         // "Both" is only meaningful while both servers are still
                         // candidates; opened for a film one of them already has,
@@ -121,7 +101,7 @@ struct RadarrAddToLibrarySheet: View {
                     // an unlabelled second pair would be indistinguishable from
                     // the first.
                     if targets.count == 1, let target = targets.first {
-                        serverSettings(for: target, showsHeader: false)
+                        serverSettings(for: target)
                     }
 
                     Picker("Minimum Availability", selection: $minimumAvailability) {
@@ -142,12 +122,12 @@ struct RadarrAddToLibrarySheet: View {
                 if targets.count > 1 {
                     ForEach(targets, id: \.id) { target in
                         Section(serviceManager.scopeLabel(for: target)) {
-                            serverSettings(for: target, showsHeader: true)
+                            serverSettings(for: target)
                         }
                     }
                 }
 
-                if let error = viewModel.error, !error.isEmpty {
+                if let error = addState.failureMessage ?? viewModel.error, !error.isEmpty {
                     Section {
                         Label(error, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
@@ -167,11 +147,11 @@ struct RadarrAddToLibrarySheet: View {
     }
 
     @ViewBuilder
-    private func serverSettings(for target: ArrInstanceRef, showsHeader: Bool) -> some View {
+    private func serverSettings(for target: ArrInstanceRef) -> some View {
         ArrQualityProfilePicker(
             selection: Binding(
-                get: { profileByInstance[target.id] },
-                set: { profileByInstance[target.id] = $0 }
+                get: { addState.profileByInstance[target.id] },
+                set: { addState.profileByInstance[target.id] = $0 }
             ),
             profiles: viewModel.qualityProfiles(on: target.id),
             showInfoButton: false
@@ -179,8 +159,8 @@ struct RadarrAddToLibrarySheet: View {
 
         ArrRootFolderPicker(
             selection: Binding(
-                get: { rootFolderByInstance[target.id] },
-                set: { rootFolderByInstance[target.id] = $0 }
+                get: { addState.rootFolderByInstance[target.id] },
+                set: { addState.rootFolderByInstance[target.id] = $0 }
             ),
             folders: viewModel.rootFolders(on: target.id)
         )
@@ -190,9 +170,7 @@ struct RadarrAddToLibrarySheet: View {
         guard !isAdding, movie.tmdbId != nil, !targets.isEmpty else { return false }
         // Every destination, not just the visible one: an add to both that is
         // missing the second server's root folder would half-succeed.
-        return targets.allSatisfy {
-            profileByInstance[$0.id] != nil && rootFolderByInstance[$0.id] != nil
-        }
+        return addState.isConfigured(targets)
     }
 
     private func refreshConfigurationAndDefaults() async {
@@ -208,19 +186,11 @@ struct RadarrAddToLibrarySheet: View {
     /// profile deleted in Radarr must not come back as a phantom preselection that
     /// then fails at the API.
     private func seedDefaultsForEveryCandidate() {
-        for ref in candidates {
-            let profiles = viewModel.qualityProfiles(on: ref.id)
-            if profileByInstance[ref.id] == nil || !profiles.contains(where: { $0.id == profileByInstance[ref.id] }) {
-                let remembered = ArrAddDestinationMemory.lastQualityProfile(on: ref.id)
-                profileByInstance[ref.id] = profiles.first(where: { $0.id == remembered })?.id ?? profiles.first?.id
-            }
-
-            let folders = viewModel.rootFolders(on: ref.id)
-            if rootFolderByInstance[ref.id] == nil || !folders.contains(where: { $0.path == rootFolderByInstance[ref.id] }) {
-                let remembered = ArrAddDestinationMemory.lastRootFolder(on: ref.id)
-                rootFolderByInstance[ref.id] = folders.first(where: { $0.path == remembered })?.path ?? folders.first?.path
-            }
-        }
+        addState.seedDefaults(
+            for: candidates,
+            profiles: { viewModel.qualityProfiles(on: $0) },
+            folders: { viewModel.rootFolders(on: $0) }
+        )
     }
 
     private func addMovie() async {
@@ -229,14 +199,8 @@ struct RadarrAddToLibrarySheet: View {
         isAdding = true
         defer { isAdding = false }
 
-        var addedAnywhere = false
-        for target in targets {
-            // Each server's own picked profile and folder. Sending one server's
-            // pair to both would post an id the other has never issued, which
-            // fails at the API rather than in the UI.
-            guard let profileID = profileByInstance[target.id],
-                  let folderPath = rootFolderByInstance[target.id] else { continue }
-            let success = await viewModel.addMovie(
+        let success = await addState.execute(targets: targets, itemName: movie.title) { target, profileID, folderPath in
+            await viewModel.addMovie(
                 title: movie.title,
                 tmdbId: tmdbId,
                 qualityProfileId: profileID,
@@ -244,17 +208,12 @@ struct RadarrAddToLibrarySheet: View {
                 minimumAvailability: minimumAvailability,
                 monitorOption: monitorOption,
                 searchForMovie: searchForMovie,
-                instanceID: target.id
+                instanceID: target.id,
+                announcesResult: false
             )
-            if success {
-                addedAnywhere = true
-                ArrAddDestinationMemory.rememberQualityProfile(profileID, on: target.id)
-                ArrAddDestinationMemory.rememberRootFolder(folderPath, on: target.id)
-            }
         }
 
-        if addedAnywhere {
-            ArrAddDestinationMemory.rememberServer(resolvedDestination.instanceID, for: .radarr)
+        if success {
             await onAdded()
             dismiss()
         }
@@ -284,10 +243,12 @@ extension RadarrAddToLibrarySheet {
             folders[ref.id] = onServer.first { $0.path.localizedCaseInsensitiveContains("movie") }?.path
                 ?? onServer.first?.path
         }
-        _profileByInstance = State(initialValue: profiles)
-        _rootFolderByInstance = State(initialValue: folders)
+        let state = ArrAddDestinationState(serviceType: .radarr)
+        state.profileByInstance = profiles
+        state.rootFolderByInstance = folders
+        state.destination = destination
+        _addState = State(initialValue: state)
         _isAdding = State(initialValue: isAdding)
-        _destination = State(initialValue: destination)
     }
 }
 #endif

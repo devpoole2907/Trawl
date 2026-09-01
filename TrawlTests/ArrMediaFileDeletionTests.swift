@@ -98,6 +98,20 @@ struct ArrMediaFileDeletionTests {
         }
     }
 
+    @Test("A missing client is stored as an error without stealing deletion feedback from the view")
+    func missingClientsRecordErrorsWithoutAnnouncing() async {
+        let manager = ArrServiceManager()
+        let sonarr = SonarrViewModel(serviceManager: manager)
+        let radarr = RadarrViewModel(serviceManager: manager)
+        let before = fileDeletionNotificationCount()
+
+        #expect(await sonarr.deleteEpisodeFile(id: 71) == false)
+        #expect(await radarr.deleteMovieFile(id: 81) == false)
+        #expect(sonarr.error?.isEmpty == false)
+        #expect(radarr.error?.isEmpty == false)
+        #expect(fileDeletionNotificationCount() == before)
+    }
+
     private func server(
         label: String,
         handler: @escaping ArrIndexerFixtureServer.Handler
