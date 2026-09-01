@@ -56,6 +56,8 @@ struct ActiveDownloadsWidgetEntryView: View {
 
     var body: some View {
         switch family {
+        case .accessoryRectangular:
+            accessoryRectangularLayout
         case .accessoryCircular:
             accessoryCircularLayout
         case .systemMedium:
@@ -81,6 +83,37 @@ struct ActiveDownloadsWidgetEntryView: View {
                 .minimumScaleFactor(0.6)
         }
         .gaugeStyle(.accessoryCircular)
+        .widgetURL(ActiveDownloadsWidget.trawlDownloadsURL)
+    }
+
+    private var accessoryRectangularLayout: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Label(
+                    isUnavailable ? "Downloads unavailable" : "\(count) active",
+                    systemImage: isUnavailable ? "wifi.exclamationmark" : "arrow.down.circle.fill"
+                )
+                .font(.headline)
+                Spacer(minLength: 0)
+            }
+
+            if let top = entry.snapshot.topDownload {
+                Text(top.name)
+                    .font(.caption)
+                    .lineLimit(1)
+                ProgressView(value: top.progress)
+                HStack {
+                    Text(ByteFormatter.formatSpeed(bytesPerSecond: top.dlspeed))
+                    Spacer(minLength: 4)
+                    if let etaText = top.etaText { Text(etaText) }
+                }
+                .font(.caption2)
+            } else {
+                Text(isUnavailable ? (entry.snapshot.errorMessage ?? "Unavailable") : "No active downloads")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
         .widgetURL(ActiveDownloadsWidget.trawlDownloadsURL)
     }
 
@@ -228,7 +261,7 @@ struct ActiveDownloadsWidget: Widget {
         }
         .configurationDisplayName("Active Downloads")
         .description("Active downloads across qBittorrent and SABnzbd, with top progress.")
-        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular])
+        .supportedFamilies([.systemSmall, .systemMedium, .accessoryCircular, .accessoryRectangular])
         .contentMarginsDisabled()
     }
 }
@@ -273,6 +306,13 @@ private extension WidgetDataFetcher.WidgetActiveDownloadsSnapshot {
 }
 
 #Preview(as: .accessoryCircular) {
+    ActiveDownloadsWidget()
+} timeline: {
+    ActiveDownloadsEntry.placeholder
+    ActiveDownloadsEntry(date: .now, snapshot: .activeDownloadsUnavailable("Unavailable"))
+}
+
+#Preview(as: .accessoryRectangular) {
     ActiveDownloadsWidget()
 } timeline: {
     ActiveDownloadsEntry.placeholder

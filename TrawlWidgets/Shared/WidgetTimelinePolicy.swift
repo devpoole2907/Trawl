@@ -58,6 +58,12 @@ enum WidgetTimelinePolicy {
         }
     }
 
+    /// An empty event list is trustworthy only when at least one configured Arr
+    /// server answered. Otherwise “No Upcoming Releases” disguises an outage.
+    static func calendarFetchIsUnavailable(configuredCount: Int, answeredCount: Int) -> Bool {
+        configuredCount > 0 && answeredCount == 0
+    }
+
     /// Creates one entry per unique release day. A current entry is prepended
     /// when the first release is in the future so WidgetKit has content now.
     static func calendarSlices(

@@ -1,5 +1,39 @@
 import Foundation
 
+/// Decodes the stable identifier stored by the download widget configuration.
+/// A missing identifier means the blended view; unprefixed UUIDs remain valid
+/// for widgets configured before SABnzbd joined the picker.
+struct WidgetDownloadClientSelection: Equatable, Sendable {
+    let qbittorrentID: String?
+    let sabnzbdID: String?
+    let includesQBittorrent: Bool
+    let includesSABnzbd: Bool
+
+    init(_ identifier: String?) {
+        guard let identifier else {
+            qbittorrentID = nil
+            sabnzbdID = nil
+            includesQBittorrent = true
+            includesSABnzbd = true
+            return
+        }
+
+        if identifier.hasPrefix("sab:") {
+            qbittorrentID = nil
+            sabnzbdID = String(identifier.dropFirst(4))
+            includesQBittorrent = false
+            includesSABnzbd = true
+        } else {
+            qbittorrentID = identifier.hasPrefix("qb:")
+                ? String(identifier.dropFirst(3))
+                : identifier
+            sabnzbdID = nil
+            includesQBittorrent = true
+            includesSABnzbd = false
+        }
+    }
+}
+
 /// The blended pause state of every configured download client.
 ///
 /// The Control Center control acts on the same qBittorrent + SABnzbd union the two

@@ -33,7 +33,13 @@ enum WidgetDataFetcher {
         let serviceType: ArrServiceType
     }
 
+    private struct ArrCalendarResult: Sendable {
+        let events: [WidgetCalendarEvent]
+        let answered: Bool
+    }
+
     struct SABnzbdProfileSnapshot: Sendable {
+        let profileID: UUID
         let displayName: String
         let hostURL: String
         let allowsUntrustedTLS: Bool
@@ -177,8 +183,13 @@ enum WidgetDataFetcher {
     /// Never throws: an unreachable client simply contributes nothing, so one
     /// slow server cannot take the whole timeline entry down with it.
     static func fetchDownloadSpeed(serverID: String? = nil) async -> WidgetDownloadSpeedSnapshot {
-        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
-        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+        let selection = WidgetDownloadClientSelection(serverID)
+        let qbSnapshot = selection.includesQBittorrent
+            ? try? await fetchServerSnapshot(serverID: selection.qbittorrentID)
+            : nil
+        let sabProfiles = selection.includesSABnzbd
+            ? (try? await fetchSABnzbdProfiles(profileID: selection.sabnzbdID)) ?? []
+            : []
 
         guard qbSnapshot != nil || !sabProfiles.isEmpty else {
             return WidgetDownloadSpeedSnapshot(
@@ -219,8 +230,13 @@ enum WidgetDataFetcher {
 
     /// Active downloads across every configured client, ranked by download speed.
     static func fetchActiveDownloads(serverID: String? = nil) async -> WidgetActiveDownloadsSnapshot {
-        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
-        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+        let selection = WidgetDownloadClientSelection(serverID)
+        let qbSnapshot = selection.includesQBittorrent
+            ? try? await fetchServerSnapshot(serverID: selection.qbittorrentID)
+            : nil
+        let sabProfiles = selection.includesSABnzbd
+            ? (try? await fetchSABnzbdProfiles(profileID: selection.sabnzbdID)) ?? []
+            : []
 
         guard qbSnapshot != nil || !sabProfiles.isEmpty else {
             return WidgetActiveDownloadsSnapshot(
@@ -352,7 +368,7 @@ enum WidgetDataFetcher {
         }
     }
 
-    private static func fetchSABnzbdProfiles() async throws -> [SABnzbdProfileSnapshot] {
+    private static func fetchSABnzbdProfiles(profileID: String? = nil) async throws -> [SABnzbdProfileSnapshot] {
         let container = try makeModelContainer()
 
         return try await MainActor.run {
@@ -360,9 +376,14 @@ enum WidgetDataFetcher {
             let all = try context.fetch(FetchDescriptor<SABnzbdServiceProfile>())
 
             return all
-                .filter(\.isEnabled)
+                .filter { profile in
+                    guard profile.isEnabled else { return false }
+                    guard let profileID, let id = UUID(uuidString: profileID) else { return true }
+                    return profile.id == id
+                }
                 .map {
                     SABnzbdProfileSnapshot(
+                        profileID: $0.id,
                         displayName: $0.displayName,
                         hostURL: $0.hostURL,
                         allowsUntrustedTLS: $0.allowsUntrustedTLS,
@@ -470,8 +491,13 @@ enum WidgetDataFetcher {
     /// The blended pause state the Control Center control renders. Never throws: an
     /// unreachable client simply does not count toward `reachableClientCount`.
     static func fetchDownloadControlState(serverID: String? = nil) async -> DownloadControlState {
-        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
-        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+        let selection = WidgetDownloadClientSelection(serverID)
+        let qbSnapshot = selection.includesQBittorrent
+            ? try? await fetchServerSnapshot(serverID: selection.qbittorrentID)
+            : nil
+        let sabProfiles = selection.includesSABnzbd
+            ? (try? await fetchSABnzbdProfiles(profileID: selection.sabnzbdID)) ?? []
+            : []
 
         guard qbSnapshot != nil || !sabProfiles.isEmpty else { return .unavailable }
 
@@ -495,8 +521,13 @@ enum WidgetDataFetcher {
     /// and SABnzbd down still wants qBittorrent paused. The error is only rethrown
     /// when nothing at all succeeded, so the control never reports a no-op as done.
     static func setDownloadsPaused(_ paused: Bool, serverID: String? = nil) async throws {
-        let qbSnapshot = try? await fetchServerSnapshot(serverID: serverID)
-        let sabProfiles = (try? await fetchSABnzbdProfiles()) ?? []
+        let selection = WidgetDownloadClientSelection(serverID)
+        let qbSnapshot = selection.includesQBittorrent
+            ? try? await fetchServerSnapshot(serverID: selection.qbittorrentID)
+            : nil
+        let sabProfiles = selection.includesSABnzbd
+            ? (try? await fetchSABnzbdProfiles(profileID: selection.sabnzbdID)) ?? []
+            : []
 
         guard qbSnapshot != nil || !sabProfiles.isEmpty else {
             throw WidgetError.noServerConfigured
@@ -619,7 +650,8 @@ enum WidgetDataFetcher {
         let end = Calendar.current.date(byAdding: .day, value: days, to: apiStart) ?? apiStart
         var events: [WidgetCalendarEvent] = []
 
-        await withTaskGroup(of: [WidgetCalendarEvent].self) { group in
+        var answeredCount = 0
+        await withTaskGroup(of: ArrCalendarResult.self) { group in
             for profile in profiles {
                 group.addTask {
                     await fetchArrEvents(
@@ -631,10 +663,16 @@ enum WidgetDataFetcher {
                     )
                 }
             }
-            for await batch in group {
-                events.append(contentsOf: batch)
+            for await result in group {
+                if result.answered { answeredCount += 1 }
+                events.append(contentsOf: result.events)
             }
         }
+
+        guard !WidgetTimelinePolicy.calendarFetchIsUnavailable(
+            configuredCount: profiles.count,
+            answeredCount: answeredCount
+        ) else { throw WidgetError.noServerConfigured }
 
         let sorted = events.sorted { $0.date < $1.date }
         return await prefetchPosters(for: sorted)
@@ -1086,12 +1124,12 @@ enum WidgetDataFetcher {
         filterStart: Date,
         end: Date,
         includeUnmonitored: Bool
-    ) async -> [WidgetCalendarEvent] {
+    ) async -> ArrCalendarResult {
         do {
             guard let apiKey = try await KeychainHelper.shared.read(key: profile.apiKeyKeychainKey),
                   !apiKey.isEmpty else {
                 logger.error("Missing ARR API key for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public)")
-                return []
+                return ArrCalendarResult(events: [], answered: false)
             }
 
             let profileQualifier = profile.hostURL.replacingOccurrences(of: "://", with: "-").replacingOccurrences(of: "/", with: "-")
@@ -1104,7 +1142,7 @@ enum WidgetDataFetcher {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 let episodes = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored, includeSeries: true)
-                return episodes.compactMap { ep -> WidgetCalendarEvent? in
+                let events = episodes.compactMap { ep -> WidgetCalendarEvent? in
                     guard let date = parseISO(ep.airDateUtc) ?? parseDayDate(ep.airDate),
                           date >= filterStart else { return nil }
                     return WidgetCalendarEvent(
@@ -1119,6 +1157,7 @@ enum WidgetDataFetcher {
                         isDownloaded: ep.hasFile == true
                     )
                 }
+                return ArrCalendarResult(events: events, answered: true)
 
             case .radarr:
                 let client = RadarrAPIClient(
@@ -1127,7 +1166,7 @@ enum WidgetDataFetcher {
                     allowsUntrustedTLS: profile.allowsUntrustedTLS
                 )
                 let movies = try await client.getCalendar(start: apiStart, end: end, unmonitored: includeUnmonitored)
-                return movies.flatMap { movie -> [WidgetCalendarEvent] in
+                let events = movies.flatMap { movie -> [WidgetCalendarEvent] in
                     let releases: [(String?, String, String)] = [
                         (movie.digitalRelease, "Digital", "blue"),
                         (movie.physicalRelease, "Physical", "indigo"),
@@ -1150,13 +1189,14 @@ enum WidgetDataFetcher {
                         )
                     }
                 }
+                return ArrCalendarResult(events: events, answered: true)
 
             case .prowlarr, .bazarr:
-                return []
+                return ArrCalendarResult(events: [], answered: true)
             }
         } catch {
             logger.error("ARR fetch failed for service=\(String(describing: profile.serviceType), privacy: .public) host=\(profile.hostURL, privacy: .public): \(String(describing: error), privacy: .public)")
-            return []
+            return ArrCalendarResult(events: [], answered: false)
         }
     }
 

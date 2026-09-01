@@ -337,6 +337,35 @@ struct WidgetTimelineAndDataTests {
         #expect(WidgetTimelinePolicy.calendarUnavailableMessage(for: transport) == "Unavailable")
     }
 
+    @Test("Calendar distinguishes a genuine empty result from every server being unreachable")
+    func calendarEmptyVersusUnavailable() {
+        #expect(WidgetTimelinePolicy.calendarFetchIsUnavailable(configuredCount: 2, answeredCount: 0))
+        #expect(WidgetTimelinePolicy.calendarFetchIsUnavailable(configuredCount: 2, answeredCount: 1) == false)
+        #expect(WidgetTimelinePolicy.calendarFetchIsUnavailable(configuredCount: 0, answeredCount: 0) == false)
+    }
+
+    @Test("Download widget selection scopes either client type and preserves old qBittorrent IDs")
+    func downloadWidgetClientSelection() {
+        let all = WidgetDownloadClientSelection(nil)
+        #expect(all.includesQBittorrent)
+        #expect(all.includesSABnzbd)
+
+        let qb = WidgetDownloadClientSelection("qb:11111111-1111-1111-1111-111111111111")
+        #expect(qb.qbittorrentID == "11111111-1111-1111-1111-111111111111")
+        #expect(qb.includesQBittorrent)
+        #expect(qb.includesSABnzbd == false)
+
+        let sab = WidgetDownloadClientSelection("sab:22222222-2222-2222-2222-222222222222")
+        #expect(sab.sabnzbdID == "22222222-2222-2222-2222-222222222222")
+        #expect(sab.includesQBittorrent == false)
+        #expect(sab.includesSABnzbd)
+
+        let legacy = WidgetDownloadClientSelection("33333333-3333-3333-3333-333333333333")
+        #expect(legacy.qbittorrentID == "33333333-3333-3333-3333-333333333333")
+        #expect(legacy.includesQBittorrent)
+        #expect(legacy.includesSABnzbd == false)
+    }
+
     // MARK: - Seerr decoding and display fallbacks
 
     @Test("Seerr request payloads decode and fall back through every title field")

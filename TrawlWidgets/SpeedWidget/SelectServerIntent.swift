@@ -9,10 +9,12 @@ struct ServerAppEntity: AppEntity {
     static let defaultQuery = ServerAppEntityQuery()
 
     var id: String
+    var name: String
     var displayRepresentation: DisplayRepresentation
 
     init(id: String, name: String) {
         self.id = id
+        self.name = name
         self.displayRepresentation = DisplayRepresentation(
             title: "\(name)"
         )
@@ -24,7 +26,11 @@ struct ServerAppEntity: AppEntity {
 struct ServerAppEntityQuery: EntityQuery {
     func entities(for identifiers: [String]) async throws -> [ServerAppEntity] {
         let all = try await allServers()
-        return all.filter { identifiers.contains($0.id) }
+        return identifiers.compactMap { identifier in
+            if let exact = all.first(where: { $0.id == identifier }) { return exact }
+            guard let legacy = all.first(where: { $0.id == "qb:\(identifier)" }) else { return nil }
+            return ServerAppEntity(id: identifier, name: legacy.name)
+        }
     }
 
     func suggestedEntities() async throws -> [ServerAppEntity] {
@@ -35,8 +41,17 @@ struct ServerAppEntityQuery: EntityQuery {
         let container = try WidgetDataFetcher.makeModelContainer()
         return try await MainActor.run {
             let context = ModelContext(container)
-            let servers = try context.fetch(FetchDescriptor<ServerProfile>())
-            return servers.map { ServerAppEntity(id: $0.id.uuidString, name: $0.displayName) }
+            let torrents = try context.fetch(FetchDescriptor<ServerProfile>()).map {
+                (id: "qb:\($0.id.uuidString)", name: "\($0.displayName) · qBittorrent")
+            }
+            let usenet = try context.fetch(FetchDescriptor<SABnzbdServiceProfile>())
+                .filter(\.isEnabled)
+                .map {
+                    (id: "sab:\($0.id.uuidString)", name: "\($0.displayName) · SABnzbd")
+                }
+            return (torrents + usenet).sorted {
+                $0.name.localizedStandardCompare($1.name) == .orderedAscending
+            }.map { ServerAppEntity(id: $0.id, name: $0.name) }
         }
     }
 }
@@ -44,8 +59,8 @@ struct ServerAppEntityQuery: EntityQuery {
 // MARK: - Configuration Intent
 
 struct SelectServerIntent: WidgetConfigurationIntent {
-    static let title: LocalizedStringResource = "qBittorrent Server"
-    static let description = IntentDescription("Choose which server's speeds to display.")
+    static let title: LocalizedStringResource = "Download Client"
+    static let description = IntentDescription("Choose one qBittorrent or SABnzbd client, or leave blank to combine them all.")
 
-    @Parameter(title: "Server") var server: ServerAppEntity?
+    @Parameter(title: "Client") var server: ServerAppEntity?
 }
