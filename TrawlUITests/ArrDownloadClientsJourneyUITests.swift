@@ -67,11 +67,11 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
         // Each step asserts where it landed. A CONTAINS match reports a successful
         // tap even when it hits the wrong row, so without this the failure surfaces
         // several assertions later pointing at the wrong thing.
-        let automation = firstButton(labelContaining: "Automation & Clients", in: app)
-        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 12), "More should expose the Automation & Clients hub.")
+        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
+        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 12), "More should expose the Integrations & Automation hub.")
 
         let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
-        XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Automation & Clients should expose Download Clients.")
+        XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")
         XCTAssertTrue(
             app.navigationBars["Download Clients"].waitForExistence(in: app, timeout: 10),
             "The Download Clients hub should render."

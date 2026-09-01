@@ -131,7 +131,7 @@ final class CleanuparrJourneyUITests: XCTestCase {
         return app
     }
 
-    /// Drives the public route More → Automation & Clients → Cleanuparr. A seeded
+    /// Drives the public route More → Integrations & Automation → Cleanuparr. A seeded
     /// profile clears the welcome gate but does not select this destination, so the
     /// journey verifies the app's real navigation assembly as well as the dashboard.
     @MainActor
@@ -142,24 +142,24 @@ final class CleanuparrJourneyUITests: XCTestCase {
             "A launch with the seeded Cleanuparr profile should reach the real tab UI, allowing the user to open More instead of remaining in the welcome flow."
         )
 
-        let automationRow = firstButton(labelContaining: "Automation & Clients", in: app)
+        let automationRow = firstButton(labelContaining: "Integrations & Automation", in: app)
         XCTAssertTrue(
             tapWhenHittable(automationRow, in: app, timeout: 10),
-            "More should expose its Automation & Clients destination, which owns the configured Cleanuparr dashboard route."
+            "More should expose its Integrations & Automation destination, which owns the configured Cleanuparr dashboard route."
         )
         XCTAssertTrue(
-            app.navigationBars["Automation & Clients"].waitForExistence(timeout: 10),
-            "Tapping Automation & Clients should push its hub before the Cleanuparr dashboard is selected."
+            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
+            "Tapping Integrations & Automation should push its hub before the Cleanuparr dashboard is selected."
         )
 
         let cleanuparrRow = firstButton(labelContaining: "Cleanuparr", in: app)
         XCTAssertTrue(
             tapWhenHittable(cleanuparrRow, in: app, timeout: 10),
-            "The Automation & Clients hub should expose Cleanuparr's dashboard destination."
+            "The Integrations & Automation hub should expose Cleanuparr's dashboard destination."
         )
         XCTAssertTrue(
             app.navigationBars["Cleanuparr"].waitForExistence(timeout: 10),
-            "Tapping Cleanuparr should push CleanuparrDashboardView rather than leaving the user on the Automation & Clients hub."
+            "Tapping Cleanuparr should push CleanuparrDashboardView rather than leaving the user on the Integrations & Automation hub."
         )
     }
 

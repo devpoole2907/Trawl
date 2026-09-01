@@ -537,7 +537,7 @@ struct ContentView: View {
             if hasSABnzbdServer {
                 Text(link.displayName)
             } else {
-                Text("Add a SABnzbd server in More → Integrations before adding an NZB.")
+                Text("Add a SABnzbd server in \(MoreDestination.sabnzbdSettings.userFacingPath) before adding an NZB.")
             }
         }
         .alert(
@@ -641,7 +641,7 @@ struct ContentView: View {
 
             guard sabnzbdServiceManager.isConnected else {
                 nzbStatusMessage = sabnzbdServiceManager.connectionError
-                    ?? "Couldn't reach SABnzbd. Check the server in More → Integrations."
+                    ?? "Couldn't reach SABnzbd. Check the server in \(MoreDestination.sabnzbdSettings.userFacingPath)."
                 return
             }
 

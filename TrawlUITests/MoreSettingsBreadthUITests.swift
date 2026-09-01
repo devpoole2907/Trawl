@@ -155,7 +155,7 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         )
     }
 
-    /// Covers More → Automation & Clients → Remote Path Mappings. This route fans
+    /// Covers More → Integrations & Automation → Remote Path Mappings. This route fans
     /// one screen out to each connected Arr client concurrently, making it a useful
     /// assembly test for client injection and profile-aware routing rather than a
     /// simple title-only navigation check.
@@ -170,20 +170,20 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         waitForConnectedMediaServices(in: app, seriesTitle: "Mappings Route Series")
         openMore(in: app)
 
-        let automation = firstButton(labelContaining: "Automation & Clients", in: app)
+        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
         XCTAssertTrue(
             tapWhenHittable(automation, in: app),
-            "More should navigate to Automation & Clients for configured Arr services."
+            "More should navigate to Integrations & Automation for configured Arr services."
         )
         XCTAssertTrue(
-            app.navigationBars["Automation & Clients"].waitForExistence(timeout: 10),
-            "Automation & Clients should render its real hub after the More route is selected."
+            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
+            "Integrations & Automation should render its real hub after the More route is selected."
         )
 
         let mappings = firstButton(labelContaining: "Remote Path Mappings", in: app)
         XCTAssertTrue(
             tapWhenHittable(mappings, in: app),
-            "Automation & Clients should expose Remote Path Mappings through its service-link section."
+            "Integrations & Automation should expose Remote Path Mappings through its service-link section."
         )
         XCTAssertTrue(
             app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10),

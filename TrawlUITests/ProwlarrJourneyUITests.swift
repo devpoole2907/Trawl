@@ -77,12 +77,12 @@ final class ProwlarrJourneyUITests: XCTestCase {
         let app = launchApp(server: server)
 
         app.tabBars.buttons["More"].tap()
-        let automation = button(containing: "Automation & Clients", in: app)
-        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Automation & Clients.")
+        let automation = button(containing: "Integrations & Automation", in: app)
+        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Integrations & Automation.")
         automation.tap()
 
         let linkedApplications = button(containing: "Linked Applications", in: app)
-        XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Automation & Clients should expose Linked Applications.")
+        XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
         linkedApplications.tap()
 
         let indexerSync = button(containing: "Indexer Sync", in: app)
@@ -177,12 +177,12 @@ final class ProwlarrJourneyUITests: XCTestCase {
     @MainActor
     private func openIndexers(in app: XCUIApplication) {
         app.tabBars.buttons["More"].tap()
-        let automation = button(containing: "Automation & Clients", in: app)
-        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Automation & Clients.")
+        let automation = button(containing: "Integrations & Automation", in: app)
+        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Integrations & Automation.")
         automation.tap()
 
         let indexers = button(containing: "Indexers", in: app)
-        XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Automation & Clients should expose Indexers.")
+        XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
         indexers.tap()
         XCTAssertTrue(app.navigationBars["Indexers"].waitForExistence(timeout: 10), "Indexers should push ProwlarrIndexerListView.")
     }

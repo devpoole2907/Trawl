@@ -149,19 +149,19 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
         XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A seeded Bazarr launch should reach the tab UI.")
 
         // The real route is three pushes deep, and each step is asserted rather than
-        // matched loosely: "Automation & Clients", "Linked Applications" and
+        // matched loosely: "Integrations & Automation", "Linked Applications" and
         // "Subtitle Sync" all appear as searchable entries too, so a bare CONTAINS
         // match can land on the wrong one and still report a successful tap.
-        let automation = firstButton(labelContaining: "Automation & Clients", in: app)
+        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
         XCTAssertTrue(
             tapWhenHittable(automation, in: app, timeout: 12),
-            "More should expose the Automation & Clients hub."
+            "More should expose the Integrations & Automation hub."
         )
 
         let linkedApplications = firstButton(labelContaining: "Linked Applications", in: app)
         XCTAssertTrue(
             tapWhenHittable(linkedApplications, in: app, timeout: 12),
-            "Automation & Clients should expose the Linked Applications hub."
+            "Integrations & Automation should expose the Linked Applications hub."
         )
         XCTAssertTrue(
             app.navigationBars["Linked Applications"].waitForExistence(in: app, timeout: 10),

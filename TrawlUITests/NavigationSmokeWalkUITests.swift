@@ -32,7 +32,7 @@
 //  against.
 //
 //  Split into several focused test methods grouped by area (tab bar, More's top-level
-//  rows, Downloads' management routes, Automation & Clients / System's children,
+//  rows, Downloads' management routes, Integrations & Automation / System's children,
 //  Calendar + Settings) rather than one long walk, so a failure names the screen that
 //  broke instead of an opaque "step 17" failure in one giant method.
 
@@ -121,7 +121,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     // MARK: - 2. More's top-level rows
 
     /// Regressions this catches: any of More's seven top-level rows (Wanted/Missing,
-    /// Library Management, Requests & Access, Media Server, Automation & Clients,
+    /// Library Management, Requests & Access, Media Server, Integrations & Automation,
     /// System, Settings) failing to push to a real screen, or failing to pop back to
     /// More once pushed.
     @MainActor
@@ -134,7 +134,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         assertRowPushesAndPops(app, rowLabel: "Library Management", expectedTitle: "Library Management")
         assertRowPushesAndPops(app, rowLabel: "Requests & Access", expectedTitle: "Requests & Access")
         assertRowPushesAndPops(app, rowLabel: "Media Server", expectedTitle: "Media Server")
-        assertRowPushesAndPops(app, rowLabel: "Automation & Clients", expectedTitle: "Automation & Clients")
+        assertRowPushesAndPops(app, rowLabel: "Integrations & Automation", expectedTitle: "Integrations & Automation")
         assertRowPushesAndPops(app, rowLabel: "System", expectedTitle: "System")
         assertRowPushesAndPops(app, rowLabel: "Settings", expectedTitle: "Settings")
     }
@@ -213,10 +213,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             app.buttons["Edit Server"].waitForExistence(timeout: 10),
             "Screen: 'SABnzbd Settings' should render the configured server's Edit Server control."
         )
-        // Two pops, not one: `SABnzbdSettingsView` and `SABnzbdClientHubView` both
-        // use `.navigationTitle("SABnzbd")`, so popping once lands back on the hub -
-        // which still matches that title - rather than at Client Management.
-        popBack(app, fromTitle: "SABnzbd")
+        // The settings screen and client hub have distinct titles so the back path
+        // communicates where the user will land at each level.
+        popBack(app, fromTitle: "SABnzbd Settings")
         popBack(app, fromTitle: "SABnzbd")
 
         // Back at Client Management, then all the way back to Downloads.
@@ -285,9 +284,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         )
     }
 
-    // MARK: - 4. Automation & Clients and System's children
+    // MARK: - 4. Integrations & Automation and System's children
 
-    /// Regressions this catches: any child screen under the Automation & Clients or
+    /// Regressions this catches: any child screen under the Integrations & Automation or
     /// System hubs failing to render or failing to pop back - none of these had ever
     /// been opened by a test before either. Sonarr is configured, so
     /// `AutomationAndClientsHubView`'s "Indexers"/"Download Clients"/"Tasks" rows and
@@ -299,12 +298,12 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         waitForTabUI(app)
         app.tabBars.buttons["More"].tap()
 
-        let automationRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Automation & Clients")).firstMatch
-        XCTAssertTrue(automationRow.waitForExistence(in: app, timeout: 10), "Screen: More should show an 'Automation & Clients' row.")
+        let automationRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Integrations & Automation")).firstMatch
+        XCTAssertTrue(automationRow.waitForExistence(in: app, timeout: 10), "Screen: More should show an 'Integrations & Automation' row.")
         automationRow.tap()
         XCTAssertTrue(
-            app.navigationBars["Automation & Clients"].waitForExistence(timeout: 10),
-            "Screen: 'Automation & Clients' should push AutomationAndClientsHubView."
+            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
+            "Screen: 'Integrations & Automation' should push AutomationAndClientsHubView."
         )
 
         assertRowPushesAndPops(app, rowLabel: "Indexers", expectedTitle: "Indexers")
@@ -316,15 +315,15 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
         // One level deeper: Tasks -> Arr Tasks, visible because Sonarr is configured.
         let tasksRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Tasks")).firstMatch
-        XCTAssertTrue(tasksRow.waitForExistence(in: app, timeout: 10), "Screen: Automation & Clients should list 'Tasks' again.")
+        XCTAssertTrue(tasksRow.waitForExistence(in: app, timeout: 10), "Screen: Integrations & Automation should list 'Tasks' again.")
         tasksRow.tap()
         XCTAssertTrue(app.navigationBars["Tasks"].waitForExistence(timeout: 10), "Screen: 'Tasks' should push TasksHubView.")
         assertRowPushesAndPops(app, rowLabel: "Arr Tasks", expectedTitle: "Tasks")
         popBack(app, fromTitle: "Tasks")
 
-        popBack(app, fromTitle: "Automation & Clients")
+        popBack(app, fromTitle: "Integrations & Automation")
         let systemRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "System")).firstMatch
-        XCTAssertTrue(systemRow.waitForExistence(in: app, timeout: 10), "Screen: More should show a 'System' row again after returning from Automation & Clients.")
+        XCTAssertTrue(systemRow.waitForExistence(in: app, timeout: 10), "Screen: More should show a 'System' row again after returning from Integrations & Automation.")
         systemRow.tap()
         XCTAssertTrue(app.navigationBars["System"].waitForExistence(timeout: 10), "Screen: 'System' should push SystemHubView.")
 
@@ -394,9 +393,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         let sabnzbdRow = firstElement(labelContains: "Fixture SABnzbd", in: app)
         XCTAssertTrue(sabnzbdRow.waitForExistence(in: app, timeout: 10), "Screen: Settings should list the seeded SABnzbd profile.")
         sabnzbdRow.tap()
-        XCTAssertTrue(app.navigationBars["SABnzbd"].waitForExistence(timeout: 10), "Screen: the SABnzbd row should push SABnzbdSettingsView.")
+        XCTAssertTrue(app.navigationBars["SABnzbd Settings"].waitForExistence(timeout: 10), "Screen: the SABnzbd row should push SABnzbdSettingsView.")
         XCTAssertTrue(app.buttons["Edit Server"].waitForExistence(timeout: 10), "Screen: a configured SABnzbd should offer 'Edit Server'.")
-        popBack(app, fromTitle: "SABnzbd")
+        popBack(app, fromTitle: "SABnzbd Settings")
 
         // Radarr: never configured - the unconfigured-service settings path.
         let radarrRow = firstElement(labelContains: "Radarr", in: app)

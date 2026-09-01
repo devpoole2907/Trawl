@@ -203,7 +203,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertTrue(tap(firstButton(containing: "Settings", in: app), in: app, timeout: 10), "More should route to Settings.")
         XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings should be pushed before selecting SABnzbd.")
         XCTAssertTrue(tap(firstButton(containing: "Fixture SABnzbd", in: app), in: app, timeout: 10), "Settings should show the seeded SABnzbd service row.")
-        XCTAssertTrue(app.navigationBars["SABnzbd"].waitForExistence(timeout: 10), "The SABnzbd service row should route to SABnzbd Settings.")
+        XCTAssertTrue(app.navigationBars["SABnzbd Settings"].waitForExistence(timeout: 10), "The SABnzbd service row should route to SABnzbd Settings.")
         XCTAssertTrue(tap(app.buttons["Edit Server"], in: app, timeout: 10), "SABnzbd Settings should expose Edit Server for a configured profile.")
     }
 

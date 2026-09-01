@@ -2,7 +2,7 @@
 //  ArrRemotePathMappingJourneyUITests.swift
 //  TrawlUITests
 //
-//  End-to-end coverage for More → Automation & Clients → Remote Path Mappings.
+//  End-to-end coverage for More → Integrations & Automation → Remote Path Mappings.
 //  The app owns startup seeding, SwiftData, Keychain, navigation, state, sheets,
 //  confirmation dialogs, and ArrAPIClient. The loopback fixture is solely the
 //  external Sonarr server the production client speaks to.
@@ -186,12 +186,12 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         let more = app.tabBars.buttons["More"]
         XCTAssertTrue(tapWhenHittable(more, in: app, timeout: 15), "A seeded Sonarr profile should bring the app to its tab UI so More is reachable.")
 
-        let automation = firstButton(containing: "Automation & Clients", in: app)
-        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 10), "More should expose Automation & Clients.")
-        XCTAssertTrue(app.navigationBars["Automation & Clients"].waitForExistence(timeout: 10), "Automation & Clients should push its real hub.")
+        let automation = firstButton(containing: "Integrations & Automation", in: app)
+        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 10), "More should expose Integrations & Automation.")
+        XCTAssertTrue(app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10), "Integrations & Automation should push its real hub.")
 
         let remoteMappings = firstButton(containing: "Remote Path Mappings", in: app)
-        XCTAssertTrue(tapWhenHittable(remoteMappings, in: app, timeout: 10), "The Automation & Clients hub should expose Remote Path Mappings.")
+        XCTAssertTrue(tapWhenHittable(remoteMappings, in: app, timeout: 10), "The Integrations & Automation hub should expose Remote Path Mappings.")
         XCTAssertTrue(app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10), "Remote Path Mappings should push ArrRemotePathMappingListView.")
     }
 

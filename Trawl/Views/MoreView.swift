@@ -63,6 +63,22 @@ enum MoreDestination: Hashable {
     case qualityDefinitions
 }
 
+/// User-facing breadcrumbs for destinations referenced outside the More hierarchy.
+/// Keeping guidance on the destination prevents error copy from retaining a route
+/// that no longer exists when the hierarchy changes.
+extension MoreDestination {
+    var userFacingPath: String {
+        switch self {
+        case .settings:
+            "More → Settings"
+        case .sabnzbdSettings:
+            "\(MoreDestination.settings.userFacingPath) → SABnzbd"
+        default:
+            "More"
+        }
+    }
+}
+
 enum MoreDestinationAccent {
     case settings
     case activity
@@ -1578,7 +1594,7 @@ private enum MoreSearchIndex {
                 color: .yellow,
                 title: "Indexers",
                 subtitle: "Indexers across your services",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["prowlarr", "trackers", "search", "sources", "sonarr", "radarr"]
             ),
             .init(
@@ -1632,7 +1648,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.cleanuparr.brandColor,
                 title: "Cleanuparr",
                 subtitle: "Cleanup activity, job results, and service health",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["cleanup", "strikes", "removals", "malware", "seeding", "health", "jobs"]
             ),
             .init(
@@ -1640,9 +1656,9 @@ private enum MoreSearchIndex {
                 destination: .automationClients,
                 icon: "gearshape.2.fill",
                 color: MoreDestinationAccent.automationClients.color,
-                title: "Automation & Clients",
+                title: "Integrations & Automation",
                 subtitle: "Indexers, linked apps, download clients, path mappings, and tasks",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["integrations", "links", "applications", "clients", "paths", "routing", "indexers", "tasks", "prowlarr"]
             ),
             .init(
@@ -1652,7 +1668,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.integrations.color,
                 title: "Linked Applications",
                 subtitle: "Indexer sync, subtitle sync, and request routing",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["prowlarr", "bazarr", "seerr", "sync", "routing"]
             ),
             .init(
@@ -1662,7 +1678,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.prowlarr.brandColor,
                 title: "Indexer Sync",
                 subtitle: "Prowlarr linked applications",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["prowlarr", "sonarr", "radarr", "linked apps", "sync"]
             ),
             .init(
@@ -1672,7 +1688,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.bazarr.brandColor,
                 title: "Subtitle Sync",
                 subtitle: "Bazarr linked applications",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["bazarr", "sonarr", "radarr", "linked apps", "sync"]
             ),
             .init(
@@ -1682,7 +1698,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.seerr.brandColor,
                 title: "Request Routing",
                 subtitle: "Seerr linked applications",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["seerr", "sonarr", "radarr", "linked apps", "routing"]
             ),
             .init(
@@ -1692,7 +1708,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.qbittorrent.brandColor,
                 title: "Download Clients",
                 subtitle: "Sonarr and Radarr download clients",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["qbittorrent", "sabnzbd", "sab", "usenet", "nzb", "newsgroup", "torrent", "client", "download", "sonarr", "radarr"]
             ),
             .init(
@@ -1702,7 +1718,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.sonarr.brandColor,
                 title: "Sonarr Download Clients",
                 subtitle: "Torrent and Usenet clients for series grabs",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["sonarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "series"]
             ),
             .init(
@@ -1712,7 +1728,7 @@ private enum MoreSearchIndex {
                 color: ServiceIdentity.radarr.brandColor,
                 title: "Radarr Download Clients",
                 subtitle: "Torrent and Usenet clients for movie grabs",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["radarr", "download", "clients", "qbittorrent", "sabnzbd", "usenet", "nzb", "movies"]
             ),
             .init(
@@ -1722,7 +1738,7 @@ private enum MoreSearchIndex {
                 color: MoreDestinationAccent.remotePathMappings.color,
                 title: "Remote Path Mappings",
                 subtitle: "Remote path mappings for imports",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["paths", "mapping", "remote", "local", "downloads", "import"]
             ),
             .init(
@@ -1771,7 +1787,7 @@ private enum MoreSearchIndex {
                 icon: "server.rack",
                 color: MoreDestinationAccent.jellyfin.color,
                 title: "Media Server",
-                subtitle: "Sessions, libraries, transcoding, and plugins",
+                subtitle: "Sessions, transcoding, and plugins",
                 category: "Media Server",
                 keywords: ["media server", "users", "activity", "tasks", "transcoding"]
             ),
@@ -1882,7 +1898,7 @@ private enum MoreSearchIndex {
                 color: .teal,
                 title: "Tasks",
                 subtitle: "Scheduled tasks across connected services",
-                category: "Automation & Clients",
+                category: "Integrations & Automation",
                 keywords: ["jobs", "scheduled", "background", "maintenance"]
             ),
             .init(
@@ -3159,7 +3175,7 @@ private struct SystemHubView: View {
 }
 #endif
 
-/// Automation & Clients - indexers, service wiring, and scheduled work. The three
+/// Integrations & Automation - indexers, service wiring, and scheduled work. The three
 /// service-link children (linked applications, download clients, remote path
 /// mappings) moved here from the former `IntegrationsManagementView`, which this
 /// hub replaces rather than duplicates.
@@ -3229,13 +3245,13 @@ private struct AutomationAndClientsHubView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Automation & Clients")
+        .navigationTitle("Integrations & Automation")
         .moreDestinationBackground(.automationClients)
     }
 }
 
 #if DEBUG
-#Preview("Automation & Clients Hub") {
+#Preview("Integrations & Automation Hub") {
     MorePreviewHost(profiles: .allServices, arr: .preview(.allConfigured)) { _ in
         NavigationStack {
             AutomationAndClientsHubView()
