@@ -49,6 +49,11 @@ struct ContentView: View {
     /// the size class compact, which is the case where hiding it is correct.
     @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
     @State private var sidebarSearch = ""
+    /// Which title the library split views have open. Owned here rather than inside
+    /// the lists because the content column and the detail column are two separate
+    /// closures of one split view, and both need to read it.
+    @State private var seriesSelection: ArrMergeKey?
+    @State private var moviesSelection: ArrMergeKey?
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -677,13 +682,13 @@ struct ContentView: View {
         case .downloads:
             downloadsRoot(services: services)
         case .series:
-            SonarrSeriesListView()
+            SonarrSeriesListView(detailSelection: $seriesSelection)
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
         case .movies:
-            RadarrMovieListView()
+            RadarrMovieListView(detailSelection: $moviesSelection)
                 .environment(arrServiceManager)
                 .environment(services.syncService)
                 .environment(services.torrentService)
@@ -713,9 +718,43 @@ struct ContentView: View {
         case .downloads:
             ContentUnavailableView("Select a download", systemImage: "tray.and.arrow.down")
         case .series:
-            ContentUnavailableView("Select a series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+            // A detail view builds its own view model from the service manager -
+            // the same thing `arrMediaNavigationDestinations` does for every pushed
+            // Arr detail - so the detail column does not need a handle on the list's.
+            if let seriesSelection {
+                SonarrSeriesDetailView(
+                    mergeKey: seriesSelection,
+                    viewModel: SonarrViewModel(
+                        serviceManager: arrServiceManager,
+                        // Seeded from the app-wide library cache, exactly as
+                        // `arrMediaNavigationDestinations` seeds every pushed Arr
+                        // detail. A bare view model starts with an empty library, so
+                        // the detail cannot resolve its merge key and renders
+                        // "Series Not Found" until its own fetch lands.
+                        preloadedSeries: arrServiceManager.calendarViewModel?.sonarrSeries ?? [],
+                        jellyfinManager: jellyfinServiceManager
+                    )
+                )
+                .id(seriesSelection)
+                .environment(services.syncService)
+            } else {
+                ContentUnavailableView("Select a series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+            }
         case .movies:
-            ContentUnavailableView("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
+            if let moviesSelection {
+                RadarrMovieDetailView(
+                    mergeKey: moviesSelection,
+                    viewModel: RadarrViewModel(
+                        serviceManager: arrServiceManager,
+                        preloadedMovies: arrServiceManager.calendarViewModel?.radarrMovies ?? [],
+                        jellyfinManager: jellyfinServiceManager
+                    )
+                )
+                .id(moviesSelection)
+                .environment(services.syncService)
+            } else {
+                ContentUnavailableView("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
+            }
         case .search:
             ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
         default:

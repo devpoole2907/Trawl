@@ -2,6 +2,10 @@ import SwiftUI
 import SwiftData
 
 struct SonarrSeriesListView: View {
+    /// Forwarded to `ArrMediaListView`. Present only when this list is the content
+    /// column of the iPad split view; `nil` on iPhone, where rows stay links.
+    var detailSelection: Binding<ArrMergeKey?>?
+
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(SyncService.self) private var syncService
     @Environment(JellyfinServiceManager.self) private var jellyfinManager
@@ -35,6 +39,7 @@ struct SonarrSeriesListView: View {
                             instances: serviceManager.badgeRefs(for: entry)
                         )
                     },
+                    detailSelection: detailSelection,
                     detailDestination: { key in
                         SonarrSeriesDetailView(mergeKey: key, viewModel: vm)
                     }

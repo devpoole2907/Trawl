@@ -34,6 +34,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     let nounPlural: String
     let emptyIcon: String
     let row: (Entry, Bool) -> Row
+    /// Present when this list is the content column of a split view; `nil` on iPhone.
+    /// See `ArrLibraryListView.navigationSelection` for why the two modes differ.
+    ///
+    /// Declared before `detailDestination` so the memberwise initialiser takes it in
+    /// that order at every call site.
+    var detailSelection: Binding<ArrMergeKey?>?
     let detailDestination: (ArrMergeKey) -> Detail
 
     @State private var listScrollPosition: ArrMergeKey?
@@ -239,11 +245,16 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             },
             usesTitleSections: viewModel.sortOrder.rawValue == "Title",
             selection: $selectedIDs,
+            navigationSelection: detailSelection,
             row: { entry, _ in itemRow(entry) },
             retry: nil
         )
         .scrollPosition(id: $listScrollPosition)
         .animation(.default, value: viewModel.filteredItems)
+        .onChange(of: viewModel.filteredItems) { _, items in
+            selectFirstItemIfNeeded(in: items)
+        }
+        .onAppear { selectFirstItemIfNeeded(in: viewModel.filteredItems) }
     }
 
     /// One row shape in both modes, minus the link while editing.
@@ -254,38 +265,60 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// Dropping the link keeps the row at full strength; selection is the List's
     /// either way, so there is still no second tap handler and no hand-drawn
     /// checkmark to keep in step with the system's.
+    /// Opens the library on its first title instead of an empty detail pane.
+    ///
+    /// Only when a selection is already possible (split view) and nothing is chosen
+    /// yet, so it cannot fight the user: returning to a library keeps whatever was
+    /// open, and a filter or search that empties the list leaves the selection alone
+    /// rather than clearing it and re-picking.
+    private func selectFirstItemIfNeeded(in items: [Entry]) {
+        guard let detailSelection, detailSelection.wrappedValue == nil,
+              let first = items.first else { return }
+        detailSelection.wrappedValue = first.id
+    }
+
     @ViewBuilder
     private func itemRow(_ entry: Entry) -> some View {
         if editMode.isEditing {
             row(entry, true)
+        } else if detailSelection != nil {
+            // No `NavigationLink` in this mode: the List owns the tap and the
+            // selection drives the detail column beside it. Wrapping the row in a
+            // link as well gives the tap two owners, and the row stops selecting.
+            // The swipes are identical either way, so they live in one place.
+            row(entry, false)
+                .swipeActions(edge: .trailing, allowsFullSwipe: false) { rowSwipeActions(entry) }
         } else {
             NavigationLink(value: entry.id) {
                 row(entry, false)
             }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                Button(role: .destructive) {
-                    pendingDeleteItem = entry
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
-
-                // A swipe acts on the title, so it acts on every server holding
-                // it. Monitoring one copy and not the other would leave the row
-                // showing a state that is true of neither server.
-                // One answer, used three times: the label, the icon and the tint
-                // each asked the same question of every copy independently.
-                let monitored = isMonitored(entry)
-                Button {
-                    Task { await viewModel.toggleMonitoredAcrossInstances(entry) }
-                } label: {
-                    Label(
-                        monitored ? "Unmonitor" : "Monitor",
-                        systemImage: monitored ? "bookmark.slash" : "bookmark.fill"
-                    )
-                }
-                .tint(monitored ? .orange : .blue)
-            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) { rowSwipeActions(entry) }
         }
+    }
+
+    @ViewBuilder
+    private func rowSwipeActions(_ entry: Entry) -> some View {
+        Button(role: .destructive) {
+            pendingDeleteItem = entry
+        } label: {
+            Label("Delete", systemImage: "trash")
+        }
+
+        // A swipe acts on the title, so it acts on every server holding it.
+        // Monitoring one copy and not the other would leave the row showing a state
+        // that is true of neither server.
+        // One answer, used three times: the label, the icon and the tint each asked
+        // the same question of every copy independently.
+        let monitored = isMonitored(entry)
+        Button {
+            Task { await viewModel.toggleMonitoredAcrossInstances(entry) }
+        } label: {
+            Label(
+                monitored ? "Unmonitor" : "Monitor",
+                systemImage: monitored ? "bookmark.slash" : "bookmark.fill"
+            )
+        }
+        .tint(monitored ? .orange : .blue)
     }
 
     /// A merged row counts as monitored when any server is monitoring it, so the

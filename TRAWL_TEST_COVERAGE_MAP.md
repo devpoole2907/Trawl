@@ -199,6 +199,40 @@ prefixes the Downloads screen's own "Downloads, change view" title menu, and a t
 that matched by label tapped the menu instead, opening a popover that swallowed
 every subsequent tap.
 
+## Library rows navigate two different ways
+
+`ArrLibraryListView` and `ArrMediaListView` now have two navigation modes, chosen
+by whether `detailSelection` is present:
+
+- **`nil` (iPhone, and any `NavigationStack` host):** rows are `NavigationLink`s and
+  a tap pushes. Unchanged, and the existing journeys
+  (`SonarrConnectedJourneyUITests`, `RadarrJourneyUITests`,
+  `ArrBlendedLibraryJourneyUITests`) still cover it.
+- **Present (iPad split view):** rows are plain, `List` owns the tap, and the
+  selection drives the detail column beside the list.
+
+The two cannot be merged. `ArrLibraryListView`'s existing note explains why a
+selection binding breaks links in a stack — the List claims the tap and nothing
+pushes. In a split view that is the *desired* behaviour, so the mode is chosen by
+host rather than fixed. The edit-mode multi-select `Set` binding is a third,
+separate thing and wins over both while editing.
+
+Two consequences worth knowing before touching this:
+
+- **The selection is what makes a default possible.** "Open the library on its
+  first title" cannot be done with links, because there is nothing to write to;
+  `selectFirstItemIfNeeded` sets the selection only when one is possible and none
+  is chosen, so it cannot overwrite the user's.
+- **The detail column builds its own view model,** seeded from
+  `ArrServiceManager.calendarViewModel`, exactly as `arrMediaNavigationDestinations`
+  does for pushed details. A bare view model starts with an empty library and the
+  detail renders "Series Not Found" until its own fetch lands — which is what the
+  first version of this did.
+
+**UI tests that match library rows as `app.buttons` will not find them on iPad.**
+In selection mode a row is a `Cell`, not a `Button`. `IPadSurfaceCaptureUITests`
+matches both for that reason.
+
 ## Capture harnesses (assert nothing — do not read as coverage)
 
 `TrawlUITests/IPadSurfaceCaptureUITests.swift` drives the app across its primary
