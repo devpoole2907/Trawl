@@ -106,6 +106,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
     private let commandResponseJSON: String
     private let lookupResponseJSON: String
     private let addedMovieJSON: String?
+    private let extraLibraryMoviesJSON: String
 
     private let lock = NSLock()
     private var recordedRequests: [RecordedRequest] = []
@@ -124,6 +125,13 @@ final class RadarrFixtureServer: @unchecked Sendable {
     ///     Radarr closely enough that a movie's `qualityProfileId` always resolves.
     ///   - rootFoldersJSON: served for `GET /api/v3/rootfolder`, matching
     ///     `movieRootFolderPath` by default for the same reason.
+    ///   - extraLibraryMoviesJSON: a JSON *array* of additional movies spliced into
+    ///     `GET /api/v3/movie` after the fixture movie. Defaults to `[]`, so the
+    ///     library stays the single fixture movie every existing journey asserts
+    ///     against. Only the layout-capture suite passes anything here: a one-item
+    ///     library says nothing about how a grid lays out on a 13" iPad, and the
+    ///     detail-screen routes (`/api/v3/movie/{id}`) deliberately still resolve
+    ///     only `movieId`, so these extras are library-list padding and nothing more.
     init(
         initiallyMonitored: Bool = true,
         qualityProfilesJSON: String = #"[{"id":4,"name":"HD-1080p"}]"#,
@@ -131,7 +139,8 @@ final class RadarrFixtureServer: @unchecked Sendable {
         releaseResponseJSON: String = "[]",
         commandResponseJSON: String = #"{"id":77,"name":"MoviesSearch","status":"queued"}"#,
         lookupResponseJSON: String = "[]",
-        addedMovieJSON: String? = nil
+        addedMovieJSON: String? = nil,
+        extraLibraryMoviesJSON: String = "[]"
     ) async throws {
         self.queue = DispatchQueue(label: "RadarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -142,6 +151,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
         self.commandResponseJSON = commandResponseJSON
         self.lookupResponseJSON = lookupResponseJSON
         self.addedMovieJSON = addedMovieJSON
+        self.extraLibraryMoviesJSON = extraLibraryMoviesJSON
 
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -266,7 +276,7 @@ final class RadarrFixtureServer: @unchecked Sendable {
             let added = hasAddedMovie ? addedMovieJSON : nil
             let json = added.map { "[\(movieJSON()),\($0)]" } ?? "[\(movieJSON())]"
             lock.unlock()
-            return json
+            return spliceExtraLibraryMovies(into: json)
         }
         if request.method == "GET" && request.path == "/api/v3/movie/lookup" {
             return lookupResponseJSON
@@ -325,6 +335,19 @@ final class RadarrFixtureServer: @unchecked Sendable {
     }
 
     // MARK: - Fixture movie JSON
+
+    /// Appends `extraLibraryMoviesJSON`'s elements to an already-rendered movie-list
+    /// body. Both sides are known-well-formed JSON arrays built by this file, so
+    /// stripping the two brackets and joining is enough - no parse/re-encode round
+    /// trip, which would also reorder keys and defeat the point of hand-shaped
+    /// fixture bodies.
+    private func spliceExtraLibraryMovies(into listJSON: String) -> String {
+        let extras = extraLibraryMoviesJSON.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard extras.hasPrefix("["), extras.hasSuffix("]") else { return listJSON }
+        let elements = extras.dropFirst().dropLast().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !elements.isEmpty else { return listJSON }
+        return "\(listJSON.dropLast()),\(elements)]"
+    }
 
     /// Matches `RadarrMovie`'s `CodingKeys` field-for-field (`Trawl/ArrStack/
     /// RadarrModels.swift`), populated with everything `RadarrMovieDetailView`

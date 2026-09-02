@@ -168,6 +168,43 @@ routes reported successful taps while landing on the wrong screen, and the failu
 surfaced several assertions later pointing at the wrong cause. Asserting the navigation
 bar at each step is what makes a mistargeted tap fail where it happened.
 
+## Capture harnesses (assert nothing — do not read as coverage)
+
+`TrawlUITests/IPadSurfaceCaptureUITests.swift` drives the app across its primary
+surfaces on an iPad and attaches a screenshot of each. It makes **no assertions**, so
+it owns no production surface and must never be cited as coverage for one — "does this
+look right at 1376pt" is a judgement call, and an `XCTAssert` spelling of it would be
+either vacuous or brittle. It is listed here only so a future reader who finds a UI
+test touching Downloads, Series, Movies, Search, More, Settings and four More pushes
+does not conclude those screens are covered by it; their real owners are in the
+sections above.
+
+Two things it exists to remember, both of which cost a capture run to learn:
+
+- The five root destinations are **`Cell`s in a sidebar** under `.sidebarAdaptable` on
+  a wide iPad, not `tabBars.buttons`, and the badged one is labelled `Downloads, 2`, so
+  an exact-label match on `Downloads` finds nothing.
+- Setting `XCUIDevice.shared.orientation` on a *running* app wedged the chrome so no
+  destination ever resolved. Orientation is set before `launch()` instead.
+
+It is not skipped in `Trawl.xctestplan`, and must not be: a plan skip beats
+`-only-testing`, which reports `Executed 0 tests` and `TEST SUCCEEDED` together.
+
+```sh
+xcodebuild test -project Trawl.xcodeproj -scheme Trawl \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' \
+  -only-testing:TrawlUITests/IPadSurfaceCaptureUITests \
+  -derivedDataPath /tmp/trawl-ipad-dd -resultBundlePath /tmp/trawl-ipad.xcresult
+xcrun xcresulttool export attachments --path /tmp/trawl-ipad.xcresult --output-path ./shots
+```
+
+Each attachment's name carries the interface orientation observed at capture time
+(`02-series-landscape--landscapeLeft`). That suffix is load-bearing:
+`XCUIScreen.main.screenshot()` returns the raw device buffer with landscape content
+rotated inside it, so the host has to rotate by a recorded fact rather than an
+assumption. `sips -r` is not the tool for that rotation — it records the turn as an
+orientation tag rather than baking it into pixels, and the tag survives into the JPEG.
+
 ## Validation command shape
 
 Use the explicit simulator and serialized execution for focused and full runs:
