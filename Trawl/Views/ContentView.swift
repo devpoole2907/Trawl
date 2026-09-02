@@ -43,6 +43,12 @@ struct ContentView: View {
     /// System to Settings and back should find System where you left it, exactly as
     /// switching between Series and Movies does.
     @State private var sidebarPaths: [RootTab: [MoreDestination]] = [:]
+    /// Pinned open. The iPad sidebar is the app's primary navigation, not a panel to
+    /// be dismissed - and a collapsed one used to take the promoted destinations with
+    /// it. It still yields automatically when the window gets narrow enough to turn
+    /// the size class compact, which is the case where hiding it is correct.
+    @State private var sidebarVisibility: NavigationSplitViewVisibility = .all
+    @State private var sidebarSearch = ""
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -383,19 +389,62 @@ struct ContentView: View {
     private var tabContent: some View {
         let services = appServices ?? disconnectedServices
         let unifiedActiveDownloadCount = services.syncService.activeTorrentCount + sabnzbdServiceManager.activeJobs.count
+        Group {
+            if hSizeClass == .compact {
+                compactTabs(services: services, downloadBadge: unifiedActiveDownloadCount)
+            } else {
+                regularSidebar(services: services, downloadBadge: unifiedActiveDownloadCount)
+            }
+        }
+        .sheet(item: $magnetDeepLink) { link in
+            AddTorrentSheet(initialMagnetURL: link.url)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+        }
+        .alert(
+            hasSABnzbdServer ? "Send to SABnzbd?" : "SABnzbd Not Set Up",
+            isPresented: Binding(get: { nzbDeepLink != nil }, set: { if !$0 { nzbDeepLink = nil } }),
+            presenting: nzbDeepLink
+        ) { link in
+            if hasSABnzbdServer {
+                Button("Add") { send(link) }
+                Button("Cancel", role: .cancel) { }
+            } else {
+                Button("OK", role: .cancel) { }
+            }
+        } message: { link in
+            if hasSABnzbdServer {
+                Text(link.displayName)
+            } else {
+                Text("Add a SABnzbd server in \(MoreDestination.sabnzbdSettings.userFacingPath) before adding an NZB.")
+            }
+        }
+        .alert(
+            "NZB",
+            isPresented: Binding(get: { nzbStatusMessage != nil }, set: { if !$0 { nzbStatusMessage = nil } }),
+            presenting: nzbStatusMessage
+        ) { _ in
+            Button("OK", role: .cancel) { }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    // MARK: - Compact chrome (iPhone, and a narrow iPad window)
+
+    /// The five-tab bar, unchanged. This is now the *only* thing `TabView` is
+    /// responsible for: the iPad sidebar is built by hand below rather than being
+    /// coaxed out of `.sidebarAdaptable`, so the promoted destinations and the
+    /// `defaultVisibility` calls that used to hide them from this bar are gone.
+    @ViewBuilder
+    private func compactTabs(services: AppServices, downloadBadge: Int) -> some View {
         TabView(selection: $selectedTab) {
             Tab("Downloads", systemImage: "tray.and.arrow.down", value: RootTab.downloads) {
                 NavigationStack {
-                    DownloadsView()
-                        .environment(services)
-                        .environment(services.syncService)
-                        .environment(services.torrentService)
-                        .environment(arrServiceManager)
-                        .environment(sabnzbdServiceManager)
-                        .environment(downloadsNavigator)
+                    downloadsRoot(services: services)
                 }
             }
-            .badge(unifiedActiveDownloadCount)
+            .badge(downloadBadge)
 
             Tab("Series", systemImage: ServiceIdentity.sonarr.tabSystemImage, value: RootTab.series) {
                 NavigationStack {
@@ -419,61 +468,18 @@ struct ContentView: View {
 
             if #available(iOS 27.0, macOS 27.0, *) {
                 Tab(value: RootTab.search, role: .prominent) {
-                    SearchView()
-                        .environment(arrServiceManager)
-                        .environment(services.syncService)
-                        .environment(services.torrentService)
+                    searchRoot(services: services)
                 } label: {
                     Label("Search", systemImage: "magnifyingglass")
                 }
             } else {
                 Tab(value: RootTab.search, role: .search) {
-                    SearchView()
-                        .environment(arrServiceManager)
-                        .environment(services.syncService)
-                        .environment(services.torrentService)
+                    searchRoot(services: services)
                 }
             }
 
-            // More is the iPhone's way into the seven screens below. On iPad those
-            // screens are sidebar destinations in their own right, so a list whose
-            // only job is to hold them would be a wasted click, and More is hidden
-            // there.
-            //
-            // What the placements actually do here, measured rather than assumed:
-            //
-            //   iPhone tab bar        Downloads Series Movies Search More
-            //   iPad sidebar          the 4 above, then the 7 promoted, no More
-            //   iPad collapsed pill   Downloads Series Movies Search
-            //
-            // That third row is the surprise. The pill drops *anything* carrying a
-            // `.hidden` default visibility, for either placement - so More is absent
-            // from it despite the explicit `.visible` below, and so are the seven.
-            // The `.visible` is kept because it is the honest declaration for the
-            // iPhone bar; it simply does not move the pill.
-            //
-            // The pill is not a dead end even so: it is a *collapsed sidebar* and
-            // carries the toggle that expands it, so every promoted screen is one
-            // click away there. Worth knowing before anyone "fixes" this by putting
-            // twelve tabs in a pill.
             Tab("More", systemImage: "ellipsis", value: RootTab.more) {
                 moreStack(rootedAt: nil, path: $morePath, services: services)
-            }
-            .defaultVisibility(.hidden, for: .sidebar)
-            .defaultVisibility(.visible, for: .tabBar)
-
-            // The promoted rows. Hidden from the tab bar for the mirror-image reason:
-            // in that chrome they are reachable through More, and twelve tabs is not a
-            // tab bar.
-            ForEach(RootTab.sidebarDestinations, id: \.self) { destination in
-                Tab(destination.displayName, systemImage: destination.systemImage, value: destination) {
-                    moreStack(
-                        rootedAt: destination.moreRoot,
-                        path: sidebarPath(for: destination),
-                        services: services
-                    )
-                }
-                .defaultVisibility(.hidden, for: .tabBar)
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -506,37 +512,199 @@ struct ContentView: View {
             }
         }
         #endif
-        .sheet(item: $magnetDeepLink) { link in
-            AddTorrentSheet(initialMagnetURL: link.url)
-                .environment(services.syncService)
-                .environment(services.torrentService)
+    }
+
+    // MARK: - Regular chrome (iPad)
+
+    /// A sidebar that is always there.
+    ///
+    /// `.sidebarAdaptable` was doing this job and doing it conditionally: it offers a
+    /// toggle that collapses the sidebar into a floating pill, that choice persists
+    /// across launches, and the pill renders only the tabs with no `defaultVisibility`
+    /// of their own - so the seven promoted destinations vanished with it. There is no
+    /// API to hold that style open (`TabViewStyle` has `.sidebarAdaptable` and
+    /// `.tabBarOnly`, and nothing in between), so the sidebar is built here instead.
+    ///
+    /// The width test is `hSizeClass`, which is what actually matters: a full-screen
+    /// iPad is regular and gets the sidebar; the same iPad in a narrow Split View or
+    /// Slide Over turns compact and gets the phone's tab bar, which is the right
+    /// answer for that width rather than a squeezed sidebar.
+    @ViewBuilder
+    private func regularSidebar(services: AppServices, downloadBadge: Int) -> some View {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            sidebarList(downloadBadge: downloadBadge)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
+        } detail: {
+            destinationContent(for: selectedTab, services: services)
         }
-        .alert(
-            hasSABnzbdServer ? "Send to SABnzbd?" : "SABnzbd Not Set Up",
-            isPresented: Binding(get: { nzbDeepLink != nil }, set: { if !$0 { nzbDeepLink = nil } }),
-            presenting: nzbDeepLink
-        ) { link in
-            if hasSABnzbdServer {
-                Button("Add") { send(link) }
-                Button("Cancel", role: .cancel) { }
-            } else {
-                Button("OK", role: .cancel) { }
-            }
-        } message: { link in
-            if hasSABnzbdServer {
-                Text(link.displayName)
-            } else {
-                Text("Add a SABnzbd server in \(MoreDestination.sabnzbdSettings.userFacingPath) before adding an NZB.")
+        .navigationSplitViewStyle(.balanced)
+        #if os(iOS)
+        .safeAreaInset(edge: .bottom) {
+            // The tab bar's bottom accessory has no equivalent here, and the
+            // notification bar is how the app surfaces failures app-wide - dropping it
+            // on iPad would quietly remove that.
+            if !isTabChromeHidden {
+                NotificationTabBarAccessory()
+                    .environment(services.syncService)
+                    .environment(downloadsNavigator)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 10)
             }
         }
-        .alert(
-            "NZB",
-            isPresented: Binding(get: { nzbStatusMessage != nil }, set: { if !$0 { nzbStatusMessage = nil } }),
-            presenting: nzbStatusMessage
-        ) { _ in
-            Button("OK", role: .cancel) { }
-        } message: { message in
-            Text(message)
+        .environment(\.setTabChromeHidden) { isHidden in
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                isTabChromeHidden = isHidden
+            }
+        }
+        #endif
+    }
+
+    /// The sidebar's own list. Searchable, which is the point: it replaces More's
+    /// search field, and it filters destinations by name rather than making the user
+    /// remember which hub a screen lives under.
+    private func sidebarList(downloadBadge: Int) -> some View {
+        // `List`'s single-selection initialiser takes an *optional* binding on iOS,
+        // while `selectedTab` is never nil - the app always has a destination open.
+        // The setter ignores a nil write rather than inventing an "SwiftUI selects
+        // nothing" state the rest of the app has no representation for.
+        let selection = Binding<RootTab?>(
+            get: { selectedTab },
+            set: { if let newValue = $0 { selectedTab = newValue } }
+        )
+
+        return List(selection: selection) {
+            Section("Library") {
+                sidebarRow(.downloads, badge: downloadBadge)
+                sidebarRow(.series)
+                sidebarRow(.movies)
+                sidebarRow(.search)
+            }
+
+            Section("Manage") {
+                sidebarRow(.missing)
+                sidebarRow(.libraryManagement)
+                sidebarRow(.requestsAndAccess)
+                sidebarRow(.mediaServer)
+                sidebarRow(.automation)
+                sidebarRow(.system)
+            }
+
+            Section {
+                sidebarRow(.settings)
+            }
+        }
+        .navigationTitle("Trawl")
+        .searchable(text: $sidebarSearch, placement: .sidebar, prompt: "Search Trawl")
+    }
+
+    /// A sidebar row, or nothing when the search field excludes it.
+    @ViewBuilder
+    private func sidebarRow(_ destination: RootTab, badge: Int = 0) -> some View {
+        if sidebarSearchMatches(destination) {
+            Label(destination.displayName, systemImage: destination.systemImage)
+                .badge(badge)
+                .tag(destination)
+                .accessibilityIdentifier(destination.navigationIdentifier)
+        }
+    }
+
+    private func sidebarSearchMatches(_ destination: RootTab) -> Bool {
+        let query = sidebarSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return true }
+        return destination.displayName.localizedCaseInsensitiveContains(query)
+    }
+
+    /// What the detail column shows for the selected sidebar destination. The
+    /// library destinations keep their own list/detail split, so the pushed screen
+    /// lands beside its list rather than replacing it.
+    @ViewBuilder
+    private func destinationContent(for destination: RootTab, services: AppServices) -> some View {
+        switch destination {
+        case .downloads:
+            splitNavigation(placeholder: "Select a download", icon: "tray.and.arrow.down") {
+                downloadsRoot(services: services)
+            }
+        case .series:
+            splitNavigation(placeholder: "Select a series", icon: ServiceIdentity.sonarr.tabSystemImage) {
+                SonarrSeriesListView()
+            }
+            .environment(arrServiceManager)
+            .environment(services.syncService)
+            .environment(services.torrentService)
+            .environment(sabnzbdServiceManager)
+        case .movies:
+            splitNavigation(placeholder: "Select a movie", icon: ServiceIdentity.radarr.tabSystemImage) {
+                RadarrMovieListView()
+            }
+            .environment(arrServiceManager)
+            .environment(services.syncService)
+            .environment(services.torrentService)
+            .environment(sabnzbdServiceManager)
+        case .search:
+            NavigationStack {
+                searchRoot(services: services)
+            }
+        case .more:
+            moreStack(rootedAt: nil, path: $morePath, services: services)
+        default:
+            moreStack(
+                rootedAt: destination.moreRoot,
+                path: sidebarPath(for: destination),
+                services: services
+            )
+        }
+    }
+
+    private func downloadsRoot(services: AppServices) -> some View {
+        DownloadsView()
+            .environment(services)
+            .environment(services.syncService)
+            .environment(services.torrentService)
+            .environment(arrServiceManager)
+            .environment(sabnzbdServiceManager)
+            .environment(downloadsNavigator)
+    }
+
+    private func searchRoot(services: AppServices) -> some View {
+        SearchView()
+            .environment(arrServiceManager)
+            .environment(services.syncService)
+            .environment(services.torrentService)
+    }
+
+
+    /// A list that shows its detail beside it on iPad, and on top of it on iPhone.
+    ///
+    /// Compact widths get exactly the `NavigationStack` they had before, so nothing
+    /// about the phone changes. Regular widths get a two-column split: the list stays
+    /// put on the left while the pushed screen fills the right, instead of a 1376pt
+    /// detail screen replacing a 1376pt list wholesale.
+    ///
+    /// The list keeps its own `navigationDestination` registrations - they are
+    /// declared deep inside the shared list components, not here - so this only
+    /// changes the container, not how anything navigates.
+    @ViewBuilder
+    private func splitNavigation(
+        placeholder: String,
+        icon: String,
+        @ViewBuilder _ list: () -> some View
+    ) -> some View {
+        if hSizeClass == .regular {
+            NavigationSplitView {
+                list()
+                    // The list column needs real width, not the default. These lists
+                    // carry a filter bar and a section index down the trailing edge,
+                    // and at the default width the chips clipped mid-word and the
+                    // index sat on top of the rows.
+                    .navigationSplitViewColumnWidth(min: 380, ideal: 420, max: 560)
+            } detail: {
+                ContentUnavailableView(placeholder, systemImage: icon)
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationStack {
+                list()
+            }
         }
     }
 

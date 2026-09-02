@@ -186,6 +186,7 @@ struct MoreView: View {
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     /// Optional so previews and any host that doesn't inject a navigator still work.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
@@ -497,7 +498,9 @@ struct MoreView: View {
     // that reaches a More row by name. Keeping `List` as the stack's direct child
     // keeps the semantics it had before any of this existed.
     var body: some View {
-        if let root {
+        if horizontalSizeClass == .regular {
+            splitBody
+        } else if let root {
             NavigationStack(path: $path) {
                 stackChrome { moreDestinationView(for: root) }
             }
@@ -508,17 +511,51 @@ struct MoreView: View {
         }
     }
 
-    /// The destination table and badge fetch both roots share.
+    /// iPad: the hub stays on the left and its screens open beside it.
+    ///
+    /// Note where the `NavigationStack` sits - the *detail* column, not the sidebar.
+    /// These screens are reached two ways: a `NavigationLink` the user taps, and a
+    /// `path.append(...)` from one of the `navigateToX` environment actions (and from
+    /// deep links). A split view routes the first into the detail column on its own,
+    /// but the second only works if `path` is actually driving a stack, so the stack
+    /// has to be the thing the detail column contains. Put the stack on the left
+    /// instead and every programmatic navigation in the app silently stops arriving.
+    private var splitBody: some View {
+        NavigationSplitView {
+            sidebarColumn
+                .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 500)
+        } detail: {
+            NavigationStack(path: $path) {
+                ContentUnavailableView("Nothing Selected", systemImage: "sidebar.right")
+                    .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
+            }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .task { await loadSubtitleBadge() }
+    }
+
+    @ViewBuilder
+    private var sidebarColumn: some View {
+        if let root {
+            moreDestinationView(for: root)
+        } else {
+            moreListRoot
+        }
+    }
+
+    /// The destination table and badge fetch both compact roots share.
     @ViewBuilder
     private func stackChrome(@ViewBuilder _ content: () -> some View) -> some View {
         content()
             .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
-            .task {
-                guard let client = arrServiceManager.activeBazarrEntry?.client else { return }
-                if let badges = try? await client.getBadges() {
-                    subtitleBadgeCount = badges.episodes + badges.movies
-                }
-            }
+            .task { await loadSubtitleBadge() }
+    }
+
+    private func loadSubtitleBadge() async {
+        guard let client = arrServiceManager.activeBazarrEntry?.client else { return }
+        if let badges = try? await client.getBadges() {
+            subtitleBadgeCount = badges.episodes + badges.movies
+        }
     }
 
     /// The More list itself - the iPhone root, and unused on iPad.

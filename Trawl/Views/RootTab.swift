@@ -75,6 +75,15 @@ enum RootTab: Hashable, CaseIterable {
         }
     }
 
+    /// A stable identifier for this destination's sidebar row.
+    ///
+    /// Exists so a UI test can select a destination without matching on its label.
+    /// Labels collide: the Downloads row's badge makes its label "Downloads, 2", and
+    /// a prefix match written to allow for that also matches the Downloads tab's own
+    /// "Downloads, change view" title menu - which a capture run duly tapped, opening
+    /// a popover that swallowed every tap after it.
+    var navigationIdentifier: String { "nav.\(self)" }
+
     var systemImage: String {
         switch self {
         case .downloads: "tray.and.arrow.down"

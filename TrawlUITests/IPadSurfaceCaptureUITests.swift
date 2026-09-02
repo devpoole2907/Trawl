@@ -84,6 +84,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             dumpHierarchy(app, label: "landscape, tab UI unreachable")
             return
         }
+        ensureSidebarExpanded(app)
 
         captureRootTabs(app, orientation: "landscape", indexOffset: 1)
 
@@ -99,32 +100,58 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         captureDetail(app, tab: "Downloads", row: Self.sabnzbdJobName,
                       expecting: Self.sabnzbdJobName, named: "15-nzb-detail-landscape")
 
-        // Calendar: presented as a sheet, which on iPad is a centred card rather than
-        // the full-height phone sheet - worth seeing at this width.
-        if goToTab(app, "Series"), tapFirst(app, exactly: "Calendar") {
-            if app.navigationBars["Calendar"].waitForExistence(timeout: 15) {
-                capture(app, "08-calendar-sheet-landscape")
-            }
-            tapFirst(app, exactly: "Close")
-        }
-
-        // More's pushes: Settings is the longest form in the app, Health and
-        // Requests & Access are the two that render service-driven content.
+        // The seven screens More used to hold. On iPad they are sidebar destinations
+        // in their own right, so they are reached as root tabs here rather than as
+        // pushes inside More - which is the change this whole branch exists to make.
+        // On iPhone they are still behind More, and `captureMorePush` below covers
+        // that arrangement instead.
         if goToTab(app, "More") {
             captureMorePush(app, row: "Settings", title: "Settings", named: "09-settings-landscape")
             captureMorePush(app, row: "Requests & Access", title: "Requests & Access", named: "10-requests-landscape")
             captureMorePush(app, row: "Media Server", title: "Media Server", named: "11-media-server-landscape")
             captureMorePush(app, row: "System", title: "System", named: "12-system-landscape")
+            popToRoot(app)
+        } else {
+            captureSidebarDestination(app, "Settings", named: "09-settings-landscape")
+            captureSidebarDestination(app, "Requests & Access", named: "10-requests-landscape")
+            captureSidebarDestination(app, "Media Server", named: "11-media-server-landscape")
+            captureSidebarDestination(app, "System", named: "12-system-landscape")
+            captureSidebarDestination(app, "Missing", named: "17-missing-landscape")
+            captureSidebarDestination(app, "Library Management", named: "18-library-management-landscape")
+            captureSidebarDestination(app, "Integrations & Automation", named: "19-automation-landscape")
+        }
 
-            // One level deeper than the rest: a configured service's own settings
-            // screen, which is where the longest forms in the app actually live.
-            if tapFirst(app, labelContains: "Settings"),
-               app.navigationBars["Settings"].waitForExistence(timeout: 15),
-               tapFirst(app, labelContains: "Fixture Sonarr"),
-               app.navigationBars["Sonarr"].waitForExistence(timeout: 15) {
-                capture(app, "16-sonarr-settings-detail-landscape")
+        // One level deeper: a configured service's own settings screen, which is
+        // where the longest forms in the app live. On iPad this is the split view's
+        // detail column; on iPhone it is a second push.
+        if goToTab(app, "Settings") || goToTab(app, "More") {
+            // A plain query, not the scrolling `tapFirst(labelContains:)`. Settings is
+            // the largest tree in the app, and the scrolling helper re-snapshots the
+            // whole thing on each of its eight attempts - enough to blow the query
+            // budget and abort the run ("Failed to get matching snapshots") before
+            // anything after this point had a chance.
+            let sonarrRow = app.buttons
+                .matching(NSPredicate(format: "label CONTAINS[c] %@", "Fixture Sonarr"))
+                .firstMatch
+            if sonarrRow.waitForExistence(timeout: 8) {
+                tapEvenIfNotHittable(sonarrRow)
+                if app.navigationBars["Sonarr"].waitForExistence(timeout: 12) {
+                    capture(app, "16-sonarr-settings-detail-landscape")
+                }
             }
             popToRoot(app)
+        }
+
+        // Calendar last, deliberately. It is presented as a sheet over the split view,
+        // and evaluating queries against that stacked tree has timed out twice
+        // ("Failed to get matching snapshots"), which aborts the whole test. Every
+        // surface above is worth more than this one screenshot, so none of them wait
+        // behind it any more.
+        if goToTab(app, "Series"), tapFirst(app, exactly: "Calendar") {
+            if app.navigationBars["Calendar"].waitForExistence(timeout: 15) {
+                capture(app, "08-calendar-sheet-landscape")
+            }
+            tapFirst(app, exactly: "Close")
         }
 
         // The sidebar is collapsible, and how a screen looks with it hidden is a
@@ -152,6 +179,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             dumpHierarchy(app, label: "portrait, tab UI unreachable")
             return
         }
+        ensureSidebarExpanded(app)
 
         captureRootTabs(app, orientation: "portrait", indexOffset: 21)
 
@@ -292,6 +320,19 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         return true
     }
 
+    /// Selects one of the iPad sidebar's promoted destinations and photographs it.
+    /// Unlike `captureMorePush` there is nothing to pop afterwards: these are tabs,
+    /// not pushes, so the next call simply selects a different one.
+    @MainActor
+    private func captureSidebarDestination(_ app: XCUIApplication, _ destination: String, named name: String) {
+        guard goToTab(app, destination) else {
+            capture(app, "\(name)-MISS-not-in-sidebar")
+            return
+        }
+        settle(app, untilAnyOf: [app.navigationBars[destination]], timeout: 12)
+        capture(app, name)
+    }
+
     @MainActor
     private func captureMorePush(_ app: XCUIApplication, row: String, title: String, named name: String) {
         guard tapFirst(app, labelContains: row) else { return }
@@ -353,12 +394,54 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// the one tab that has a badge. Hence: three element types, and a prefix match.
     @MainActor
     private func rootDestination(_ app: XCUIApplication, _ name: String) -> XCUIElement? {
+        // Identifier first, and it is the only reliable route on iPad. The sidebar
+        // rows carry `nav.<case>` identifiers precisely because label matching is
+        // ambiguous here: "Downloads" also prefixes the Downloads screen's own
+        // "Downloads, change view" title menu, and tapping that opens a popover that
+        // swallows every subsequent tap in the run.
+        let identifier = "nav.\(Self.identifierSuffix(for: name))"
+        let hasIdentifier = NSPredicate(format: "identifier == %@", identifier)
+
+        // The row is a `Cell`, but the identifier sits on the `Label` inside it - a
+        // `List` row's cell carries neither label nor identifier of its own. Select
+        // the cell *containing* the identified view, so the tap lands on the row and
+        // `isSelected` reads from the thing that actually tracks selection.
+        let cell = app.cells.containing(hasIdentifier).firstMatch
+        if cell.waitForExistence(timeout: 3) { return cell }
+
+        // Deliberately *not* `app.descendants(matching: .any)` as a fallback here.
+        // That walks the entire tree on every miss, and on these screens it pushed
+        // later queries past their limit - the run died with "Failed to get matching
+        // snapshots: Timed out while evaluating UI query" three surfaces later, which
+        // reads like a broken screen and is really just an over-broad query.
+        let button = app.buttons.matching(hasIdentifier).firstMatch
+        if button.waitForExistence(timeout: 1) { return button }
+
+        // Label fallback for the compact tab bar, which has no identifiers of its
+        // own. Scoped to `tabBars` so it cannot reach a toolbar button.
         let predicate = NSPredicate(format: "label == %@ OR label BEGINSWITH %@", name, "\(name),")
-        for query in [app.cells, app.tabBars.buttons, app.buttons] {
-            let match = query.matching(predicate).firstMatch
-            if match.waitForExistence(timeout: 3) { return match }
+        let tabButton = app.tabBars.buttons.matching(predicate).firstMatch
+        return tabButton.waitForExistence(timeout: 2) ? tabButton : nil
+    }
+
+    /// Maps a display name back to its `RootTab` case name, which is what
+    /// `navigationIdentifier` is built from.
+    private static func identifierSuffix(for displayName: String) -> String {
+        switch displayName {
+        case "Downloads": "downloads"
+        case "Series": "series"
+        case "Movies": "movies"
+        case "Search": "search"
+        case "More": "more"
+        case "Missing": "missing"
+        case "Library Management": "libraryManagement"
+        case "Requests & Access": "requestsAndAccess"
+        case "Media Server": "mediaServer"
+        case "Integrations & Automation": "automation"
+        case "System": "system"
+        case "Settings": "settings"
+        default: displayName
         }
-        return nil
     }
 
     /// Switches to a root destination and **confirms the switch actually happened**.
@@ -389,14 +472,41 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         return rootDestination(app, name)?.isSelected == true
     }
 
+    /// Expands the sidebar if the app came up in the collapsed pill.
+    ///
+    /// Which chrome `.sidebarAdaptable` shows persists across launches, so a run can
+    /// start in either. That matters here because the promoted destinations -
+    /// Settings, System, Missing and the rest - exist *only* in the expanded sidebar;
+    /// in the pill they are not rendered at all, and a whole capture pass reported
+    /// them missing when the previous run happened to leave the pill showing.
+    @MainActor
+    private func ensureSidebarExpanded(_ app: XCUIApplication) {
+        guard rootDestination(app, "Settings") == nil else { return }
+        let toggle = Self.sidebarToggle(in: app)
+        guard toggle.waitForExistence(timeout: 5) else { return }
+        tapEvenIfNotHittable(toggle)
+        let deadline = Date().addingTimeInterval(10)
+        while Date() < deadline {
+            if rootDestination(app, "Settings") != nil { return }
+        }
+    }
+
     /// The control that swaps between the floating tab-bar pill and the expanded
     /// sidebar. Matched loosely on purpose: it has appeared as both `ToggleSidebar`
     /// ("Hide Sidebar") and `ToggleSideBar` ("Toggle sidebar") depending on which
     /// state it is currently in, and an exact identifier silently found neither.
+    /// Matched on the exact identifier, case-insensitively, and nothing looser.
+    ///
+    /// It has appeared as both `ToggleSidebar` and `ToggleSideBar` depending on which
+    /// state it is in, so the case has to be forgiving - but a `CONTAINS "sidebar"`
+    /// match is not: now that the library lists are `NavigationSplitView`s, each one
+    /// puts its *own* column-toggle button in its toolbar, and `firstMatch` happily
+    /// returned that instead. The capture pass then "expanded the sidebar" by
+    /// collapsing a list column, and reported every promoted destination missing.
     @MainActor
     private static func sidebarToggle(in app: XCUIApplication) -> XCUIElement {
         app.buttons
-            .matching(NSPredicate(format: "identifier CONTAINS[c] %@ OR label CONTAINS[c] %@", "togglesidebar", "sidebar"))
+            .matching(NSPredicate(format: "identifier ==[c] %@", "togglesidebar"))
             .firstMatch
     }
 
