@@ -75,6 +75,26 @@ enum RootTab: Hashable, CaseIterable {
         }
     }
 
+    /// Whether this destination earns a third column on iPad.
+    ///
+    /// True for the ones that are a *list you pick from* - the libraries and the
+    /// downloads queue - where a detail beside the list is the whole point. False for
+    /// the hubs, which are a screen you read: giving Settings a permanent "Nothing
+    /// Selected" panel beside it spends half the display on nothing.
+    ///
+    /// This is a property of the destination rather than of the current selection
+    /// because a split view's detail column cannot be hidden on the fly -
+    /// `NavigationSplitViewVisibility` only trims from the leading edge - so the
+    /// choice is which *shape* of split view to build, and that has to be decidable
+    /// before anything is selected.
+    var wantsDetailColumn: Bool {
+        switch self {
+        case .downloads, .series, .movies, .search: true
+        case .more, .missing, .libraryManagement, .requestsAndAccess,
+             .mediaServer, .automation, .system, .settings: false
+        }
+    }
+
     /// A stable identifier for this destination's sidebar row.
     ///
     /// Exists so a UI test can select a destination without matching on its label.

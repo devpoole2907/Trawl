@@ -495,18 +495,21 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     /// sidebar. Matched loosely on purpose: it has appeared as both `ToggleSidebar`
     /// ("Hide Sidebar") and `ToggleSideBar` ("Toggle sidebar") depending on which
     /// state it is currently in, and an exact identifier silently found neither.
-    /// Matched on the exact identifier, case-insensitively, and nothing looser.
+    /// The control that reveals a collapsed sidebar.
     ///
-    /// It has appeared as both `ToggleSidebar` and `ToggleSideBar` depending on which
-    /// state it is in, so the case has to be forgiving - but a `CONTAINS "sidebar"`
-    /// match is not: now that the library lists are `NavigationSplitView`s, each one
-    /// puts its *own* column-toggle button in its toolbar, and `firstMatch` happily
-    /// returned that instead. The capture pass then "expanded the sidebar" by
-    /// collapsing a list column, and reported every promoted destination missing.
+    /// Two shapes, both real. `.sidebarAdaptable` used to expose it as an identifier
+    /// (`ToggleSidebar` / `ToggleSideBar`, the case varying with its state); the
+    /// three-column `NavigationSplitView` exposes it as a button labelled exactly
+    /// "Show Sidebar". Matched narrowly on purpose - an earlier `CONTAINS "sidebar"`
+    /// match picked up each list column's own toggle instead, so the run "expanded
+    /// the sidebar" by collapsing a list and reported every destination missing.
     @MainActor
     private static func sidebarToggle(in app: XCUIApplication) -> XCUIElement {
         app.buttons
-            .matching(NSPredicate(format: "identifier ==[c] %@", "togglesidebar"))
+            .matching(NSPredicate(
+                format: "identifier ==[c] %@ OR label ==[c] %@",
+                "togglesidebar", "show sidebar"
+            ))
             .firstMatch
     }
 
@@ -565,15 +568,27 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
     }
 
-    /// True once the app is past the welcome gate and showing its root chrome, in
-    /// whatever form. Polls rather than waiting on one query, because which of the
-    /// three element types carries the destinations depends on the chrome
-    /// `.sidebarAdaptable` picked for this size class.
+    /// True once the app is past the welcome gate and a root destination is on
+    /// screen.
+    ///
+    /// This opens the sidebar itself when it needs to. In portrait the three-column
+    /// layout has no room for it, so iPadOS starts it collapsed behind "Show
+    /// Sidebar" - and every destination this harness navigates by lives in there.
+    /// Waiting for one without opening it first simply times out, which is what the
+    /// whole portrait pass used to do.
     @MainActor
     private func reachedTabUI(_ app: XCUIApplication, timeout: TimeInterval = 30) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
+        var hasTriedToggle = false
         while Date() < deadline {
             if rootDestination(app, "Downloads") != nil { return true }
+            if !hasTriedToggle {
+                let toggle = Self.sidebarToggle(in: app)
+                if toggle.waitForExistence(timeout: 3) {
+                    tapEvenIfNotHittable(toggle)
+                    hasTriedToggle = true
+                }
+            }
         }
         return false
     }

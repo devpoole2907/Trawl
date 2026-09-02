@@ -529,16 +529,22 @@ struct ContentView: View {
     /// iPad is regular and gets the sidebar; the same iPad in a narrow Split View or
     /// Slide Over turns compact and gets the phone's tab bar, which is the right
     /// answer for that width rather than a squeezed sidebar.
+    /// One split view with three columns - not a split view whose detail column holds
+    /// another split view. The nested arrangement worked, but every level brought its
+    /// own navigation bar and safe area, which showed as a band of empty space above
+    /// the middle column. `sidebar | content | detail` is the shape iPadOS actually
+    /// provides, and a `NavigationLink` in the content column routes into the detail
+    /// column without any of that.
+    ///
+    /// Portrait is left to SwiftUI. Three columns do not fit in 1032pt, so it moves
+    /// the sidebar behind a "Show Sidebar" button and shows list and detail side by
+    /// side - which is a better trade at that width than a permanently visible
+    /// sidebar squeezing both. An earlier version special-cased portrait into two
+    /// columns to keep the sidebar pinned; that is gone, and the button is fine.
     @ViewBuilder
     private func regularSidebar(services: AppServices, downloadBadge: Int) -> some View {
-        // Three columns need real width. A 13-inch iPad in landscape has 1376pt and
-        // wears them well; the same iPad in portrait has 1032pt, and SwiftUI's answer
-        // there is to drop the sidebar behind a "Show Sidebar" button - which is the
-        // one thing this layout exists to prevent. So portrait gets two columns and
-        // keeps the sidebar, with detail pushing inside the content column instead of
-        // sitting beside it.
-        GeometryReader { proxy in
-            if proxy.size.width >= 1150 {
+        Group {
+            if selectedTab.wantsDetailColumn {
                 threeColumnLayout(services: services, downloadBadge: downloadBadge)
             } else {
                 twoColumnLayout(services: services, downloadBadge: downloadBadge)
@@ -565,12 +571,7 @@ struct ContentView: View {
         #endif
     }
 
-    /// One split view with three columns - not a split view whose detail column holds
-    /// another split view. The nested arrangement worked, but every level brought its
-    /// own navigation bar and safe area, which showed as a band of empty space above
-    /// the middle column. `sidebar | content | detail` is the shape iPadOS actually
-    /// provides, and a `NavigationLink` in the content column routes into the detail
-    /// column without any of that.
+    /// Three columns, for the destinations that are a list of things you open.
     private func threeColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
             sidebarList(downloadBadge: downloadBadge)
@@ -584,33 +585,30 @@ struct ContentView: View {
         .navigationSplitViewStyle(.balanced)
     }
 
-    /// Sidebar plus one working column. Detail is pushed onto that column's own
-    /// stack, so this is the phone's navigation with the sidebar kept alongside it.
+    /// Two columns, for the hubs.
+    ///
+    /// There is no way to hide a split view's detail column - `NavigationSplitView
+    /// Visibility` only ever trims from the leading edge (`.all`, `.doubleColumn`,
+    /// `.detailOnly`). So a destination that does not want a third column has to be
+    /// a two-column split view rather than a three-column one with the third emptied.
+    ///
+    /// The hubs are that case. Settings, System and the rest are a screen you read,
+    /// not a list you pick from, so a permanent "Nothing Selected" panel next to them
+    /// is space spent on nothing. Here the hub gets the whole width and its pushes
+    /// cover it, which is also where `path` keeps working: the stack is rooted at the
+    /// hub itself, so `path.append(...)` from a deep link still lands somewhere real.
     private func twoColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
             sidebarList(downloadBadge: downloadBadge)
                 .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
         } detail: {
-            stackedDestination(for: selectedTab, services: services)
-        }
-        .navigationSplitViewStyle(.balanced)
-    }
-
-    /// A destination as a self-contained stack, for the two-column layout.
-    @ViewBuilder
-    private func stackedDestination(for destination: RootTab, services: AppServices) -> some View {
-        switch destination {
-        case .downloads, .series, .movies, .search:
-            NavigationStack {
-                contentColumn(for: destination, services: services)
-            }
-        default:
             moreStack(
-                rootedAt: destination.moreRoot,
-                path: pathBinding(for: destination),
+                rootedAt: selectedTab.moreRoot,
+                path: pathBinding(for: selectedTab),
                 services: services
             )
         }
+        .navigationSplitViewStyle(.balanced)
     }
 
     /// The sidebar's own list. Searchable, which is the point: it replaces More's
