@@ -142,6 +142,23 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             popToRoot(app)
         }
 
+        // Edit mode. Worth its own capture because the list swaps selection *types*
+        // to get here - single-value navigation selection out, multi-select `Set` in -
+        // which rebuilds the `List`. What that does to the detail column beside it,
+        // and to the row that was driving it, is not something to assume.
+        if goToTab(app, "Series") {
+            settleRootTab(app, "Series")
+            // The overflow menu is labelled by service, not by screen:
+            // `"\(serviceType.displayName) Actions"`.
+            if tapFirst(app, exactly: "Sonarr Actions") {
+                if tapFirst(app, exactly: "Select") {
+                    settle(app, untilAnyOf: [app.buttons["Select All"], app.buttons["Done"]], timeout: 8)
+                    capture(app, "29-series-edit-mode-landscape")
+                    tapFirst(app, exactly: "Done")
+                }
+            }
+        }
+
         // Calendar last, deliberately. It is presented as a sheet over the split view,
         // and evaluating queries against that stacked tree has timed out twice
         // ("Failed to get matching snapshots"), which aborts the whole test. Every

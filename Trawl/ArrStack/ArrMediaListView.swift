@@ -252,9 +252,9 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         .scrollPosition(id: $listScrollPosition)
         .animation(.default, value: viewModel.filteredItems)
         .onChange(of: viewModel.filteredItems) { _, items in
-            selectFirstItemIfNeeded(in: items)
+            reconcileSelection(with: items)
         }
-        .onAppear { selectFirstItemIfNeeded(in: viewModel.filteredItems) }
+        .onAppear { reconcileSelection(with: viewModel.filteredItems) }
     }
 
     /// One row shape in both modes, minus the link while editing.
@@ -265,16 +265,26 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     /// Dropping the link keeps the row at full strength; selection is the List's
     /// either way, so there is still no second tap handler and no hand-drawn
     /// checkmark to keep in step with the system's.
-    /// Opens the library on its first title instead of an empty detail pane.
+    /// Keeps the detail column pointed at a row that is actually on screen.
     ///
-    /// Only when a selection is already possible (split view) and nothing is chosen
-    /// yet, so it cannot fight the user: returning to a library keeps whatever was
-    /// open, and a filter or search that empties the list leaves the selection alone
-    /// rather than clearing it and re-picking.
-    private func selectFirstItemIfNeeded(in items: [Entry]) {
-        guard let detailSelection, detailSelection.wrappedValue == nil,
-              let first = items.first else { return }
-        detailSelection.wrappedValue = first.id
+    /// It opens the library on its first title rather than an empty pane, and it
+    /// re-points when the open title leaves the visible list - which covers the case
+    /// that was outright broken, bulk-deleting the title the detail column is
+    /// showing, and would otherwise leave a series that no longer exists sitting
+    /// there.
+    ///
+    /// It follows filtering and search too, and that is a choice rather than an
+    /// oversight. Mail would keep the selection and let the detail show something no
+    /// longer in the list; in three columns that reads as a mistake, because the two
+    /// panes are side by side and visibly disagree. The rule here is the simpler one
+    /// to hold in your head: the detail always shows a row you can see.
+    private func reconcileSelection(with items: [Entry]) {
+        guard let detailSelection else { return }
+        if let current = detailSelection.wrappedValue,
+           items.contains(where: { $0.id == current }) {
+            return
+        }
+        detailSelection.wrappedValue = items.first?.id
     }
 
     @ViewBuilder
