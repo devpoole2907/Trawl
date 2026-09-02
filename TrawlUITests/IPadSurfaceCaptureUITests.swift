@@ -87,19 +87,17 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
         captureRootTabs(app, orientation: "landscape", indexOffset: 1)
 
-        // Series detail - the densest screen in the app and the one most likely to
-        // read as a blown-up phone layout.
-        if goToTab(app, "Series"), tapFirst(app, labelContains: Self.headlineSeriesTitle) {
-            settle(app, untilAnyOf: [app.navigationBars.firstMatch])
-            capture(app, "06-series-detail-landscape")
-            popToRoot(app)
-        }
-
-        if goToTab(app, "Movies"), tapFirst(app, labelContains: Self.headlineMovieTitle) {
-            settle(app, untilAnyOf: [app.navigationBars.firstMatch])
-            capture(app, "07-movie-detail-landscape")
-            popToRoot(app)
-        }
+        // Detail screens. These are the densest layouts in the app and the ones most
+        // likely to read as a blown-up phone screen, so all four are captured rather
+        // than treating one as representative of the rest.
+        captureDetail(app, tab: "Series", row: Self.headlineSeriesTitle,
+                      expecting: Self.headlineSeriesTitle, named: "06-series-detail-landscape")
+        captureDetail(app, tab: "Movies", row: Self.headlineMovieTitle,
+                      expecting: Self.headlineMovieTitle, named: "07-movie-detail-landscape")
+        captureDetail(app, tab: "Downloads", row: Self.qbittorrentTorrentName,
+                      expecting: Self.qbittorrentTorrentName, named: "14-download-detail-landscape")
+        captureDetail(app, tab: "Downloads", row: Self.sabnzbdJobName,
+                      expecting: Self.sabnzbdJobName, named: "15-nzb-detail-landscape")
 
         // Calendar: presented as a sheet, which on iPad is a centred card rather than
         // the full-height phone sheet - worth seeing at this width.
@@ -117,6 +115,16 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             captureMorePush(app, row: "Requests & Access", title: "Requests & Access", named: "10-requests-landscape")
             captureMorePush(app, row: "Media Server", title: "Media Server", named: "11-media-server-landscape")
             captureMorePush(app, row: "System", title: "System", named: "12-system-landscape")
+
+            // One level deeper than the rest: a configured service's own settings
+            // screen, which is where the longest forms in the app actually live.
+            if tapFirst(app, labelContains: "Settings"),
+               app.navigationBars["Settings"].waitForExistence(timeout: 15),
+               tapFirst(app, labelContains: "Fixture Sonarr"),
+               app.navigationBars["Sonarr"].waitForExistence(timeout: 15) {
+                capture(app, "16-sonarr-settings-detail-landscape")
+            }
+            popToRoot(app)
         }
 
         // The sidebar is collapsible, and how a screen looks with it hidden is a
@@ -147,10 +155,12 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
 
         captureRootTabs(app, orientation: "portrait", indexOffset: 21)
 
-        if goToTab(app, "Series"), tapFirst(app, labelContains: Self.headlineSeriesTitle) {
-            settle(app, untilAnyOf: [app.navigationBars.firstMatch])
-            capture(app, "26-series-detail-portrait")
-        }
+        captureDetail(app, tab: "Series", row: Self.headlineSeriesTitle,
+                      expecting: Self.headlineSeriesTitle, named: "26-series-detail-portrait")
+        captureDetail(app, tab: "Movies", row: Self.headlineMovieTitle,
+                      expecting: Self.headlineMovieTitle, named: "27-movie-detail-portrait")
+        captureDetail(app, tab: "Downloads", row: Self.qbittorrentTorrentName,
+                      expecting: Self.qbittorrentTorrentName, named: "28-download-detail-portrait")
     }
 
     // MARK: - Welcome surface
@@ -187,6 +197,61 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             settleRootTab(app, tab)
             capture(app, String(format: "%02d-%@-%@", indexOffset + offset, tab.lowercased(), orientation))
         }
+    }
+
+    /// Opens a row from a root tab, captures the screen it pushed, and returns to the
+    /// tab root.
+    ///
+    /// Settling the tab before aiming at the row is the whole point: the movie-detail
+    /// capture was missing from the first complete run because the tap was dispatched
+    /// while the Radarr library was still loading, so the row it wanted did not exist
+    /// yet and the whole surface was silently skipped.
+    ///
+    /// When the expected screen never arrives, this still captures - under a `-MISS`
+    /// name. A capture harness that quietly drops a surface teaches you nothing; a
+    /// screenshot of the wrong screen tells you exactly where the walk went instead.
+    @MainActor
+    @discardableResult
+    private func captureDetail(
+        _ app: XCUIApplication,
+        tab: String,
+        row: String,
+        expecting title: String,
+        named name: String
+    ) -> Bool {
+        guard goToTab(app, tab) else {
+            capture(app, "\(name)-MISS-never-reached-\(tab.lowercased())")
+            return false
+        }
+        settleRootTab(app, tab)
+
+        // Rows are matched across buttons *and* cells: this app's lists render as
+        // both depending on the screen, and searching only `buttons` is what made
+        // the movie row look absent when it was on screen the whole time.
+        let predicate = NSPredicate(format: "label CONTAINS[c] %@", row)
+        var target = app.buttons.matching(predicate).firstMatch
+        if !target.waitForExistence(in: app, timeout: 10) {
+            target = app.cells.matching(predicate).firstMatch
+        }
+        guard target.waitForExistence(in: app, timeout: 10) else {
+            capture(app, "\(name)-MISS-row-never-appeared")
+            return false
+        }
+        tapEvenIfNotHittable(target)
+
+        let arrived = app.navigationBars
+            .matching(NSPredicate(format: "identifier CONTAINS[c] %@", title))
+            .firstMatch
+            .waitForExistence(timeout: 15)
+        if !arrived {
+            // Some detail screens title themselves differently from the row that
+            // opened them; a large-title header still names the thing, so fall back
+            // to that before declaring a miss.
+            settle(app, untilAnyOf: [app.staticTexts[title]], timeout: 8)
+        }
+        capture(app, arrived || app.staticTexts[title].exists ? name : "\(name)-MISS-wrong-screen")
+        popToRoot(app)
+        return true
     }
 
     @MainActor
@@ -258,16 +323,32 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         return nil
     }
 
+    /// Switches to a root destination and **confirms the switch actually happened**.
+    ///
+    /// Tapping is not arriving. A tap dispatched while the previous screen is still
+    /// animating away gets swallowed, and the old version of this returned `true`
+    /// regardless - so a later step went hunting for a Radarr row inside the Sonarr
+    /// list, scrolled it to the bottom, and reported the movie as missing. Checking
+    /// the destination's selected state afterwards is what turns that into a retry
+    /// instead of a wrong answer.
     @discardableResult
     @MainActor
     private func goToTab(_ app: XCUIApplication, _ name: String) -> Bool {
-        // `isHittable` is deliberately *not* a precondition. The tab bar uses
-        // `.tabBarMinimizeBehavior(.onScrollDown)`, and a minimized bar reports its
-        // buttons as existing but not hittable - gating on `isHittable` silently
-        // skipped four of the five tabs and captured almost nothing.
-        guard let destination = rootDestination(app, name) else { return false }
-        tapEvenIfNotHittable(destination)
-        return true
+        for _ in 0..<3 {
+            guard let destination = rootDestination(app, name) else { return false }
+            if destination.isSelected { return true }
+            // `isHittable` is deliberately *not* a precondition. The tab bar uses
+            // `.tabBarMinimizeBehavior(.onScrollDown)`, and a minimized bar reports
+            // its buttons as existing but not hittable - gating on `isHittable`
+            // silently skipped four of the five tabs and captured almost nothing.
+            tapEvenIfNotHittable(destination)
+
+            let deadline = Date().addingTimeInterval(5)
+            while Date() < deadline {
+                if rootDestination(app, name)?.isSelected == true { return true }
+            }
+        }
+        return rootDestination(app, name)?.isSelected == true
     }
 
     /// Dumps the accessibility tree to the test log. `.sidebarAdaptable` renders the
