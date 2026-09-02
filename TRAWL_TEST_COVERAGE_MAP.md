@@ -168,6 +168,37 @@ routes reported successful taps while landing on the wrong screen, and the failu
 surfaced several assertions later pointing at the wrong cause. Asserting the navigation
 bar at each step is what makes a mistargeted tap fail where it happened.
 
+## iPad chrome
+
+`ContentView` builds two different chromes and the split is by
+`horizontalSizeClass`, not by device: compact gets the five-tab `TabView`, regular
+gets a hand-built `NavigationSplitView` whose sidebar is always visible. A
+full-screen iPad is regular; the same iPad in a narrow Split View or Slide Over
+becomes compact and gets the phone's tab bar.
+
+`.sidebarAdaptable` is deliberately *not* what produces the iPad sidebar any more.
+It offers a toggle that collapses into a floating pill, that choice persists across
+launches, and the pill renders only tabs that carry no `defaultVisibility` of their
+own — so promoted destinations vanish with it. There is no API to hold it open
+(`TabViewStyle` has `.sidebarAdaptable` and `.tabBarOnly`, nothing between).
+
+**A hidden `Tab` is still built, and that is not free.** The first version of this
+work declared all twelve destinations as tabs and hid seven from the tab bar with
+`defaultVisibility`. On iPhone those seven never appeared — but each one built a
+full `MoreView`, with its own `.searchable` list, and their presence changed the
+*visible* More list's accessibility: rows that had been one merged `Button`
+labelled "Settings" became unlabelled `Cell`s with the text as a child. Nothing
+looked wrong on screen; every journey that reaches a More row by name failed
+(`NavigationSmokeWalkUITests`, `MoreSettingsBreadthUITests`). If a chrome needs
+different destinations per size class, build the two chromes separately rather
+than declaring every destination once and hiding what does not belong.
+
+Sidebar rows carry `nav.<case>` accessibility identifiers (`RootTab
+.navigationIdentifier`) because label matching is ambiguous there: "Downloads" also
+prefixes the Downloads screen's own "Downloads, change view" title menu, and a test
+that matched by label tapped the menu instead, opening a popover that swallowed
+every subsequent tap.
+
 ## Capture harnesses (assert nothing — do not read as coverage)
 
 `TrawlUITests/IPadSurfaceCaptureUITests.swift` drives the app across its primary
