@@ -75,6 +75,33 @@ enum RootTab: Hashable, CaseIterable {
         }
     }
 
+    /// Which sidebar destination owns a searchable feature, from its index category.
+    ///
+    /// A sidebar search result has to land somewhere with a sensible way back, and
+    /// that means selecting the hub the screen actually lives under and pushing onto
+    /// *its* stack - not dropping the user on a rootless screen with nothing behind
+    /// it. The categories are the index's own grouping, so this stays in step with
+    /// how the results are already labelled rather than inventing a second taxonomy.
+    static func owningSidebarDestination(forSearchCategory category: String) -> RootTab {
+        // Downloads' own sub-routes ("Downloads › Client Management") belong to the
+        // Downloads tab, hence the prefix match rather than equality.
+        if category.hasPrefix("Downloads") { return .downloads }
+
+        return switch category {
+        case "Monitoring": .missing
+        case "Series & Movies": .series
+        case "Library Management": .libraryManagement
+        case "Requests & Access": .requestsAndAccess
+        case "Media Server": .mediaServer
+        case "Integrations & Automation", "Tasks": .automation
+        case "System", "Logs": .system
+        case "Settings": .settings
+        // Anything new in the index lands in Settings rather than nowhere. A wrong
+        // hub is recoverable; a result that does nothing when tapped is not.
+        default: .settings
+        }
+    }
+
     /// Whether this destination earns a third column on iPad.
     ///
     /// True for the ones that are a *list you pick from* - the libraries and the

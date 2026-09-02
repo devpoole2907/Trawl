@@ -630,28 +630,94 @@ struct ContentView: View {
         )
 
         return List(selection: selection) {
-            Section("Library") {
-                sidebarRow(.downloads, badge: downloadBadge)
-                sidebarRow(.series)
-                sidebarRow(.movies)
-                sidebarRow(.search)
-            }
+            if isSearchingSidebar {
+                sidebarSearchResults
+            } else {
+                Section("Library") {
+                    sidebarRow(.downloads, badge: downloadBadge)
+                    sidebarRow(.series)
+                    sidebarRow(.movies)
+                    sidebarRow(.search)
+                }
 
-            Section("Manage") {
-                sidebarRow(.missing)
-                sidebarRow(.libraryManagement)
-                sidebarRow(.requestsAndAccess)
-                sidebarRow(.mediaServer)
-                sidebarRow(.automation)
-                sidebarRow(.system)
-            }
+                Section("Manage") {
+                    sidebarRow(.missing)
+                    sidebarRow(.libraryManagement)
+                    sidebarRow(.requestsAndAccess)
+                    sidebarRow(.mediaServer)
+                    sidebarRow(.automation)
+                    sidebarRow(.system)
+                }
 
-            Section {
-                sidebarRow(.settings)
+                Section {
+                    sidebarRow(.settings)
+                }
             }
         }
         .navigationTitle("Trawl")
         .searchable(text: $sidebarSearch, placement: .sidebar, prompt: "Search Trawl")
+    }
+
+    private var isSearchingSidebar: Bool {
+        !sidebarSearch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The sidebar's search results.
+    ///
+    /// Deliberately the *same* index More searches, rather than a filter over the
+    /// eleven sidebar rows. On iPad the sidebar's field is the only search there is -
+    /// More, which used to own one, is not in this chrome - so narrowing it to
+    /// destination names would have lost every screen that is not itself a sidebar
+    /// row: quality profiles, root folders, remote path mappings, news servers. The
+    /// whole point of searching is to reach those without knowing which hub they
+    /// live under.
+    @ViewBuilder
+    private var sidebarSearchResults: some View {
+        let query = sidebarSearch.trimmingCharacters(in: .whitespacesAndNewlines)
+        let results = MoreSearchIndex.results(for: query)
+
+        if results.isEmpty {
+            ContentUnavailableView(
+                "No Results",
+                systemImage: "magnifyingglass",
+                description: Text("No settings or features match \"\(query)\".")
+            )
+        } else {
+            Section("Results") {
+                ForEach(results) { entry in
+                    Button {
+                        open(entry)
+                    } label: {
+                        MoreSearchResultRow(entry: entry)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
+    /// Opens a search result on the hub that owns it.
+    ///
+    /// The push goes onto that hub's own stack, so the screen arrives with the hub
+    /// behind it and a working way back - the same place it would have been reached
+    /// from by hand.
+    private func open(_ entry: MoreSearchIndexEntry) {
+        sidebarSearch = ""
+
+        guard let destination = entry.destination else {
+            // Index entries with no destination are Downloads-tab routes. Queue the
+            // route first; DownloadsView applies it on arrival, exactly as More's own
+            // results do.
+            if let route = entry.downloadsRoute {
+                downloadsNavigator.show(route)
+            }
+            selectedTab = .downloads
+            return
+        }
+
+        let owner = RootTab.owningSidebarDestination(forSearchCategory: entry.category)
+        selectedTab = owner
+        pathBinding(for: owner).wrappedValue = [destination]
     }
 
     /// A sidebar row, or nothing when the search field excludes it.

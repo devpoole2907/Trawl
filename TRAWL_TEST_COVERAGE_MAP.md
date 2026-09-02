@@ -199,6 +199,30 @@ prefixes the Downloads screen's own "Downloads, change view" title menu, and a t
 that matched by label tapped the menu instead, opening a popover that swallowed
 every subsequent tap.
 
+## iPad behaviour
+
+| Production surface | Owning tests | What the tests pin, and why it matters |
+| --- | --- | --- |
+| `ContentView`'s iPad sidebar; `RootTab.sidebarDestinations`; `MoreView(root:presentation:)` | `TrawlUITests/IPadSidebarJourneyUITests.swift` | The sidebar lists all seven promoted More rows **and does not list More** — both halves are asserted, since checking only that the seven appeared would still pass with More sitting alongside them, which is the arrangement this replaced. Selecting a destination is checked by its *screen* arriving, not by the tap succeeding: an earlier chrome reported taps as successful while the content column never moved. |
+| `ArrMediaListView.detailSelection`, `reconcileSelection` | `TrawlUITests/IPadSidebarJourneyUITests.swift` (`testSeriesOpensOnItsFirstTitle`) | A three-column layout that opens on "Select a series" spends half the display saying nothing. The assertion is on the *detail column's* navigation bar carrying the title, not on the row — the row's title is in the list either way, so matching it would pass even with an empty detail pane. |
+| `MoreSearchIndex` as the sidebar's search; `RootTab.owningSidebarDestination(forSearchCategory:)` | `TrawlUITests/IPadSidebarJourneyUITests.swift` (`testSidebarSearchReachesAScreenThatIsNotASidebarRow`) | On iPad the sidebar's field is the *only* search — More, which used to own one, is not in this chrome. So it searches the same index More does, and the test deliberately looks for Quality Profiles: two levels down under Library Management and not a sidebar row, so a filter over the eleven destination names could never find it. It also asserts the result lands on the hub that owns it, so there is a way back. |
+
+**The suite skips itself on iPhone** (`XCTSkipUnless … userInterfaceIdiom == .pad`). The
+chrome does not exist at compact width by design, so a phone run has nothing to say
+about it and a red suite there would be noise. A full-plan run on an iPhone
+destination reports these four as skipped, not failed.
+
+Two things about querying this chrome, both of which cost a run to learn:
+
+- **Sidebar rows are matched by their `nav.<case>` identifier, never by label.**
+  "Downloads" also prefixes the Downloads screen's own "Downloads, change view" title
+  menu; matching by text tapped that instead and opened a popover that swallowed every
+  later tap.
+- **`.searchable` inside a `List` starts scrolled out of view.** The field is above the
+  first row, so it has to be pulled down before it can be found — it is not missing.
+  It also does not reliably surface as a `searchField`; it can arrive as a text field
+  carrying the prompt as its placeholder.
+
 ## Library rows navigate two different ways
 
 `ArrLibraryListView` and `ArrMediaListView` now have two navigation modes, chosen

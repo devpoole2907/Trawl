@@ -1423,7 +1423,7 @@ private struct MorePreviewHost<Content: View>: View {
 }
 #endif
 
-private struct MoreSearchResultRow: View {
+struct MoreSearchResultRow: View {
     let entry: MoreSearchIndexEntry
 
     var body: some View {
@@ -1458,7 +1458,9 @@ private struct MoreSearchResultRow: View {
     }
 }
 
-private struct MoreSearchIndexEntry: Identifiable {
+/// One searchable feature. Not private: the iPad sidebar searches the same index,
+/// so that a screen is found by the same words in both chromes.
+struct MoreSearchIndexEntry: Identifiable {
     let id: String
     /// `nil` for entries that redirect to a root tab (e.g. Downloads) instead of
     /// pushing a `MoreDestination` in this tab's own navigation stack.
@@ -1520,7 +1522,10 @@ private struct MoreSearchIndexEntry: Identifiable {
     }
 }
 
-private enum MoreSearchIndex {
+/// The app's feature search. Shared by More's own search field and, on iPad, by
+/// the sidebar's - which is the *only* search on that chrome, since More is not
+/// there to hold one.
+enum MoreSearchIndex {
     static func results(for query: String) -> [MoreSearchIndexEntry] {
         entries.filter { $0.matches(query) }
     }
