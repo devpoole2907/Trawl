@@ -325,9 +325,8 @@ struct SettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         .padding(20)
-        .frame(maxWidth: 720, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
+        .readableFormWidth()
     }
 
     // MARK: - Helpers
@@ -661,9 +660,8 @@ struct QBittorrentSettingsView: View {
         #if os(macOS)
         .formStyle(.grouped)
         .padding(20)
-        .frame(maxWidth: 720, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         #endif
+        .readableFormWidth()
         .task {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
@@ -1121,3 +1119,22 @@ extension QBittorrentSettingsView {
     }
 }
 #endif
+
+
+extension View {
+    /// Caps a settings form at a readable width and centres it.
+    ///
+    /// This constraint already existed - behind `#if os(macOS)`, because a Mac window
+    /// was the only place wide enough to need it. iPad has that width now: at
+    /// ~1100pt a row's label sits on the left edge and its toggle on the right, with
+    /// several hundred points of nothing between them, and the eye has to travel the
+    /// whole way to see which control belongs to which setting.
+    ///
+    /// Applied unconditionally rather than gated on size class, because `maxWidth` is
+    /// a cap: on a 390pt iPhone the form is already narrower than 720 and the
+    /// modifier does nothing.
+    func readableFormWidth(_ width: CGFloat = 720) -> some View {
+        frame(maxWidth: width, maxHeight: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+    }
+}
