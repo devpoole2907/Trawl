@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import Observation
 
 #if os(iOS)
@@ -441,6 +442,7 @@ struct ArrCalendarView: View {
     @State private var hideCalendarView = true
     @State private var didInitialScroll = false
     @State private var showiCalAlert = false
+    private let subscribeTip = ArrCalendarSubscribeTip()
     
     private let today = Calendar.current.startOfDay(for: .now)
     private let firstWeekday = Calendar.current.firstWeekday
@@ -565,8 +567,14 @@ struct ArrCalendarView: View {
             if isConnected {
                 ToolbarItem(placement: platformBottomBarPlacement) {
                     Button("Subscribe") {
+                        // The advertised action, performed - before the sheet, so a
+                        // user who opens it once is never told about it again.
+                        subscribeTip.invalidate(reason: .actionPerformed)
                         showiCalAlert = true
                     }
+                    // On the button rather than floating: "Subscribe" is one word in a
+                    // bottom bar, and pointing straight at it is most of the message.
+                    .popoverTip(subscribeTip)
                 }
             }
         }
@@ -582,6 +590,9 @@ struct ArrCalendarView: View {
         .sheet(isPresented: $showiCalAlert) {
             ICalSubscribeSheet(availableServices: subscribableServices)
         }
+        .onChange(of: subscribableServices.isEmpty) { _, isEmpty in
+            ArrCalendarSubscribeTip.isEligible = !isEmpty
+        }
         .refreshable {
             await serviceManager.calendarViewModel.refresh()
             await revealCalendarIfNeeded(forceScrollToToday: true)
@@ -594,6 +605,12 @@ struct ArrCalendarView: View {
             }
             #endif
             guard isConnected else { return }
+            // Counted only here: this is the one path that means a real, connected
+            // Calendar screen actually appeared. A visit that landed on "No Services
+            // Configured" or "Services Unreachable" returned above, and previews
+            // returned before that - neither is evidence of wanting a feed.
+            await TrawlTipEvents.calendarOpened.donate()
+            ArrCalendarSubscribeTip.isEligible = !subscribableServices.isEmpty
             await serviceManager.calendarViewModel.initialize()
             await revealCalendarIfNeeded(forceScrollToToday: !didInitialScroll)
         }

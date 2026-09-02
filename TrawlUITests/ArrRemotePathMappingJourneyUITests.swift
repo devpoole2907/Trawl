@@ -97,8 +97,8 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         let existingLocal = app.textFields["/media/downloads/"]
         XCTAssertEqual(existingRemote.value as? String, ArrRemotePathMappingUIFixtureServer.addedRemotePath, "Edit should pre-fill the server-returned remote path.")
         XCTAssertEqual(existingLocal.value as? String, ArrRemotePathMappingUIFixtureServer.addedLocalPath, "Edit should pre-fill the server-returned local path.")
-        replaceText(in: existingRemote, with: ArrRemotePathMappingUIFixtureServer.editedRemotePath)
-        replaceText(in: existingLocal, with: ArrRemotePathMappingUIFixtureServer.editedLocalPath)
+        replaceText(in: existingRemote, with: ArrRemotePathMappingUIFixtureServer.editedRemotePath, in: app)
+        replaceText(in: existingLocal, with: ArrRemotePathMappingUIFixtureServer.editedLocalPath, in: app)
 
         let update = app.buttons["Update"]
         XCTAssertTrue(update.waitForExistence(timeout: 5), "The edit sheet should expose Update.")
@@ -138,7 +138,7 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
         // must present the confirmation before DELETE is permitted.
         let editedRow = firstButton(containing: ArrRemotePathMappingUIFixtureServer.editedRemotePath, in: app)
         XCTAssertTrue(editedRow.waitForExistence(in: app, timeout: 10), "The updated row should remain available for deletion.")
-        editedRow.swipeLeft()
+        revealSwipeActions(.trailing, on: editedRow)
         let deleteAction = app.buttons["Delete"]
         XCTAssertTrue(deleteAction.waitForExistence(timeout: 10), "Swiping a mapping should reveal the explicit Delete action, not delete immediately.")
         deleteAction.tap()
@@ -183,12 +183,11 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
 
     @MainActor
     private func openMappings(in app: XCUIApplication) {
-        let more = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(more, in: app, timeout: 15), "A seeded Sonarr profile should bring the app to its tab UI so More is reachable.")
-
-        let automation = firstButton(containing: "Integrations & Automation", in: app)
-        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 10), "More should expose Integrations & Automation.")
-        XCTAssertTrue(app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10), "Integrations & Automation should push its real hub.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Sonarr profile should bring the app to its root chrome.")
+        XCTAssertTrue(
+            openDestination(.automation, in: app),
+            "Integrations & Automation should be reachable and render its real hub."
+        )
 
         let remoteMappings = firstButton(containing: "Remote Path Mappings", in: app)
         XCTAssertTrue(tapWhenHittable(remoteMappings, in: app, timeout: 10), "The Integrations & Automation hub should expose Remote Path Mappings.")
@@ -209,21 +208,22 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
                 element.tap()
                 return true
             }
-            let scroller = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.scrollViews.firstMatch
-            scroller.swipeUp()
+            // Deliberately not `collectionViews.firstMatch`: on iPad that is the
+            // sidebar, and swiping it leaves this screen exactly where it was.
+            app.swipeUp()
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false
     }
 
     @MainActor
-    private func replaceText(in field: XCUIElement, with text: String) {
+    private func replaceText(in field: XCUIElement, with text: String, in app: XCUIApplication) {
         let existing = field.value as? String ?? ""
-        field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
+        focus(field, in: app)
         if !existing.isEmpty {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
+            app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: existing.count))
         }
-        field.typeText(text)
+        app.typeText(text)
     }
 
     @MainActor

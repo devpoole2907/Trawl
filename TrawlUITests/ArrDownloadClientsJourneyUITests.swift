@@ -61,14 +61,15 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A configured Sonarr launch should reach the tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
 
         // Each step asserts where it landed. A CONTAINS match reports a successful
         // tap even when it hits the wrong row, so without this the failure surfaces
         // several assertions later pointing at the wrong thing.
-        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
-        XCTAssertTrue(tapWhenHittable(automation, in: app, timeout: 12), "More should expose the Integrations & Automation hub.")
+        XCTAssertTrue(
+            openDestination(.automation, in: app),
+            "The Integrations & Automation hub should be reachable."
+        )
 
         let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
         XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")

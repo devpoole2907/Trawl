@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 import SwiftData
 import Foundation
 
@@ -51,6 +52,17 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @State private var pendingDeleteItem: Entry?
     @State private var isRunningCommand = false
     @State private var editMode: SelectionMode = .inactive
+
+    /// The library list has one inline slot for a tip, and two tips want it.
+    ///
+    /// `.firstAvailable` rather than `.ordered` on purpose: the blended-library tip
+    /// requires more than one configured instance, which a single-server user will
+    /// never have. An ordered group would queue the quick-actions tip behind a tip
+    /// that can never become eligible, and those users would simply never see it.
+    @State private var libraryTips = TipGroup(.firstAvailable) {
+        ArrBlendedLibraryTip()
+        ArrLibraryQuickActionsTip()
+    }
     @State private var selectedIDs: Set<ArrMergeKey> = []
     @State private var showBulkDeleteAlert = false
     @State private var isFilterSearchExpanded = false
@@ -133,8 +145,19 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         alignment: .leading
                     )
                     .transition(.opacity.combined(with: .move(edge: .top)))
+
+                    if let tip = libraryTips.currentTip {
+                        TipView(tip)
+                            .padding(.horizontal, 16)
+                            .padding(.bottom, 8)
+                            .transition(.opacity.combined(with: .move(edge: .top)))
+                    }
                 }
             }
+            .onAppear { updateLibraryTipEligibility() }
+            .onChange(of: viewModel.filteredItems.isEmpty) { _, _ in updateLibraryTipEligibility() }
+            .onChange(of: editMode.isEditing) { _, _ in updateLibraryTipEligibility() }
+            .onChange(of: availableInstanceRefs.count) { _, _ in updateLibraryTipEligibility() }
             // Keyed by the merge key rather than a library ID: a row stands for a
             // title, and the same title has a different ID on each server.
             .navigationDestination(for: ArrMergeKey.self) { key in
@@ -309,6 +332,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @ViewBuilder
     private func rowSwipeActions(_ entry: Entry) -> some View {
         Button(role: .destructive) {
+            ArrLibraryQuickActionsTip().invalidate(reason: .actionPerformed)
             pendingDeleteItem = entry
         } label: {
             Label("Delete", systemImage: "trash")
@@ -321,6 +345,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
         // the same question of every copy independently.
         let monitored = isMonitored(entry)
         Button {
+            ArrLibraryQuickActionsTip().invalidate(reason: .actionPerformed)
             Task { await viewModel.toggleMonitoredAcrossInstances(entry) }
         } label: {
             Label(
@@ -329,6 +354,19 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             )
         }
         .tint(monitored ? .orange : .blue)
+    }
+
+    /// Keeps both library tips' transient rules in step with what is on screen.
+    ///
+    /// All of this is live view state rather than anything worth persisting: whether
+    /// the library has rows, whether a second server is configured, whether the user
+    /// is midway through a bulk selection. A stale copy of any of it would put a tip
+    /// over a loading spinner, an empty library, or a selection in progress.
+    private func updateLibraryTipEligibility() {
+        let hasItems = !viewModel.filteredItems.isEmpty
+        let isBrowsing = hasItems && !editMode.isEditing
+        ArrBlendedLibraryTip.isEligible = isBrowsing && availableInstanceRefs.count > 1
+        ArrLibraryQuickActionsTip.isEligible = isBrowsing
     }
 
     /// A merged row counts as monitored when any server is monitoring it, so the
@@ -549,6 +587,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             }
     }
 
+    /// Called when the user narrows or widens the library through the title menu -
+    /// the exact action the blended-library tip advertises.
+    private func invalidateBlendedLibraryTip() {
+        ArrBlendedLibraryTip().invalidate(reason: .actionPerformed)
+    }
+
     private var titleMenuSelection: Binding<InstanceScope> {
         Binding(
             get: { instanceScope },
@@ -559,6 +603,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 case .only(let id):
                     serviceManager.showOnlyInstance(id, serviceType: serviceType)
                 }
+                invalidateBlendedLibraryTip()
                 rebuildAfterInstanceFilterChange()
             }
         )

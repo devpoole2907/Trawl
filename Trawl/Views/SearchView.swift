@@ -48,12 +48,46 @@ struct SearchView: View {
     private var skipsAutomaticLoading = false
     #endif
 
-    init() {}
+    /// How this view is being hosted.
+    ///
+    /// The same distinction `MoreView` draws, for the same reason. On iPhone Search is
+    /// the root of a tab and brings its own `NavigationStack`. On iPad it is handed
+    /// straight to the middle column of `ContentView`'s split view, which is already a
+    /// navigation container - and a stack nested inside one is what produced the dead
+    /// band of space above the More column, and here cost Search its search field
+    /// entirely: `.searchable` puts the field in its container's navigation bar, and
+    /// the nested stack's bar is not the one the column draws.
+    enum Presentation {
+        /// Root of a tab, on compact width.
+        case stack
+        /// The middle column of a `NavigationSplitView`, which supplies the
+        /// navigation container and the bar the search field lives in.
+        case contentColumn
+    }
+
+    private let presentation: Presentation
+
+    init(presentation: Presentation = .stack) {
+        self.presentation = presentation
+    }
 
     // MARK: - Body
 
     var body: some View {
-        NavigationStack(path: $navigationPath) {
+        switch presentation {
+        case .stack:
+            searchChrome {
+                NavigationStack(path: $navigationPath) { searchScreen }
+            }
+        case .contentColumn:
+            // Deliberately bare - the split view is the navigation container, and its
+            // column supplies the bar that `.searchable` needs.
+            searchChrome { searchScreen }
+        }
+    }
+
+    private var searchScreen: some View {
+        Group {
             ZStack(alignment: .top) {
                 content
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
@@ -84,6 +118,17 @@ struct SearchView: View {
                 zoomNamespace: trendingTransition
             )
         }
+    }
+
+    /// Everything that has to sit *outside* the navigation container: the search
+    /// field, its submit and change handlers, and the loading tasks.
+    ///
+    /// One copy, applied to whichever root the presentation chose, so the two chromes
+    /// cannot drift apart - the field, the debounce and the trending fetch are the
+    /// same behaviour on both, and only their container differs.
+    @ViewBuilder
+    private func searchChrome(@ViewBuilder _ root: () -> some View) -> some View {
+        root()
         .searchable(
             text: $viewModel.searchText,
             isPresented: $viewModel.isSearchPresented,
@@ -149,11 +194,21 @@ struct SearchView: View {
         }
     }
 
+    /// Where the search field sits, which depends on the container it is in.
+    ///
+    /// `.navigationBarDrawer(.always)` is the right answer for a tab root: it pins the
+    /// field under a large title where it is always visible, which is what Search
+    /// wants on a phone. It is the wrong answer for a split-view column, whose bar the
+    /// drawer does not belong to - `.automatic` lets SwiftUI put the field where that
+    /// chrome actually keeps one.
     private var searchFieldPlacement: SearchFieldPlacement {
         #if os(macOS)
         .automatic
         #else
-        .navigationBarDrawer(displayMode: .always)
+        switch presentation {
+        case .stack: .navigationBarDrawer(displayMode: .always)
+        case .contentColumn: .automatic
+        }
         #endif
     }
 

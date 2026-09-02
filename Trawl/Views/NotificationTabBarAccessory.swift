@@ -1,6 +1,11 @@
 import SwiftUI
 
-#if os(iOS)
+/// Defined on both platforms even though the accessory below is iOS-only.
+///
+/// `DownloadsView`, `ArrMediaListView` and `ArrCalendarView` all read this
+/// unconditionally, so guarding the key itself is what stopped those shared views
+/// compiling for macOS. The default is a no-op, which is the correct macOS behaviour
+/// rather than a stub: there is no tab chrome there to hide.
 struct SetTabChromeHiddenKey: EnvironmentKey {
     static let defaultValue: (Bool) -> Void = { _ in }
 }
@@ -12,6 +17,7 @@ extension EnvironmentValues {
     }
 }
 
+#if os(iOS)
 struct NotificationTabBarAccessory: View {
     @Environment(\.tabViewBottomAccessoryPlacement) private var placement
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter

@@ -145,17 +145,15 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
 
     @MainActor
     private func openLinkedApps(in app: XCUIApplication) {
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A seeded Bazarr launch should reach the tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Bazarr launch should reach the app chrome.")
 
-        // The real route is three pushes deep, and each step is asserted rather than
-        // matched loosely: "Integrations & Automation", "Linked Applications" and
+        // The real route runs several pushes deep, and each step is asserted rather
+        // than matched loosely: "Integrations & Automation", "Linked Applications" and
         // "Subtitle Sync" all appear as searchable entries too, so a bare CONTAINS
         // match can land on the wrong one and still report a successful tap.
-        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
         XCTAssertTrue(
-            tapWhenHittable(automation, in: app, timeout: 12),
-            "More should expose the Integrations & Automation hub."
+            openDestination(.automation, in: app),
+            "The Integrations & Automation hub should be reachable."
         )
 
         let linkedApplications = firstButton(labelContaining: "Linked Applications", in: app)

@@ -65,12 +65,17 @@ final class SonarrSeasonEpisodeJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let seriesTab = app.tabBars.buttons["Series"]
-        XCTAssertTrue(tapWhenHittable(seriesTab, in: app, timeout: 20), "A configured Sonarr launch should reach the Series tab.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
-        let seriesRow = app.staticTexts[Self.seriesTitle]
-        XCTAssertTrue(seriesRow.waitForExistence(in: app, timeout: 15), "The library should render the fixture series.")
-        XCTAssertTrue(tapWhenHittable(seriesRow, in: app, timeout: 10), "Tapping the series should open its detail screen.")
+        XCTAssertTrue(
+            app.staticTexts[Self.seriesTitle].waitForExistence(in: app, timeout: 15),
+            "The library should render the fixture series."
+        )
+        XCTAssertTrue(
+            openLibraryItem(titled: Self.seriesTitle, in: app),
+            "Opening the series should show its detail screen."
+        )
 
         // MARK: Season screen
 

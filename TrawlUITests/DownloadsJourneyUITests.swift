@@ -104,12 +104,11 @@ final class DownloadsJourneyUITests: XCTestCase {
 
         // MARK: Step 1 - real connection: Downloads tab shows the seeded torrent.
 
-        let downloadsTab = app.tabBars.buttons["Downloads"]
         XCTAssertTrue(
-            downloadsTab.waitForExistence(timeout: 15),
-            "A launch with a configured qBittorrent service should reach the real tab UI, not the welcome screen."
+            ensureRootChromeIsReady(in: app),
+            "A launch with a configured qBittorrent service should reach the real app chrome, not the welcome screen."
         )
-        downloadsTab.tap()
+        XCTAssertTrue(openDestination(.downloads, in: app), "The Downloads queue should be reachable.")
 
         let activeRow = torrentRow(in: app, named: server.name)
         XCTAssertTrue(
@@ -310,6 +309,7 @@ final class DownloadsJourneyUITests: XCTestCase {
     /// ever becoming individually tappable, so this treats the fixture having already
     /// recorded the expected request as success too, rather than looping uselessly
     /// waiting for a button that already did its job.
+    @MainActor
     private func performSwipeAction(
         on row: XCUIElement,
         direction: SwipeDirection,
@@ -328,8 +328,8 @@ final class DownloadsJourneyUITests: XCTestCase {
             }
             guard row.exists else { break }
             switch direction {
-            case .left: row.swipeLeft()
-            case .right: row.swipeRight()
+            case .left: revealSwipeActions(.trailing, on: row)
+            case .right: revealSwipeActions(.leading, on: row)
             }
             _ = button.waitForExistence(timeout: 2)
         }

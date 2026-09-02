@@ -1,4 +1,5 @@
 import SwiftUI
+import TipKit
 
 struct RadarrMovieDetailView: View {
     @Bindable var viewModel: RadarrViewModel
@@ -191,6 +192,13 @@ struct RadarrMovieDetailView: View {
             }
         }
         .animation(.spring(response: 0.32, dampingFraction: 0.86), value: layoutAnimationKey)
+        .task(id: "trawl-tip-detail-opened") {
+            // Previews render this view repeatedly while you edit them; counting
+            // those would hand the quick-actions tip its three openings without a
+            // user ever opening anything.
+            guard !ArrPreviewRuntime.isActive else { return }
+            await TrawlTipEvents.libraryDetailOpened.donate()
+        }
         .task(id: sabnzbdServiceManager?.activeProfileID) {
             #if DEBUG
             guard !disablesPreviewLoadingTasks else { return }

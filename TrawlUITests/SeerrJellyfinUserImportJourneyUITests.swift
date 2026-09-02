@@ -170,18 +170,11 @@ final class SeerrJellyfinUserImportJourneyUITests: XCTestCase {
 
     @MainActor
     private func openUsersScreen(in app: XCUIApplication) {
-        let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(
-            moreTab.waitForExistence(timeout: 20),
-            "Seeded Jellyfin and Seerr profiles should take the app past the welcome gate into the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "Seeded Jellyfin and Seerr profiles should take the app past the welcome gate into the real app chrome."
         )
-        moreTab.tap()
-
-        let requestsAndAccess = firstButton(labelContaining: "Requests & Access", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(requestsAndAccess, in: app, timeout: 15),
-            "More should expose the Requests & Access hub for a configured Seerr profile."
-        )
+        XCTAssertTrue(openDestination(.requestsAndAccess, in: app), "The Requests & Access hub should be reachable.")
 
         let usersRow = firstButton(labelContaining: "Jellyfin and Seerr accounts", in: app)
         XCTAssertTrue(

@@ -31,12 +31,8 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = server.baseURL
         app.launch()
 
-        XCTAssertTrue(tapWhenHittable(app.tabBars.buttons["More"], in: app, timeout: 15))
-
-        let search = app.searchFields["Search settings and features"]
-        XCTAssertTrue(search.waitForExistence(timeout: 10))
-        search.tap()
-        search.typeText("Jellyfin Libraries")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(searchTheAppChrome(for: "Jellyfin Libraries", in: app))
 
         let librariesResult = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "Jellyfin Libraries"))
@@ -63,7 +59,7 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
         let notifications = app.buttons["Notifications"]
         XCTAssertTrue(
             tapWhenHittable(notifications, in: app, timeout: 10),
-            "The tab-bar notification accessory should expose the event produced by the library removal."
+            "The notification accessory should expose the event produced by the library removal."
         )
 
         let sheet = app.navigationBars["Notifications"]
@@ -128,7 +124,7 @@ final class RecentNotificationsJourneyUITests: XCTestCase {
                 return true
             }
             guard row.exists else { return false }
-            row.swipeLeft()
+            revealSwipeActions(.trailing, on: row)
             _ = action.waitForExistence(timeout: 2)
         }
         guard action.exists && action.isHittable else { return false }

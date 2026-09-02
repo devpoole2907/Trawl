@@ -35,30 +35,27 @@ final class JellyfinLibrariesJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = server.baseURL
         app.launch()
 
-        let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(
-            moreTab.waitForExistence(timeout: 15),
-            "A seeded Jellyfin profile should reach the real tab UI rather than the welcome flow."
+            ensureRootChromeIsReady(in: app),
+            "A seeded Jellyfin profile should reach the real app chrome rather than the welcome flow."
         )
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app), "The More tab should be tappable after startup.")
 
-        // `JellyfinLibrariesView` is intentionally registered in More's searchable
-        // Library Management index. The Media Server hub has no Libraries row, so
-        // searching is the actual user-reachable route instead of a test-only push.
-        let search = app.searchFields["Search settings and features"]
+        // `JellyfinLibrariesView` is intentionally registered in the searchable
+        // Library Management index and nowhere else. The Media Server hub has no
+        // Libraries row, so searching is the actual user-reachable route rather than a
+        // test-only push - which also makes this the one journey that exercises each
+        // chrome's search field for real: More's on iPhone, the sidebar's on iPad.
         XCTAssertTrue(
-            search.waitForExistence(timeout: 10),
-            "More should expose its production feature search field."
+            searchTheAppChrome(for: "Jellyfin Libraries", in: app),
+            "The app chrome should expose its production feature search field."
         )
-        search.tap()
-        search.typeText("Jellyfin Libraries")
 
         let librariesResult = app.buttons
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "Jellyfin Libraries"))
             .firstMatch
         XCTAssertTrue(
             librariesResult.waitForExistence(in: app, timeout: 10),
-            "Searching More should return the real Jellyfin Libraries destination."
+            "Searching should return the real Jellyfin Libraries destination."
         )
         XCTAssertTrue(
             tapWhenHittable(librariesResult, in: app),
@@ -66,7 +63,7 @@ final class JellyfinLibrariesJourneyUITests: XCTestCase {
         )
         XCTAssertTrue(
             app.navigationBars["Libraries"].waitForExistence(timeout: 10),
-            "The More search result should show Jellyfin's real Libraries screen."
+            "The search result should show Jellyfin's real Libraries screen."
         )
 
         let library = app.staticTexts[JellyfinLibrariesUIFixtureServer.libraryName]
@@ -143,7 +140,7 @@ final class JellyfinLibrariesJourneyUITests: XCTestCase {
                 return true
             }
             guard row.exists else { return false }
-            row.swipeLeft()
+            revealSwipeActions(.trailing, on: row)
             _ = action.waitForExistence(timeout: 2)
         }
         guard action.exists && action.isHittable else { return false }

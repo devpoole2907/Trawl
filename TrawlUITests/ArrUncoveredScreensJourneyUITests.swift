@@ -47,12 +47,8 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
 
         let app = launchApp(sonarrBaseURL: sonarr.baseURL, bazarrBaseURL: nil)
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A configured Sonarr launch should reach the tab UI.")
-
-        let system = firstButton(labelContaining: "System", in: app)
-        XCTAssertTrue(tapWhenHittable(system, in: app, timeout: 12), "More should expose the System hub.")
-        XCTAssertTrue(app.navigationBars["System"].waitForExistence(in: app, timeout: 10))
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        XCTAssertTrue(openDestination(.system, in: app), "The System hub should be reachable.")
 
         let logs = firstButton(labelContaining: "Logs", in: app)
         XCTAssertTrue(tapWhenHittable(logs, in: app, timeout: 12), "System should expose Logs.")
@@ -81,15 +77,13 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
 
         let app = launchApp(sonarrBaseURL: nil, bazarrBaseURL: bazarr.baseURL)
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A configured Bazarr launch should reach the tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Bazarr launch should reach the app chrome.")
 
-        // Subtitles lives under Library Management, not at the top of More. Each step
-        // asserts where it landed: a CONTAINS match reports a successful tap even
-        // when it hits the wrong row, which is what made this fail three steps later.
-        let libraryManagement = firstButton(labelContaining: "Library Management", in: app)
-        XCTAssertTrue(tapWhenHittable(libraryManagement, in: app, timeout: 12), "More should expose Library Management.")
-        XCTAssertTrue(app.navigationBars["Library Management"].waitForExistence(in: app, timeout: 10))
+        // Subtitles lives under Library Management rather than at the top of either
+        // chrome. Each step asserts where it landed: a CONTAINS match reports a
+        // successful tap even when it hits the wrong row, which is what made this
+        // fail three steps later.
+        XCTAssertTrue(openDestination(.libraryManagement, in: app), "Library Management should be reachable.")
 
         let subtitles = firstButton(labelContaining: "Subtitles", in: app)
         XCTAssertTrue(tapWhenHittable(subtitles, in: app, timeout: 12), "Library Management should expose the Subtitles area for a configured Bazarr.")

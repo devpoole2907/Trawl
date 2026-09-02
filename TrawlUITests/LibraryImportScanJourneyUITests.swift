@@ -238,7 +238,7 @@ final class LibraryImportScanJourneyUITests: XCTestCase {
         XCTAssertEqual(scansAfterFirstVisit, 1, "Opening the folder should scan it exactly once.")
         XCTAssertEqual(lookupsAfterFirstVisit, 1, "Auto Match should look the one unidentified group up exactly once.")
 
-        let backButton = app.navigationBars["import-library"].buttons.element(boundBy: 0)
+        let backButton = backButton(in: app.navigationBars["import-library"])
         XCTAssertTrue(tapWhenHittable(backButton, in: app, timeout: 10), "The scan should be dismissable back to the import location list.")
         XCTAssertTrue(
             app.navigationBars["Library Import"].waitForExistence(in: app, timeout: 10),
@@ -283,12 +283,8 @@ final class LibraryImportScanJourneyUITests: XCTestCase {
     /// root folder returned from the real Sonarr `GET /rootfolder` response.
     @MainActor
     private func openLibraryImportRoot(in app: XCUIApplication) {
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 15), "A configured Sonarr launch should reach the tab UI and expose More.")
-
-        let libraryManagement = firstButton(labelContaining: "Library Management", in: app)
-        XCTAssertTrue(tapWhenHittable(libraryManagement, in: app, timeout: 10), "More should expose Library Management.")
-        XCTAssertTrue(app.navigationBars["Library Management"].waitForExistence(in: app, timeout: 10))
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        XCTAssertTrue(openDestination(.libraryManagement, in: app), "Library Management should be reachable.")
 
         let libraryImport = firstButton(labelContaining: "Library Import", in: app)
         XCTAssertTrue(tapWhenHittable(libraryImport, in: app, timeout: 10), "Library Management should expose Library Import.")

@@ -68,75 +68,73 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         sabnzbdServer = sab
 
         let app = launchApp(sonarr: sonarr, sabnzbd: sab)
-        waitForTabUI(app)
+        waitForRootChrome(app)
 
-        let downloadsTab = app.tabBars.buttons["Downloads"]
-        downloadsTab.tap()
+        XCTAssertTrue(openDestination(.downloads, in: app), "Screen: Downloads should be reachable.")
         XCTAssertTrue(
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
-            "Screen: Downloads tab should show the seeded SABnzbd job once the real connection finishes."
+            "Screen: Downloads should show the seeded SABnzbd job once the real connection finishes."
         )
 
-        let seriesTab = app.tabBars.buttons["Series"]
-        XCTAssertTrue(seriesTab.waitForExistence(timeout: 5), "Screen: Series tab bar button should exist.")
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "Screen: Series should be reachable.")
         XCTAssertTrue(
             app.staticTexts["Smoke Walk Series"].waitForExistence(in: app, timeout: 15),
-            "Screen: Series tab should show the seeded Sonarr library."
+            "Screen: Series should show the seeded Sonarr library."
         )
 
-        let moviesTab = app.tabBars.buttons["Movies"]
-        XCTAssertTrue(moviesTab.waitForExistence(timeout: 5), "Screen: Movies tab bar button should exist.")
-        moviesTab.tap()
+        XCTAssertTrue(openDestination(.movies, in: app), "Screen: Movies should be reachable.")
         XCTAssertTrue(
             app.staticTexts["Add a Radarr server in Settings to manage your movies."].waitForExistence(in: app, timeout: 10),
-            "Screen: Movies tab (no Radarr configured) should render its real unconfigured empty state rather than crash or render blank."
+            "Screen: Movies (no Radarr configured) should render its real unconfigured empty state rather than crash or render blank."
         )
 
-        let searchTab = app.tabBars.buttons["Search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 5), "Screen: Search tab bar button should exist.")
-        searchTab.tap()
+        XCTAssertTrue(openDestination(.search, in: app), "Screen: Search should be reachable.")
         XCTAssertTrue(
             app.navigationBars["Search"].waitForExistence(timeout: 10),
-            "Screen: Search tab should render its own navigation title."
+            "Screen: Search should render its own navigation title."
         )
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 5), "Screen: More tab bar button should exist.")
-        moreTab.tap()
+        // The fifth root destination is More on iPhone and Settings on iPad - More is
+        // not in the sidebar, because its rows are the sidebar. Either way the check is
+        // that the chrome still routes somewhere real after four hops, so it is asked
+        // for the same screen by a different route: Settings, which More lists and the
+        // sidebar owns outright.
+        XCTAssertTrue(openDestination(.settings, in: app), "Screen: Settings should be reachable.")
         XCTAssertTrue(
-            firstElement(labelContains: "Settings", in: app).waitForExistence(in: app, timeout: 10),
-            "Screen: More tab should list its Settings row."
+            app.navigationBars["Settings"].waitForExistence(timeout: 10),
+            "Screen: Settings should render its own navigation title."
         )
 
         // Getting back matters: return to Downloads and confirm real content survived
-        // the round trip through every other tab.
-        downloadsTab.tap()
+        // the round trip through every other destination.
+        XCTAssertTrue(openDestination(.downloads, in: app), "Screen: Downloads should still be reachable.")
         XCTAssertTrue(
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 10),
-            "Screen: returning to the Downloads tab after visiting every other tab should still show its real content."
+            "Screen: returning to Downloads after visiting every other destination should still show its real content."
         )
     }
 
-    // MARK: - 2. More's top-level rows
+    // MARK: - 2. The seven hub destinations
 
-    /// Regressions this catches: any of More's seven top-level rows (Missing,
-    /// Library Management, Requests & Access, Media Server, Integrations & Automation,
-    /// System, Settings) failing to push to a real screen, or failing to pop back to
-    /// More once pushed.
+    /// Regressions this catches: any of the seven hub destinations (Missing, Library
+    /// Management, Requests & Access, Media Server, Integrations & Automation, System,
+    /// Settings) failing to open onto a real screen, or failing to be reachable again
+    /// after being left.
+    ///
+    /// Both halves matter and both are chrome-dependent. On iPhone these are rows of
+    /// the More list, so opening one is a push and leaving it is a pop. On iPad they
+    /// are sidebar rows, so opening one *replaces* the content column and there is no
+    /// back button to press - leaving means selecting something else. The invariant
+    /// under test is the same in both: you can get there, and you can get back.
     @MainActor
-    func testMoreTopLevelDestinationsPopBackCleanly() async throws {
+    func testEveryHubDestinationOpensAndCanBeLeft() async throws {
         let app = try await launchWithSonarrAndSABnzbd()
-        waitForTabUI(app)
-        app.tabBars.buttons["More"].tap()
+        waitForRootChrome(app)
 
-        assertRowPushesAndPops(app, rowLabel: "Missing", expectedTitle: "Missing")
-        assertRowPushesAndPops(app, rowLabel: "Library Management", expectedTitle: "Library Management")
-        assertRowPushesAndPops(app, rowLabel: "Requests & Access", expectedTitle: "Requests & Access")
-        assertRowPushesAndPops(app, rowLabel: "Media Server", expectedTitle: "Media Server")
-        assertRowPushesAndPops(app, rowLabel: "Integrations & Automation", expectedTitle: "Integrations & Automation")
-        assertRowPushesAndPops(app, rowLabel: "System", expectedTitle: "System")
-        assertRowPushesAndPops(app, rowLabel: "Settings", expectedTitle: "Settings")
+        for hub in [TrawlDestination.missing, .libraryManagement, .requestsAndAccess,
+                    .mediaServer, .automation, .system, .settings] {
+            assertHubOpensAndCanBeLeft(app, hub)
+        }
     }
 
     // MARK: - 3. Downloads' management routes, including the SABnzbd client hub
@@ -158,13 +156,12 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         sonarrServer = sonarr
 
         let app = launchApp(sonarr: sonarr, sabnzbd: sab)
-        waitForTabUI(app)
+        waitForRootChrome(app)
 
-        let downloadsTab = app.tabBars.buttons["Downloads"]
-        downloadsTab.tap()
+        XCTAssertTrue(openDestination(.downloads, in: app), "Screen: Downloads should be reachable.")
         XCTAssertTrue(
             app.staticTexts[jobName].waitForExistence(in: app, timeout: 15),
-            "Screen: Downloads tab should show the seeded SABnzbd job before management routes are exercised."
+            "Screen: Downloads should show the seeded SABnzbd job before management routes are exercised."
         )
 
         openDownloadsOptions(app)
@@ -295,15 +292,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     @MainActor
     func testAutomationAndSystemHubChildrenRenderWithoutCrashing() async throws {
         let app = try await launchWithSonarrAndSABnzbd()
-        waitForTabUI(app)
-        app.tabBars.buttons["More"].tap()
-
-        let automationRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Integrations & Automation")).firstMatch
-        XCTAssertTrue(automationRow.waitForExistence(in: app, timeout: 10), "Screen: More should show an 'Integrations & Automation' row.")
-        automationRow.tap()
+        waitForRootChrome(app)
         XCTAssertTrue(
-            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
-            "Screen: 'Integrations & Automation' should push AutomationAndClientsHubView."
+            openDestination(.automation, in: app),
+            "Screen: 'Integrations & Automation' should open AutomationAndClientsHubView."
         )
 
         assertRowPushesAndPops(app, rowLabel: "Indexers", expectedTitle: "Indexers")
@@ -321,11 +313,10 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         assertRowPushesAndPops(app, rowLabel: "Arr Tasks", expectedTitle: "Tasks")
         popBack(app, fromTitle: "Tasks")
 
-        popBack(app, fromTitle: "Integrations & Automation")
-        let systemRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "System")).firstMatch
-        XCTAssertTrue(systemRow.waitForExistence(in: app, timeout: 10), "Screen: More should show a 'System' row again after returning from Integrations & Automation.")
-        systemRow.tap()
-        XCTAssertTrue(app.navigationBars["System"].waitForExistence(timeout: 10), "Screen: 'System' should push SystemHubView.")
+        XCTAssertTrue(
+            openDestination(.system, in: app),
+            "Screen: 'System' should open SystemHubView after a walk through Integrations & Automation."
+        )
 
         assertRowPushesAndPops(app, rowLabel: "Health", expectedTitle: "Health")
         assertRowPushesAndPops(app, rowLabel: "Disk Space", expectedTitle: "Disk Space")
@@ -342,10 +333,9 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     @MainActor
     func testCalendarSheetAndSettingsServiceRowsRenderWithoutCrashing() async throws {
         let app = try await launchWithSonarrAndSABnzbd()
-        waitForTabUI(app)
+        waitForRootChrome(app)
 
-        let seriesTab = app.tabBars.buttons["Series"]
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "Screen: Series should be reachable.")
         XCTAssertTrue(
             app.staticTexts["Fixture Series Alpha"].waitForExistence(in: app, timeout: 15),
             "Screen: Series tab should show the seeded Sonarr library before opening Calendar."
@@ -366,11 +356,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             "Screen: dismissing Calendar should return to the Series tab still showing its real content."
         )
 
-        app.tabBars.buttons["More"].tap()
-        let settingsRow = firstElement(labelContains: "Settings", in: app)
-        XCTAssertTrue(settingsRow.waitForExistence(in: app, timeout: 10), "Screen: More should show a 'Settings' row.")
-        settingsRow.tap()
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Screen: 'Settings' should push SettingsView.")
+        XCTAssertTrue(openDestination(.settings, in: app), "Screen: 'Settings' should open SettingsView.")
 
         // Sonarr: configured and connected.
         let sonarrRow = firstElement(labelContains: "Fixture Sonarr", in: app)
@@ -439,11 +425,11 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         return launchApp(sonarr: sonarr, sabnzbd: sab)
     }
 
-    private func waitForTabUI(_ app: XCUIApplication) {
-        let downloadsTab = app.tabBars.buttons["Downloads"]
+    @MainActor
+    private func waitForRootChrome(_ app: XCUIApplication) {
         XCTAssertTrue(
-            downloadsTab.waitForExistence(timeout: 15),
-            "A launch with configured services should reach the real tab UI, not the welcome screen."
+            ensureRootChromeIsReady(in: app),
+            "A launch with configured services should reach the real app chrome, not the welcome screen."
         )
     }
 
@@ -503,6 +489,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// Taps the leading (back) button on the named navigation bar. None of the screens
     /// this suite visits define a custom leading toolbar item, so the back chevron is
     /// reliably the first button in that bar.
+    @MainActor
     private func popBack(
         _ app: XCUIApplication,
         fromTitle: String,
@@ -516,7 +503,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
             file: file,
             line: line
         )
-        let backButton = bar.buttons.element(boundBy: 0)
+        let backButton = backButton(in: bar)
         XCTAssertTrue(
             backButton.waitForExistence(timeout: 5),
             "Screen: '\(fromTitle)' should offer a back control to return to the previous screen.",
@@ -531,6 +518,61 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     /// back button, and asserts the original row is visible again - proving both that
     /// the screen renders real content and that it can actually be navigated away from,
     /// not just pushed to.
+    /// Opens a hub destination, then leaves it and comes back.
+    ///
+    /// The two chromes disagree about what "leaving" is, and neither definition works
+    /// on the other. A pop needs a back button, which a sidebar destination does not
+    /// have - it is the root of its own column, not a push onto More's stack. And
+    /// selecting a different destination is not a meaningful "leave" on iPhone, where
+    /// it would just be another push onto the same list.
+    ///
+    /// So each chrome is asked for its own gesture, and both are then asked the same
+    /// question: is this screen still reachable? A destination that renders once but
+    /// cannot be returned to is its own bug, which is the regression this suite
+    /// existed to catch in the first place.
+    @MainActor
+    private func assertHubOpensAndCanBeLeft(
+        _ app: XCUIApplication,
+        _ hub: TrawlDestination,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        XCTAssertTrue(
+            openDestination(hub, in: app),
+            "Screen: '\(hub.title)' should open onto a real screen instead of crashing or rendering blank.",
+            file: file,
+            line: line
+        )
+
+        switch TrawlChrome.current {
+        case .tabBar:
+            popBack(app, fromTitle: hub.title, file: file, line: line)
+            let row = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", hub.title)).firstMatch
+            XCTAssertTrue(
+                row.waitForExistence(in: app, timeout: 10),
+                "Screen: popping back from '\(hub.title)' should return to More still listing its row.",
+                file: file,
+                line: line
+            )
+        case .sidebar:
+            // Downloads is the one destination that is never itself a hub, so leaving
+            // to it can never be a no-op for whichever hub is under test.
+            XCTAssertTrue(
+                openDestination(.downloads, in: app),
+                "Screen: it should be possible to leave '\(hub.title)' for another destination.",
+                file: file,
+                line: line
+            )
+            XCTAssertTrue(
+                openDestination(hub, in: app),
+                "Screen: '\(hub.title)' should still be reachable after leaving it.",
+                file: file,
+                line: line
+            )
+        }
+    }
+
+    @MainActor
     private func assertRowPushesAndPops(
         _ app: XCUIApplication,
         rowLabel: String,

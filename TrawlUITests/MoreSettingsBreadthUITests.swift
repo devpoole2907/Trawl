@@ -110,16 +110,10 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         bazarrServer = bazarr
 
         let app = launchApp(bazarr: bazarr)
-        openMore(in: app)
-
-        let libraryManagement = firstButton(labelContaining: "Library Management", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(libraryManagement, in: app),
-            "More should navigate into the Library Management hub when a Bazarr service is configured."
-        )
+        openHub(.libraryManagement, in: app)
         XCTAssertTrue(
             app.navigationBars["Library Management"].waitForExistence(timeout: 10),
-            "Library Management should render after the More route is selected."
+            "Library Management should render after its destination is selected."
         )
 
         let subtitles = firstButton(labelContaining: "Subtitles", in: app)
@@ -168,16 +162,10 @@ final class MoreSettingsBreadthUITests: XCTestCase {
 
         let app = launchApp(sonarr: sonarr, radarr: radarr)
         waitForConnectedMediaServices(in: app, seriesTitle: "Mappings Route Series")
-        openMore(in: app)
-
-        let automation = firstButton(labelContaining: "Integrations & Automation", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(automation, in: app),
-            "More should navigate to Integrations & Automation for configured Arr services."
-        )
+        openHub(.automation, in: app)
         XCTAssertTrue(
             app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
-            "Integrations & Automation should render its real hub after the More route is selected."
+            "Integrations & Automation should render its real hub after its destination is selected."
         )
 
         let mappings = firstButton(labelContaining: "Remote Path Mappings", in: app)
@@ -215,13 +203,7 @@ final class MoreSettingsBreadthUITests: XCTestCase {
 
         let app = launchApp(sonarr: sonarr, radarr: radarr)
         waitForConnectedMediaServices(in: app, seriesTitle: "Health Route Series")
-        openMore(in: app)
-
-        let system = firstButton(labelContaining: "System", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(system, in: app),
-            "More should navigate to the System hub."
-        )
+        openHub(.system, in: app)
         XCTAssertTrue(app.navigationBars["System"].waitForExistence(timeout: 10), "The System hub should render its navigation title.")
 
         let health = firstButton(labelContaining: "Health", in: app)
@@ -254,19 +236,13 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         radarrServer = radarr
 
         let app = launchApp(radarr: radarr)
-        let movies = app.tabBars.buttons["Movies"]
-        XCTAssertTrue(tapWhenHittable(movies, in: app), "The Movies tab should be available while waiting for Radarr to connect.")
+        XCTAssertTrue(openDestination(.movies, in: app), "Movies should be reachable while waiting for Radarr to connect.")
         XCTAssertTrue(
             app.staticTexts[RadarrFixtureServer.movieTitle].waitForExistence(timeout: 15),
             "The Radarr library must load before its Quality Profiles administration route is exercised."
         )
 
-        openMore(in: app)
-        let libraryManagement = firstButton(labelContaining: "Library Management", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(libraryManagement, in: app),
-            "More should expose Library Management for a configured Radarr server."
-        )
+        openHub(.libraryManagement, in: app)
         XCTAssertTrue(app.navigationBars["Library Management"].waitForExistence(timeout: 10), "Library Management should render after navigation.")
 
         let qualityProfiles = firstButton(labelContaining: "Quality Profiles", in: app)
@@ -311,25 +287,31 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.tabBars.buttons["More"].waitForExistence(timeout: 15),
-            "A synchronously seeded test service should bypass the welcome gate and enter the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A synchronously seeded test service should bypass the welcome gate and enter the real app chrome."
         )
         return app
     }
 
+    /// Opens one of the hub destinations this suite walks the children of.
+    ///
+    /// These used to go through More, which is where all seven live on iPhone. On
+    /// iPad More does not exist and the same seven are sidebar rows, so the caller
+    /// names the hub it wants rather than the container it used to be filed under -
+    /// the children below it are identical either way, which is what this suite is
+    /// actually about.
     @MainActor
-    private func openMore(in app: XCUIApplication) {
-        let more = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(more, in: app), "The More tab should be available after the seeded launch.")
-        XCTAssertTrue(app.navigationBars["More"].waitForExistence(timeout: 10), "The More tab should render its navigation title.")
+    private func openHub(_ hub: TrawlDestination, in app: XCUIApplication) {
+        XCTAssertTrue(
+            openDestination(hub, in: app),
+            "The \(hub.title) hub should be reachable after the seeded launch."
+        )
     }
 
     @MainActor
     private func openMoreSettings(in app: XCUIApplication) {
-        openMore(in: app)
-        let settings = firstButton(labelContaining: "Settings", in: app)
-        XCTAssertTrue(tapWhenHittable(settings, in: app), "More should expose its Settings route.")
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "More's Settings route should push SettingsView.")
+        openHub(.settings, in: app)
+        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings should render SettingsView.")
     }
 
     /// A configured profile exists before its asynchronous connection has completed.
@@ -337,15 +319,13 @@ final class MoreSettingsBreadthUITests: XCTestCase {
     /// Series and Movies lists first rather than racing their startup handshakes.
     @MainActor
     private func waitForConnectedMediaServices(in app: XCUIApplication, seriesTitle: String) {
-        let series = app.tabBars.buttons["Series"]
-        XCTAssertTrue(tapWhenHittable(series, in: app), "The Series tab should be available while waiting for the real Sonarr connection.")
+        XCTAssertTrue(openDestination(.series, in: app), "Series should be reachable while waiting for the real Sonarr connection.")
         XCTAssertTrue(
             app.staticTexts[seriesTitle].waitForExistence(in: app, timeout: 15),
             "The seeded Sonarr title should appear before a route that requires connected Arr clients is exercised."
         )
 
-        let movies = app.tabBars.buttons["Movies"]
-        XCTAssertTrue(tapWhenHittable(movies, in: app), "The Movies tab should be available while waiting for the real Radarr connection.")
+        XCTAssertTrue(openDestination(.movies, in: app), "Movies should be reachable while waiting for the real Radarr connection.")
         XCTAssertTrue(
             app.staticTexts[RadarrFixtureServer.movieTitle].waitForExistence(in: app, timeout: 15),
             "The seeded Radarr movie should appear before a route that requires connected Arr clients is exercised."
@@ -399,7 +379,7 @@ final class MoreSettingsBreadthUITests: XCTestCase {
     private func popBack(_ app: XCUIApplication, from title: String) {
         let navigationBar = app.navigationBars[title]
         XCTAssertTrue(navigationBar.waitForExistence(timeout: 5), "Expected the \(title) navigation bar before returning.")
-        let backButton = navigationBar.buttons.element(boundBy: 0)
+        let backButton = backButton(in: navigationBar)
         XCTAssertTrue(backButton.waitForExistence(timeout: 5), "Expected a back control from \(title).")
         backButton.tap()
     }

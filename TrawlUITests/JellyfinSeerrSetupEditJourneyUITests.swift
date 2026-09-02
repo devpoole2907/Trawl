@@ -77,8 +77,8 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         let app = launchApp(environment: ["TRAWL_UITEST_JELLYFIN_BASE_URL": original.baseURL])
         XCTAssertTrue(
-            app.tabBars.buttons["More"].waitForExistence(timeout: 15),
-            "A seeded Jellyfin profile should clear the welcome gate and reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A seeded Jellyfin profile should clear the welcome gate and reach the real app chrome."
         )
 
         navigateToServiceSettings(named: "Fixture Jellyfin", navigationBar: "Jellyfin", in: app)
@@ -242,8 +242,8 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         let app = launchApp(environment: ["TRAWL_UITEST_SEERR_BASE_URL": original.baseURL])
         XCTAssertTrue(
-            app.tabBars.buttons["More"].waitForExistence(timeout: 15),
-            "A seeded Seerr profile should clear the welcome gate and reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A seeded Seerr profile should clear the welcome gate and reach the real app chrome."
         )
 
         navigateToServiceSettings(named: "Fixture Seerr", navigationBar: "Seerr", in: app)
@@ -391,9 +391,7 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     /// name and host URL).
     @MainActor
     private func navigateToServiceSettings(named name: String, navigationBar: String, in app: XCUIApplication) {
-        XCTAssertTrue(tap(app.tabBars.buttons["More"], in: app, timeout: 10), "The More tab should be reachable.")
-        XCTAssertTrue(tap(firstButton(containing: "Settings", in: app), in: app, timeout: 10), "More should route to Settings.")
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings should be pushed before selecting \(name).")
+        XCTAssertTrue(openDestination(.settings, in: app), "Settings should be open before selecting \(name).")
         XCTAssertTrue(tap(firstButton(containing: name, in: app), in: app, timeout: 10), "Settings should list the seeded \(name) service row.")
         XCTAssertTrue(
             app.navigationBars[navigationBar].waitForExistence(timeout: 10),
@@ -471,6 +469,13 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     private func expandSheet(titled title: String, in app: XCUIApplication) {
         let bar = app.navigationBars[title]
         guard bar.waitForExistence(timeout: 10) else { return }
+        // Compact only. `ModalFormStyle`'s `.presentationDetents([.medium, .large])`
+        // is an iPhone affordance; on iPad the same sheet is a form sheet with no
+        // detents to expand, and dragging its navigation bar to the top of the screen
+        // there is not a resize - it is a drag of the sheet itself, which left the
+        // form in a state where nothing could take keyboard focus and every later
+        // `typeText` failed pointing at a field that was plainly on screen.
+        guard !TrawlChrome.isSidebar else { return }
         bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(
                 forDuration: 0.1,
@@ -496,19 +501,11 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
             file: file,
             line: line
         )
-        if field.elementType == .secureTextField {
-            // SecureField exposes a compact text-input element; tapping it directly is
-            // what gives it keyboard focus.
-            field.tap()
-        } else {
-            // SwiftUI aligns URL fields toward their trailing edge, so tapping there
-            // puts the caret after the existing text rather than in front of it.
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
+        focus(field, in: app)
         if characterCount > 0 {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
+            app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
         }
-        field.typeText(value)
+        app.typeText(value)
         resignKeyboard(in: app)
     }
 

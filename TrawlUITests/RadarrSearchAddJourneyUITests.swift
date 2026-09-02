@@ -64,11 +64,13 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let searchTab = app.tabBars.buttons["Search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 15))
-        searchTab.tap()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.search, in: app), "The Search destination should be reachable.")
 
-        let searchField = app.searchFields.firstMatch
+        // `contentSearchField` rather than `searchFields.firstMatch`: on iPad the
+        // sidebar has a permanent search field of its own, and typing into that one
+        // would search the feature index instead of Radarr.
+        let searchField = contentSearchField(in: app)
         XCTAssertTrue(searchField.waitForExistence(timeout: 10))
         searchField.tap()
         searchField.typeText("\(title)\n")
@@ -187,11 +189,13 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let searchTab = app.tabBars.buttons["Search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 15))
-        searchTab.tap()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.search, in: app), "The Search destination should be reachable.")
 
-        let searchField = app.searchFields.firstMatch
+        // `contentSearchField` rather than `searchFields.firstMatch`: on iPad the
+        // sidebar has a permanent search field of its own, and typing into that one
+        // would search the feature index instead of Radarr.
+        let searchField = contentSearchField(in: app)
         XCTAssertTrue(searchField.waitForExistence(timeout: 10))
         searchField.tap()
         searchField.typeText("Fixture\n")

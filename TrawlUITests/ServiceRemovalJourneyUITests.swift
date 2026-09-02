@@ -22,7 +22,7 @@ final class ServiceRemovalJourneyUITests: XCTestCase {
         server = nil
     }
 
-    /// Regressions this catches: More no longer reaching Settings; a configured
+    /// Regressions this catches: the root chrome no longer reaching Settings; a configured
     /// service row routing to the wrong destination; the destructive dialog losing
     /// its action; or removal leaving the SwiftData profile visible and usable.
     @MainActor
@@ -36,16 +36,12 @@ final class ServiceRemovalJourneyUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            tap(firstButton(containing: "More", in: app), in: app, timeout: 15),
-            "A configured Cleanuparr launch should reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A configured Cleanuparr launch should reach the real app chrome."
         )
         XCTAssertTrue(
-            tap(firstButton(containing: "Settings", in: app), in: app, timeout: 10),
-            "More should expose Settings as a real navigation destination."
-        )
-        XCTAssertTrue(
-            app.navigationBars["Settings"].waitForExistence(timeout: 10),
-            "The Settings destination should be pushed before selecting a service."
+            openDestination(.settings, in: app),
+            "Settings should be a real navigation destination, open before a service is selected."
         )
 
         let configuredService = firstButton(containing: "Fixture Cleanuparr", in: app)

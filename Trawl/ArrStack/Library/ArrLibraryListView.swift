@@ -25,9 +25,19 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
     let row: (Item, Bool) -> Row
     let retry: (() async -> Void)?
 
+    // `EditMode` is an iOS concept and the environment key does not exist on macOS,
+    // which is what stopped TrawlMac building at all. The parent (`ArrMediaListView`)
+    // already publishes it only under `#if os(iOS)`, so on macOS there is nothing to
+    // read and nothing to read it from - `false` is the honest answer rather than a
+    // stub, because a platform with no edit mode is never in one. Bulk selection on
+    // the Mac would be a menu command and a different mechanism, not this one.
+    #if os(iOS)
     @Environment(\.editMode) private var editMode
 
     private var isEditing: Bool { editMode?.wrappedValue.isEditing ?? false }
+    #else
+    private var isEditing: Bool { false }
+    #endif
 
     /// Present only while editing, and that is load-bearing.
     ///

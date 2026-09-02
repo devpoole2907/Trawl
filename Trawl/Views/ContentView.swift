@@ -760,7 +760,12 @@ struct ContentView: View {
                 .environment(services.torrentService)
                 .environment(sabnzbdServiceManager)
         case .search:
-            searchRoot(services: services)
+            // `.contentColumn`, because this column *is* inside the split view's
+            // navigation container. SearchView's own `NavigationStack` nested here
+            // took its search field with it - `.searchable` puts the field in its
+            // container's bar, and the nested stack's bar is not the one this column
+            // draws, so Search had no field at all on iPad.
+            searchRoot(services: services, presentation: .contentColumn)
         default:
             moreStack(
                 rootedAt: destination.moreRoot,
@@ -849,8 +854,14 @@ struct ContentView: View {
             .environment(downloadsNavigator)
     }
 
-    private func searchRoot(services: AppServices) -> some View {
-        SearchView()
+    /// Shared by the compact Search tab and the regular chrome's middle column, which
+    /// need different navigation containers - hence the parameter. The tab is the root
+    /// of its own stack; the column is already inside the split view's.
+    private func searchRoot(
+        services: AppServices,
+        presentation: SearchView.Presentation = .stack
+    ) -> some View {
+        SearchView(presentation: presentation)
             .environment(arrServiceManager)
             .environment(services.syncService)
             .environment(services.torrentService)

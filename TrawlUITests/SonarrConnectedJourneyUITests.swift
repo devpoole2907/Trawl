@@ -52,17 +52,16 @@ final class SonarrConnectedJourneyUITests: XCTestCase {
         // Past the welcome gate: seeding a real ArrServiceProfile before the app's
         // normal startup makes ContentView.hasConfiguredAnyService true immediately,
         // so launch should land directly in the tab UI instead of WelcomeFlowView.
-        let seriesTab = app.tabBars.buttons["Series"]
         XCTAssertTrue(
-            seriesTab.waitForExistence(timeout: 15),
-            "A launch with a configured Sonarr service should reach the real tab UI, not the welcome screen."
+            ensureRootChromeIsReady(in: app),
+            "A launch with a configured Sonarr service should reach the real app chrome, not the welcome screen."
         )
         XCTAssertFalse(
             app.staticTexts["Welcome to Trawl"].exists,
             "The welcome screen should not still be on screen once a service is configured."
         )
 
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
         // The real connect path (ArrServiceManager.connectService -> SonarrAPIClient)
         // has to complete several real HTTP round-trips over loopback - system

@@ -199,6 +199,75 @@ prefixes the Downloads screen's own "Downloads, change view" title menu, and a t
 that matched by label tapped the menu instead, opening a popover that swallowed
 every subsequent tap.
 
+## Feature-discovery tips (TipKit)
+
+| Production surface | Owning tests | What the tests pin, and why it matters |
+| --- | --- | --- |
+| `Trawl/Tips/` — the four tips, their stable IDs and shared events | `TrawlTests/TrawlTipsTests.swift` | The IDs are a contract with a datastore that already exists on every device that has run the app: a typo or a stray `.vN` bump re-shows a tip everyone dismissed, with no crash and no warning. Asserted against literal strings rather than round-tripped through the same constant, which would pass whatever the string said. Also pins the two *shared identities* that implement stated behaviour and have no other mechanism behind them — one blended-library tip across Series and Movies (so dismissing it under Series suppresses it under Movies), and one `libraryDetailOpened` event across both media types (so a Radarr-only user is not made to earn a three-opening tip six times). |
+| `TrawlApp.init()` → `TrawlTips.configure()`; presentation in `DownloadsView`, `ArrMediaListView`, `ArrCalendarView` | `TrawlUITests/TipsPresentationUITests.swift` | Each tip is asserted on the surface it is anchored to, using the `TRAWL_UITEST_SHOW_TIP` override — which forces one tip past its own rules, so a presentation test does not have to manufacture three detail openings or a second launch. The quick-actions case runs on a **single**-instance library on purpose: that is the case `.firstAvailable` grouping exists for, and an `.ordered` group would leave those users never seeing it. |
+| The UI-test hide, in `TrawlTips.applyTestingOverridesIfNeeded()` | `TrawlUITests/TipsPresentationUITests.swift` (`testOrdinaryLaunchesShowNoTips`) | **This one protects the rest of the target.** A popover anchored to a toolbar item swallows the taps aimed at it, and an inline tip pushes the first library row down past where a test expects it — so a new tip that forgets the hide breaks unrelated journeys in a way that reads as *those screens* being broken. The test seeds the richest configuration the tips care about (two download clients, two Sonarr instances), so every state rule is satisfied, and asserts all four titles are absent anyway. |
+
+Rules themselves are unit-tested, not UI-tested: whether TipKit evaluates a `#Rule`,
+whether a popover draws, when the daily budget resets — those are Apple's, they need a
+configured datastore, and asserting them in a simulator would be testing the framework
+rather than Trawl.
+
+**Events are persistent, `@Parameter`s are transient, and mixing them up is the usual
+bug.** Interaction counts that must survive relaunch (`libraryDetailOpened`,
+`calendarOpened`) are `Tips.Event`s. Current app state — whether two servers are
+configured *right now*, whether this library has rows, whether a bulk selection is in
+progress — is a `@Parameter`, because a persisted copy goes stale and puts a tip over a
+loading spinner, an empty library, or a selection in progress.
+
+## One suite, two chromes
+
+`TrawlUITests/TrawlChrome.swift` is how every journey suite in this target reaches a
+screen. Call `openDestination(_:in:)` and it takes whichever route the running device
+provides; call `ensureRootChromeIsReady(in:)` to wait for the app to clear the welcome
+gate; call `searchTheAppChrome(for:in:)` to drive whichever field searches the feature
+index. **No suite should hard-code `app.tabBars.buttons[...]` again.**
+
+The reason is not tidiness. Before this existed, roughly thirty suites opened with
+`app.tabBars.buttons["More"]`, which does not exist on iPad — so on an iPad
+destination the first assertion failed and, with `continueAfterFailure = false`, took
+the rest of the class with it. Every behaviour those suites cover was unverified on
+iPad, and none of them said so: they simply were not run there. Making the navigation
+chrome-agnostic was the cheapest way to fix that, because the behaviour under test is
+identical on both platforms. Only the route to it differs.
+
+So the same test now runs on an iPhone destination and an iPad one, and a chrome that
+breaks on either fails the suite. Three queries need care, and each cost a run to
+learn:
+
+- **`contentSearchField(in:)`, not `app.searchFields.firstMatch`.** On iPad the
+  sidebar carries a permanent `.searchable` of its own, so any screen with a search
+  field has two in the tree. `firstMatch` returns the sidebar's — further up the
+  hierarchy and further left — and a test typing into it searches the feature index
+  instead of the screen, gets nothing, and blames the screen.
+- **A label that names a destination is ambiguous.** "Series" is the tab bar button on
+  iPhone and the sidebar row on iPad, so a menu option of the same name has to be
+  disambiguated by position. `ArrBlendedLibraryJourneyUITests` does this against
+  whichever neighbour is actually on screen.
+- **"Leaving" a hub is not a pop on iPad.** A sidebar destination is the root of its
+  own column, not a push onto More's stack, so there is no back button. The equivalent
+  gesture is selecting something else — see `assertHubOpensAndCanBeLeft` in
+  `NavigationSmokeWalkUITests`, which asks each chrome for its own gesture and then
+  asks both the same question: is this screen still reachable?
+
+Run the plan on both destinations before calling a change done:
+
+```
+xcodebuild -project Trawl.xcodeproj -scheme Trawl \
+  -destination 'platform=iOS Simulator,name=iPhone 17 Pro' \
+  -derivedDataPath /tmp/trawl-dd test
+xcodebuild -project Trawl.xcodeproj -scheme Trawl \
+  -destination 'platform=iOS Simulator,name=iPad Pro 13-inch (M5)' \
+  -derivedDataPath /tmp/trawl-dd test
+```
+
+One at a time: concurrent simulator runs fake crashes and leave result bundles
+unfinalized.
+
 ## iPad behaviour
 
 | Production surface | Owning tests | What the tests pin, and why it matters |

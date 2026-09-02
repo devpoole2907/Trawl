@@ -29,6 +29,11 @@ struct TrawlApp: App {
     @State private var appLockController = AppLockController()
 
     init() {
+        // Ahead of everything, including the DEBUG UI-test branch below - which
+        // returns early. That branch is the one that most needs tips suppressed, and
+        // `Tips.hideAllTipsForTesting()` only takes effect once `Tips` is configured.
+        TrawlTips.configure()
+
         let schema = TrawlModelSchema.full
 
         #if DEBUG

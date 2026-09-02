@@ -94,12 +94,11 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
 
         // MARK: Baseline - connected to server A
 
-        let seriesTab = app.tabBars.buttons["Series"]
         XCTAssertTrue(
-            seriesTab.waitForExistence(timeout: 15),
-            "A launch seeded with a configured Sonarr service should reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A launch seeded with a configured Sonarr service should reach the real app chrome."
         )
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
         XCTAssertTrue(
             app.staticTexts["Series From Server A"].waitForExistence(timeout: 15),
@@ -233,16 +232,10 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
     /// it, and `ArrServiceSettingsView`'s "Server" section presents `ArrSetupSheet`.
     @MainActor
     private func openSonarrEditor(in app: XCUIApplication) {
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "The More tab should exist in the tab bar.")
-        moreTab.tap()
-
-        let settingsRow = firstElement(labelContains: "Settings", in: app)
         XCTAssertTrue(
-            settingsRow.waitForExistence(timeout: 10),
-            "More should show a 'Settings' row (MoreView.swift, MoreDestination.settings)."
+            openDestination(.settings, in: app),
+            "Settings should be reachable from the root chrome (MoreView.swift, MoreDestination.settings)."
         )
-        settingsRow.tap()
 
         let sonarrRow = firstElement(labelContains: "Fixture Sonarr", in: app)
         XCTAssertTrue(
@@ -302,19 +295,11 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
     /// so its contents cannot be measured from the element.
     @MainActor
     private func replace(_ value: String, in field: XCUIElement, deleting characterCount: Int, in app: XCUIApplication) {
-        if field.elementType == .secureTextField {
-            // SecureField exposes a compact text-input element; tapping it directly is
-            // what gives it keyboard focus.
-            field.tap()
-        } else {
-            // SwiftUI aligns URL fields toward their trailing edge; tapping there keeps
-            // the caret after the existing text instead of before it.
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
+        focus(field, in: app)
         if characterCount > 0 {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
+            app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
         }
-        field.typeText(value)
+        app.typeText(value)
         resignKeyboard(in: app)
     }
 
@@ -341,6 +326,13 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
     private func expandSheet(titled title: String, in app: XCUIApplication) {
         let bar = app.navigationBars[title]
         guard bar.waitForExistence(timeout: 10) else { return }
+        // Compact only. `ModalFormStyle`'s `.presentationDetents([.medium, .large])`
+        // is an iPhone affordance; on iPad the same sheet is a form sheet with no
+        // detents to expand, and dragging its navigation bar to the top of the screen
+        // there is not a resize - it is a drag of the sheet itself, which left the
+        // form in a state where nothing could take keyboard focus and every later
+        // `typeText` failed pointing at a field that was plainly on screen.
+        guard !TrawlChrome.isSidebar else { return }
         bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(
                 forDuration: 0.1,

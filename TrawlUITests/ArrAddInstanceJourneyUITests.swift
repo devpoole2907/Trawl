@@ -77,19 +77,13 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.tabBars.buttons["Series"].waitForExistence(timeout: 15),
-            "A launch seeded with a configured Sonarr service should reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A launch seeded with a configured Sonarr service should reach the real app chrome."
         )
 
         // MARK: Reach the Sonarr service detail screen
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "The More tab should exist in the tab bar.")
-        moreTab.tap()
-
-        let settingsRow = firstButton(labelContains: "Settings", in: app)
-        XCTAssertTrue(settingsRow.waitForExistence(timeout: 10), "More should show a 'Settings' row.")
-        settingsRow.tap()
+        XCTAssertTrue(openDestination(.settings, in: app), "Settings should be reachable from the root chrome.")
 
         let sonarrRow = firstButton(labelContains: "Fixture Sonarr", in: app)
         XCTAssertTrue(sonarrRow.waitForExistence(timeout: 10), "Settings should list the seeded Sonarr profile.")
@@ -219,6 +213,13 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
     private func expandSheet(titled title: String, in app: XCUIApplication) {
         let bar = app.navigationBars[title]
         guard bar.waitForExistence(timeout: 10) else { return }
+        // Compact only. `ModalFormStyle`'s `.presentationDetents([.medium, .large])`
+        // is an iPhone affordance; on iPad the same sheet is a form sheet with no
+        // detents to expand, and dragging its navigation bar to the top of the screen
+        // there is not a resize - it is a drag of the sheet itself, which left the
+        // form in a state where nothing could take keyboard focus and every later
+        // `typeText` failed pointing at a field that was plainly on screen.
+        guard !TrawlChrome.isSidebar else { return }
         bar.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
             .press(
                 forDuration: 0.1,
@@ -231,12 +232,8 @@ final class ArrAddInstanceJourneyUITests: XCTestCase {
     /// evaluated against a settled layout.
     @MainActor
     private func type(_ value: String, into field: XCUIElement, in app: XCUIApplication) {
-        if field.elementType == .secureTextField {
-            field.tap()
-        } else {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
-        field.typeText(value)
+        focus(field, in: app)
+        app.typeText(value)
         resignKeyboard(in: app)
     }
 

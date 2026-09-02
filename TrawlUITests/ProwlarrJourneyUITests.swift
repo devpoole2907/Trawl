@@ -76,10 +76,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
         fixtureServer = server
         let app = launchApp(server: server)
 
-        app.tabBars.buttons["More"].tap()
-        let automation = button(containing: "Integrations & Automation", in: app)
-        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Integrations & Automation.")
-        automation.tap()
+        XCTAssertTrue(openDestination(.automation, in: app), "Integrations & Automation should be reachable.")
 
         let linkedApplications = button(containing: "Linked Applications", in: app)
         XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
@@ -168,18 +165,15 @@ final class ProwlarrJourneyUITests: XCTestCase {
         app.launch()
 
         XCTAssertTrue(
-            app.tabBars.buttons["More"].waitForExistence(timeout: 15),
-            "The Prowlarr launch seed should bypass the welcome gate and reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "The Prowlarr launch seed should bypass the welcome gate and reach the real app chrome."
         )
         return app
     }
 
     @MainActor
     private func openIndexers(in app: XCUIApplication) {
-        app.tabBars.buttons["More"].tap()
-        let automation = button(containing: "Integrations & Automation", in: app)
-        XCTAssertTrue(automation.waitForExistence(in: app, timeout: 10), "More should expose Integrations & Automation.")
-        automation.tap()
+        XCTAssertTrue(openDestination(.automation, in: app), "Integrations & Automation should be reachable.")
 
         let indexers = button(containing: "Indexers", in: app)
         XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
@@ -196,7 +190,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
     private func popBack(_ app: XCUIApplication, from title: String) {
         let navigationBar = app.navigationBars[title]
         XCTAssertTrue(navigationBar.waitForExistence(timeout: 5), "Expected the \(title) navigation bar before returning.")
-        let backButton = navigationBar.buttons.element(boundBy: 0)
+        let backButton = backButton(in: navigationBar)
         XCTAssertTrue(backButton.waitForExistence(timeout: 5), "Expected a back control from \(title).")
         backButton.tap()
     }

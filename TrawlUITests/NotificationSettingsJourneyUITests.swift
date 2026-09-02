@@ -153,10 +153,18 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
 
     @MainActor
     private func openSonarrNotifications(in app: XCUIApplication) {
+        // The accessory is rendered by both chromes - a tab bar accessory on iPhone,
+        // a bottom safe-area inset on iPad - so it is the same button either way. The
+        // wait is still needed: it only exists once the app is past the welcome gate.
+        XCTAssertTrue(
+            ensureRootChromeIsReady(in: app),
+            "A seeded Sonarr profile should reach the real app chrome before its notification accessory is used."
+        )
+
         let notifications = app.buttons["Notifications"]
         XCTAssertTrue(
             tapWhenHittable(notifications, in: app, timeout: 15),
-            "The app-wide Notifications accessory should be available after the seeded Sonarr profile reaches the normal tab UI."
+            "The app-wide Notifications accessory should be available after the seeded Sonarr profile reaches the normal app chrome."
         )
         XCTAssertTrue(
             app.navigationBars["Notifications"].waitForExistence(timeout: 10),

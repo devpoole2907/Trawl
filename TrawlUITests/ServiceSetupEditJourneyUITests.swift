@@ -41,7 +41,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         servers = [original, replacement]
 
         let app = launchApp(qbittorrent: original.baseURL, sabnzbd: nil)
-        XCTAssertTrue(app.tabBars.buttons["Downloads"].waitForExistence(timeout: 15), "A seeded qBittorrent profile should reach Trawl's tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded qBittorrent profile should reach Trawl's app chrome.")
 
         navigateToQBittorrentServerEditor(in: app)
 
@@ -53,14 +53,14 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         let password = app.secureTextFields["Password"]
         XCTAssertTrue(host.waitForExistence(timeout: 10), "The edit sheet should expose its Server address field.")
         waitForValue(host, expected: original.baseURL, timeout: 10)
-        replace(replacement.baseURL, in: host, deleting: original.baseURL.count)
+        replace(replacement.baseURL, in: host, deleting: original.baseURL.count, in: app)
 
         XCTAssertTrue(username.waitForExistence(in: app, timeout: 10), "The edit sheet should expose its Username field.")
         waitForValue(username, expected: "uitest-username", timeout: 10)
-        replace(replacementUsername, in: username, deleting: "uitest-username".count)
+        replace(replacementUsername, in: username, deleting: "uitest-username".count, in: app)
 
         XCTAssertTrue(password.waitForExistence(in: app, timeout: 10), "The edit sheet should expose its Password field.")
-        replace("not-the-password", in: password, deleting: "uitest-password".count)
+        replace("not-the-password", in: password, deleting: "uitest-password".count, in: app)
 
         let connect = app.buttons["Connect"]
         XCTAssertTrue(tap(connect, in: app, timeout: 5), "The populated qBittorrent edit form should enable Connect.")
@@ -77,7 +77,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertEqual(host.value as? String, replacement.baseURL, "The rejected attempt must preserve the edited host instead of restoring or clearing it.")
         XCTAssertEqual(username.value as? String, replacementUsername, "The rejected attempt must preserve the edited username instead of restoring it silently.")
 
-        replace(replacementPassword, in: password, deleting: "not-the-password".count)
+        replace(replacementPassword, in: password, deleting: "not-the-password".count, in: app)
         XCTAssertTrue(tap(connect, in: app, timeout: 5), "Correcting the password should allow a second real validation attempt.")
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 10) {
@@ -112,7 +112,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         servers = [original, replacement]
 
         let app = launchApp(qbittorrent: nil, sabnzbd: original.baseURL)
-        XCTAssertTrue(app.tabBars.buttons["Downloads"].waitForExistence(timeout: 15), "A seeded SABnzbd profile should reach Trawl's tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded SABnzbd profile should reach Trawl's app chrome.")
 
         navigateToSABnzbdEditor(in: app)
 
@@ -124,8 +124,8 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertTrue(key.waitForExistence(timeout: 10), "The SABnzbd edit sheet should expose the full API-key field.")
         waitForValue(host, expected: original.baseURL, timeout: 10)
 
-        replace(replacement.baseURL, in: host, deleting: original.baseURL.count)
-        replace("wrong-full-api-key", in: key, deleting: "uitest-api-key".count)
+        replace(replacement.baseURL, in: host, deleting: original.baseURL.count, in: app)
+        replace("wrong-full-api-key", in: key, deleting: "uitest-api-key".count, in: app)
 
         let save = app.buttons["Save Connection"]
         XCTAssertTrue(tap(save, in: app, timeout: 5), "A nonempty SABnzbd host/key form should enable Save Connection.")
@@ -141,7 +141,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
         XCTAssertTrue(editTitle.exists, "A wrong SABnzbd full key must not dismiss the setup sheet.")
         XCTAssertEqual(host.value as? String, replacement.baseURL, "A failed SABnzbd validation must retain the newly entered host.")
 
-        replace(replacementKey, in: key, deleting: "wrong-full-api-key".count)
+        replace(replacementKey, in: key, deleting: "wrong-full-api-key".count, in: app)
         XCTAssertTrue(tap(save, in: app, timeout: 5), "Correcting the SABnzbd key should allow a second save attempt.")
         XCTAssertTrue(
             waitForCondition(in: app, timeout: 10) {
@@ -184,9 +184,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
 
     @MainActor
     private func navigateToQBittorrentServerEditor(in app: XCUIApplication) {
-        XCTAssertTrue(tap(app.tabBars.buttons["More"], in: app, timeout: 10), "The More tab should be reachable.")
-        XCTAssertTrue(tap(firstButton(containing: "Settings", in: app), in: app, timeout: 10), "More should route to Settings.")
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings should be pushed before selecting qBittorrent.")
+        XCTAssertTrue(openDestination(.settings, in: app), "Settings should be open before selecting qBittorrent.")
         XCTAssertTrue(tap(firstButton(containing: "Fixture qBittorrent", in: app), in: app, timeout: 10), "Settings should show the seeded qBittorrent service row.")
         XCTAssertTrue(app.navigationBars["qBittorrent"].waitForExistence(timeout: 10), "The qBittorrent service row should route to qBittorrent Settings.")
         XCTAssertTrue(
@@ -199,9 +197,7 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
 
     @MainActor
     private func navigateToSABnzbdEditor(in app: XCUIApplication) {
-        XCTAssertTrue(tap(app.tabBars.buttons["More"], in: app, timeout: 10), "The More tab should be reachable.")
-        XCTAssertTrue(tap(firstButton(containing: "Settings", in: app), in: app, timeout: 10), "More should route to Settings.")
-        XCTAssertTrue(app.navigationBars["Settings"].waitForExistence(timeout: 10), "Settings should be pushed before selecting SABnzbd.")
+        XCTAssertTrue(openDestination(.settings, in: app), "Settings should be open before selecting SABnzbd.")
         XCTAssertTrue(tap(firstButton(containing: "Fixture SABnzbd", in: app), in: app, timeout: 10), "Settings should show the seeded SABnzbd service row.")
         XCTAssertTrue(app.navigationBars["SABnzbd Settings"].waitForExistence(timeout: 10), "The SABnzbd service row should route to SABnzbd Settings.")
         XCTAssertTrue(tap(app.buttons["Edit Server"], in: app, timeout: 10), "SABnzbd Settings should expose Edit Server for a configured profile.")
@@ -248,20 +244,12 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
     }
 
     @MainActor
-    private func replace(_ value: String, in field: XCUIElement, deleting characterCount: Int) {
-        // SwiftUI aligns some URL fields toward their trailing edge. Tapping there
-        // keeps the caret where the user expects and avoids appending at the front.
-        if field.elementType == .secureTextField {
-            // SecureField exposes a compact text-input element; tapping that
-            // element directly is required for keyboard focus.
-            field.tap()
-        } else {
-            field.coordinate(withNormalizedOffset: CGVector(dx: 0.95, dy: 0.5)).tap()
-        }
+    private func replace(_ value: String, in field: XCUIElement, deleting characterCount: Int, in app: XCUIApplication) {
+        focus(field, in: app)
         if characterCount > 0 {
-            field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
+            app.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: characterCount))
         }
-        field.typeText(value)
+        app.typeText(value)
     }
 
     @MainActor

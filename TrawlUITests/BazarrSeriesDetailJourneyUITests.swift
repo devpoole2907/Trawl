@@ -61,30 +61,22 @@ final class BazarrSeriesDetailJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 20))
-        moreTab.tap()
-
-        let wantedRow = app.buttons["Missing"].exists
-            ? app.buttons["Missing"]
-            : app.staticTexts["Missing"]
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
         XCTAssertTrue(
-            wantedRow.waitForExistence(in: app, timeout: 15),
-            "More should offer its Missing row."
+            openDestination(.missing, in: app),
+            "The Missing destination should be reachable from the app's root chrome."
         )
-        XCTAssertTrue(tapWhenHittable(wantedRow, in: app, timeout: 15))
 
         // The subtitle section only renders for a series Bazarr reports as missing
         // episodes, so reaching this row already proves the series decoded with a
         // non-zero episodeMissingCount.
-        let seriesRow = app.staticTexts[BazarrUIFixtureServer.seriesTitle]
         XCTAssertTrue(
-            seriesRow.waitForExistence(in: app, timeout: 20),
+            app.staticTexts[BazarrUIFixtureServer.seriesTitle].waitForExistence(in: app, timeout: 20),
             "Missing should list the Bazarr series with outstanding subtitles."
         )
         XCTAssertTrue(
-            tapWhenHittable(seriesRow, in: app, timeout: 15),
-            "The wanted subtitle row should push the Bazarr series detail."
+            openLibraryItem(titled: BazarrUIFixtureServer.seriesTitle, in: app),
+            "The wanted subtitle row should open the Bazarr series detail."
         )
 
         XCTAssertTrue(

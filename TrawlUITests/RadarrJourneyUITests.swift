@@ -137,12 +137,11 @@ final class RadarrJourneyUITests: XCTestCase {
 
         // MARK: 1. Past the welcome gate, onto the Movies tab, with the fixture's movie.
 
-        let moviesTab = app.tabBars.buttons["Movies"]
         XCTAssertTrue(
-            moviesTab.waitForExistence(timeout: 15),
-            "A launch with a configured Radarr service should reach the real tab UI, not the welcome screen."
+            ensureRootChromeIsReady(in: app),
+            "A launch with a configured Radarr service should reach the real app chrome, not the welcome screen."
         )
-        moviesTab.tap()
+        XCTAssertTrue(openDestination(.movies, in: app), "The Movies library should be reachable.")
 
         let movieRow = app.staticTexts[RadarrFixtureServer.movieTitle]
         XCTAssertTrue(
@@ -157,7 +156,7 @@ final class RadarrJourneyUITests: XCTestCase {
         // MARK: 2. Open the movie detail screen and assert real, distinct content.
 
         XCTAssertTrue(
-            tapWhenHittable(movieRow, in: app, timeout: 15),
+            openLibraryItem(titled: RadarrFixtureServer.movieTitle, in: app),
             "The movie row should become tappable once the list finishes loading - regression: the row exists but its tap is silently dropped (see file header, 'established UI facts')."
         )
 

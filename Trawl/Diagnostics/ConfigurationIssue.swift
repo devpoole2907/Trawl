@@ -10,6 +10,8 @@ import Foundation
 /// What kind of discrepancy this is. Stable identities rather than free text, so a
 /// surface can filter, count, or deep-link a specific check without string matching.
 enum ConfigurationIssueKind: String, Hashable, Sendable, CaseIterable {
+    case serviceUnreachable
+    case configurationUnavailable
     case noDownloadClient
     case downloadClientsAllDisabled
     case downloadClientElsewhere
@@ -30,7 +32,9 @@ enum ConfigurationIssueKind: String, Hashable, Sendable, CaseIterable {
 /// "something you expect to work cannot".
 enum ConfigurationIssueSeverity: Int, Hashable, Sendable, Comparable {
     case note = 0
-    case problem = 1
+    /// Trawl could not prove whether this part of the setup is healthy.
+    case unknown = 1
+    case problem = 2
 
     static func < (lhs: Self, rhs: Self) -> Bool { lhs.rawValue < rhs.rawValue }
 }
@@ -55,12 +59,12 @@ struct ConfigurationIssueSubject: Hashable, Sendable {
 /// tab's navigation stack. Surfaces map this to whatever routing they have.
 enum ConfigurationFixDestination: Hashable, Sendable {
     case downloadClientsManagement
-    case arrDownloadClients(ArrServiceType)
-    case rootFolders
+    case arrDownloadClients(ArrServiceType, instanceID: UUID)
+    case rootFolders(instanceID: UUID)
     case prowlarrIndexers
     case prowlarrApplications
-    case bazarrLinkedApplications
-    case serviceSettings(ArrServiceType)
+    case bazarrLinkedApplications(instanceID: UUID)
+    case serviceSettings(ArrServiceType, instanceID: UUID?)
 }
 
 /// What can be done about an issue.
@@ -101,6 +105,27 @@ struct ConfigurationIssue: Identifiable, Hashable, Sendable {
     let title: String
     let detail: String
     let fix: ConfigurationIssueFix
+    /// Distinguishes two findings of the same kind on the same subject, such as a
+    /// Bazarr missing both Sonarr and Radarr or two shared root-folder paths.
+    let discriminator: String?
+
+    init(
+        kind: ConfigurationIssueKind,
+        severity: ConfigurationIssueSeverity,
+        subject: ConfigurationIssueSubject,
+        title: String,
+        detail: String,
+        fix: ConfigurationIssueFix,
+        discriminator: String? = nil
+    ) {
+        self.kind = kind
+        self.severity = severity
+        self.subject = subject
+        self.title = title
+        self.detail = detail
+        self.fix = fix
+        self.discriminator = discriminator
+    }
 
     /// Stable across refreshes, so a list can animate and a dismissal can stick:
     /// the same fault on the same server keeps the same id.
@@ -108,11 +133,17 @@ struct ConfigurationIssue: Identifiable, Hashable, Sendable {
         let scope = subject.instanceID?.uuidString
             ?? subject.serviceType?.rawValue
             ?? subject.displayName
-        return "\(kind.rawValue)-\(scope)"
+        return [kind.rawValue, scope, discriminator]
+            .compactMap { $0 }
+            .joined(separator: "-")
     }
 
     var systemImage: String {
         switch kind {
+        case .serviceUnreachable:
+            "network.slash"
+        case .configurationUnavailable:
+            "questionmark.diamond"
         case .noDownloadClient, .downloadClientsAllDisabled, .downloadClientElsewhere, .downloadClientUnused:
             "arrow.down.circle"
         case .noRootFolder, .rootFolderInaccessible, .rootFolderShared:
@@ -127,6 +158,7 @@ struct ConfigurationIssue: Identifiable, Hashable, Sendable {
 
 extension Array where Element == ConfigurationIssue {
     var problems: [ConfigurationIssue] { filter { $0.severity == .problem } }
+    var unknowns: [ConfigurationIssue] { filter { $0.severity == .unknown } }
     var notes: [ConfigurationIssue] { filter { $0.severity == .note } }
 
     /// Problems first, then grouped by the server they concern, so a list reads as

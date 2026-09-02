@@ -103,12 +103,11 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
 
         // MARK: Step 1 - real connection: Downloads tab shows the seeded job.
 
-        let downloadsTab = app.tabBars.buttons["Downloads"]
         XCTAssertTrue(
-            downloadsTab.waitForExistence(timeout: 15),
-            "A launch with a configured SABnzbd service should reach the real tab UI, not the welcome screen."
+            ensureRootChromeIsReady(in: app),
+            "A launch with a configured SABnzbd service should reach the real app chrome, not the welcome screen."
         )
-        downloadsTab.tap()
+        XCTAssertTrue(openDestination(.downloads, in: app), "The Downloads queue should be reachable.")
 
         let downloadsJobRow = app.staticTexts[jobName]
         XCTAssertTrue(
@@ -225,7 +224,7 @@ final class SABnzbdUnauthorizedJourneyUITests: XCTestCase {
         // that list with no explanation: the only screen that showed the error was
         // this manager view, four navigations away. Silent data loss is the worst
         // failure mode of the three, so it gets its own assertion.
-        app.tabBars.buttons["Downloads"].tap()
+        XCTAssertTrue(openDestination(.downloads, in: app), "The Downloads queue should be reachable.")
 
         let downloadsWarning = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "SABnzbd Unavailable"))

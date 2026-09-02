@@ -1,5 +1,6 @@
 import SwiftData
 import SwiftUI
+import TipKit
 
 /// Lets callers outside the Downloads tab steer its segment bar on an
 /// already-mounted `DownloadsView`. `initialSection` can only ever be read once,
@@ -74,6 +75,7 @@ struct DownloadsView: View {
     /// rather than by pushing: these are peers, not details of one another, and
     /// reaching a client's own queue by way of Client Management never made sense.
     @State private var titleDestination: DownloadsTitleDestination = .downloads
+    private let queueSwitchTip = DownloadsQueueSwitchTip()
     /// Drives the title menu's shrink. A `.principal` toolbar item is fixed, so
     /// this stands in for the large-title collapse the system would do for us.
     @State private var isTitleCompact = false
@@ -158,6 +160,12 @@ struct DownloadsView: View {
         availableTitleDestinations.count > 1 && !editMode.isEditing
     }
 
+    /// Kept in step with `showsTitleMenu` - the tip's transient rule is that exact
+    /// condition, so the popover cannot be anchored to a control that is not drawn.
+    private func updateQueueSwitchTipEligibility() {
+        DownloadsQueueSwitchTip.isEligible = showsTitleMenu
+    }
+
     /// The title doubles as the switch between this tab's three lists.
     ///
     /// Deliberately a `Menu` inside a `ToolbarItem` styled to read as the title,
@@ -179,6 +187,10 @@ struct DownloadsView: View {
                     selection: $titleDestination,
                     isCompact: isTitleCompact
                 )
+                // Anchored to the menu itself rather than floated over the screen:
+                // the whole point of the tip is *which* control to tap, and a
+                // popover that points at it says that better than any sentence.
+                .popoverTip(queueSwitchTip)
             }
         }
     }
@@ -200,7 +212,7 @@ struct DownloadsView: View {
                 Button("Done") { chrome.endSelecting?() }
             }
 
-            ToolbarItemGroup(placement: .bottomBar) {
+            ToolbarItemGroup(placement: platformBottomBarPlacement) {
                 if chrome.supportsPauseResume {
                     Button {
                         chrome.pauseSelected?()
@@ -397,7 +409,12 @@ struct DownloadsView: View {
                 editMode = .inactive
                 selectedRowIDs.removeAll()
                 publishChrome()
+                // The user just did the thing the tip exists to explain. Anything
+                // further would be the app narrating a gesture back at them.
+                queueSwitchTip.invalidate(reason: .actionPerformed)
             }
+            .onAppear { updateQueueSwitchTipEligibility() }
+            .onChange(of: showsTitleMenu) { _, _ in updateQueueSwitchTipEligibility() }
             .onAppear { publishChrome() }
             .onChange(of: publishedChromeSignature) { _, _ in publishChrome() }
             .alert("Delete Torrent?", isPresented: torrentDeletionPresented) {

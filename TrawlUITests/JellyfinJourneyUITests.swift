@@ -35,22 +35,17 @@ final class JellyfinJourneyUITests: XCTestCase {
         // The configured profile must get past the welcome gate before any path can
         // be exercised. The profile and token are seeded by TrawlApp's DEBUG-only
         // hook, while this fixture remains the only external dependency.
-        let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(
-            moreTab.waitForExistence(timeout: 15),
-            "A launch with a seeded Jellyfin profile should enter the real tab UI instead of the welcome flow."
+            ensureRootChromeIsReady(in: app),
+            "A launch with a seeded Jellyfin profile should enter the real app chrome instead of the welcome flow."
         )
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app), "The More tab should be available after the seeded launch.")
 
-        let mediaServer = firstButton(labelContaining: "Media Server", in: app)
+        // Media Server is a More row on iPhone and a sidebar row on iPad; which one
+        // this run takes is `TrawlChrome`'s business, not this suite's. What is being
+        // tested is the hub, not the route to it.
         XCTAssertTrue(
-            mediaServer.waitForExistence(in: app, timeout: 10),
-            "More should expose the Media Server destination for a configured Jellyfin profile."
-        )
-        XCTAssertTrue(tapWhenHittable(mediaServer, in: app), "The Media Server row should navigate when tapped.")
-        XCTAssertTrue(
-            app.navigationBars["Media Server"].waitForExistence(timeout: 10),
-            "The More destination should present the Jellyfin Media Server hub."
+            openDestination(.mediaServer, in: app),
+            "The Media Server hub should be reachable for a configured Jellyfin profile."
         )
 
         let sessions = firstButton(labelContaining: "Sessions", in: app)
@@ -161,7 +156,7 @@ final class JellyfinJourneyUITests: XCTestCase {
                 return true
             }
             guard row.exists else { return false }
-            row.swipeLeft()
+            revealSwipeActions(.trailing, on: row)
             _ = action.waitForExistence(timeout: 2)
         }
         guard action.exists && action.isHittable else { return false }

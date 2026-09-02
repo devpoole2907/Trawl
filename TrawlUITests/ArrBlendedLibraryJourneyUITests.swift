@@ -98,12 +98,11 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
 
         // MARK: Land on the Series tab.
 
-        let seriesTab = app.tabBars.buttons["Series"]
         XCTAssertTrue(
-            seriesTab.waitForExistence(timeout: 15),
-            "A launch seeded with two configured Sonarr services should still reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A launch seeded with two configured Sonarr services should still reach the real app chrome."
         )
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
         // MARK: Both servers' libraries, in one list.
 
@@ -201,14 +200,30 @@ final class ArrBlendedLibraryJourneyUITests: XCTestCase {
         )
         narrowedMenu.tap()
 
-        // "Series" is also the tab bar's label, so the union option is identified
-        // by position rather than by label alone: the menu is presented above the
-        // tab bar, so the match that is not the tab is the one higher up the screen.
-        let tabBarTop = app.tabBars.firstMatch.frame.minY
-        let unionOption = app.buttons
+        // "Series" is also the label of whatever control opens this destination - the
+        // tab bar button on iPhone, the sidebar row on iPad - so the union option is
+        // identified by position rather than by label alone. Which neighbour to rule
+        // out depends on the chrome, and only one of them is ever on screen.
+        let candidates = app.buttons
             .matching(NSPredicate(format: "label == %@", "Series"))
             .allElementsBoundByIndex
-            .first { $0.frame.minY < tabBarTop }
+
+        let unionOption: XCUIElement?
+        if app.tabBars.firstMatch.exists {
+            // The menu is presented above the tab bar, so the match that is not the
+            // tab is the one higher up the screen.
+            let tabBarTop = app.tabBars.firstMatch.frame.minY
+            unionOption = candidates.first { $0.frame.minY < tabBarTop }
+        } else if let seriesRow = sidebarRow(for: .series, in: app, timeout: 2) {
+            // The menu belongs to the content column's toolbar, so the match that is
+            // not the sidebar row is the one to its right.
+            let sidebarRight = seriesRow.frame.maxX
+            unionOption = candidates.first { $0.frame.minX >= sidebarRight }
+        } else {
+            // A collapsed sidebar leaves nothing to disambiguate against.
+            unionOption = candidates.first
+        }
+
         let union = try XCTUnwrap(
             unionOption,
             "The menu should offer the union as an option - without it a narrowed library cannot be widened again."

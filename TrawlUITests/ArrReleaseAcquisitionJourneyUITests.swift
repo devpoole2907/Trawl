@@ -70,7 +70,7 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
 
         let app = launchApp(serviceEnvironmentKey: "TRAWL_UITEST_SONARR_BASE_URL", baseURL: server.baseURL)
         try openLibraryItem(
-            tab: "Series",
+            library: .series,
             title: seriesTitle,
             in: app,
             diagnostics: { "Requests: \(server.requests)" }
@@ -158,7 +158,7 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
 
         let app = launchApp(serviceEnvironmentKey: "TRAWL_UITEST_RADARR_BASE_URL", baseURL: server.baseURL)
         try openLibraryItem(
-            tab: "Movies",
+            library: .movies,
             title: RadarrFixtureServer.movieTitle,
             in: app,
             diagnostics: { "Requests: \(server.requests)" }
@@ -227,14 +227,13 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
 
     @MainActor
     private func openLibraryItem(
-        tab: String,
+        library: TrawlDestination,
         title: String,
         in app: XCUIApplication,
         diagnostics: () -> String
     ) throws {
-        let tabButton = app.tabBars.buttons[tab]
-        XCTAssertTrue(tabButton.waitForExistence(timeout: 15), "The configured service should reach the real tab UI.")
-        tabButton.tap()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "The configured service should reach the real app chrome.")
+        XCTAssertTrue(openDestination(library, in: app), "The \(library.title) library should be reachable.")
 
         let row = app.staticTexts[title]
         XCTAssertTrue(

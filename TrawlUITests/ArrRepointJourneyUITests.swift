@@ -99,12 +99,11 @@ final class ArrRepointJourneyUITests: XCTestCase {
 
         // MARK: Land on the Series tab, connected to server A.
 
-        let seriesTab = app.tabBars.buttons["Series"]
         XCTAssertTrue(
-            seriesTab.waitForExistence(timeout: 15),
-            "A launch seeded with a configured Sonarr service should reach the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A launch seeded with a configured Sonarr service should reach the real app chrome."
         )
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
         let seriesFromA = app.staticTexts["Series From Server A"]
         XCTAssertTrue(
@@ -114,16 +113,10 @@ final class ArrRepointJourneyUITests: XCTestCase {
 
         // MARK: Navigate to the real edit flow: More -> Settings -> Sonarr -> Edit Server.
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(moreTab.waitForExistence(timeout: 10), "The More tab should exist in the tab bar.")
-        moreTab.tap()
-
-        let settingsRow = firstElement(labelContains: "Settings", in: app)
         XCTAssertTrue(
-            settingsRow.waitForExistence(in: app, timeout: 5),
-            "More should show a 'Settings' row (MoreView.swift, MoreDestination.settings) - regression: the row was removed or renamed."
+            openDestination(.settings, in: app),
+            "Settings should be reachable from the root chrome (MoreView.swift, MoreDestination.settings) - regression: the row was removed or renamed."
         )
-        settingsRow.tap()
 
         let sonarrRow = firstElement(labelContains: "Fixture Sonarr", in: app)
         XCTAssertTrue(
@@ -210,7 +203,7 @@ final class ArrRepointJourneyUITests: XCTestCase {
 
         // MARK: Back to Series - should now show B, and never show A again.
 
-        seriesTab.tap()
+        XCTAssertTrue(openDestination(.series, in: app), "The Series library should be reachable.")
 
         let seriesFromB = app.staticTexts["Series From Server B"]
         XCTAssertTrue(

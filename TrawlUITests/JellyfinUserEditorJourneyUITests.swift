@@ -40,16 +40,14 @@ final class JellyfinUserEditorJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_JELLYFIN_BASE_URL"] = server.baseURL
         app.launch()
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A seeded Jellyfin launch should reach the tab UI.")
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Jellyfin launch should reach the app chrome.")
 
         // Each step asserts where it landed: a label match reports a successful tap
         // even when the coordinate lands somewhere else entirely.
         // Users lives under Requests & Access - it lists Jellyfin *and* Seerr
         // accounts, so it is filed with request management rather than under the
         // media server.
-        let requestsAndAccess = firstButton(labelContaining: "Requests & Access", in: app)
-        XCTAssertTrue(tapWhenHittable(requestsAndAccess, in: app, timeout: 12), "More should expose the Requests & Access hub.")
+        XCTAssertTrue(openDestination(.requestsAndAccess, in: app), "The Requests & Access hub should be reachable.")
         XCTAssertTrue(
             app.navigationBars["Requests & Access"].waitForExistence(in: app, timeout: 10),
             "The Requests & Access hub should render."

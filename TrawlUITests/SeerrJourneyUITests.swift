@@ -33,19 +33,14 @@ final class SeerrJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = server.baseURL
         app.launch()
 
-        let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(
-            moreTab.waitForExistence(timeout: 15),
-            "A synchronously seeded Seerr profile should take the app past the welcome gate into the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A synchronously seeded Seerr profile should take the app past the welcome gate into the real app chrome."
         )
-        moreTab.tap()
-
-        let requestsAndAccess = button(labelContaining: "Requests & Access", in: app)
         XCTAssertTrue(
-            requestsAndAccess.waitForExistence(in: app, timeout: 10),
-            "More should expose the real Requests & Access navigation hub for a configured Seerr profile."
+            openDestination(.requestsAndAccess, in: app),
+            "The real Requests & Access navigation hub should be reachable for a configured Seerr profile."
         )
-        requestsAndAccess.tap()
 
         let issuesRow = button(labelContaining: "Issues", in: app)
         XCTAssertTrue(

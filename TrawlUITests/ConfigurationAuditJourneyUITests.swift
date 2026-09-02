@@ -34,12 +34,8 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         self.sonarr = sonarr
         let app = launchApp(sonarr: sonarr)
 
-        let moreTab = app.tabBars.buttons["More"]
-        XCTAssertTrue(tapWhenHittable(moreTab, in: app, timeout: 20), "A configured Sonarr launch should reach the tab UI.")
-
-        let systemRow = firstButton(labelContaining: "System", in: app)
-        XCTAssertTrue(tapWhenHittable(systemRow, in: app, timeout: 10), "More should expose the System hub.")
-        XCTAssertTrue(app.navigationBars["System"].waitForExistence(in: app, timeout: 10))
+        XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
+        XCTAssertTrue(openDestination(.system, in: app), "The System hub should be reachable.")
 
         let setupCheck = app.buttons["more-setup-check"]
         XCTAssertTrue(

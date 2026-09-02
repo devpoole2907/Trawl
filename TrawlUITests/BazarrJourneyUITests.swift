@@ -45,21 +45,19 @@ final class BazarrJourneyUITests: XCTestCase {
         app.launchEnvironment["TRAWL_UITEST_TMDB_BASE_URL"] = "http://127.0.0.1:1/tmdb"
         app.launch()
 
-        let moviesTab = app.tabBars.buttons["Movies"]
         XCTAssertTrue(
-            moviesTab.waitForExistence(timeout: 15),
-            "A launch with seeded Radarr and Bazarr profiles should pass the welcome gate into the real tab UI."
+            ensureRootChromeIsReady(in: app),
+            "A launch with seeded Radarr and Bazarr profiles should pass the welcome gate into the real app chrome."
         )
-        moviesTab.tap()
+        XCTAssertTrue(openDestination(.movies, in: app), "The Movies library should be reachable.")
 
-        let movieRow = app.staticTexts[RadarrFixtureServer.movieTitle]
         XCTAssertTrue(
-            movieRow.waitForExistence(timeout: 15),
-            "The Movies tab should render the fixture movie through the real Radarr connection before its detail route is opened."
+            app.staticTexts[RadarrFixtureServer.movieTitle].waitForExistence(timeout: 15),
+            "Movies should render the fixture movie through the real Radarr connection before its detail route is opened."
         )
         XCTAssertTrue(
-            tapWhenHittable(movieRow, in: app, timeout: 15),
-            "The fixture movie row should be tappable so the test uses the production Movies-to-detail navigation path."
+            openLibraryItem(titled: RadarrFixtureServer.movieTitle, in: app),
+            "The fixture movie row should open so the test uses the production Movies-to-detail navigation path."
         )
 
         let subtitleCard = app.buttons

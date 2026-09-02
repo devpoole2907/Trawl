@@ -394,14 +394,16 @@ final class ArrSearchAddJourneyUITests: XCTestCase {
     /// relying on the 300ms as-you-type debounce.
     @MainActor
     private func searchForNewSeries(titled title: String, in app: XCUIApplication) throws {
-        let searchTab = app.tabBars.buttons["Search"]
-        XCTAssertTrue(searchTab.waitForExistence(timeout: 15), "The Search tab should exist in the tab bar.")
-        searchTab.tap()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.search, in: app), "The Search destination should be reachable.")
 
-        let searchField = app.searchFields.firstMatch
+        // `contentSearchField` rather than `searchFields.firstMatch`: on iPad the
+        // sidebar has a permanent search field of its own, and typing into that one
+        // would search the feature index instead of Sonarr.
+        let searchField = contentSearchField(in: app)
         XCTAssertTrue(
             searchField.waitForExistence(timeout: 10),
-            "SearchView's one .searchable field should exist once the Search tab is active."
+            "SearchView's one .searchable field should exist once the Search destination is open."
         )
         searchField.tap()
         searchField.typeText("\(title)\n")

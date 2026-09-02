@@ -136,16 +136,14 @@ final class CleanuparrJourneyUITests: XCTestCase {
     /// journey verifies the app's real navigation assembly as well as the dashboard.
     @MainActor
     private func openCleanuparrDashboard(in app: XCUIApplication) {
-        let moreTab = app.tabBars.buttons["More"]
         XCTAssertTrue(
-            tapWhenHittable(moreTab, in: app, timeout: 15),
-            "A launch with the seeded Cleanuparr profile should reach the real tab UI, allowing the user to open More instead of remaining in the welcome flow."
+            ensureRootChromeIsReady(in: app),
+            "A launch with the seeded Cleanuparr profile should reach the real app chrome instead of remaining in the welcome flow."
         )
 
-        let automationRow = firstButton(labelContaining: "Integrations & Automation", in: app)
         XCTAssertTrue(
-            tapWhenHittable(automationRow, in: app, timeout: 10),
-            "More should expose its Integrations & Automation destination, which owns the configured Cleanuparr dashboard route."
+            openDestination(.automation, in: app),
+            "Integrations & Automation, which owns the configured Cleanuparr dashboard route, should be reachable."
         )
         XCTAssertTrue(
             app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
