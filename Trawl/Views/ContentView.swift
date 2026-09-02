@@ -531,18 +531,24 @@ struct ContentView: View {
     /// answer for that width rather than a squeezed sidebar.
     @ViewBuilder
     private func regularSidebar(services: AppServices, downloadBadge: Int) -> some View {
-        NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            sidebarList(downloadBadge: downloadBadge)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 360)
-        } detail: {
-            destinationContent(for: selectedTab, services: services)
+        // Three columns need real width. A 13-inch iPad in landscape has 1376pt and
+        // wears them well; the same iPad in portrait has 1032pt, and SwiftUI's answer
+        // there is to drop the sidebar behind a "Show Sidebar" button - which is the
+        // one thing this layout exists to prevent. So portrait gets two columns and
+        // keeps the sidebar, with detail pushing inside the content column instead of
+        // sitting beside it.
+        GeometryReader { proxy in
+            if proxy.size.width >= 1150 {
+                threeColumnLayout(services: services, downloadBadge: downloadBadge)
+            } else {
+                twoColumnLayout(services: services, downloadBadge: downloadBadge)
+            }
         }
-        .navigationSplitViewStyle(.balanced)
         #if os(iOS)
         .safeAreaInset(edge: .bottom) {
             // The tab bar's bottom accessory has no equivalent here, and the
-            // notification bar is how the app surfaces failures app-wide - dropping it
-            // on iPad would quietly remove that.
+            // notification bar is how the app surfaces failures app-wide - dropping
+            // it on iPad would quietly remove that.
             if !isTabChromeHidden {
                 NotificationTabBarAccessory()
                     .environment(services.syncService)
@@ -557,6 +563,54 @@ struct ContentView: View {
             }
         }
         #endif
+    }
+
+    /// One split view with three columns - not a split view whose detail column holds
+    /// another split view. The nested arrangement worked, but every level brought its
+    /// own navigation bar and safe area, which showed as a band of empty space above
+    /// the middle column. `sidebar | content | detail` is the shape iPadOS actually
+    /// provides, and a `NavigationLink` in the content column routes into the detail
+    /// column without any of that.
+    private func threeColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            sidebarList(downloadBadge: downloadBadge)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+        } content: {
+            contentColumn(for: selectedTab, services: services)
+                .navigationSplitViewColumnWidth(min: 360, ideal: 420, max: 560)
+        } detail: {
+            detailColumn(for: selectedTab, services: services)
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// Sidebar plus one working column. Detail is pushed onto that column's own
+    /// stack, so this is the phone's navigation with the sidebar kept alongside it.
+    private func twoColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
+        NavigationSplitView(columnVisibility: $sidebarVisibility) {
+            sidebarList(downloadBadge: downloadBadge)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+        } detail: {
+            stackedDestination(for: selectedTab, services: services)
+        }
+        .navigationSplitViewStyle(.balanced)
+    }
+
+    /// A destination as a self-contained stack, for the two-column layout.
+    @ViewBuilder
+    private func stackedDestination(for destination: RootTab, services: AppServices) -> some View {
+        switch destination {
+        case .downloads, .series, .movies, .search:
+            NavigationStack {
+                contentColumn(for: destination, services: services)
+            }
+        default:
+            moreStack(
+                rootedAt: destination.moreRoot,
+                path: pathBinding(for: destination),
+                services: services
+            )
+        }
     }
 
     /// The sidebar's own list. Searchable, which is the point: it replaces More's
@@ -614,45 +668,72 @@ struct ContentView: View {
         return destination.displayName.localizedCaseInsensitiveContains(query)
     }
 
-    /// What the detail column shows for the selected sidebar destination. The
-    /// library destinations keep their own list/detail split, so the pushed screen
-    /// lands beside its list rather than replacing it.
+    /// The middle column: the list for whichever destination is selected.
+    ///
+    /// Each of these registers its own `navigationDestination`, and that is fine
+    /// here - a link tapped in this column is routed by the split view into the
+    /// detail column beside it.
     @ViewBuilder
-    private func destinationContent(for destination: RootTab, services: AppServices) -> some View {
+    private func contentColumn(for destination: RootTab, services: AppServices) -> some View {
         switch destination {
         case .downloads:
-            splitNavigation(placeholder: "Select a download", icon: "tray.and.arrow.down") {
-                downloadsRoot(services: services)
-            }
+            downloadsRoot(services: services)
         case .series:
-            splitNavigation(placeholder: "Select a series", icon: ServiceIdentity.sonarr.tabSystemImage) {
-                SonarrSeriesListView()
-            }
-            .environment(arrServiceManager)
-            .environment(services.syncService)
-            .environment(services.torrentService)
-            .environment(sabnzbdServiceManager)
+            SonarrSeriesListView()
+                .environment(arrServiceManager)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+                .environment(sabnzbdServiceManager)
         case .movies:
-            splitNavigation(placeholder: "Select a movie", icon: ServiceIdentity.radarr.tabSystemImage) {
-                RadarrMovieListView()
-            }
-            .environment(arrServiceManager)
-            .environment(services.syncService)
-            .environment(services.torrentService)
-            .environment(sabnzbdServiceManager)
+            RadarrMovieListView()
+                .environment(arrServiceManager)
+                .environment(services.syncService)
+                .environment(services.torrentService)
+                .environment(sabnzbdServiceManager)
         case .search:
-            NavigationStack {
-                searchRoot(services: services)
-            }
-        case .more:
-            moreStack(rootedAt: nil, path: $morePath, services: services)
+            searchRoot(services: services)
         default:
             moreStack(
                 rootedAt: destination.moreRoot,
-                path: sidebarPath(for: destination),
-                services: services
+                path: pathBinding(for: destination),
+                services: services,
+                presentation: .contentColumn
             )
         }
+    }
+
+    /// The detail column: what a selection from the middle column opens into.
+    ///
+    /// The library destinations put a placeholder here and let their own pushes fill
+    /// it. The More-derived screens need a real `NavigationStack` bound to their
+    /// path, because they are also navigated to programmatically - by the
+    /// `navigateToX` environment actions and by deep links - and an `append` only
+    /// arrives somewhere if a stack is driving that path.
+    @ViewBuilder
+    private func detailColumn(for destination: RootTab, services: AppServices) -> some View {
+        switch destination {
+        case .downloads:
+            ContentUnavailableView("Select a download", systemImage: "tray.and.arrow.down")
+        case .series:
+            ContentUnavailableView("Select a series", systemImage: ServiceIdentity.sonarr.tabSystemImage)
+        case .movies:
+            ContentUnavailableView("Select a movie", systemImage: ServiceIdentity.radarr.tabSystemImage)
+        case .search:
+            ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
+        default:
+            moreStack(
+                rootedAt: destination.moreRoot,
+                path: pathBinding(for: destination),
+                services: services,
+                presentation: .detailColumn
+            )
+        }
+    }
+
+    /// One path per destination. `.more` keeps `morePath` so the compact chrome and
+    /// any deep link that targets it stay pointed at the same array.
+    private func pathBinding(for destination: RootTab) -> Binding<[MoreDestination]> {
+        destination == .more ? $morePath : sidebarPath(for: destination)
     }
 
     private func downloadsRoot(services: AppServices) -> some View {
@@ -673,41 +754,6 @@ struct ContentView: View {
     }
 
 
-    /// A list that shows its detail beside it on iPad, and on top of it on iPhone.
-    ///
-    /// Compact widths get exactly the `NavigationStack` they had before, so nothing
-    /// about the phone changes. Regular widths get a two-column split: the list stays
-    /// put on the left while the pushed screen fills the right, instead of a 1376pt
-    /// detail screen replacing a 1376pt list wholesale.
-    ///
-    /// The list keeps its own `navigationDestination` registrations - they are
-    /// declared deep inside the shared list components, not here - so this only
-    /// changes the container, not how anything navigates.
-    @ViewBuilder
-    private func splitNavigation(
-        placeholder: String,
-        icon: String,
-        @ViewBuilder _ list: () -> some View
-    ) -> some View {
-        if hSizeClass == .regular {
-            NavigationSplitView {
-                list()
-                    // The list column needs real width, not the default. These lists
-                    // carry a filter bar and a section index down the trailing edge,
-                    // and at the default width the chips clipped mid-word and the
-                    // index sat on top of the rows.
-                    .navigationSplitViewColumnWidth(min: 380, ideal: 420, max: 560)
-            } detail: {
-                ContentUnavailableView(placeholder, systemImage: icon)
-            }
-            .navigationSplitViewStyle(.balanced)
-        } else {
-            NavigationStack {
-                list()
-            }
-        }
-    }
-
     private func sidebarPath(for destination: RootTab) -> Binding<[MoreDestination]> {
         Binding(
             get: { sidebarPaths[destination] ?? [] },
@@ -726,14 +772,16 @@ struct ContentView: View {
     private func moreStack(
         rootedAt root: MoreDestination?,
         path: Binding<[MoreDestination]>,
-        services: AppServices
+        services: AppServices,
+        presentation: MoreView.Presentation = .stack
     ) -> some View {
         MoreView(
             appServices: appServices,
             path: path,
             isQBittorrentConnecting: isConnecting,
             onRetryQBittorrent: { initializeServices() },
-            root: root
+            root: root,
+            presentation: presentation
         )
             .environment(services.syncService)
             .environment(services.torrentService)

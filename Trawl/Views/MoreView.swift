@@ -175,9 +175,26 @@ struct MoreView: View {
     let onRetryQBittorrent: (() -> Void)?
     /// What this stack is rooted at. `nil` means the More list, which is the iPhone
     /// arrangement. On iPad there is no More: each of its top-level rows is a sidebar
-    /// tab that roots this same view at its own destination, so the list is skipped
-    /// and the user lands on the screen directly.
+    /// destination that roots this same view at its own screen, so the list is
+    /// skipped and the user lands on that screen directly.
     var root: MoreDestination?
+    /// Which part of the app's navigation this instance is supplying.
+    ///
+    /// On iPad the caller owns a single three-column `NavigationSplitView`, and asks
+    /// for the middle column and the detail column separately. Letting this view
+    /// build a split of its own instead is what produced nested split views - and a
+    /// visible band of empty space above the middle column, where the inner split's
+    /// own bar had been.
+    var presentation: Presentation = .stack
+
+    enum Presentation {
+        /// A self-contained `NavigationStack`. The compact arrangement.
+        case stack
+        /// Just the rooted screen, for the middle column of the caller's split view.
+        case contentColumn
+        /// The `NavigationStack` its pushes land in, for the caller's detail column.
+        case detailColumn
+    }
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -484,64 +501,64 @@ struct MoreView: View {
         }
     }
 
-    // On iPhone this stack is rooted at the More list. On iPad the same destinations
-    // are sidebar tabs, and each one hands us its own root - so the stack is rooted
-    // directly at that screen and the More list is never built. Everything below the
-    // root is shared either way: one `navigationDestination` table, one set of
-    // environment reads, two entry points.
+    // On iPhone this is a stack rooted at the More list. On iPad there is no More:
+    // its rows are sidebar destinations, and this view supplies one *column* of the
+    // app's single three-column split rather than a navigation container of its own.
+    // Everything below the root is shared by all three modes: one
+    // `navigationDestination` table, one set of environment reads.
     //
-    // The two branches are written out as separate `NavigationStack`s rather than one
-    // stack wrapping a `Group`, and that is not a style choice. Wrapping the list in a
-    // `Group` cost every row its merged-button accessibility: `NavigationLink` rows
-    // that had been one `Button` labelled "Settings" became unlabelled `Cell`s with
-    // the text as a child, which is invisible on screen and broke every UI journey
-    // that reaches a More row by name. Keeping `List` as the stack's direct child
-    // keeps the semantics it had before any of this existed.
+    // The compact branches are written out as separate `NavigationStack`s rather
+    // than one stack wrapping a `Group`, and that is not a style choice. Wrapping
+    // the list in a `Group` cost every row its merged-button accessibility:
+    // `NavigationLink` rows that had been one `Button` labelled "Settings" became
+    // unlabelled `Cell`s with the text as a child, which is invisible on screen and
+    // broke every UI journey that reaches a More row by name. Keeping `List` as the
+    // stack's direct child keeps the semantics it had before any of this existed.
     var body: some View {
-        if horizontalSizeClass == .regular {
-            splitBody
-        } else if let root {
-            NavigationStack(path: $path) {
-                stackChrome { moreDestinationView(for: root) }
+        switch presentation {
+        case .stack:
+            if let root {
+                NavigationStack(path: $path) {
+                    stackChrome { moreDestinationView(for: root) }
+                }
+            } else {
+                NavigationStack(path: $path) {
+                    stackChrome { moreListRoot }
+                }
             }
-        } else {
-            NavigationStack(path: $path) {
-                stackChrome { moreListRoot }
-            }
-        }
-    }
 
-    /// iPad: the hub stays on the left and its screens open beside it.
-    ///
-    /// Note where the `NavigationStack` sits - the *detail* column, not the sidebar.
-    /// These screens are reached two ways: a `NavigationLink` the user taps, and a
-    /// `path.append(...)` from one of the `navigateToX` environment actions (and from
-    /// deep links). A split view routes the first into the detail column on its own,
-    /// but the second only works if `path` is actually driving a stack, so the stack
-    /// has to be the thing the detail column contains. Put the stack on the left
-    /// instead and every programmatic navigation in the app silently stops arriving.
-    private var splitBody: some View {
-        NavigationSplitView {
-            sidebarColumn
-                .navigationSplitViewColumnWidth(min: 320, ideal: 380, max: 500)
-        } detail: {
+        case .contentColumn:
+            // Deliberately bare - no stack, no split. This is handed straight to the
+            // middle column of `ContentView`'s split view, and wrapping it in a
+            // navigation container of its own is exactly what put a second bar and a
+            // dead band of space above the column.
+            rootScreen
+                .task { await loadSubtitleBadge() }
+
+        case .detailColumn:
+            // The stack lives here, in the detail column, and not in the content
+            // column beside it. These screens are reached two ways: a
+            // `NavigationLink` the user taps, and a `path.append(...)` from one of
+            // the `navigateToX` environment actions or a deep link. The split view
+            // routes the first into this column on its own, but the second only
+            // arrives if `path` is driving a stack - so the stack has to be what
+            // this column contains.
             NavigationStack(path: $path) {
                 ContentUnavailableView("Nothing Selected", systemImage: "sidebar.right")
                     .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
             }
         }
-        .navigationSplitViewStyle(.balanced)
-        .task { await loadSubtitleBadge() }
     }
 
     @ViewBuilder
-    private var sidebarColumn: some View {
+    private var rootScreen: some View {
         if let root {
             moreDestinationView(for: root)
         } else {
             moreListRoot
         }
     }
+
 
     /// The destination table and badge fetch both compact roots share.
     @ViewBuilder
