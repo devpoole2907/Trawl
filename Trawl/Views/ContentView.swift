@@ -38,6 +38,11 @@ struct ContentView: View {
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     @State private var selectedTab: RootTab = .downloads
     @State private var morePath: [MoreDestination] = []
+    /// One navigation stack per promoted sidebar destination. They are kept apart
+    /// rather than sharing `morePath` because they are separate tabs: switching from
+    /// System to Settings and back should find System where you left it, exactly as
+    /// switching between Series and Movies does.
+    @State private var sidebarPaths: [RootTab: [MoreDestination]] = [:]
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -430,61 +435,45 @@ struct ContentView: View {
                 }
             }
 
+            // More is the iPhone's way into the seven screens below. On iPad those
+            // screens are sidebar destinations in their own right, so a list whose
+            // only job is to hold them would be a wasted click, and More is hidden
+            // there.
+            //
+            // What the placements actually do here, measured rather than assumed:
+            //
+            //   iPhone tab bar        Downloads Series Movies Search More
+            //   iPad sidebar          the 4 above, then the 7 promoted, no More
+            //   iPad collapsed pill   Downloads Series Movies Search
+            //
+            // That third row is the surprise. The pill drops *anything* carrying a
+            // `.hidden` default visibility, for either placement - so More is absent
+            // from it despite the explicit `.visible` below, and so are the seven.
+            // The `.visible` is kept because it is the honest declaration for the
+            // iPhone bar; it simply does not move the pill.
+            //
+            // The pill is not a dead end even so: it is a *collapsed sidebar* and
+            // carries the toggle that expands it, so every promoted screen is one
+            // click away there. Worth knowing before anyone "fixes" this by putting
+            // twelve tabs in a pill.
             Tab("More", systemImage: "ellipsis", value: RootTab.more) {
-                MoreView(
-                    appServices: appServices,
-                    path: $morePath,
-                    isQBittorrentConnecting: isConnecting,
-                    onRetryQBittorrent: { initializeServices() }
-                )
-                    .environment(services.syncService)
-                    .environment(services.torrentService)
-                    .environment(arrServiceManager)
-                    .environment(sabnzbdServiceManager)
-                    .environment(cleanuparrServiceManager)
-                    .environment(\.navigateToSeriesTab) {
-                        selectedTab = .series
-                    }
-                    .environment(\.navigateToMoviesTab) {
-                        selectedTab = .movies
-                    }
-                    .environment(\.navigateToQbittorrentSettings) {
-                        morePath.append(.qbittorrentSettings)
-                    }
-                    .environment(downloadsNavigator)
-                    .environment(\.navigateToDownloadsTab) {
-                        selectedTab = .downloads
-                    }
-                    .environment(\.navigateToSABnzbdSettings) {
-                        morePath.append(.sabnzbdSettings)
-                    }
-                    .environment(\.navigateToSonarrSettings) {
-                        morePath.append(.sonarrSettings)
-                    }
-                    .environment(\.navigateToRadarrSettings) {
-                        morePath.append(.radarrSettings)
-                    }
-                    .environment(\.navigateToProwlarrSettings) {
-                        morePath.append(.prowlarrSettings)
-                    }
-                    .environment(\.navigateToBazarrSettings) {
-                        morePath.append(.bazarrSettings)
-                    }
-                    .environment(\.navigateToSeerrSettings) {
-                        morePath.append(.seerrSettings)
-                    }
-                    .environment(\.navigateToSeerrIssues) {
-                        morePath.append(.seerrIssues)
-                    }
-                    .environment(\.navigateToJellyfinSettings) {
-                        morePath.append(.jellyfinSettings)
-                    }
-                    .environment(\.navigateToCleanuparrSettings) {
-                        morePath.append(.cleanuparrSettings)
-                    }
-                    .environment(\.navigateToSettings) {
-                        morePath.append(.settings)
-                    }
+                moreStack(rootedAt: nil, path: $morePath, services: services)
+            }
+            .defaultVisibility(.hidden, for: .sidebar)
+            .defaultVisibility(.visible, for: .tabBar)
+
+            // The promoted rows. Hidden from the tab bar for the mirror-image reason:
+            // in that chrome they are reachable through More, and twelve tabs is not a
+            // tab bar.
+            ForEach(RootTab.sidebarDestinations, id: \.self) { destination in
+                Tab(destination.displayName, systemImage: destination.systemImage, value: destination) {
+                    moreStack(
+                        rootedAt: destination.moreRoot,
+                        path: sidebarPath(for: destination),
+                        services: services
+                    )
+                }
+                .defaultVisibility(.hidden, for: .tabBar)
             }
         }
         .tabViewStyle(.sidebarAdaptable)
@@ -549,6 +538,61 @@ struct ContentView: View {
         } message: { message in
             Text(message)
         }
+    }
+
+    private func sidebarPath(for destination: RootTab) -> Binding<[MoreDestination]> {
+        Binding(
+            get: { sidebarPaths[destination] ?? [] },
+            set: { sidebarPaths[destination] = $0 }
+        )
+    }
+
+    /// One `MoreView` stack, wired identically wherever it is rooted.
+    ///
+    /// The tab bar's More and each of the sidebar's promoted destinations are the
+    /// same view with a different root, so the long environment chain below is
+    /// written once. It used to sit inline on the More tab; duplicating it seven
+    /// times for the sidebar would have been seven chances for one screen to be
+    /// missing an injection nothing catches until someone navigates into it.
+    @ViewBuilder
+    private func moreStack(
+        rootedAt root: MoreDestination?,
+        path: Binding<[MoreDestination]>,
+        services: AppServices
+    ) -> some View {
+        MoreView(
+            appServices: appServices,
+            path: path,
+            isQBittorrentConnecting: isConnecting,
+            onRetryQBittorrent: { initializeServices() },
+            root: root
+        )
+            .environment(services.syncService)
+            .environment(services.torrentService)
+            .environment(arrServiceManager)
+            .environment(sabnzbdServiceManager)
+            .environment(cleanuparrServiceManager)
+            .environment(downloadsNavigator)
+            .environment(\.navigateToSeriesTab) { selectedTab = .series }
+            .environment(\.navigateToMoviesTab) { selectedTab = .movies }
+            .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+            // Every one of these pushes onto `path` - the stack this particular copy
+            // is driving - and deliberately not onto `morePath`. On iPhone they are
+            // the same array. On iPad they are not: a "go to Sonarr settings" sent
+            // from the System sidebar tab has to land on System's own stack, or the
+            // push happens on a More stack nobody is looking at and the screen simply
+            // never appears.
+            .environment(\.navigateToQbittorrentSettings) { path.wrappedValue.append(.qbittorrentSettings) }
+            .environment(\.navigateToSABnzbdSettings) { path.wrappedValue.append(.sabnzbdSettings) }
+            .environment(\.navigateToSonarrSettings) { path.wrappedValue.append(.sonarrSettings) }
+            .environment(\.navigateToRadarrSettings) { path.wrappedValue.append(.radarrSettings) }
+            .environment(\.navigateToProwlarrSettings) { path.wrappedValue.append(.prowlarrSettings) }
+            .environment(\.navigateToBazarrSettings) { path.wrappedValue.append(.bazarrSettings) }
+            .environment(\.navigateToSeerrSettings) { path.wrappedValue.append(.seerrSettings) }
+            .environment(\.navigateToSeerrIssues) { path.wrappedValue.append(.seerrIssues) }
+            .environment(\.navigateToJellyfinSettings) { path.wrappedValue.append(.jellyfinSettings) }
+            .environment(\.navigateToCleanuparrSettings) { path.wrappedValue.append(.cleanuparrSettings) }
+            .environment(\.navigateToSettings) { path.wrappedValue.append(.settings) }
     }
 
     /// Single entry point for every URL that reaches the app - external links,

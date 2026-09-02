@@ -67,14 +67,22 @@ enum MoreDestination: Hashable {
 /// Keeping guidance on the destination prevents error copy from retaining a route
 /// that no longer exists when the hierarchy changes.
 extension MoreDestination {
+    /// Where to send someone in prose, e.g. "Add a SABnzbd server in Settings → SABnzbd."
+    ///
+    /// Deliberately does **not** start at "More". More exists on iPhone and in the
+    /// iPad tab bar, but not in the iPad sidebar, where these same screens are
+    /// top-level destinations - so a breadcrumb naming it was telling half the users
+    /// to look for something that isn't on their screen. Naming the destination and
+    /// not its container is the one phrasing that stays true in every chrome, and
+    /// Settings is reachable (and searchable) in all of them.
     var userFacingPath: String {
         switch self {
         case .settings:
-            "More → Settings"
+            "Settings"
         case .sabnzbdSettings:
             "\(MoreDestination.settings.userFacingPath) → SABnzbd"
         default:
-            "More"
+            "Settings"
         }
     }
 }
@@ -165,6 +173,11 @@ struct MoreView: View {
     @Binding var path: [MoreDestination]
     let isQBittorrentConnecting: Bool
     let onRetryQBittorrent: (() -> Void)?
+    /// What this stack is rooted at. `nil` means the More list, which is the iPhone
+    /// arrangement. On iPad there is no More: each of its top-level rows is a sidebar
+    /// tab that roots this same view at its own destination, so the list is skipped
+    /// and the user lands on the screen directly.
+    var root: MoreDestination?
     @Environment(SyncService.self) private var syncService
     @Environment(TorrentService.self) private var torrentService
     @Environment(ArrServiceManager.self) private var arrServiceManager
@@ -470,344 +483,384 @@ struct MoreView: View {
         }
     }
 
+    // On iPhone this stack is rooted at the More list. On iPad the same destinations
+    // are sidebar tabs, and each one hands us its own root - so the stack is rooted
+    // directly at that screen and the More list is never built. Everything below the
+    // root is shared either way: one `navigationDestination` table, one set of
+    // environment reads, two entry points.
+    //
+    // The two branches are written out as separate `NavigationStack`s rather than one
+    // stack wrapping a `Group`, and that is not a style choice. Wrapping the list in a
+    // `Group` cost every row its merged-button accessibility: `NavigationLink` rows
+    // that had been one `Button` labelled "Settings" became unlabelled `Cell`s with
+    // the text as a child, which is invisible on screen and broke every UI journey
+    // that reaches a More row by name. Keeping `List` as the stack's direct child
+    // keeps the semantics it had before any of this existed.
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                if isShowingMoreSearchResults {
-                    moreSearchResultsContent
-                } else {
-                    connectivityAlertSection
-                    Section {
-                        NavigationLink(value: MoreDestination.wanted) {
-                            moreRow(.wanted)
-                        }
-                    }
-
-                    Section {
-                        NavigationLink(value: MoreDestination.mediaManagement) {
-                            moreRow(.mediaManagement,
-                                    subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : nil)
-                        }
-                    }
-
-                    Section {
-                        NavigationLink(value: MoreDestination.requestsAndAccess) {
-                            moreRow(.requestsAndAccess,
-                                    subtitle: seerrProfile == nil && jellyfinProfile == nil ? "Not set up" : nil)
-                        }
-
-                        NavigationLink(value: MoreDestination.jellyfinManagement) {
-                            moreRow(.jellyfinManagement, subtitle: jellyfinProfile == nil ? "Not set up" : nil)
-                        }
-
-                        NavigationLink(value: MoreDestination.automationClients) {
-                            moreRow(.automationClients)
-                        }
-
-                        NavigationLink(value: MoreDestination.systemHub) {
-                            moreRow(.systemHub)
-                        }
-                    }
-
-                    Section {
-                        NavigationLink(value: MoreDestination.settings) {
-                            moreRow(.settings)
-                        }
-                    }
-                }
+        if let root {
+            NavigationStack(path: $path) {
+                stackChrome { moreDestinationView(for: root) }
             }
-            #if os(iOS)
-            .listStyle(.insetGrouped)
-            #else
-            .listStyle(.inset)
-            #endif
-            .scrollContentBackground(.hidden)
-            .background(MoreServicesGradientBackground(services: configuredServiceIdentities))
-            .navigationTitle("More")
-            .searchable(text: $moreSearchText, placement: .automatic, prompt: "Search settings and features")
-            #if os(iOS)
-            .toolbarTitleDisplayMode(.inlineLarge)
-            #endif
-            .sheet(item: $connectionEditSheet) { sheet in
-                connectionEditSheetView(for: sheet)
+        } else {
+            NavigationStack(path: $path) {
+                stackChrome { moreListRoot }
             }
-            .navigationDestination(for: MoreDestination.self) { destination in
-                switch destination {
-                case .requestsAndAccess:
-                    RequestsAndAccessHubView(
-                        seerrProfile: seerrProfile,
-                        jellyfinProfile: jellyfinProfile
-                    )
-                        .moreDestinationTitleStyle()
-                case .systemHub:
-                    SystemHubView()
-                        .moreDestinationTitleStyle()
-                case .automationClients:
-                    AutomationAndClientsHubView()
-                        .moreDestinationTitleStyle()
-                case .linkedApplicationsManagement:
-                    LinkedApplicationsManagementView()
-                        .moreDestinationTitleStyle()
-                case .downloadClientsManagement:
-                    DownloadClientsManagementView()
-                        .moreDestinationTitleStyle()
-                case .prowlarrLinkedApplications:
-                    prowlarrLinkedApplicationsDestination
-                        .moreDestinationTitleStyle()
-                case .bazarrLinkedApplications:
-                    bazarrLinkedApplicationsDestination
-                        .moreDestinationTitleStyle()
-                case .seerrLinkedApplications:
-                    seerrLinkedApplicationsDestination
-                        .moreDestinationTitleStyle()
-                case .downloadClients(let service):
-                    ArrDownloadClientListView(serviceType: service)
-                        .environment(arrServiceManager)
-                        .environment(inAppNotificationCenter)
-                        .moreDestinationTitleStyle()
-                case .remotePathMappings:
-                    ArrRemotePathMappingListView()
-                        .environment(arrServiceManager)
-                        .environment(inAppNotificationCenter)
-                        .moreDestinationTitleStyle()
-                case .diskSpace:
-                    ArrDiskSpaceView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .health:
-                    ArrHealthView()
-                        .moreDestinationTitleStyle()
-                case .wanted:
-                    ArrWantedView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .settings:
-                    settingsDestination
-                        .moreDestinationTitleStyle()
-                case .qbittorrentSettings:
-                    qbittorrentSettingsDestination
-                        .moreDestinationTitleStyle()
-                case .sabnzbdSettings:
-                    SABnzbdSettingsView()
-                        .environment(sabnzbdServiceManager)
-                        .moreDestinationTitleStyle()
-                case .sonarrSettings:
-                    ArrServiceSettingsView(serviceType: .sonarr)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .radarrSettings:
-                    ArrServiceSettingsView(serviceType: .radarr)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .prowlarrSettings:
-                    ArrServiceSettingsView(serviceType: .prowlarr)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .prowlarrIndexers:
-                    prowlarrIndexersDestination
-                        .moreDestinationBackground(.indexers)
-                        .moreDestinationTitleStyle()
-                case .libraryImport:
-                    ArrImportLocationView(kind: .library)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .manualImport:
-                    ArrImportLocationView(kind: .manual)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .calendar:
-                    // Search-reachable only - no permanent More row. The primary,
-                    // correctly media-scoped entry points are the Series and Movies
-                    // toolbars (ArrMediaListView); this unscoped copy stays for search.
-                    ArrCalendarView()
-                        .environment(arrServiceManager)
-                        .injectSyncService(appServices)
-                        .moreDestinationTitleStyle()
-                case .seerrAdmin:
-                    seerrAdminDestination
-                        .moreDestinationTitleStyle()
-                case .seerrIssues:
-                    if let client = seerrServiceManager.activeClient {
-                        SeerrIssueListView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        seerrAdminDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .seerrLogs:
-                    if let client = seerrServiceManager.activeClient {
-                        SeerrLogsView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        seerrAdminDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .seerrSettings:
-                    SeerrSettingsView()
-                        .moreDestinationTitleStyle()
-                case .jellyfinManagement:
-                    JellyfinManagementView(jellyfinProfile: jellyfinProfile)
-                        .moreDestinationTitleStyle()
-                case .jellyfinLibraries:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinLibrariesView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinSessions:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinSessionsView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinActivityLog:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinActivityLogView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinScheduledTasks:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinScheduledTasksView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinPlugins:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinPluginsView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinTranscoding:
-                    if let client = jellyfinServiceManager.activeClient {
-                        JellyfinTranscodingSettingsView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        jellyfinUnavailableDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .jellyfinSettings:
-                    JellyfinSettingsView()
-                        .moreDestinationTitleStyle()
-                case .cleanuparrDashboard:
-                    CleanuparrDashboardView()
-                        .environment(cleanuparrServiceManager)
-                        .moreDestinationBackground(.cleanuparr)
-                        .moreDestinationTitleStyle()
-                case .cleanuparrSettings:
-                    CleanuparrSettingsView()
-                        .environment(cleanuparrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .logsAndEvents:
-                    LogsAndEventsHubView(hasQBittorrentLog: appServices != nil)
-                        .moreDestinationTitleStyle()
-                case .arrEvents:
-                    ArrEventsView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .qbittorrentLog:
-                    qbittorrentLogDestination
-                        .moreDestinationTitleStyle()
-                case .tasksHub:
-                    TasksHubView(jellyfinProfile: jellyfinProfile)
-                        .moreDestinationTitleStyle()
-                case .arrTasks:
-                    ArrScheduledTasksView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .seerrJobs:
-                    if let client = seerrServiceManager.activeClient {
-                        SeerrJobsView(apiClient: client)
-                            .moreDestinationTitleStyle()
-                    } else {
-                        seerrAdminDestination
-                            .moreDestinationTitleStyle()
-                    }
-                case .updatesHub:
-                    ArrUpdatesView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .backupsHub:
-                    ArrBackupsView()
-                        .environment(arrServiceManager)
-                        .environment(jellyfinServiceManager)
-                        .moreDestinationTitleStyle()
-                case .unifiedUsers:
-                    unifiedUsersDestination
-                        .moreDestinationBackground(.userManagement)
-                        .moreDestinationTitleStyle()
-                case .libraryImportScan(let path, let service, let instanceID):
-                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .library)
-                        .moreDestinationTitleStyle()
-                case .manualImportScan(let path, let service, let instanceID):
-                    LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .manual)
-                        .moreDestinationTitleStyle()
-                case .mediaManagement:
-                    ArrMediaManagementView(
-                        subtitleBadgeCount: subtitleBadgeCount,
-                        hasJellyfin: jellyfinProfile != nil
-                    )
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .arrNaming:
-                    ArrNamingConfigView()
-                        .environment(arrServiceManager)
-                        .environment(InAppNotificationCenter.shared)
-                        .moreDestinationTitleStyle()
-                case .rootFolders:
-                    ArrRootFoldersView()
-                        .environment(arrServiceManager)
-                        .environment(inAppNotificationCenter)
-                        .moreDestinationTitleStyle()
-                case .qualityProfiles:
-                    ArrQualityProfilesListView()
-                        .environment(arrServiceManager)
-                        .environment(inAppNotificationCenter)
-                        .moreDestinationTitleStyle()
-                case .qualityDefinitions:
-                    ArrQualityDefinitionsView()
-                        .environment(arrServiceManager)
-                        .environment(inAppNotificationCenter)
-                        .moreDestinationTitleStyle()
-                case .bazarrSettings:
-                    ArrServiceSettingsView(serviceType: .bazarr)
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .subtitleManagement:
-                    SubtitleManagementView()
-                        .moreDestinationTitleStyle()
-                case .bazarrLanguageProfiles:
-                    BazarrLanguageProfilesView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .bazarrProviders:
-                    BazarrProvidersView()
-                        .environment(arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .bazarrSeriesDetail(let seriesId):
-                    BazarrSeriesDestination(seriesId: seriesId, arrServiceManager: arrServiceManager)
-                        .moreDestinationTitleStyle()
-                case .bazarrMovieDetail(let radarrId):
-                    BazarrMovieDestination(radarrId: radarrId, arrServiceManager: arrServiceManager)
-                        .moreDestinationTitleStyle()
-                }
-            }
+        }
+    }
+
+    /// The destination table and badge fetch both roots share.
+    @ViewBuilder
+    private func stackChrome(@ViewBuilder _ content: () -> some View) -> some View {
+        content()
+            .navigationDestination(for: MoreDestination.self) { moreDestinationView(for: $0) }
             .task {
                 guard let client = arrServiceManager.activeBazarrEntry?.client else { return }
                 if let badges = try? await client.getBadges() {
                     subtitleBadgeCount = badges.episodes + badges.movies
                 }
             }
+    }
+
+    /// The More list itself - the iPhone root, and unused on iPad.
+    private var moreListRoot: some View {
+        List {
+            if isShowingMoreSearchResults {
+                moreSearchResultsContent
+            } else {
+                connectivityAlertSection
+                Section {
+                    NavigationLink(value: MoreDestination.wanted) {
+                        moreRow(.wanted)
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.mediaManagement) {
+                        moreRow(.mediaManagement,
+                                subtitle: subtitleBadgeCount > 0 ? "\(subtitleBadgeCount) items need subtitles" : nil)
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.requestsAndAccess) {
+                        moreRow(.requestsAndAccess,
+                                subtitle: seerrProfile == nil && jellyfinProfile == nil ? "Not set up" : nil)
+                    }
+
+                    NavigationLink(value: MoreDestination.jellyfinManagement) {
+                        moreRow(.jellyfinManagement, subtitle: jellyfinProfile == nil ? "Not set up" : nil)
+                    }
+
+                    NavigationLink(value: MoreDestination.automationClients) {
+                        moreRow(.automationClients)
+                    }
+
+                    NavigationLink(value: MoreDestination.systemHub) {
+                        moreRow(.systemHub)
+                    }
+                }
+
+                Section {
+                    NavigationLink(value: MoreDestination.settings) {
+                        moreRow(.settings)
+                    }
+                }
+            }
+        }
+        #if os(iOS)
+        .listStyle(.insetGrouped)
+        #else
+        .listStyle(.inset)
+        #endif
+        .scrollContentBackground(.hidden)
+        .background(MoreServicesGradientBackground(services: configuredServiceIdentities))
+        .navigationTitle("More")
+        .searchable(text: $moreSearchText, placement: .automatic, prompt: "Search settings and features")
+        #if os(iOS)
+        .toolbarTitleDisplayMode(.inlineLarge)
+        #endif
+        .sheet(item: $connectionEditSheet) { sheet in
+            connectionEditSheetView(for: sheet)
+        }
+    }
+
+    /// Every screen reachable from More, in one place.
+    ///
+    /// This is deliberately a method on `MoreView` rather than a free function or a
+    /// separate modifier: nearly every branch reads one of this view's environment
+    /// values or computed destinations, and hoisting it out would mean threading a
+    /// dozen dependencies through a new type for no gain. Keeping it here lets the
+    /// iPad sidebar tabs reuse the table exactly as the push navigation does.
+    @ViewBuilder
+    func moreDestinationView(for destination: MoreDestination) -> some View {
+        switch destination {
+        case .requestsAndAccess:
+            RequestsAndAccessHubView(
+                seerrProfile: seerrProfile,
+                jellyfinProfile: jellyfinProfile
+            )
+                .moreDestinationTitleStyle()
+        case .systemHub:
+            SystemHubView()
+                .moreDestinationTitleStyle()
+        case .automationClients:
+            AutomationAndClientsHubView()
+                .moreDestinationTitleStyle()
+        case .linkedApplicationsManagement:
+            LinkedApplicationsManagementView()
+                .moreDestinationTitleStyle()
+        case .downloadClientsManagement:
+            DownloadClientsManagementView()
+                .moreDestinationTitleStyle()
+        case .prowlarrLinkedApplications:
+            prowlarrLinkedApplicationsDestination
+                .moreDestinationTitleStyle()
+        case .bazarrLinkedApplications:
+            bazarrLinkedApplicationsDestination
+                .moreDestinationTitleStyle()
+        case .seerrLinkedApplications:
+            seerrLinkedApplicationsDestination
+                .moreDestinationTitleStyle()
+        case .downloadClients(let service):
+            ArrDownloadClientListView(serviceType: service)
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+                .moreDestinationTitleStyle()
+        case .remotePathMappings:
+            ArrRemotePathMappingListView()
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+                .moreDestinationTitleStyle()
+        case .diskSpace:
+            ArrDiskSpaceView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .health:
+            ArrHealthView()
+                .moreDestinationTitleStyle()
+        case .wanted:
+            ArrWantedView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .settings:
+            settingsDestination
+                .moreDestinationTitleStyle()
+        case .qbittorrentSettings:
+            qbittorrentSettingsDestination
+                .moreDestinationTitleStyle()
+        case .sabnzbdSettings:
+            SABnzbdSettingsView()
+                .environment(sabnzbdServiceManager)
+                .moreDestinationTitleStyle()
+        case .sonarrSettings:
+            ArrServiceSettingsView(serviceType: .sonarr)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .radarrSettings:
+            ArrServiceSettingsView(serviceType: .radarr)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .prowlarrSettings:
+            ArrServiceSettingsView(serviceType: .prowlarr)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .prowlarrIndexers:
+            prowlarrIndexersDestination
+                .moreDestinationBackground(.indexers)
+                .moreDestinationTitleStyle()
+        case .libraryImport:
+            ArrImportLocationView(kind: .library)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .manualImport:
+            ArrImportLocationView(kind: .manual)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .calendar:
+            // Search-reachable only - no permanent More row. The primary,
+            // correctly media-scoped entry points are the Series and Movies
+            // toolbars (ArrMediaListView); this unscoped copy stays for search.
+            ArrCalendarView()
+                .environment(arrServiceManager)
+                .injectSyncService(appServices)
+                .moreDestinationTitleStyle()
+        case .seerrAdmin:
+            seerrAdminDestination
+                .moreDestinationTitleStyle()
+        case .seerrIssues:
+            if let client = seerrServiceManager.activeClient {
+                SeerrIssueListView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                seerrAdminDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .seerrLogs:
+            if let client = seerrServiceManager.activeClient {
+                SeerrLogsView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                seerrAdminDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .seerrSettings:
+            SeerrSettingsView()
+                .moreDestinationTitleStyle()
+        case .jellyfinManagement:
+            JellyfinManagementView(jellyfinProfile: jellyfinProfile)
+                .moreDestinationTitleStyle()
+        case .jellyfinLibraries:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinLibrariesView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinSessions:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinSessionsView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinActivityLog:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinActivityLogView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinScheduledTasks:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinScheduledTasksView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinPlugins:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinPluginsView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinTranscoding:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinTranscodingSettingsView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                jellyfinUnavailableDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .jellyfinSettings:
+            JellyfinSettingsView()
+                .moreDestinationTitleStyle()
+        case .cleanuparrDashboard:
+            CleanuparrDashboardView()
+                .environment(cleanuparrServiceManager)
+                .moreDestinationBackground(.cleanuparr)
+                .moreDestinationTitleStyle()
+        case .cleanuparrSettings:
+            CleanuparrSettingsView()
+                .environment(cleanuparrServiceManager)
+                .moreDestinationTitleStyle()
+        case .logsAndEvents:
+            LogsAndEventsHubView(hasQBittorrentLog: appServices != nil)
+                .moreDestinationTitleStyle()
+        case .arrEvents:
+            ArrEventsView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .qbittorrentLog:
+            qbittorrentLogDestination
+                .moreDestinationTitleStyle()
+        case .tasksHub:
+            TasksHubView(jellyfinProfile: jellyfinProfile)
+                .moreDestinationTitleStyle()
+        case .arrTasks:
+            ArrScheduledTasksView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .seerrJobs:
+            if let client = seerrServiceManager.activeClient {
+                SeerrJobsView(apiClient: client)
+                    .moreDestinationTitleStyle()
+            } else {
+                seerrAdminDestination
+                    .moreDestinationTitleStyle()
+            }
+        case .updatesHub:
+            ArrUpdatesView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .backupsHub:
+            ArrBackupsView()
+                .environment(arrServiceManager)
+                .environment(jellyfinServiceManager)
+                .moreDestinationTitleStyle()
+        case .unifiedUsers:
+            unifiedUsersDestination
+                .moreDestinationBackground(.userManagement)
+                .moreDestinationTitleStyle()
+        case .libraryImportScan(let path, let service, let instanceID):
+            LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .library)
+                .moreDestinationTitleStyle()
+        case .manualImportScan(let path, let service, let instanceID):
+            LibraryImportScanView(path: path, service: service, serviceManager: arrServiceManager, instanceID: instanceID, kind: .manual)
+                .moreDestinationTitleStyle()
+        case .mediaManagement:
+            ArrMediaManagementView(
+                subtitleBadgeCount: subtitleBadgeCount,
+                hasJellyfin: jellyfinProfile != nil
+            )
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .arrNaming:
+            ArrNamingConfigView()
+                .environment(arrServiceManager)
+                .environment(InAppNotificationCenter.shared)
+                .moreDestinationTitleStyle()
+        case .rootFolders:
+            ArrRootFoldersView()
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+                .moreDestinationTitleStyle()
+        case .qualityProfiles:
+            ArrQualityProfilesListView()
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+                .moreDestinationTitleStyle()
+        case .qualityDefinitions:
+            ArrQualityDefinitionsView()
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+                .moreDestinationTitleStyle()
+        case .bazarrSettings:
+            ArrServiceSettingsView(serviceType: .bazarr)
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .subtitleManagement:
+            SubtitleManagementView()
+                .moreDestinationTitleStyle()
+        case .bazarrLanguageProfiles:
+            BazarrLanguageProfilesView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .bazarrProviders:
+            BazarrProvidersView()
+                .environment(arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .bazarrSeriesDetail(let seriesId):
+            BazarrSeriesDestination(seriesId: seriesId, arrServiceManager: arrServiceManager)
+                .moreDestinationTitleStyle()
+        case .bazarrMovieDetail(let radarrId):
+            BazarrMovieDestination(radarrId: radarrId, arrServiceManager: arrServiceManager)
+                .moreDestinationTitleStyle()
         }
     }
 

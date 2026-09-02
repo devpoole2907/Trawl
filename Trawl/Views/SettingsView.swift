@@ -280,7 +280,7 @@ struct SettingsView: View {
 
             Section("Appearance") {
                 Picker("Startup Tab", selection: $startupTab) {
-                    ForEach(RootTab.allCases, id: \.self) { tab in
+                    ForEach(RootTab.startupChoices, id: \.self) { tab in
                         Text(tab.displayName).tag(tab.displayName)
                     }
                 }

@@ -130,7 +130,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         // The sidebar is collapsible, and how a screen looks with it hidden is a
         // separate layout question from how it looks alongside it - a list sized for
         // 1106pt of content is not the same list at 1376pt.
-        let toggle = app.buttons["ToggleSidebar"]
+        let toggle = Self.sidebarToggle(in: app)
         if goToTab(app, "Downloads"), toggle.waitForExistence(timeout: 5) {
             settleRootTab(app, "Downloads")
             tapEvenIfNotHittable(toggle)
@@ -161,6 +161,44 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                       expecting: Self.headlineMovieTitle, named: "27-movie-detail-portrait")
         captureDetail(app, tab: "Downloads", row: Self.qbittorrentTorrentName,
                       expecting: Self.qbittorrentTorrentName, named: "28-download-detail-portrait")
+    }
+
+    // MARK: - Chrome diagnostic
+
+    /// Not a capture: a read-out of what each iPad chrome actually contains.
+    ///
+    /// `.sidebarAdaptable` presents two chromes on iPad - a floating top tab-bar pill
+    /// and an expanded sidebar - and `defaultVisibility(_:for:)` decides which tabs
+    /// each one shows. Which placement the *pill* counts as is not something to guess
+    /// at: get the accessibility tree for both states and read it.
+    @MainActor
+    func testDumpChromeHierarchies() async throws {
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
+        guard reachedTabUI(app) else {
+            dumpHierarchy(app, label: "collapsed, tab UI unreachable")
+            return
+        }
+
+        dumpHierarchy(app, label: "collapsed pill")
+        capture(app, "90-chrome-collapsed")
+
+        if goToTab(app, "More") {
+            settleRootTab(app, "More")
+            dumpHierarchy(app, label: "more tab contents")
+            capture(app, "92-more-contents")
+        } else {
+            print("=== MORE TAB NOT REACHABLE ===")
+        }
+
+        let toggle = Self.sidebarToggle(in: app)
+        if toggle.waitForExistence(timeout: 10) {
+            tapEvenIfNotHittable(toggle)
+            _ = app.cells.firstMatch.waitForExistence(timeout: 10)
+            dumpHierarchy(app, label: "expanded sidebar")
+            capture(app, "91-chrome-expanded")
+        } else {
+            print("=== NO SIDEBAR TOGGLE FOUND ===")
+        }
     }
 
     // MARK: - Welcome surface
@@ -349,6 +387,17 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
             }
         }
         return rootDestination(app, name)?.isSelected == true
+    }
+
+    /// The control that swaps between the floating tab-bar pill and the expanded
+    /// sidebar. Matched loosely on purpose: it has appeared as both `ToggleSidebar`
+    /// ("Hide Sidebar") and `ToggleSideBar` ("Toggle sidebar") depending on which
+    /// state it is currently in, and an exact identifier silently found neither.
+    @MainActor
+    private static func sidebarToggle(in app: XCUIApplication) -> XCUIElement {
+        app.buttons
+            .matching(NSPredicate(format: "identifier CONTAINS[c] %@ OR label CONTAINS[c] %@", "togglesidebar", "sidebar"))
+            .firstMatch
     }
 
     /// Dumps the accessibility tree to the test log. `.sidebarAdaptable` renders the
