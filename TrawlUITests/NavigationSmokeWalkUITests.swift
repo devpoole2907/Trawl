@@ -120,7 +120,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
     // MARK: - 2. More's top-level rows
 
-    /// Regressions this catches: any of More's seven top-level rows (Wanted/Missing,
+    /// Regressions this catches: any of More's seven top-level rows (Missing,
     /// Library Management, Requests & Access, Media Server, Integrations & Automation,
     /// System, Settings) failing to push to a real screen, or failing to pop back to
     /// More once pushed.
@@ -130,7 +130,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         waitForTabUI(app)
         app.tabBars.buttons["More"].tap()
 
-        assertRowPushesAndPops(app, rowLabel: "Wanted / Missing", expectedTitle: "Wanted / Missing")
+        assertRowPushesAndPops(app, rowLabel: "Missing", expectedTitle: "Missing")
         assertRowPushesAndPops(app, rowLabel: "Library Management", expectedTitle: "Library Management")
         assertRowPushesAndPops(app, rowLabel: "Requests & Access", expectedTitle: "Requests & Access")
         assertRowPushesAndPops(app, rowLabel: "Media Server", expectedTitle: "Media Server")

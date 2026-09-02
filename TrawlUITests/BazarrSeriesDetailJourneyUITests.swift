@@ -65,12 +65,12 @@ final class BazarrSeriesDetailJourneyUITests: XCTestCase {
         XCTAssertTrue(moreTab.waitForExistence(timeout: 20))
         moreTab.tap()
 
-        let wantedRow = app.buttons["Wanted / Missing"].exists
-            ? app.buttons["Wanted / Missing"]
-            : app.staticTexts["Wanted / Missing"]
+        let wantedRow = app.buttons["Missing"].exists
+            ? app.buttons["Missing"]
+            : app.staticTexts["Missing"]
         XCTAssertTrue(
             wantedRow.waitForExistence(in: app, timeout: 15),
-            "More should offer its Wanted / Missing row."
+            "More should offer its Missing row."
         )
         XCTAssertTrue(tapWhenHittable(wantedRow, in: app, timeout: 15))
 
@@ -80,7 +80,7 @@ final class BazarrSeriesDetailJourneyUITests: XCTestCase {
         let seriesRow = app.staticTexts[BazarrUIFixtureServer.seriesTitle]
         XCTAssertTrue(
             seriesRow.waitForExistence(in: app, timeout: 20),
-            "Wanted / Missing should list the Bazarr series with outstanding subtitles."
+            "Missing should list the Bazarr series with outstanding subtitles."
         )
         XCTAssertTrue(
             tapWhenHittable(seriesRow, in: app, timeout: 15),

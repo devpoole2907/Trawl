@@ -588,7 +588,7 @@ nonisolated enum RadarrFilter: String, CaseIterable, Identifiable, Sendable {
     case unmonitored = "Unmonitored"
     case missing = "Missing"
     case downloaded = "Downloaded"
-    case wanted = "Missing & Available"
+    case wanted = "Released & Missing"
     case subtitlesPresent = "Subtitles Present"
     case inJellyfinLibrary = "In Jellyfin Library"
 

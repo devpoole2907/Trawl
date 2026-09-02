@@ -378,7 +378,7 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                 }
 
                 Menu {
-                    Button("Wanted / Missing", systemImage: "exclamationmark.triangle") {
+                    Button("Missing", systemImage: "exclamationmark.triangle") {
                         showWantedMissing = true
                     }
                     if !viewModel.filteredItems.isEmpty {

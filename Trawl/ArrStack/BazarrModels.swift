@@ -656,7 +656,7 @@ nonisolated enum BazarrSeriesAction: String, CaseIterable, Sendable {
         switch self {
         case .scanDisk: "Scan Disk"
         case .searchMissing: "Search Missing"
-        case .searchWanted: "Search Wanted"
+        case .searchWanted: "Search Missing Subtitles"
         case .sync: "Sync"
         }
     }

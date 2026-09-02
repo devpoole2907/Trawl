@@ -84,7 +84,7 @@ struct ArrWantedView: View {
         if let moviesError = bazarrViewModel?.moviesError, !moviesError.isEmpty {
             errors.append("Bazarr movies: \(moviesError)")
         }
-        return errors.isEmpty ? "An error occurred loading wanted items." : errors.joined(separator: "\n")
+        return errors.isEmpty ? "An error occurred loading missing items." : errors.joined(separator: "\n")
     }
 
     private var canSearchAllMissing: Bool {
@@ -206,7 +206,7 @@ struct ArrWantedView: View {
                             let missingMovies = bazarrViewModel.filteredMovies.filter { !$0.missingSubtitles.isEmpty }
 
                             if !missingSeries.isEmpty {
-                                Section("Subtitle Gaps - Series") {
+                                Section("Missing Subtitles — Series") {
                                     ForEach(missingSeries) { series in
                                         BazarrWantedSeriesRow(series: series) {
                                             await searchBazarrSeries(series, in: bazarrViewModel)
@@ -216,7 +216,7 @@ struct ArrWantedView: View {
                             }
 
                             if !missingMovies.isEmpty {
-                                Section("Subtitle Gaps - Movies") {
+                                Section("Missing Subtitles — Movies") {
                                     ForEach(missingMovies) { movie in
                                         BazarrWantedMovieRow(movie: movie) {
                                             await searchBazarrMovie(movie, in: bazarrViewModel)
@@ -230,7 +230,7 @@ struct ArrWantedView: View {
                 }
             }
         }
-        .navigationTitle("Wanted / Missing")
+        .navigationTitle("Missing")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -864,7 +864,7 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
 }
 
 #if DEBUG
-#Preview("Wanted - Loaded") {
+#Preview("Missing - Loaded") {
     let manager = ArrServiceManager.preview(.allConfigured)
     PreviewHost(profiles: .allServices, arr: manager) {
         NavigationStack {
@@ -877,7 +877,7 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
     }
 }
 
-#Preview("Wanted - Empty") {
+#Preview("Missing - Empty") {
     let manager = ArrServiceManager.preview(.allConfigured)
     PreviewHost(profiles: .allServices, arr: manager) {
         NavigationStack {
@@ -890,7 +890,7 @@ private func wantedStatusChip(_ text: String, color: Color) -> some View {
     }
 }
 
-#Preview("Wanted - Connection Issue") {
+#Preview("Missing - Connection Issue") {
     PreviewHost(profiles: .arrOnly, arr: .preview(.sonarrConnectionError("Sonarr refused the API key."))) {
         NavigationStack {
             ArrWantedView(initialScope: .series)

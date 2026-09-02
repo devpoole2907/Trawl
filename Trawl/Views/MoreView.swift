@@ -1441,7 +1441,7 @@ private enum MoreSearchIndex {
                 destination: .wanted,
                 icon: "exclamationmark.triangle.fill",
                 color: .orange,
-                title: "Wanted / Missing",
+                title: "Missing",
                 subtitle: "Missing files and subtitles",
                 category: "Monitoring",
                 keywords: ["missing", "wanted", "episodes", "movies", "subtitles"]
