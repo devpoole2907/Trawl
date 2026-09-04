@@ -429,6 +429,7 @@ struct ArrCalendarView: View {
     #if os(iOS)
     @Environment(\.setTabChromeHidden) private var setTabChromeHidden
     #endif
+    @Environment(\.hasDetailPane) private var hasDetailPane
 
     let showsCloseButton: Bool
 
@@ -437,6 +438,9 @@ struct ArrCalendarView: View {
     }
 
     @State private var scope: CalendarScope = .all
+    /// Which release the detail pane is showing, at regular width. Nil on iPhone,
+    /// where a row pushes instead.
+    @State private var selectedMedia: ArrMediaDestination?
     @State private var showMonitoredOnly = false
     @State private var scrollView: ScrollViewProxy?
     @State private var hideCalendarView = true
@@ -492,33 +496,7 @@ struct ArrCalendarView: View {
     }
     
     var body: some View {
-        Group {
-            if !hasConfiguredService {
-                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to see upcoming releases.", systemImage: "server.rack")
-                .scrollableUnavailableState()
-            } else if !isConnected {
-                ArrServicesConnectionStatusView(
-                    services: calendarServices,
-                    title: "Services Unreachable",
-                    message: "Unable to reach your configured Sonarr or Radarr servers."
-                )
-            } else {
-                ArrLoadingErrorEmptyView(
-                    isLoading: viewModel.isLoadingInitial || viewModel.isRefreshing,
-                    error: viewModel.initialLoadErrorMessage,
-                    isEmpty: viewModel.loadedMonths.isEmpty && !(viewModel.isLoadingInitial || viewModel.isRefreshing),
-                    emptyTitle: "No Upcoming Releases",
-                    emptyIcon: "calendar.badge.exclamationmark",
-                    emptyDescription: "No calendar data has been loaded for the selected date range.",
-                    onRetry: { await serviceManager.calendarViewModel.refresh() }
-                ) {
-                    calendarContent
-                }
-            }
-        }
-        .moreDestinationBackground(.calendar)
-        .navigationTitle("Calendar")
-        .navigationSubtitle(navigationSubtitleText)
+        calendarPanes
         #if os(iOS)
         .toolbarVisibility(.hidden, for: .tabBar)
         #endif
@@ -572,15 +550,6 @@ struct ArrCalendarView: View {
                 }
             }
         }
-        .safeAreaInset(edge: .top) {
-            if hasConfiguredService {
-                TrawlSegmentBar("Scope", selection: Binding(
-                    get: { scope },
-                    set: { newValue in withAnimation { scope = newValue } }
-                ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
         .sheet(isPresented: $showiCalAlert) {
             ICalSubscribeSheet(availableServices: subscribableServices)
         }
@@ -619,6 +588,78 @@ struct ArrCalendarView: View {
             #endif
         }
         .arrMediaNavigationDestinations()
+    }
+
+
+    /// The calendar beside whatever it has open.
+    ///
+    /// Not while it is a sheet: presented from the Series and Movies toolbars this is
+    /// a panel a few hundred points wide, and a list pane with a minimum width plus a
+    /// detail beside it does not fit in one.
+    @ViewBuilder
+    private var calendarPanes: some View {
+        if showsCloseButton {
+            calendarScreen
+                .navigationTitle("Calendar")
+                .navigationSubtitle(navigationSubtitleText)
+        } else {
+            TrawlListDetailPanes(title: "Calendar", subtitle: navigationSubtitleText) {
+                calendarScreen
+            } detail: {
+                selectedMediaDetail
+            }
+        }
+    }
+
+    /// Deliberately nothing selected to begin with. A calendar is a list of dates,
+    /// not a list of things one of which is "the current one" - opening it on
+    /// whatever happens to be first would be an arbitrary choice presented as a
+    /// default.
+    @ViewBuilder
+    private var selectedMediaDetail: some View {
+        if let selectedMedia {
+            ArrMediaDetailPane(destination: selectedMedia)
+                .id(selectedMedia)
+        } else {
+            listDetailPlaceholder("Select a calendar item to view it", systemImage: "calendar")
+        }
+    }
+
+    private var calendarScreen: some View {
+        Group {
+            if !hasConfiguredService {
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to see upcoming releases.", systemImage: "server.rack")
+                .scrollableUnavailableState()
+            } else if !isConnected {
+                ArrServicesConnectionStatusView(
+                    services: calendarServices,
+                    title: "Services Unreachable",
+                    message: "Unable to reach your configured Sonarr or Radarr servers."
+                )
+            } else {
+                ArrLoadingErrorEmptyView(
+                    isLoading: viewModel.isLoadingInitial || viewModel.isRefreshing,
+                    error: viewModel.initialLoadErrorMessage,
+                    isEmpty: viewModel.loadedMonths.isEmpty && !(viewModel.isLoadingInitial || viewModel.isRefreshing),
+                    emptyTitle: "No Upcoming Releases",
+                    emptyIcon: "calendar.badge.exclamationmark",
+                    emptyDescription: "No calendar data has been loaded for the selected date range.",
+                    onRetry: { await serviceManager.calendarViewModel.refresh() }
+                ) {
+                    calendarContent
+                }
+            }
+        }
+        .moreDestinationBackground(.calendar)
+        .safeAreaInset(edge: .top) {
+            if hasConfiguredService {
+                TrawlSegmentBar("Scope", selection: Binding(
+                    get: { scope },
+                    set: { newValue in withAnimation { scope = newValue } }
+                ), items: CalendarScope.allCases.map(\.segmentBarItem), alignment: .center)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
     }
     
     @ViewBuilder
@@ -739,15 +780,40 @@ struct ArrCalendarView: View {
         switch event {
         case .episode(let episode, _, _):
             if let seriesID = episode.seriesId {
-                NavigationLink(value: ArrMediaDestination.series(id: seriesID)) {
-                    EventRow(event: event, instance: instance)
-                }
-                .buttonStyle(.plain)
+                calendarEventRow(event: event, instance: instance, destination: .series(id: seriesID))
             } else {
                 EventRow(event: event, instance: instance)
             }
         case .movie(let movie, _, _):
-            NavigationLink(value: ArrMediaDestination.movie(id: movie.id)) {
+            calendarEventRow(event: event, instance: instance, destination: .movie(id: movie.id))
+        }
+    }
+
+    /// Opens the release in the pane beside the calendar, or pushes it when there is
+    /// no pane. These rows live in a `ScrollView` rather than a `List`, so the
+    /// selecting form is a button rather than a tag.
+    @ViewBuilder
+    private func calendarEventRow(
+        event: CalendarEvent,
+        instance: ArrInstanceRef?,
+        destination: ArrMediaDestination
+    ) -> some View {
+        if hasDetailPane {
+            Button {
+                selectedMedia = destination
+            } label: {
+                EventRow(event: event, instance: instance)
+            }
+            .buttonStyle(.plain)
+            .background {
+                if selectedMedia == destination {
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .fill(Color.accentColor.opacity(0.18))
+                        .padding(.horizontal, -8)
+                }
+            }
+        } else {
+            NavigationLink(value: destination) {
                 EventRow(event: event, instance: instance)
             }
             .buttonStyle(.plain)

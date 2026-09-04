@@ -199,7 +199,7 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         result.tap()
 
         XCTAssertTrue(
-            app.navigationBars["Quality Profiles"].waitForExistence(timeout: 15),
+            app.showsScreen(named: "Quality Profiles", timeout: 15),
             "Choosing a search result should open that screen."
         )
         XCTAssertNotNil(

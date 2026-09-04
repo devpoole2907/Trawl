@@ -118,3 +118,27 @@ extension XCUIElement {
             .exists
     }
 }
+
+extension XCUIApplication {
+    /// The accessibility identifier `TrawlListDetailPanes` puts on a screen's name.
+    ///
+    /// Repeated here rather than shared: the UI test target does not link the app's
+    /// types. If it ever drifts, the assertions below fail loudly rather than quietly
+    /// matching nothing.
+    static let listDetailScreenNameIdentifier = "list-detail-screen-name"
+
+    /// Whether the screen called `name` is the one on show, whichever shape it is in.
+    ///
+    /// Most screens say their name in the navigation bar. A screen with a detail pane
+    /// beside it cannot: both panes share the column's one bar, and that bar's title
+    /// belongs to whatever the detail is showing - so the screen's own name is pinned
+    /// above its list instead. A test that only knows the first form reports every
+    /// two-pane screen on iPad as missing, which is the wrong screen and the wrong
+    /// bug.
+    func showsScreen(named name: String, timeout: TimeInterval = 10) -> Bool {
+        if navigationBars[name].waitForExistence(timeout: timeout) { return true }
+
+        let paneName = staticTexts[Self.listDetailScreenNameIdentifier]
+        return paneName.waitForExistence(timeout: 2) && paneName.label.contains(name)
+    }
+}

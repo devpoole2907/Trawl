@@ -171,7 +171,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         openDownloadsOptions(app)
         tapMenuItem(app.buttons["Client Management"], named: "Client Management")
         XCTAssertTrue(
-            app.navigationBars["Download Clients"].waitForExistence(timeout: 10),
+            app.showsScreen(named: "Download Clients"),
             "Screen: 'Client Management' should push DownloadClientManagementView titled 'Download Clients'."
         )
 
@@ -340,7 +340,7 @@ final class NavigationSmokeWalkUITests: XCTestCase {
 
         app.buttons["Calendar"].tap()
         XCTAssertTrue(
-            app.navigationBars["Calendar"].waitForExistence(timeout: 15),
+            app.showsScreen(named: "Calendar", timeout: 15),
             "Screen: the Series toolbar's Calendar button should present ArrCalendarView."
         )
         XCTAssertTrue(

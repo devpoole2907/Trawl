@@ -95,7 +95,7 @@ final class ServiceUnavailableJourneyUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["Movie details loaded from the fixture."].waitForExistence(timeout: 15))
         capture(app, "04-request-movie-selected")
         if TrawlChrome.isSidebar {
-            XCTAssertTrue(app.navigationBars["Requests"].exists)
+            XCTAssertTrue(app.showsScreen(named: "Requests", timeout: 5))
             let series = app.cells.containing(.staticText, identifier: "Fixture Requested Series").firstMatch
             XCTAssertTrue(series.isHittable, "The request list must remain available beside the selected movie.")
             series.tap()

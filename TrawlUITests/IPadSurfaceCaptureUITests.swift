@@ -165,7 +165,7 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         // surface above is worth more than this one screenshot, so none of them wait
         // behind it any more.
         if goToTab(app, "Series"), tapFirst(app, exactly: "Calendar") {
-            if app.navigationBars["Calendar"].waitForExistence(timeout: 15) {
+            if app.showsScreen(named: "Calendar", timeout: 15) {
                 capture(app, "08-calendar-sheet-landscape")
             }
             tapFirst(app, exactly: "Close")
@@ -284,8 +284,9 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     ///
     /// A capture alone cannot defend that - the regression is a title that is
     /// *absent*, and nobody re-reads an old screenshot. So this asserts the screen's
-    /// name is still in the bar after a row is selected, and photographs both states
-    /// either way so a failure can be looked at rather than guessed at.
+    /// name is still above its list after a row is selected, and that the bar has
+    /// taken the selection's name rather than the screen's, and photographs both
+    /// states either way so a failure can be looked at rather than guessed at.
     @MainActor
     func testDetailPaneTitlesSurviveSelection() async throws {
         let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
@@ -303,26 +304,91 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         // against a screen where no selection happened passes without ever exercising
         // the thing it exists to catch. That has now produced three false passes.
         //
-        // `bar` is everything the column's navigation bar is allowed to say once a row
-        // is picked: the screen's own name, and its scope where it has one. Listing it
-        // in full rather than asserting "the title is still there" is what catches the
-        // case that started all this - the Sonarr download-client list is *itself*
-        // titled "Download Clients", so a title check matches the leaked detail title
-        // and calls the screen healthy while it is broken. The leak showed as an extra
-        // word in the bar, so the bar is compared whole.
-        let panes: [(sidebarCase: String, row: String, bar: [String])] = [
-            ("downloadClients", "Sonarr Download Clients", ["Download Clients"]),
-            ("indexers", ProwlarrUIFixtureServer.indexerName, ["Indexers", "Prowlarr"]),
+        // Two panes share one navigation bar, and the arrangement they settled on
+        // gives each name a place of its own: the screen names itself above its list,
+        // the bar's title is the detail's. So there are two things to check and they
+        // are different things. The screen's name is matched by *identifier*, because
+        // matching it by text is the false pass that started all this - the Sonarr
+        // download-client list is itself titled "Download Clients", so a text search
+        // finds the detail's title and calls the screen healthy while it is broken.
+        // `bar` is compared whole for the same reason.
+        let panes: [(sidebarCase: String, screen: String, row: String, bar: [String])] = [
+            (
+                "downloadClients",
+                "Download Clients",
+                "Sonarr Download Clients",
+                ["Download Clients", "Sonarr"]
+            ),
+            (
+                "indexers",
+                "Indexers",
+                ProwlarrUIFixtureServer.indexerName,
+                [ProwlarrUIFixtureServer.indexerName, "Prowlarr"]
+            ),
         ]
 
         for (offset, pane) in panes.enumerated() {
             capturePaneSelection(
                 app,
                 sidebarCase: pane.sidebarCase,
+                screenName: pane.screen,
                 row: pane.row,
                 expectedBar: pane.bar,
                 index: 41 + offset
             )
+        }
+    }
+
+    /// The two screens that gained a detail pane, photographed with nothing selected.
+    ///
+    /// Asserts the arrangement rather than a selection: that the screen names itself,
+    /// and that the pane beside it is inviting a choice rather than having made one.
+    /// Opening on the first row would be an arbitrary pick presented as a default -
+    /// a calendar has no "current" date the way a list of servers has a first server.
+    @MainActor
+    func testCalendarAndMissingOpenBesideAnEmptyPane() async throws {
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
+
+        guard reachedTabUI(app) else {
+            capture(app, "45-UNREACHED-tab-ui-new-panes")
+            dumpHierarchy(app, label: "calendar/missing panes, tab UI unreachable")
+            return
+        }
+        ensureSidebarExpanded(app)
+
+        let screens: [(sidebarCase: String, screen: String, placeholder: String)] = [
+            ("calendar", "Calendar", "Select a calendar item to view it"),
+            ("missing", "Missing", "Select a missing item to view it"),
+        ]
+
+        for (offset, screen) in screens.enumerated() {
+            guard let row = sidebarRow(app, screen.sidebarCase) else {
+                capture(app, "\(45 + offset)-\(screen.sidebarCase)-MISS-not-in-sidebar")
+                XCTFail("\(screen.screen): no sidebar row nav.\(screen.sidebarCase)")
+                continue
+            }
+            tapEvenIfNotHittable(row)
+
+            let name = app.staticTexts[TrawlListDetailPanesIdentifiers.screenName]
+            if !name.waitForExistence(timeout: 15) {
+                capture(app, "\(45 + offset)-\(screen.sidebarCase)-MISS-no-screen-name")
+                dumpNavigationBars(app, label: screen.sidebarCase)
+                XCTFail("\(screen.screen): the screen never named itself, so it is not "
+                    + "showing two panes at all")
+                continue
+            }
+            XCTAssertTrue(
+                name.label.contains(screen.screen),
+                "\(screen.screen): the pane header reads \(name.label)"
+            )
+
+            let placeholder = app.staticTexts[screen.placeholder]
+            XCTAssertTrue(
+                placeholder.waitForExistence(timeout: 5),
+                "\(screen.screen): no detail pane beside the list - expected the "
+                    + "placeholder \"\(screen.placeholder)\" and nothing selected"
+            )
+            capture(app, "\(45 + offset)-\(screen.sidebarCase)-pane-unselected")
         }
     }
 
@@ -383,11 +449,12 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
     private func capturePaneSelection(
         _ app: XCUIApplication,
         sidebarCase: String,
+        screenName: String,
         row rowLabel: String,
         expectedBar: [String],
         index: Int
     ) {
-        let title = expectedBar[0]
+        let title = screenName
 
         guard let sidebarEntry = sidebarRow(app, sidebarCase) else {
             capture(app, "\(index)-\(sidebarCase)-MISS-not-in-sidebar")
@@ -396,10 +463,10 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
         tapEvenIfNotHittable(sidebarEntry)
 
-        let bar = app.navigationBars[title]
-        guard bar.waitForExistence(timeout: 15) else {
+        let header = app.staticTexts[TrawlListDetailPanesIdentifiers.screenName]
+        guard header.waitForExistence(timeout: 15) else {
             capture(app, "\(index)-\(sidebarCase)-MISS-title-before-selection")
-            XCTFail("\(title): the screen's title never appeared, before any row was picked")
+            XCTFail("\(title): the screen never named itself, before any row was picked")
             return
         }
         capture(app, "\(index)-\(sidebarCase)-1-list-only")
@@ -439,13 +506,29 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         capture(app, "\(index)-\(sidebarCase)-3-row-selected")
         dumpNavigationBars(app, label: "\(sidebarCase) after selecting \(rowLabel)")
 
-        let actual = app.navigationBars[title].staticTexts.allElementsBoundByIndex.map(\.label)
+        // The regression this suite exists for: picking a row used to take the
+        // screen's own name away with it and leave the selection's in its place.
+        XCTAssertTrue(
+            header.exists && header.label.contains(title),
+            "\(title): the screen stopped naming itself once \(rowLabel) was selected "
+                + "- the pane header reads \(header.exists ? header.label : "<absent>")"
+        )
+
+        let actual = app.navigationBars[expectedBar[0]].staticTexts.allElementsBoundByIndex.map(\.label)
         XCTAssertEqual(
             actual, expectedBar,
             "\(title): the column's bar reads \(actual) after selecting \(rowLabel), "
-                + "but this screen only names itself \(expectedBar) - the detail pane is "
-                + "writing into the column's navigation bar."
+                + "but the pane beside the list is \(expectedBar) - the bar's title "
+                + "belongs to whatever the detail is showing."
         )
+    }
+
+    /// Mirrors `TrawlListDetailPanes.screenNameIdentifier`. The test target does not
+    /// link the app's types, so the string is repeated here rather than shared; if it
+    /// ever drifts, every assertion that uses it fails loudly rather than quietly
+    /// matching nothing.
+    private enum TrawlListDetailPanesIdentifiers {
+        static let screenName = "list-detail-screen-name"
     }
 
     // MARK: - Surface walking

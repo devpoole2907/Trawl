@@ -162,7 +162,7 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
             "Integrations & Automation should expose the Linked Applications hub."
         )
         XCTAssertTrue(
-            app.navigationBars["Linked Applications"].waitForExistence(in: app, timeout: 10),
+            app.showsScreen(named: "Linked Applications"),
             "The Linked Applications hub should render."
         )
 

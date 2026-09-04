@@ -394,45 +394,88 @@ run against unreachable servers catches, which is worth doing deliberately: laun
 the `TRAWL_UITEST_*_BASE_URL` variables pointed at `http://127.0.0.1:1/...` and walk the
 sidebar.
 
-**Where a two-pane screen puts its title.** On `TrawlListDetailPanes` itself, as its
-`title:` argument. Both panes live in one navigation column with one bar, and whatever
-the detail writes into that bar displaces the screen's own name: selecting a row blanked
-the screen's title, replaced it with the selection's, and dragged the selection's
-subtitle and buttons along with it.
+**Where a two-pane screen puts its title.** Two panes, two names, and only one
+navigation bar to hold them - so only one of them is in it. `TrawlListDetailPanes`
+pins the *screen's* name above its list as a `safeAreaInset`, and leaves the bar's
+title to the *detail*, which keeps its own `navigationTitle`. Each name ends up over
+the pane it belongs to.
 
-Two remedies were tried and neither worked. Giving the detail pane a `NavigationStack`
-of its own looks like it should contain the pane's title and does not — the pane's title
-and subtitle still reached the column's bar, and a dump of the accessibility tree showed
-no second bar had ever been created. It also broke the obvious alternative: with a
-navigation container inside, a `navigationTitle` applied *around* both panes attaches to
-that inner container instead of to the column, so the bar went empty rather than merely
-wrong. Applying the screen's title above both panes fixed the download-client screen and
-left the indexer screen still showing the selected indexer's name, so "the outer
-`navigationTitle` wins" is not a rule to lean on either.
+That is the third arrangement tried, and the first that holds. What is ruled out:
 
-What holds is suppressing the conflict at its source. `TrawlListDetailPanes` puts
-`\.isDetailPane` in the environment, and a detail view names itself with
-`paneAwareNavigationTitle(_:subtitle:)`, which titles the screen when the view is a
-destination in its own right and stays silent when it is somebody's pane. Any view used
-as a pane must use it rather than `navigationTitle` directly.
+- The detail writing into the shared bar. Selecting a row blanked the screen's name,
+  replaced it with the selection's, and dragged the selection's subtitle and buttons
+  along with it. Suppressing the detail's title instead (an `\.isDetailPane`
+  environment flag read by a `paneAwareNavigationTitle` modifier) fixed that and cost
+  the detail any name at all.
+- A `NavigationStack` around each pane. The stacks reserve bar height inside the panes
+  and their titles still surface in the *column's* bar, so the screen gets an empty
+  strip and a title in the wrong place.
+- Hiding the column's bar to make room for per-pane bars. `toolbar(_:for:)` is
+  inherited by every navigation container beneath it, so the panes' bars go with it -
+  and neither re-asserting `.visible` inside a pane nor applying the hide from a leaf
+  that is not an ancestor of the panes wins it back.
+- The screen's name as a leading toolbar item. iOS 26 sizes a bar item for a control,
+  so the label is squeezed to an ellipsis ("Re...").
 
-**Testing this needs care — it has produced three false passes.** It is invisible unless
-a row is actually selected *and* the detail has a title of its own, and each of these
-looked green against a screen that was broken:
+Two further rules follow from the panes sharing a bar. The bar is forced
+`.navigationBarTitleDisplayMode(.inline)`: a large title is drawn over the list and
+reserves its full height across the *whole* column, which showed as a tall white band
+above the detail with nothing in it. And its background is forced `.visible`, because
+left alone each pane's scroll view decides the background over its own half and the
+result is a bar that is clear over the list and opaque over the detail, split down the
+middle. `ArrItemDetailView` reads `\.isDetailPane` for the same reason: hiding the bar
+background so artwork can run behind the title is right for a whole screen and wrong
+for a pane, where it applies to both panes at once.
+
+**Testing this needs care - it has produced three false passes.** It is invisible
+unless a row is actually selected *and* the detail has a title of its own, and each of
+these looked green against a screen that was broken:
 
 - tapping "the first cell" in the list, which on these screens is a stat tile that
   selects nothing, so the detail never changed;
-- waiting for `navigationBars.count >= 2` as proof a selection happened — the sidebar
+- waiting for `navigationBars.count >= 2` as proof a selection happened - the sidebar
   has a bar of its own, so that is already true before anything is tapped;
-- asserting `navigationBars[title].exists`, which matches the *leaked detail title* on
-  any screen whose detail repeats the screen's name (the Sonarr download-client list is
+- matching the screen's name as *text*, which finds the leaked detail title on any
+  screen whose detail repeats the screen's name (the Sonarr download-client list is
   itself titled "Download Clients").
 
-`IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection` therefore names the row
-it selects, treats the detail placeholder disappearing as the proof of selection, and
-compares the column bar's contents *whole* against what the screen is allowed to say.
-It covers Indexers and Download Clients; the other five pane screens are fixed by the
-same mechanism but are not yet covered.
+`IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection` therefore names the
+row it selects, treats the detail placeholder disappearing as the proof of selection,
+matches the screen's name by the `list-detail-screen-name` accessibility identifier
+rather than by its text, and compares the column bar's contents *whole* against what
+the detail is allowed to say. It covers Indexers and Download Clients; the other five
+pane screens are fixed by the same mechanism but are not yet covered.
+
+**A detail pane's artwork must be contained twice over.** `ArrItemDetailView` paints a
+scaled, blurred, safe-area-ignoring backdrop, and `ignoresSafeArea` resolves against
+the *column* rather than the pane - so the backdrop spreads across the list beside it.
+It cannot be contained at the source, because everything inside that modifier is handed
+the column-sized proposal too. `TrawlListDetailPanes` therefore clips the detail *and*
+sets `contentShape(Rectangle())` on it. The clip alone is what shipped first, and it
+hid the overspill without disarming it: the list sat under an invisible sheet of
+artwork and every row stopped responding the moment anything was selected, which reads
+as the whole screen freezing. A clip stops the drawing, not the touches.
+`ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` is the test that
+holds this - it selects a second row *after* a first is already open, which is the only
+thing the frozen build could not do.
+
+**Calendar and Missing open beside an empty pane.** Both gained a detail pane, and
+neither auto-selects: a calendar is a list of dates rather than a list of things one of
+which is current, and Missing is a list of things that are *absent*. Rows select rather
+than push at regular width - the calendar's rows become buttons, since they live in a
+`ScrollView` rather than a `List`, and Missing's take a `.tag`. The tag is applied only
+where an episode knows its series, and the selection binding is `.constant(nil)` when
+there is no pane, so an iPhone row keeps doing what it always did rather than taking a
+selection highlight that opens nothing. Neither splits while presented as a sheet from
+the Series and Movies toolbars, where there is no room.
+`IPadSurfaceCaptureUITests.testCalendarAndMissingOpenBesideAnEmptyPane` pins the
+arrangement: the screen names itself, and the placeholder beside it says nothing is
+selected.
+
+**Whether a list has a pane beside it is asked of the chrome, not the size class.** A
+`NavigationSplitView`'s content column reports itself `compact` on iPad, so a row that
+decides between selecting and pushing on `horizontalSizeClass` gets it wrong.
+`TrawlListDetailPanes` publishes `\.hasDetailPane` and the list reads that.
 
 ## iPad behaviour
 

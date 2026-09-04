@@ -67,9 +67,6 @@ enum ArrMediaDestination: Hashable {
 /// the detail view falls back to its `discoverMovie`/`discoverSeries` object until (if ever) a
 /// library match loads in.
 private struct ArrMediaNavigationDestinationsModifier: ViewModifier {
-    @Environment(ArrServiceManager.self) private var serviceManager
-    @Environment(SyncService.self) private var syncService
-
     var onLibraryChanged: (() async -> Void)?
     var zoomNamespace: Namespace.ID?
 
@@ -77,27 +74,18 @@ private struct ArrMediaNavigationDestinationsModifier: ViewModifier {
         content
             .navigationDestination(for: ArrMediaDestination.self) { destination in
                 destinationView(for: destination)
-                    .environment(syncService)
             }
     }
 
     @ViewBuilder
     private func destinationView(for destination: ArrMediaDestination) -> some View {
         switch destination {
-        case .movie(let id):
-            RadarrMovieDetailView(movieId: id, viewModel: makeRadarrViewModel())
+        case .movie, .series:
+            ArrMediaDetailPane(destination: destination, onLibraryChanged: onLibraryChanged)
 
-        case .series(let id):
-            SonarrSeriesDetailView(seriesId: id, viewModel: makeSonarrViewModel())
-
-        case .movieLookup(let movie):
+        case .movieLookup, .seriesLookup:
             zoomed(destination) {
-                RadarrMovieDetailView(movie: movie, viewModel: makeRadarrViewModel(), onAdded: onLibraryChanged)
-            }
-
-        case .seriesLookup(let series):
-            zoomed(destination) {
-                SonarrSeriesDetailView(series: series, viewModel: makeSonarrViewModel(), onAdded: onLibraryChanged)
+                ArrMediaDetailPane(destination: destination, onLibraryChanged: onLibraryChanged)
             }
         }
     }
@@ -116,6 +104,42 @@ private struct ArrMediaNavigationDestinationsModifier: ViewModifier {
         #else
         content()
         #endif
+    }
+
+}
+
+/// The detail an `ArrMediaDestination` names, built in place rather than pushed.
+///
+/// Same construction as `arrMediaNavigationDestinations` performs for a push - down
+/// to seeding the view model from the app-wide library cache, so the detail resolves
+/// its id immediately instead of showing "Not Found" until its own fetch lands. It is
+/// factored out here because a screen with a detail *pane* wants the same view
+/// without a push: the calendar and the missing list both put one beside their list
+/// at regular width.
+struct ArrMediaDetailPane: View {
+    @Environment(ArrServiceManager.self) private var serviceManager
+    @Environment(SyncService.self) private var syncService
+
+    let destination: ArrMediaDestination
+    var onLibraryChanged: (() async -> Void)?
+
+    var body: some View {
+        content
+            .environment(syncService)
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch destination {
+        case .movie(let id):
+            RadarrMovieDetailView(movieId: id, viewModel: makeRadarrViewModel())
+        case .series(let id):
+            SonarrSeriesDetailView(seriesId: id, viewModel: makeSonarrViewModel())
+        case .movieLookup(let movie):
+            RadarrMovieDetailView(movie: movie, viewModel: makeRadarrViewModel(), onAdded: onLibraryChanged)
+        case .seriesLookup(let series):
+            SonarrSeriesDetailView(series: series, viewModel: makeSonarrViewModel(), onAdded: onLibraryChanged)
+        }
     }
 
     private func makeRadarrViewModel() -> RadarrViewModel {

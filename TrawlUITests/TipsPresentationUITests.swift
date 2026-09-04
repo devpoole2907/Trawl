@@ -110,7 +110,7 @@ final class TipsPresentationUITests: XCTestCase {
         )
         XCTAssertTrue(tapWhenPossible(app.buttons["Calendar"], timeout: 15), "The Series toolbar should offer Calendar.")
         XCTAssertTrue(
-            app.navigationBars["Calendar"].waitForExistence(timeout: 20),
+            app.showsScreen(named: "Calendar", timeout: 20),
             "Calendar should present before its tip is looked for."
         )
         XCTAssertTrue(

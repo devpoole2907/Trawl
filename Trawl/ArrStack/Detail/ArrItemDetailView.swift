@@ -8,6 +8,8 @@ struct ArrDetailAction: Identifiable {
 }
 
 struct ArrItemDetailView<Item, BodyContent: View>: View {
+    @Environment(\.isDetailPane) private var isDetailPane
+
     let item: Item?
     let title: String
     let backgroundURL: URL?
@@ -36,8 +38,12 @@ struct ArrItemDetailView<Item, BodyContent: View>: View {
         .navigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbarBackground(.hidden, for: .navigationBar)
-        .toolbarColorScheme(.dark, for: .navigationBar)
+        // Only as a screen of its own. A hidden bar background lets the artwork run
+        // up behind the title, which is the point - but as a *pane* the bar is the
+        // whole column's, and hiding it there leaves a white strip over the detail
+        // (the artwork is clipped to the pane) with white-on-white text in it.
+        .toolbarBackground(isDetailPane ? .visible : .hidden, for: .navigationBar)
+        .toolbarColorScheme(isDetailPane ? nil : .dark, for: .navigationBar)
         #endif
     }
 }

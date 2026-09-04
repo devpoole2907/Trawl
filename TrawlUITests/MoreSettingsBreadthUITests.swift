@@ -230,7 +230,7 @@ final class MoreSettingsBreadthUITests: XCTestCase {
             openDestination(.qualityProfiles, in: app),
             "Quality Profiles should be reachable after the seeded launch."
         )
-        XCTAssertTrue(app.navigationBars["Quality Profiles"].waitForExistence(timeout: 10), "Quality Profiles should render after navigation.")
+        XCTAssertTrue(app.showsScreen(named: "Quality Profiles"), "Quality Profiles should render after navigation.")
         XCTAssertTrue(
             app.staticTexts["HD-1080p"].waitForExistence(timeout: 15),
             "The quality-profile list should render the profile supplied by the connected Radarr server."

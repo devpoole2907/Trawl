@@ -178,7 +178,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
         let indexers = button(containing: "Indexers", in: app)
         XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
         indexers.tap()
-        XCTAssertTrue(app.navigationBars["Indexers"].waitForExistence(timeout: 10), "Indexers should push ProwlarrIndexerListView.")
+        XCTAssertTrue(app.showsScreen(named: "Indexers"), "Indexers should push ProwlarrIndexerListView.")
     }
 
     @MainActor

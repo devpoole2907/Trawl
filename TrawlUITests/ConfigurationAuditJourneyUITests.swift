@@ -259,7 +259,7 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             XCTAssertTrue(tapWhenHittable(indexersRow, in: app, timeout: 10), "Indexers should open.")
         }
         XCTAssertTrue(
-            app.navigationBars["Indexers"].waitForExistence(in: app, timeout: 15),
+            app.showsScreen(named: "Indexers", timeout: 15),
             "The Indexers screen should present."
         )
 

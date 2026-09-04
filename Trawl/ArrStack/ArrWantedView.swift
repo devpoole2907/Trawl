@@ -3,6 +3,7 @@ import SwiftUI
 struct ArrWantedView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.hasDetailPane) private var hasDetailPane
 
     @State private var sonarrViewModel: SonarrViewModel?
     @State private var radarrViewModel: RadarrViewModel?
@@ -11,6 +12,8 @@ struct ArrWantedView: View {
 
     @State private var showSearchAllConfirm = false
     @State private var isSearchingAll = false
+    /// Which missing item the detail pane is showing, at regular width.
+    @State private var selectedMedia: ArrMediaDestination?
 
     let showsCloseButton: Bool
 
@@ -115,7 +118,44 @@ struct ArrWantedView: View {
         }
     }
 
-    var body: some View {
+    /// The missing list beside whatever it has open.
+    ///
+    /// Not while it is a sheet: presented from the Series and Movies toolbars this is
+    /// a panel a few hundred points wide, with no room for a pane beside the list.
+    @ViewBuilder
+    private var wantedPanes: some View {
+        if showsCloseButton {
+            wantedScreen
+                .navigationTitle("Missing")
+        } else {
+            TrawlListDetailPanes(title: "Missing") {
+                wantedScreen
+            } detail: {
+                selectedMediaDetail
+            }
+        }
+    }
+
+    /// Selectable only where there is a pane for a selection to open in. Without
+    /// one, a row that takes a selection highlight and shows nothing is worse than a
+    /// row that does nothing at all, which is what these have always done on iPhone.
+    private var mediaSelection: Binding<ArrMediaDestination?> {
+        hasDetailPane ? $selectedMedia : .constant(nil)
+    }
+
+    /// Nothing selected to begin with - this is a list of things that are *absent*,
+    /// and opening one of them by default says nothing about which one matters.
+    @ViewBuilder
+    private var selectedMediaDetail: some View {
+        if let selectedMedia {
+            ArrMediaDetailPane(destination: selectedMedia)
+                .id(selectedMedia)
+        } else {
+            listDetailPlaceholder("Select a missing item to view it", systemImage: "exclamationmark.magnifyingglass")
+        }
+    }
+
+    private var wantedScreen: some View {
         Group {
             if !hasConfiguredService {
                 ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.", systemImage: "server.rack")
@@ -136,7 +176,7 @@ struct ArrWantedView: View {
                     emptyDescription: "There are no monitored files or subtitles missing right now.",
                     onRetry: nil
                 ) {
-                    List {
+                    List(selection: mediaSelection) {
                         if scope.includesSeries, let sonarrViewModel, !sonarrViewModel.wantedEpisodes.isEmpty {
                             Section("Series") {
                                 ForEach(sonarrViewModel.wantedEpisodes) { episode in
@@ -146,6 +186,13 @@ struct ArrWantedView: View {
                                     ) {
                                         await searchEpisode(episode, in: sonarrViewModel)
                                     }
+                                    // Tagged only where an episode knows its series.
+                                    // An untagged row is not selectable, which is also
+                                    // the right answer on iPhone: these rows have
+                                    // never opened anything, and a selection
+                                    // highlight that leads nowhere would be worse
+                                    // than leaving them as they are.
+                                    .tag(episode.seriesId.map { ArrMediaDestination.series(id: $0) })
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button {
                                             Task { await searchEpisode(episode, in: sonarrViewModel) }
@@ -175,6 +222,7 @@ struct ArrWantedView: View {
                                     ) {
                                         await searchMovie(movie, in: radarrViewModel)
                                     }
+                                    .tag(ArrMediaDestination.movie(id: movie.id))
                                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                         Button {
                                             Task { await searchMovie(movie, in: radarrViewModel) }
@@ -224,7 +272,19 @@ struct ArrWantedView: View {
                 }
             }
         }
-        .navigationTitle("Missing")
+        .safeAreaInset(edge: .top) {
+            if hasConfiguredService {
+                TrawlSegmentBar("Scope", selection: Binding(
+                    get: { scope },
+                    set: { newScope in withAnimation { scope = newScope } }
+                ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
+    var body: some View {
+        wantedPanes
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -260,15 +320,6 @@ struct ArrWantedView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text(searchAllConfirmMessage)
-        }
-        .safeAreaInset(edge: .top) {
-            if hasConfiguredService {
-                TrawlSegmentBar("Scope", selection: Binding(
-                    get: { scope },
-                    set: { newScope in withAnimation { scope = newScope } }
-                ), items: ArrWantedScope.allCases.map(\.segmentBarItem))
-                .transition(.opacity.combined(with: .move(edge: .top)))
-            }
         }
         .task(id: reloadKey) {
             #if DEBUG

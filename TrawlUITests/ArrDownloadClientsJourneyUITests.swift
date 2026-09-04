@@ -74,7 +74,7 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
         let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
         XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")
         XCTAssertTrue(
-            app.navigationBars["Download Clients"].waitForExistence(in: app, timeout: 10),
+            app.showsScreen(named: "Download Clients"),
             "The Download Clients hub should render."
         )
 
