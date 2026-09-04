@@ -946,6 +946,14 @@ private struct NavigateToDownloadsTabKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+/// Optional, unlike its neighbours, and that is the whole point: it is present only
+/// on the chrome that has Setup Check as a destination to go to. Nil means "this
+/// chrome has nowhere to send you", which is the compact one's situation and the
+/// reason it still presents the wizard as a sheet.
+private struct NavigateToSetupCheckKey: EnvironmentKey {
+    static let defaultValue: (() -> Void)? = nil
+}
+
 private struct NavigateToSABnzbdSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
@@ -1011,6 +1019,12 @@ extension EnvironmentValues {
     var navigateToDownloadsTab: () -> Void {
         get { self[NavigateToDownloadsTabKey.self] }
         set { self[NavigateToDownloadsTabKey.self] = newValue }
+    }
+
+    /// Selects the sidebar's Setup Check destination, where the chrome has one.
+    var navigateToSetupCheck: (() -> Void)? {
+        get { self[NavigateToSetupCheckKey.self] }
+        set { self[NavigateToSetupCheckKey.self] = newValue }
     }
 
     var navigateToSABnzbdSettings: () -> Void {

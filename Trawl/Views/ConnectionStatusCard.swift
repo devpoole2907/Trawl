@@ -18,6 +18,7 @@ struct ConnectionStatusCard: View {
     var systemImage: String?
     /// Only connection retries are driven by the global scheduler.
     var showsRetryCountdown = true
+    var usesGlassEditButton = false
     var onRetry: (() -> Void)?
     var onEdit: (() -> Void)?
 
@@ -179,9 +180,16 @@ struct ConnectionStatusCard: View {
                     }
 
                     if let onEdit {
-                        Button(editTitle, systemImage: "server.rack", action: onEdit)
-                            .buttonStyle(.plain)
-                            .foregroundStyle(.tint)
+                        if usesGlassEditButton {
+                            Button(editTitle, systemImage: "server.rack", action: onEdit)
+                                .buttonStyle(.glass)
+                                .controlSize(.large)
+                                .foregroundStyle(.tint)
+                        } else {
+                            Button(editTitle, systemImage: "server.rack", action: onEdit)
+                                .buttonStyle(.plain)
+                                .foregroundStyle(.tint)
+                        }
                     }
                 }
             }

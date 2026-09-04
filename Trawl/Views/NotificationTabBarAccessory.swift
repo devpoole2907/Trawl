@@ -402,6 +402,7 @@ struct RecentNotificationsSheet: View {
     @Environment(ConfigurationAuditStore.self) private var configurationAuditStore: ConfigurationAuditStore?
     @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
+    @Environment(\.navigateToSetupCheck) private var navigateToSetupCheck
     /// Optional so the sheet still works anywhere a navigator isn't injected.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
     @State private var selectedSection: NotificationSheetSection = .activity
@@ -722,7 +723,17 @@ struct RecentNotificationsSheet: View {
         if let configurationAuditStore, hasConfigurationAttention {
             Section {
                 Button {
-                    showSetupCheck = true
+                    // Where the chrome has Setup Check as a destination, go there:
+                    // stacking the wizard's sheet on top of this one buries the
+                    // screen the user is already looking at to show them something
+                    // they could simply have been taken to. The compact chrome has
+                    // nowhere to send them, so it still presents the sheet.
+                    if let navigateToSetupCheck {
+                        dismiss()
+                        navigateToSetupCheck()
+                    } else {
+                        showSetupCheck = true
+                    }
                 } label: {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: configurationAuditStore.isAuditing ? "checklist" : "exclamationmark.triangle.fill")

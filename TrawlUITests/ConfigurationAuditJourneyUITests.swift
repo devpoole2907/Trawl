@@ -148,11 +148,24 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
         XCTAssertTrue(openDestination(.downloads, in: app), "Downloads should be reachable.")
 
-        let banner = app.buttons["configuration-attention-downloads"]
+        // Where the banner lives depends on the chrome, and deliberately so. The
+        // compact chrome has nowhere to put it but the screen the finding is about;
+        // the sidebar chrome puts one banner above its destination list, speaking
+        // for every topic, and drops the per-screen copies rather than saying the
+        // same thing twice on one display.
+        let banner = app.buttons[
+            TrawlChrome.isSidebar ? "configuration-attention-sidebar" : "configuration-attention-downloads"
+        ]
         XCTAssertTrue(
             banner.waitForExistence(timeout: 40),
-            "A Sonarr with no download client should say so on the screen whose queue will therefore stay empty."
+            "A Sonarr with no download client should say so - on the screen whose queue will therefore stay empty, or in the sidebar that is always on show."
         )
+        if TrawlChrome.isSidebar {
+            XCTAssertFalse(
+                app.buttons["configuration-attention-downloads"].exists,
+                "The sidebar's banner covers every topic, so Downloads should not carry a second one beside it."
+            )
+        }
         let headline = app.staticTexts
             .matching(NSPredicate(format: "label CONTAINS[c] %@", "no download client"))
             .firstMatch
@@ -161,15 +174,16 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
             "The banner should name the finding, not just that something is wrong."
         )
 
-        // The headline, not the button. The banner is a top safe-area inset, so its
-        // button reports a frame that starts at the window's top edge and takes in
-        // the navigation bar - a tap at its centre lands on the title, not on the
-        // banner, and the run reports a banner that does not respond.
+        // The headline rather than the button. The banner used to be a full-bleed
+        // top safe-area inset whose button reported a frame starting at the top of
+        // the window, so a tap at its centre landed on the navigation title and the
+        // run reported a banner that would not respond. It is an inset card now and
+        // the frame is honest, but tapping the words is what a person does anyway.
         XCTAssertTrue(headline.isHittable, "The banner text should be on screen and tappable.")
         headline.tap()
         XCTAssertTrue(
             app.navigationBars["Setup Check"].waitForExistence(in: app, timeout: 10),
-            "A contextual banner leads to the same wizard as the System hub, not a second repair flow."
+            "Either route leads to the same wizard as the System hub, not to a second repair flow - as a sheet on the compact chrome, and as the sidebar's own destination where there is one to select."
         )
     }
 
@@ -234,9 +248,16 @@ final class ConfigurationAuditJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
         XCTAssertTrue(openDestination(.indexers, in: app), "Indexers should be reachable.")
 
-        let indexersRow = firstButton(labelContaining: "Indexers", in: app)
-        XCTAssertTrue(indexersRow.waitForExistence(in: app, timeout: 15), "The hub should offer Indexers.")
-        XCTAssertTrue(tapWhenHittable(indexersRow, in: app, timeout: 10), "Indexers should open.")
+        // Only the compact chrome has a hub in between. There, `.indexers` opens More
+        // and the screen is a row inside it; on the sidebar chrome `.indexers` *is* a
+        // destination, so the screen is already up and there is no row to look for -
+        // which is why this failed with "the hub should offer Indexers" on iPad while
+        // the hub it wanted did not exist.
+        if !TrawlChrome.isSidebar {
+            let indexersRow = firstButton(labelContaining: "Indexers", in: app)
+            XCTAssertTrue(indexersRow.waitForExistence(in: app, timeout: 15), "The hub should offer Indexers.")
+            XCTAssertTrue(tapWhenHittable(indexersRow, in: app, timeout: 10), "Indexers should open.")
+        }
         XCTAssertTrue(
             app.navigationBars["Indexers"].waitForExistence(in: app, timeout: 15),
             "The Indexers screen should present."

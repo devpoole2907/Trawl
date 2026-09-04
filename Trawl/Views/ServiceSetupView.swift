@@ -17,6 +17,7 @@ struct ServiceSetupView: View {
             presentation: .embedded,
             systemImage: systemImage,
             showsRetryCountdown: false,
+            usesGlassEditButton: true,
             onEdit: onSetup ?? navigateToSettings
         )
         .listRowBackground(Color.clear)

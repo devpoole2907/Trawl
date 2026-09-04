@@ -182,10 +182,6 @@ struct DownloadsView: View {
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .toolbar { titleMenuToolbarItem }
             .toolbar { sharedToolbarContent }
-            // A queue that never fills is the symptom; "Sonarr has no download
-            // client" is the cause, and this is the screen the user is looking at
-            // when they notice.
-            .configurationAttention(.downloads)
     }
 
     /// The title menu replaces the navigation title rather than joining it, so
@@ -409,6 +405,15 @@ struct DownloadsView: View {
             .onChange(of: editMode.isEditing) { _, isEditing in
                 setTabChromeHidden(isEditing)
             }
+            // A queue that never fills is the symptom; "Sonarr has no download
+            // client" is the cause, and this is the screen the user is looking at
+            // when they notice.
+            //
+            // Before the segment bar's inset, so it ends up *below* it. A later
+            // `safeAreaInset` is the outer one and sits nearer the top edge, so
+            // applying this last - which is where it started - drove a wedge between
+            // the title and the filter controls that belong to it.
+            .configurationAttention(.downloads)
             .safeAreaInset(edge: .top) {
                 TrawlSegmentBar(
                     "Downloads",

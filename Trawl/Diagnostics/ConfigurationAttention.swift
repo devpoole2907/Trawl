@@ -154,7 +154,9 @@ extension View {
 /// in the wizard and is not worth a standing banner on the Downloads screen: a banner
 /// people learn to ignore is worse than no banner.
 struct ConfigurationAttentionBanner: View {
-    let topic: ConfigurationIssueTopic
+    /// The screen's subject, or `nil` for a banner that is not attached to a screen
+    /// at all - the sidebar's, which speaks for the whole app.
+    let topic: ConfigurationIssueTopic?
     let action: () -> Void
 
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
@@ -207,14 +209,15 @@ struct ConfigurationAttentionBanner: View {
                 .padding(.bottom, 8)
             }
             .buttonStyle(.plain)
-            .accessibilityIdentifier("configuration-attention-\(topic.rawValue)")
+            .accessibilityIdentifier("configuration-attention-\(topic?.rawValue ?? "sidebar")")
         }
     }
 
     private var relevant: [ConfigurationIssue] {
         guard ConfigurationAttention.isContextuallyVisible else { return [] }
         guard let auditStore, auditStore.hasCompletedAnAudit else { return [] }
-        return auditStore.issues.concerning(topic).filter { $0.severity != .note }
+        let scoped = topic.map { auditStore.issues.concerning($0) } ?? auditStore.issues
+        return scoped.filter { $0.severity != .note }
     }
 
     private var summary: String {
@@ -234,6 +237,7 @@ struct ConfigurationAttentionBanner: View {
 private struct ConfigurationAttentionInset: ViewModifier {
     let topic: ConfigurationIssueTopic
 
+    @Environment(\.showsSidebarAttentionBanner) private var sidebarCarriesTheBanner
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
     @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
@@ -242,10 +246,25 @@ private struct ConfigurationAttentionInset: ViewModifier {
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var showSetupCheck = false
 
+    /// Only where the screen is the whole window.
+    ///
+    /// The sidebar chrome carries one banner of its own, above the destination list,
+    /// and it speaks for every topic. Leaving the per-screen banners on there would
+    /// say the same thing twice on the same display, and the sidebar's copy is the
+    /// better of the two: it is visible from wherever you are rather than only from
+    /// the screen the finding happens to be about.
+    /// Asked of the chrome rather than of the size class. The obvious test -
+    /// `horizontalSizeClass == .compact` - is wrong here: a `NavigationSplitView`'s
+    /// content column reports itself compact on iPad, so the per-screen banner went
+    /// on drawing beside the sidebar's copy and the screen said the same thing twice.
+    private var showsContextualBanner: Bool { !sidebarCarriesTheBanner }
+
     func body(content: Content) -> some View {
         content
             .safeAreaInset(edge: .top, spacing: 0) {
-                ConfigurationAttentionBanner(topic: topic) { showSetupCheck = true }
+                if showsContextualBanner {
+                    ConfigurationAttentionBanner(topic: topic) { showSetupCheck = true }
+                }
             }
             .refreshesConfigurationAudit(forContextualBanner: true)
             .sheet(isPresented: $showSetupCheck) {
@@ -291,5 +310,18 @@ extension View {
     /// nothing to say.
     func configurationAttention(_ topic: ConfigurationIssueTopic) -> some View {
         modifier(ConfigurationAttentionInset(topic: topic))
+    }
+}
+
+private struct ShowsSidebarAttentionBannerKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
+extension EnvironmentValues {
+    /// Whether the surrounding chrome already shows a setup-attention banner of its
+    /// own, in which case a screen inside it should not show a second one.
+    var showsSidebarAttentionBanner: Bool {
+        get { self[ShowsSidebarAttentionBannerKey.self] }
+        set { self[ShowsSidebarAttentionBannerKey.self] = newValue }
     }
 }

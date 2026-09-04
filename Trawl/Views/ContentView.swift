@@ -174,6 +174,14 @@ struct ContentView: View {
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
                 .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+                // Only on the chrome that has Setup Check to select. Read here, at
+                // the root, rather than inside the sheet: a `NavigationSplitView`'s
+                // columns report themselves compact on iPad, so a size-class test
+                // taken further in gets the wrong answer.
+                .environment(
+                    \.navigateToSetupCheck,
+                    hSizeClass == .compact ? nil : { selectedTab = .setupCheck }
+                )
                 .navigationTransition(.zoom(sourceID: notificationSheetTransitionID, in: notificationTransitionNamespace))
                 // The zoom transition's vertical swipe competes with the sheet's
                 // native pull-down dismissal. Keep the other zoom gestures.
@@ -188,6 +196,8 @@ struct ContentView: View {
                 .environment((appServices ?? disconnectedServices).syncService)
                 .environment(downloadsNavigator)
                 .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
+                // Always available here: macOS has only the sidebar chrome.
+                .environment(\.navigateToSetupCheck) { selectedTab = .setupCheck }
             #endif
         }
         .sheet(item: $setupTarget) { target in
@@ -606,6 +616,7 @@ struct ContentView: View {
         }
         .navigationSplitViewStyle(.balanced)
         .environment(\.selectLibraryTitle, selectLibraryTitle)
+        .environment(\.showsSidebarAttentionBanner, true)
     }
 
     /// Two columns, for the hubs.
@@ -631,6 +642,7 @@ struct ContentView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+        .environment(\.showsSidebarAttentionBanner, true)
     }
 
     /// The sidebar column, with the notification bar pinned beneath it.
@@ -644,10 +656,37 @@ struct ContentView: View {
     /// of being shortened by chrome that does not belong to them.
     private func sidebarColumn(services: AppServices, downloadBadge: Int) -> some View {
         sidebarList(downloadBadge: downloadBadge)
+            .safeAreaInset(edge: .top) {
+                sidebarAttentionBanner
+            }
             .safeAreaInset(edge: .bottom) {
                 sidebarNotificationBar(services: services)
             }
+            .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+    }
+
+    /// The setup-attention banner, at the top of the sidebar rather than on each
+    /// screen it concerns.
+    ///
+    /// This chrome has somewhere better to put it than the compact one does. On
+    /// iPhone the banner has to live on the screen the finding is about, because that
+    /// screen is the whole window and there is nowhere else; here the sidebar is
+    /// always on show, so one banner covers the app and is visible from wherever the
+    /// user happens to be. It takes no topic for the same reason - it speaks for
+    /// every finding, not for whichever screen is open.
+    ///
+    /// Tapping selects Setup Check rather than presenting the wizard as a sheet. The
+    /// sidebar already has Setup Check as a destination, and a sheet covering the
+    /// screen the user is reading, to show something they can also just navigate to,
+    /// is the compact chrome's compromise rather than this one's.
+    ///
+    /// It occupies no height when the audit is clear - the banner renders nothing at
+    /// all in that case, so the inset costs nothing.
+    private var sidebarAttentionBanner: some View {
+        ConfigurationAttentionBanner(topic: nil) {
+            selectedTab = .setupCheck
+        }
     }
 
     /// The notification bar, as the sidebar's own footer.

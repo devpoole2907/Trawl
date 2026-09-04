@@ -362,10 +362,25 @@ extension XCTestCase {
         return tapAndConfirm(revealed, destination: destination, in: app, timeout: timeout)
     }
 
-    /// Finds a sidebar row by its `nav.<case>` identifier.
+    /// Finds a sidebar row by its `nav.<case>` identifier, scrolling the sidebar to
+    /// reach it.
     ///
     /// `containing` rather than `matching`: the identifier is on the row's `Label`,
     /// which the list wraps in a cell, so the predicate has to look at descendants.
+    ///
+    /// The scrolling is not optional. The sidebar lists every destination in the app
+    /// and only a dozen fit on a 13-inch iPad, and a `List` does not put off-screen
+    /// rows in the accessibility tree at all - so a plain wait reports Setup Check,
+    /// Indexers, Quality Profiles and everything else below the fold as *missing*,
+    /// and the suites that open them failed with "should be reachable" against a
+    /// sidebar that had them all along.
+    ///
+    /// `waitForExistence(in:)` cannot do this job: it deliberately scrolls the
+    /// *content* column and skips the sidebar, because on every other screen the
+    /// sidebar is the wrong thing to move. Here it is the only thing to move.
+    ///
+    /// Both directions, because a caller asking for Downloads after Setup Check is
+    /// asking to go back up.
     @MainActor
     func sidebarRow(
         for destination: TrawlDestination,
@@ -375,7 +390,19 @@ extension XCTestCase {
         let row = app.cells
             .containing(NSPredicate(format: "identifier == %@", destination.navigationIdentifier))
             .firstMatch
-        return row.waitForExistence(timeout: timeout) ? row : nil
+        if row.waitForExistence(timeout: timeout) { return row }
+
+        let sidebar = app.collectionViews["Sidebar"]
+        guard sidebar.exists else { return nil }
+        for _ in 0..<8 {
+            sidebar.swipeUp()
+            if row.waitForExistence(timeout: 1) { return row }
+        }
+        for _ in 0..<10 {
+            sidebar.swipeDown()
+            if row.waitForExistence(timeout: 1) { return row }
+        }
+        return nil
     }
 
     /// Brings the sidebar on screen if it is currently collapsed.
