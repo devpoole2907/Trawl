@@ -1067,6 +1067,12 @@ struct ContentView: View {
             root: root,
             presentation: presentation
         )
+            // `AppServices` itself, not just the services hanging off it. The
+            // qBittorrent RSS screens read it out of the environment, and reaching
+            // them through here - the sidebar's qBittorrent row, or More on iPhone -
+            // used to trap on a missing observable, because only `downloadsRoot`
+            // was injecting it.
+            .environment(services)
             .environment(services.syncService)
             .environment(services.torrentService)
             .environment(arrServiceManager)
