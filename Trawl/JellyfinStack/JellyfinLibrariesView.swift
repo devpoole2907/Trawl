@@ -182,9 +182,14 @@ struct JellyfinLibrariesView: View {
                             .controlSize(.small)
                     }
                 }
-                Text(folder.collectionTypeDisplayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                // A library called "Movies" whose type is Movies said "Movies / Movies".
+                // The subtitle is only worth a line when it says something the name did
+                // not - "Documentaries", of type Movies.
+                if folder.collectionTypeDisplayName.caseInsensitiveCompare(folder.name) != .orderedSame {
+                    Text(folder.collectionTypeDisplayName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Spacer()
@@ -914,6 +919,11 @@ private struct JellyfinLibraryDetailPreviewWrapper: View {
 private extension JellyfinVirtualFolder {
     var collectionTypeDisplayName: String {
         guard let type = collectionType else { return "Library" }
-        return JellyfinLibraryContentType(rawValue: type)?.displayName ?? type
+        if let known = JellyfinLibraryContentType(rawValue: type) { return known.displayName }
+        // Jellyfin hands back its own raw collection type for anything the app does not
+        // model - "music", "boxsets" - and it arrives lowercase, which reads as a bug
+        // sitting under a "TV Shows" that went through the enum. Capitalised rather
+        // than hidden: an unmodelled type is still worth showing.
+        return type.prefix(1).uppercased() + type.dropFirst()
     }
 }

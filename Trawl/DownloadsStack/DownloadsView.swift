@@ -220,6 +220,25 @@ struct DownloadsView: View {
         )
     }
 
+    /// Where the title menu sits.
+    ///
+    /// On iOS `.principal` centres it in the navigation bar of the column it belongs to,
+    /// which is the whole screen. macOS has one unified toolbar for the entire window,
+    /// so `.principal` threw "Downloads / 5 items" across to the window's trailing edge -
+    /// above the empty detail pane rather than above the list it counts.
+    ///
+    /// `.navigation` rather than `platformTopBarLeadingPlacement`, because that helper
+    /// resolves to `.automatic` on the Mac and automatic in a split view's content column
+    /// settles trailing too - the very place this is moving away from. `.navigation` is
+    /// macOS's actual leading group, beside the sidebar toggle.
+    private var titleMenuPlacement: ToolbarItemPlacement {
+        #if os(macOS)
+        .navigation
+        #else
+        detailSelection == nil ? .principal : platformTopBarLeadingPlacement
+        #endif
+    }
+
     /// The title doubles as the switch between this tab's three lists.
     ///
     /// Deliberately a `Menu` inside a `ToolbarItem` styled to read as the title,
@@ -233,7 +252,7 @@ struct DownloadsView: View {
         // navigation title, so leaving this in place while selecting would draw
         // the menu over the selection count rather than beside it.
         if showsTitleMenu {
-            ToolbarItem(placement: detailSelection == nil ? .principal : platformTopBarLeadingPlacement) {
+            ToolbarItem(placement: titleMenuPlacement) {
                 TrawlTitleMenu(
                     options: availableTitleDestinations.map {
                         TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)

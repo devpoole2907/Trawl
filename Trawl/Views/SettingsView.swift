@@ -303,7 +303,11 @@ struct SettingsView: View {
                     }
                 }
 
+                #if os(iOS)
+                // A Mac has no haptic engine to drive, and `.sensoryFeedback` is a no-op
+                // there, so on macOS this was a switch that turned nothing off.
                 Toggle("Haptic Feedback", isOn: $hapticsEnabled)
+                #endif
             }
 
             Section("Storage") {

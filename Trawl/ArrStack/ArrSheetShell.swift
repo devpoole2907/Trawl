@@ -28,6 +28,7 @@ struct AppSheetShell<Content: View>: View {
         case toolbar
         case prominentBottom
     }
+
     let detents: Set<PresentationDetent>
     let dragIndicator: Visibility
     let content: Content
@@ -64,6 +65,18 @@ struct AppSheetShell<Content: View>: View {
         self.content = content()
     }
 
+    /// macOS already gives a sheet a bottom-trailing button row, built from
+    /// `.cancellationAction` and `.confirmationAction`. Leaving a request for the
+    /// full-width bottom capsule intact there would stack a second, competing commit
+    /// button underneath that row, so on the Mac every sheet commits from the toolbar.
+    private var resolvedConfirmPlacement: ConfirmPlacement {
+        #if os(macOS)
+        .toolbar
+        #else
+        confirmPlacement
+        #endif
+    }
+
     var body: some View {
         NavigationStack {
             content
@@ -88,7 +101,7 @@ struct AppSheetShell<Content: View>: View {
                         }
                     }
 
-                    if let confirmTitle, let onConfirm, confirmPlacement == .toolbar {
+                    if let confirmTitle, let onConfirm, resolvedConfirmPlacement == .toolbar {
                         ToolbarItem(placement: .confirmationAction) {
                             if isConfirmLoading {
                                 ProgressView()
@@ -100,14 +113,25 @@ struct AppSheetShell<Content: View>: View {
                     }
                 }
                 .prominentBottomConfirm(
-                    title: confirmPlacement == .prominentBottom ? confirmTitle : nil,
+                    title: resolvedConfirmPlacement == .prominentBottom ? confirmTitle : nil,
                     isLoading: isConfirmLoading,
                     isDisabled: isConfirmDisabled,
                     action: onConfirm
                 )
+                // See `ModalFormStyle` for why the grouped style: `Form`'s macOS default
+                // draws section headers as ordinary rows and field labels beside their
+                // fields, which a sheet is rarely wide enough to hold.
+                #if os(macOS)
+                .formStyle(.grouped)
+                .frame(minWidth: 540, idealWidth: 580)
+                #endif
         }
+        #if os(iOS)
+        // A detent is a height a sheet can be dragged to on a phone; a Mac sheet is
+        // sized by its content instead, which the frame above does.
         .presentationDetents(detents)
         .presentationDragIndicator(dragIndicator)
+        #endif
     }
 }
 

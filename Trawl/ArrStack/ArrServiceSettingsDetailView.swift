@@ -421,6 +421,13 @@ struct ArrServiceSettingsView: View {
         #endif
         #if os(macOS)
         .formStyle(.grouped)
+        // Deliberately *not* `.readableFormWidth()`, though the Settings screen this is
+        // pushed from uses it. Settings is a root: nothing sits beside its centred
+        // column. This screen has a Back button, and capping the width leaves that
+        // button and the title stranded at the leading edge of the pane with the rows
+        // in a strip 300pt to their right, plus a hard edge where the scroll view's
+        // material stops. `readableFormWidth`'s own doc records this; it was tried here
+        // again anyway, and it looked exactly as that comment describes.
         #endif
         .sheet(item: $editorContext) { context in
             ArrSetupSheet(initialServiceType: context.initialServiceType, existingProfile: context.profile, onComplete: {

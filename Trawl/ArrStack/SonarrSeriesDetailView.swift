@@ -1293,6 +1293,14 @@ struct SonarrSeriesDetailView: View {
 
     @ToolbarContentBuilder
     private var toolbarContent: some ToolbarContent {
+        // The window's single toolbar carries the list column's actions and this
+        // screen's, and both arrive as `.primaryAction`, so this menu landed against
+        // the leading edge of the detail column - a second "…" a few points from the
+        // list's own, with nothing to say which acted on what. The spacer pushes this
+        // one to the window's trailing edge, clear of the list's group.
+        #if os(macOS)
+        ToolbarSpacer(.flexible, placement: .primaryAction)
+        #endif
         ToolbarItem(placement: .primaryAction) {
             if isInLibrary {
                 Menu {

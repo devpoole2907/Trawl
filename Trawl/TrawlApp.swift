@@ -137,6 +137,17 @@ struct TrawlApp: App {
                     // search intents and on demand via ArrSpotlightIndexer.indexLibraries().
                     await ArrSpotlightIndexer.indexConfiguredServices()
                 }
+                // `Form` defaults to the columns style on macOS, which draws a section
+                // header as an ordinary row and a field's label beside the field. Every
+                // screen written as an iOS grouped form therefore came out with its
+                // headings folded into the value column and its labels in a ragged
+                // right-aligned strip - Jellyfin's Transcoding screen worst of all.
+                // Declared once here because `formStyle` travels through the
+                // environment: the alternative was the same line in thirty-odd files,
+                // and a thirty-first would have been written without it.
+                #if os(macOS)
+                .formStyle(.grouped)
+                #endif
         }
         .modelContainer(modelContainer)
         #if os(macOS)

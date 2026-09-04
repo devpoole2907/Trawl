@@ -51,7 +51,8 @@ struct SABnzbdConnectionFormView: View {
 
                 ServerURLField(
                     url: $viewModel.hostURL,
-                    title: "SABnzbd URL (e.g. http://192.168.1.50:8080)"
+                    title: "SABnzbd URL (e.g. http://192.168.1.50:8080)",
+                    macLabel: "SABnzbd URL"
                 )
 
                 AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)

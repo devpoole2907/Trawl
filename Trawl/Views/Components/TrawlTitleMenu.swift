@@ -75,6 +75,10 @@ struct TrawlTitleMenu<Value: Hashable>: View {
             .animation(animation, value: isCompact)
             .contentShape(Rectangle())
         }
+        // This label already carries its own `chevron.up.chevron.down`. iOS draws no
+        // indicator behind a custom label, but macOS appends one, so the Mac title read
+        // "Downloads ⌃⌄ ⌄" - two affordances for one menu.
+        .menuIndicator(.hidden)
         .accessibilityLabel("\(currentTitle), change view")
     }
 }

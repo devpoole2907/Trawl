@@ -105,7 +105,7 @@ struct JellyfinPluginsView: View {
                 Spacer(minLength: 8)
 
                 if let status = plugin.status, !status.isEmpty {
-                    Text(status)
+                    Text(pluginStatusLabel(status))
                         .font(.caption2.weight(.medium))
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
@@ -128,6 +128,22 @@ struct JellyfinPluginsView: View {
             }
         }
         .padding(.vertical, 4)
+    }
+
+    /// Jellyfin reports a plugin's status as a bare enum name - `NotSupported`,
+    /// `Superceded` (its spelling, not ours). Those went straight into the badge, so the
+    /// screen read like a stack trace. Anything unrecognised still shows verbatim rather
+    /// than being hidden: an unknown status is worth seeing.
+    private func pluginStatusLabel(_ status: String) -> String {
+        switch status.lowercased() {
+        case "active": "Active"
+        case "restart": "Restart Required"
+        case "disabled": "Disabled"
+        case "superceded": "Superseded"
+        case "malfunctioned": "Malfunctioned"
+        case "notsupported": "Not Supported"
+        default: status
+        }
     }
 
     private func pluginStatusColor(_ status: String) -> Color {

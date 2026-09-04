@@ -31,7 +31,8 @@ struct CleanuparrSetupSheet: View {
 
                 ServerURLField(
                     url: $viewModel.hostURL,
-                    title: "Cleanuparr URL (e.g. http://192.168.1.50:11011)"
+                    title: "Cleanuparr URL (e.g. http://192.168.1.50:11011)",
+                    macLabel: "Cleanuparr URL"
                 )
 
                 AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)

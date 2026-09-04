@@ -58,7 +58,8 @@ private struct JellyfinConnectionFormView: View {
 
                 ServerURLField(
                     url: $viewModel.hostURL,
-                    title: "Jellyfin URL (e.g. http://192.168.1.50:8096)"
+                    title: "Jellyfin URL (e.g. http://192.168.1.50:8096)",
+                    macLabel: "Jellyfin URL"
                 )
 
                 AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)

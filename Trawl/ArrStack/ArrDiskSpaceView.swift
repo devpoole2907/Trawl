@@ -33,6 +33,11 @@ struct ArrDiskSpaceView: View {
                     systemImage: "externaldrive.badge.questionmark",
                     description: Text("No disk space information is currently available from your services.")
                 )
+                // Without this the branch is only as big as its own text, so
+                // `.background(backgroundGradient)` below painted a hard-edged
+                // rectangle of gradient floating in the middle of the pane instead of
+                // washing the whole of it.
+                .scrollableUnavailableState()
             } else {
                 // One section per server. Two Radarr instances on the same host
                 // report the same volumes, and the point of reading this screen
