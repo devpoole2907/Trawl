@@ -199,11 +199,24 @@ struct ConfigurationWizardView: View {
                 advance()
             } label: {
                 Text(stepIndex == steps.count - 1 ? "Finish" : "Next")
+                    #if os(iOS)
+                    // Full-width CTA in thumb reach. A Mac gets a normal button, sized
+                    // to its word and centred under the centred form, rather than a
+                    // 1500pt blue bar across the bottom of the window.
                     .frame(maxWidth: .infinity)
+                    #endif
             }
             .buttonStyle(.borderedProminent)
             .controlSize(.large)
+            #if os(macOS)
+            .keyboardShortcut(.defaultAction)
+            #endif
             .padding()
+            // The bar still spans the pane; on macOS only the button inside it stops
+            // doing so, which `.infinity` here keeps true once the button is narrow.
+            #if os(macOS)
+            .frame(maxWidth: .infinity)
+            #endif
             .background(.bar)
         }
     }
