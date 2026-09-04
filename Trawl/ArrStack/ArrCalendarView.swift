@@ -494,13 +494,7 @@ struct ArrCalendarView: View {
     var body: some View {
         Group {
             if !hasConfiguredService {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "server.rack")
-                } description: {
-                    Text("Connect Sonarr or Radarr to see upcoming releases.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to see upcoming releases.", systemImage: "server.rack")
                 .scrollableUnavailableState()
             } else if !isConnected {
                 ArrServicesConnectionStatusView(
@@ -637,17 +631,12 @@ struct ArrCalendarView: View {
                             ProgressView()
                                 .tint(.secondary)
                         } else if let loadEarlierError = viewModel.previousMonthErrorMessage {
-                            VStack(spacing: 8) {
-                                Text(loadEarlierError)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                Button("Retry Load Earlier") {
-                                    Task { await viewModel.loadPreviousMonth() }
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(.secondary)
-                            }
+                            ServiceErrorView(
+                                title: "Earlier Events Unavailable",
+                                message: loadEarlierError,
+                                hasContent: true,
+                                onRetry: { await viewModel.loadPreviousMonth() }
+                            )
                         } else if !visibleDays.isEmpty {
                             Button("Load Earlier") {
                                 Task { await viewModel.loadPreviousMonth() }
@@ -679,17 +668,12 @@ struct ArrCalendarView: View {
                             ProgressView()
                                 .tint(.secondary)
                         } else if let loadMoreError = viewModel.nextMonthErrorMessage {
-                            VStack(spacing: 8) {
-                                Text(loadMoreError)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                                    .multilineTextAlignment(.center)
-                                Button("Retry Load More") {
-                                    Task { await viewModel.loadNextMonth() }
-                                }
-                                .buttonStyle(.bordered)
-                                .tint(.secondary)
-                            }
+                            ServiceErrorView(
+                                title: "More Events Unavailable",
+                                message: loadMoreError,
+                                hasContent: true,
+                                onRetry: { await viewModel.loadNextMonth() }
+                            )
                         } else if !visibleDays.isEmpty {
                             Button("Load More") {
                                 Task { await viewModel.loadNextMonth() }

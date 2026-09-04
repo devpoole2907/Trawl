@@ -3,6 +3,7 @@ import SwiftData
 
 struct ArrServiceSettingsView: View {
     let serviceType: ArrServiceType
+    private let initialProfileID: UUID?
 
     @Environment(\.modelContext) private var modelContext
     @Environment(ArrServiceManager.self) private var serviceManager
@@ -25,16 +26,23 @@ struct ArrServiceSettingsView: View {
     #if DEBUG
     init(
         serviceType: ArrServiceType,
+        initialProfileID: UUID? = nil,
         previewStatus: ArrSystemStatus? = nil,
         previewIsLoadingStatus: Bool = false,
         previewStatusError: String? = nil,
         previewNotificationStatus: ArrNotificationSetupStatus? = nil
     ) {
         self.serviceType = serviceType
+        self.initialProfileID = initialProfileID
         _systemStatus = State(initialValue: previewStatus)
         _isLoadingStatus = State(initialValue: previewIsLoadingStatus)
         _systemStatusError = State(initialValue: previewStatusError)
         self.previewNotificationStatus = previewNotificationStatus
+    }
+    #else
+    init(serviceType: ArrServiceType, initialProfileID: UUID? = nil) {
+        self.serviceType = serviceType
+        self.initialProfileID = initialProfileID
     }
     #endif
 
@@ -62,7 +70,17 @@ struct ArrServiceSettingsView: View {
     }
 
     private var profile: ArrServiceProfile? {
-        serviceManager.resolvedProfile(for: serviceType, in: allProfiles, allowErroredFallback: true)
+        if let initialProfileID,
+           let requestedProfile = allProfiles.first(where: {
+               $0.id == initialProfileID && $0.resolvedServiceType == serviceType
+           }) {
+            return requestedProfile
+        }
+        return serviceManager.resolvedProfile(
+            for: serviceType,
+            in: allProfiles,
+            allowErroredFallback: true
+        )
     }
 
     private var serviceProfiles: [ArrServiceProfile] {
@@ -305,9 +323,13 @@ struct ArrServiceSettingsView: View {
                     }
                 } else if let systemStatusError {
                     Section(systemStatusTitle) {
-                        Label(systemStatusError, systemImage: "exclamationmark.triangle.fill")
-                            .font(.subheadline)
-                            .foregroundStyle(.orange)
+                        ServiceErrorView(
+                            title: "System Status Unavailable",
+                            message: systemStatusError,
+                            identity: serviceType.serviceIdentity,
+                            hasContent: true,
+                            onRetry: { await loadSystemStatus() }
+                        )
                     }
                 }
 
@@ -818,10 +840,13 @@ struct ArrWebhookNotificationConfigView: View {
     var body: some View {
         Form {
             if let loadError {
-                Section {
-                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
+                ServiceErrorView(
+                    title: "Notification Settings Unavailable",
+                    message: loadError,
+                    identity: serviceType.serviceIdentity,
+                    hasContent: true,
+                    onRetry: { await load() }
+                )
             }
 
             if profile == nil || !isConnected || !hasDeviceToken {

@@ -22,12 +22,14 @@ struct SeerrLogsView: View {
 
     var body: some View {
         List {
-            if let errorMessage {
-                Section("Unavailable") {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = errorMessage {
+                ServiceErrorView(
+                    title: "Logs Unavailable",
+                    message: error,
+                    identity: .seerr,
+                    hasContent: !entries.isEmpty,
+                    onRetry: { await loadLogs() }
+                )
             }
 
             if isLoading && entries.isEmpty {
@@ -36,12 +38,14 @@ struct SeerrLogsView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if entries.isEmpty {
-                ContentUnavailableView(
-                    "No Seerr Logs",
-                    systemImage: "doc.text.magnifyingglass",
-                    description: Text("No server log entries were returned by Seerr.")
-                )
-                .listRowBackground(Color.clear)
+                if errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Seerr Logs",
+                        systemImage: "doc.text.magnifyingglass",
+                        description: Text("No server log entries were returned by Seerr.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section("Logs") {
                     ForEach(entries) { entry in

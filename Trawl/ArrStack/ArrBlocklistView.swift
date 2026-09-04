@@ -317,13 +317,7 @@ struct ArrBlocklistView: View {
     var body: some View {
         Group {
             if !hasConfigured {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "server.rack")
-                } description: {
-                    Text("Connect Sonarr or Radarr to manage the blocklist.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to manage the blocklist.", systemImage: "server.rack")
                 .scrollableUnavailableState()
             } else if !hasConnected {
                 ArrServicesConnectionStatusView(

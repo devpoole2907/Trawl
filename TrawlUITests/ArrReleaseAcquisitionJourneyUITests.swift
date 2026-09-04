@@ -235,12 +235,15 @@ final class ArrReleaseAcquisitionJourneyUITests: XCTestCase {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "The configured service should reach the real app chrome.")
         XCTAssertTrue(openDestination(library, in: app), "The \(library.title) library should be reachable.")
 
-        let row = app.staticTexts[title]
         XCTAssertTrue(
-            row.waitForExistence(timeout: 20),
+            app.staticTexts[title].waitForExistence(timeout: 20),
             "The fixture's library item should arrive through the real service connection. \(diagnostics())"
         )
-        XCTAssertTrue(tapWhenHittable(row, in: app, timeout: 15))
+        // `openLibraryItem`, not a tap on the title: on iPad the row is a selection
+        // `Cell` and the title appears twice, once in the list and once as the detail
+        // column's decorative header - and it is the header that `staticTexts[title]`
+        // returns, which reports itself unhittable forever.
+        XCTAssertTrue(openLibraryItem(titled: title, in: app, timeout: 15))
         XCTAssertTrue(app.navigationBars.firstMatch.waitForExistence(timeout: 15))
     }
 

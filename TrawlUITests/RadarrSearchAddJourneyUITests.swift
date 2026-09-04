@@ -216,7 +216,11 @@ final class RadarrSearchAddJourneyUITests: XCTestCase {
             "Tapping the first result should open the first movie."
         )
 
-        let back = app.navigationBars[firstTitle].buttons.firstMatch
+        // `backButton(in:)`, not `buttons.firstMatch`: on iPad a pushed screen inside a
+        // split-view column carries the sidebar toggle at its leading edge as well as
+        // the back button, so the first button slides the sidebar out and the test
+        // then fails on the screen it never left.
+        let back = backButton(in: app.navigationBars[firstTitle])
         XCTAssertTrue(back.waitForExistence(timeout: 10))
         back.tap()
         XCTAssertTrue(

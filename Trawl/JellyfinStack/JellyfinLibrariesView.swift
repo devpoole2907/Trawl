@@ -37,12 +37,14 @@ struct JellyfinLibrariesView: View {
 
     var body: some View {
         List {
-            if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = errorMessage {
+                ServiceErrorView(
+                    title: "Libraries Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !folders.isEmpty,
+                    onRetry: { await loadLibraries() }
+                )
             }
 
             if isLoading && folders.isEmpty {
@@ -51,12 +53,14 @@ struct JellyfinLibrariesView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if folders.isEmpty {
-                ContentUnavailableView(
-                    "No Libraries",
-                    systemImage: "folder",
-                    description: Text("No media libraries were returned by Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Libraries",
+                        systemImage: "folder",
+                        description: Text("No media libraries were returned by Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(folders) { folder in

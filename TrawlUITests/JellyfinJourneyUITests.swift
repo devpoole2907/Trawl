@@ -44,7 +44,7 @@ final class JellyfinJourneyUITests: XCTestCase {
         // this run takes is `TrawlChrome`'s business, not this suite's. What is being
         // tested is the hub, not the route to it.
         XCTAssertTrue(
-            openDestination(.mediaServer, in: app),
+            openDestination(.jellyfinSessions, in: app),
             "The Media Server hub should be reachable for a configured Jellyfin profile."
         )
 

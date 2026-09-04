@@ -287,10 +287,17 @@ final class DownloadsJourneyUITests: XCTestCase {
 
     // MARK: - Helpers
 
+    /// The torrent's row, as whichever element the running chrome renders it as.
+    ///
+    /// A `Cell` on iPad and a `Button` on iPhone. Beside a detail column the row is
+    /// not a `NavigationLink` at all - the List owns the tap and the selection drives
+    /// the column - so it stops surfacing as a button, and a query for one reports
+    /// that the seeded torrent never arrived.
     private func torrentRow(in app: XCUIApplication, named name: String) -> XCUIElement {
-        app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", name))
-            .firstMatch
+        let holdsName = NSPredicate(format: "label CONTAINS[c] %@", name)
+        return TrawlChrome.isSidebar
+            ? app.cells.containing(holdsName).firstMatch
+            : app.buttons.matching(holdsName).firstMatch
     }
 
     private enum SwipeDirection {

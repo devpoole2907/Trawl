@@ -50,19 +50,30 @@ struct QBittorrentLogView: View {
 
     var body: some View {
         List {
+            if let loadError {
+                ServiceErrorView(
+                    title: loadError.title,
+                    message: loadError.message,
+                    identity: .qbittorrent,
+                    hasContent: !entries.isEmpty,
+                    onRetry: { await load() }
+                )
+            }
             if isLoading && entries.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .listRowBackground(Color.clear)
             } else if displayed.isEmpty {
-                ContentUnavailableView(
-                    "No Log Entries",
-                    systemImage: "doc.text",
-                    description: Text(entries.isEmpty
-                        ? "No log entries found."
-                        : "No entries match the selected filter.")
-                )
-                .listRowBackground(Color.clear)
+                if loadError == nil {
+                    ContentUnavailableView(
+                        "No Log Entries",
+                        systemImage: "doc.text",
+                        description: Text(entries.isEmpty
+                            ? "No log entries found."
+                            : "No entries match the selected filter.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(displayed) { entry in
@@ -108,7 +119,6 @@ struct QBittorrentLogView: View {
                 alignment: .leading
             )
         }
-        .errorAlert(item: $loadError)
         .task {
             #if DEBUG
             guard !skipsAutomaticLoading else { return }
@@ -140,6 +150,7 @@ struct QBittorrentLogView: View {
     }
 
     private func load() async {
+        loadError = nil
         isLoading = true
         do {
             let all = try await torrentService.getMainLog()

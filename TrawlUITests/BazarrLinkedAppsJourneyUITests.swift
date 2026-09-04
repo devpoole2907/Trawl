@@ -152,7 +152,7 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
         // "Subtitle Sync" all appear as searchable entries too, so a bare CONTAINS
         // match can land on the wrong one and still report a successful tap.
         XCTAssertTrue(
-            openDestination(.automation, in: app),
+            openDestination(.linkedApplications, in: app),
             "The Integrations & Automation hub should be reachable."
         )
 

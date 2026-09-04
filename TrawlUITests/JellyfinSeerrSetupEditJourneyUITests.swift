@@ -112,7 +112,11 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
 
         replace(replacement.baseURL, into: host, in: app, deleting: original.baseURL.count)
         let apiKey = secureField(placeholder: "API Key", in: app)
-        XCTAssertTrue(apiKey.waitForExistence(timeout: 10), "API-key mode should expose the API Key field.")
+        // Scrolling wait: on iPad this sheet is a form sheet with far less height than
+        // an iPhone's, so the key field starts below the fold - and a `Form` renders
+        // its rows lazily, which leaves it out of the tree rather than merely off
+        // screen.
+        XCTAssertTrue(apiKey.waitForExistence(in: app, timeout: 10), "API-key mode should expose the API Key field.")
         // `seed(from:)` deliberately leaves the key blank on edit - the stored token is
         // never read back into the form - so there is nothing to delete first.
         replace("wrong-api-key", into: apiKey, in: app, deleting: 0)
@@ -515,11 +519,27 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
     @discardableResult
     @MainActor
     private func tapInEditor(_ element: XCUIElement, in app: XCUIApplication, timeout: TimeInterval) -> Bool {
-        guard element.waitForExistence(timeout: timeout) else { return false }
+        guard element.waitForExistence(in: app, timeout: timeout) else { return false }
         resignKeyboard(in: app)
-        guard waitUntilHittable(element, timeout: timeout) else { return false }
-        element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        return true
+        // Scrolls as well as waiting. On iPad this editor is a form sheet with far
+        // less height than an iPhone's, so the confirm button can sit below the fold
+        // even with the keyboard down - and waiting for it to become hittable on its
+        // own waits for something that will never happen.
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if element.isHittable {
+                element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                return true
+            }
+            let scroller = app.scroller(for: element)
+            if element.exists, element.frame.midY < app.frame.midY {
+                scroller.swipeDown()
+            } else {
+                scroller.swipeUp()
+            }
+            _ = element.waitForExistence(timeout: 0.25)
+        }
+        return false
     }
 
     /// Dismisses the software keyboard by pressing its submit key. The label differs by
@@ -567,17 +587,17 @@ final class JellyfinSeerrSetupEditJourneyUITests: XCTestCase {
                 element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 return true
             }
-            let scroller = app.collectionViews.firstMatch.exists
-                ? app.collectionViews.firstMatch
-                : app.scrollViews.firstMatch
-            if scroller.exists {
-                // A destination Form can be restored at its previous offset, so move
-                // toward the off-screen element instead of always scrolling one way.
-                if element.frame.midY < app.frame.midY {
-                    scroller.swipeDown()
-                } else {
-                    scroller.swipeUp()
-                }
+            // `scroller(for:)`, not `collectionViews.firstMatch`: on iPad the sidebar,
+            // the content column, this sheet's own form and the keyboard are all
+            // scrollable and all on screen, and the first one in the hierarchy is
+            // never the sheet.
+            let scroller = app.scroller(for: element)
+            // A destination Form can be restored at its previous offset, so move
+            // toward the off-screen element instead of always scrolling one way.
+            if element.frame.midY < app.frame.midY {
+                scroller.swipeDown()
+            } else {
+                scroller.swipeUp()
             }
             _ = element.waitForExistence(timeout: 0.25)
         }

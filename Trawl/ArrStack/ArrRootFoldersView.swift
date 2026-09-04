@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct ArrRootFoldersView: View {
+    private let initialInstanceID: UUID?
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(InAppNotificationCenter.self) private var notificationCenter
 
@@ -9,16 +10,14 @@ struct ArrRootFoldersView: View {
     @State private var isDeleting = false
     @State private var showSettings = false
 
+    init(initialInstanceID: UUID? = nil) {
+        self.initialInstanceID = initialInstanceID
+    }
+
     var body: some View {
         Group {
             if !hasAnyService {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "folder.badge.questionmark")
-                } description: {
-                    Text("Connect Sonarr or Radarr to view root folders.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to view root folders.", systemImage: "folder.badge.questionmark")
                 .scrollableUnavailableState()
             } else if !hasAnyConnectedService {
                 ArrServicesConnectionStatusView(
@@ -81,7 +80,7 @@ struct ArrRootFoldersView: View {
             }
         }
         .sheet(isPresented: $showingAddSheet) {
-            AddRootFolderSheet { path, instance in
+            AddRootFolderSheet(initialInstanceID: initialInstanceID) { path, instance in
                 await addFolder(path: path, instance: instance)
             }
             .environment(serviceManager)
@@ -146,7 +145,11 @@ struct ArrRootFoldersView: View {
     }
 
     private var foldersByInstance: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
-        serviceManager.rootFoldersByInstance
+        serviceManager.rootFoldersByInstance.sorted { lhs, rhs in
+            if lhs.ref.id == initialInstanceID { return true }
+            if rhs.ref.id == initialInstanceID { return false }
+            return lhs.ref.ordinal < rhs.ref.ordinal
+        }
     }
 
     private var populatedGroups: [(ref: ArrInstanceRef, values: [ArrRootFolder])] {
@@ -275,11 +278,21 @@ private struct AddRootFolderSheet: View {
     @Environment(ArrServiceManager.self) private var serviceManager
 
     let onAdd: @Sendable (String, ArrInstanceRef) async -> Bool
+    private let initialInstanceID: UUID?
 
     @State private var path = ""
     @State private var selectedInstanceID: UUID?
     @State private var isSaving = false
     @State private var showingBrowser = false
+
+    init(
+        initialInstanceID: UUID? = nil,
+        onAdd: @escaping @Sendable (String, ArrInstanceRef) async -> Bool
+    ) {
+        self.initialInstanceID = initialInstanceID
+        self.onAdd = onAdd
+        _selectedInstanceID = State(initialValue: initialInstanceID)
+    }
 
     /// Every connected server, since a root folder is added to one server, not to
     /// a service. With a pair configured this is four options, not two.
@@ -358,7 +371,7 @@ private struct AddRootFolderSheet: View {
             }
             .onAppear {
                 if selectedInstanceID == nil {
-                    selectedInstanceID = availableInstances.first?.id
+                    selectedInstanceID = initialInstanceID ?? availableInstances.first?.id
                 }
             }
             .sheet(isPresented: $showingBrowser) {

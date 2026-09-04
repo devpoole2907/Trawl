@@ -199,11 +199,13 @@ struct SABnzbdJobDetailView: View {
             }
 
             if let error = serviceManager.connectionError {
-                Section {
-                    Label(error, systemImage: "exclamationmark.triangle")
-                        .font(.subheadline)
-                        .foregroundStyle(.orange)
-                }
+                ServiceErrorView(
+                    title: "SABnzbd Unreachable",
+                    message: error,
+                    identity: .sabnzbd,
+                    hasContent: true,
+                    onRetry: { await serviceManager.refresh() }
+                )
             }
         }
         #if os(iOS)

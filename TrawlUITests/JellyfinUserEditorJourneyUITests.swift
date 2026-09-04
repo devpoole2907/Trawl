@@ -47,7 +47,7 @@ final class JellyfinUserEditorJourneyUITests: XCTestCase {
         // Users lives under Requests & Access - it lists Jellyfin *and* Seerr
         // accounts, so it is filed with request management rather than under the
         // media server.
-        XCTAssertTrue(openDestination(.requestsAndAccess, in: app), "The Requests & Access hub should be reachable.")
+        XCTAssertTrue(openDestination(.users, in: app), "Users should be reachable.")
         XCTAssertTrue(
             app.navigationBars["Requests & Access"].waitForExistence(in: app, timeout: 10),
             "The Requests & Access hub should render."

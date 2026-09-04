@@ -56,6 +56,11 @@ enum MoreDestination: Hashable {
     case arrEvents
     case qbittorrentLog
     case tasksHub
+    /// The qBittorrent and SABnzbd hubs. These used to be reachable only by pushing
+    /// through Download Clients, which is right on a phone and wrong on a display
+    /// with a sidebar - a client you use every day should not be three clicks in.
+    case qbittorrentHub
+    case sabnzbdHub
     case arrTasks
     case seerrJobs
     case updatesHub
@@ -464,12 +469,11 @@ struct MoreView: View {
         if !issues.isEmpty {
             Section {
                 ForEach(issues) { issue in
-                    ConnectionIssueRow(
+                    ConnectionStatusCard(
                         identity: issue.identity,
                         title: issue.isConnecting ? "Connecting to \(issue.identity.displayName)" : "\(issue.identity.displayName) Unreachable",
                         message: issue.message,
                         isConnecting: issue.isConnecting,
-                        actionStyle: .glassIcons,
                         onRetry: { retryConnection(for: issue.identity) },
                         onEdit: { presentConnectionEditor(for: issue.identity) }
                     )
@@ -739,14 +743,14 @@ struct MoreView: View {
                 .injectSyncService(appServices)
                 .moreDestinationTitleStyle()
         case .seerrAdmin:
-            seerrAdminDestination
+            seerrAdminDestination()
                 .moreDestinationTitleStyle()
         case .seerrIssues:
             if let client = seerrServiceManager.activeClient {
                 SeerrIssueListView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                seerrAdminDestination
+                seerrAdminDestination(title: "Issues")
                     .moreDestinationTitleStyle()
             }
         case .seerrLogs:
@@ -754,7 +758,7 @@ struct MoreView: View {
                 SeerrLogsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                seerrAdminDestination
+                seerrAdminDestination(title: "Logs")
                     .moreDestinationTitleStyle()
             }
         case .seerrSettings:
@@ -768,7 +772,7 @@ struct MoreView: View {
                 JellyfinLibrariesView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Libraries")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinSessions:
@@ -776,7 +780,7 @@ struct MoreView: View {
                 JellyfinSessionsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Sessions")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinActivityLog:
@@ -784,7 +788,7 @@ struct MoreView: View {
                 JellyfinActivityLogView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Activity Log")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinScheduledTasks:
@@ -792,7 +796,7 @@ struct MoreView: View {
                 JellyfinScheduledTasksView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Tasks")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinPlugins:
@@ -800,7 +804,7 @@ struct MoreView: View {
                 JellyfinPluginsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Plugins")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinTranscoding:
@@ -808,7 +812,7 @@ struct MoreView: View {
                 JellyfinTranscodingSettingsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                jellyfinUnavailableDestination
+                jellyfinUnavailableDestination(title: "Transcoding")
                     .moreDestinationTitleStyle()
             }
         case .jellyfinSettings:
@@ -836,6 +840,20 @@ struct MoreView: View {
         case .tasksHub:
             TasksHubView(jellyfinProfile: jellyfinProfile)
                 .moreDestinationTitleStyle()
+        case .qbittorrentHub:
+            QBittorrentClientHubView()
+                .environment(syncService)
+                .environment(torrentService)
+                .moreDestinationTitleStyle()
+        case .sabnzbdHub:
+            SABnzbdClientHubView()
+                .environment(sabnzbdServiceManager)
+                // `SABnzbdManagerView` under this hub reads both of these; without
+                // them it traps with "No Observable object of type SyncService
+                // found", which crashes rather than merely failing to render.
+                .environment(syncService)
+                .environment(torrentService)
+                .moreDestinationTitleStyle()
         case .arrTasks:
             ArrScheduledTasksView()
                 .environment(arrServiceManager)
@@ -845,7 +863,7 @@ struct MoreView: View {
                 SeerrJobsView(apiClient: client)
                     .moreDestinationTitleStyle()
             } else {
-                seerrAdminDestination
+                seerrAdminDestination(title: "Tasks")
                     .moreDestinationTitleStyle()
             }
         case .updatesHub:
@@ -968,13 +986,7 @@ struct MoreView: View {
             .navigationTitle("Linked Apps")
             .navigationSubtitle("Prowlarr")
         } else {
-            ContentUnavailableView {
-                Label("Prowlarr Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
-            } description: {
-                Text("Add a Prowlarr server in Settings to link indexer sync destinations.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "Prowlarr Not Set Up", message: "Add a Prowlarr server in Settings to link indexer sync destinations.", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
             .scrollableUnavailableState()
             .moreDestinationBackground(.integrations)
             .navigationTitle("Linked Apps")
@@ -996,13 +1008,7 @@ struct MoreView: View {
             .navigationTitle("Linked Apps")
             .navigationSubtitle("Bazarr")
         } else {
-            ContentUnavailableView {
-                Label("Bazarr Not Set Up", systemImage: ServiceIdentity.bazarr.tabSystemImage)
-            } description: {
-                Text("Add a Bazarr server in Settings to link subtitle sync destinations.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "Bazarr Not Set Up", message: "Add a Bazarr server in Settings to link subtitle sync destinations.", systemImage: ServiceIdentity.bazarr.tabSystemImage)
             .scrollableUnavailableState()
             .moreDestinationBackground(.integrations)
             .navigationTitle("Linked Apps")
@@ -1015,7 +1021,7 @@ struct MoreView: View {
         if let client = seerrServiceManager.activeClient {
             SeerrLinkedApplicationsView(apiClient: client)
         } else {
-            seerrAdminDestination
+            seerrAdminDestination(title: "Linked Apps")
         }
     }
 
@@ -1035,15 +1041,17 @@ struct MoreView: View {
                     ?? arrServiceManager.radarrConnectionError
                     ?? "Your configured Prowlarr, Sonarr, or Radarr services are currently unreachable."
             )
+            // Titled here, because neither of these fallbacks titles itself and the
+            // connected view is the only branch that did. A screen reached from a
+            // sidebar row called "Indexers" arrived under a blank bar whenever the
+            // servers were down - which is exactly when someone is least sure what
+            // they are looking at.
+            .navigationTitle("Indexers")
         } else {
-            ContentUnavailableView {
-                Label("Indexers Not Set Up", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
-            } description: {
-                Text("Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "Indexers Not Set Up", message: "Add a Prowlarr, Sonarr, or Radarr server in Settings to manage your indexers.", systemImage: ServiceIdentity.prowlarr.tabSystemImage)
             .scrollableUnavailableState()
+            .moreDestinationBackground(.indexers)
+            .navigationTitle("Indexers")
         }
     }
 
@@ -1139,6 +1147,7 @@ struct MoreView: View {
                 ? "Checking your configured qBittorrent server."
                 : "Your qBittorrent server is currently unreachable. Check your connection or server status.",
             isConnecting: isQBittorrentConnecting,
+            presentation: .embedded,
             onRetry: { onRetryQBittorrent?() },
             onEdit: { presentConnectionEditor(for: .qbittorrent) }
         )
@@ -1151,15 +1160,12 @@ struct MoreView: View {
                 .environment(syncService)
                 .environment(torrentService)
         } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
-            } description: {
-                Text("Add a qBittorrent server in Settings to manage your downloads.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "qBittorrent Not Set Up", message: "Add a qBittorrent server in Settings to manage your downloads.", systemImage: ServiceIdentity.qbittorrent.tabSystemImage)
             .scrollableUnavailableState()
             .moreDestinationBackground(.downloadClients)
+            // The connected branch is titled by `QBittorrentSettingsView`; without
+            // this the not-set-up branch arrives under a blank bar.
+            .navigationTitle("qBittorrent")
         }
     }
 
@@ -1171,20 +1177,17 @@ struct MoreView: View {
         } else if hasQBittorrentServer {
             qbittorrentConnectionStatusView
         } else {
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: "doc.text")
-            } description: {
-                Text("Add a qBittorrent server in Settings to view server logs.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "qBittorrent Not Set Up", message: "Add a qBittorrent server in Settings to view server logs.", systemImage: "doc.text")
             .scrollableUnavailableState()
             .moreDestinationBackground(.downloadClients)
+            .navigationTitle("qBittorrent Log")
         }
     }
 
+    /// The Seerr fallback, titled with the screen that asked for it - Issues and Jobs
+    /// share it with Requests, and all three used to arrive saying "Requests".
     @ViewBuilder
-    private var seerrAdminDestination: some View {
+    private func seerrAdminDestination(title: String = "Requests") -> some View {
         if seerrServiceManager.isConnected {
             SeerrDashboardView()
         } else if let seerrProfile {
@@ -1195,23 +1198,18 @@ struct MoreView: View {
                 isConnecting: seerrServiceManager.isConnecting,
                 detailTitle: seerrProfile.displayName,
                 detailSubtitle: seerrProfile.hostURL,
-                onRetry: {
+                presentation: .embedded,
+            onRetry: {
                     Task { await seerrServiceManager.connectService(seerrProfile) }
                 },
                 onEdit: { presentConnectionEditor(for: .seerr) }
             )
-            .navigationTitle("Requests")
+            .navigationTitle(title)
         } else {
-            ContentUnavailableView {
-                Label("Seerr Not Set Up", systemImage: ServiceIdentity.seerr.tabSystemImage)
-            } description: {
-                Text("Add a Seerr server in Settings to manage requests.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "Seerr Not Set Up", message: "Add a Seerr server in Settings to manage requests.", systemImage: ServiceIdentity.seerr.tabSystemImage)
             .scrollableUnavailableState()
             .moreDestinationBackground(.requestManagement)
-            .navigationTitle("Requests")
+            .navigationTitle(title)
         }
     }
 
@@ -1227,12 +1225,18 @@ struct MoreView: View {
             .environment(seerrServiceManager)
             .environment(inAppNotificationCenter)
         } else {
-            jellyfinUnavailableDestination
+            jellyfinUnavailableDestination(title: "Users")
         }
     }
 
+    /// The Jellyfin fallback, titled with the screen that asked for it.
+    ///
+    /// It used to title itself "Jellyfin" for every caller, so selecting Libraries,
+    /// Sessions or Users with the server down landed on a bar that named the service
+    /// rather than the screen - the sidebar row and the title beside it disagreeing
+    /// about where you were.
     @ViewBuilder
-    private var jellyfinUnavailableDestination: some View {
+    private func jellyfinUnavailableDestination(title: String = "Jellyfin") -> some View {
         if let jellyfinProfile {
             ConnectionStatusCard(
                 identity: .jellyfin,
@@ -1241,23 +1245,18 @@ struct MoreView: View {
                 isConnecting: jellyfinServiceManager.isConnecting,
                 detailTitle: jellyfinProfile.displayName,
                 detailSubtitle: jellyfinProfile.hostURL,
-                onRetry: {
+                presentation: .embedded,
+            onRetry: {
                     Task { await jellyfinServiceManager.connectService(jellyfinProfile) }
                 },
                 onEdit: { presentConnectionEditor(for: .jellyfin) }
             )
-            .navigationTitle("Jellyfin")
+            .navigationTitle(title)
         } else {
-            ContentUnavailableView {
-                Label("Jellyfin Not Set Up", systemImage: "server.rack")
-            } description: {
-                Text("Add a Jellyfin server in Settings to manage your media server.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "Jellyfin Not Set Up", message: "Add a Jellyfin server in Settings to manage your media server.", systemImage: "server.rack")
             .scrollableUnavailableState()
             .moreDestinationBackground(.jellyfin)
-            .navigationTitle("Jellyfin")
+            .navigationTitle(title)
         }
     }
 
@@ -2165,13 +2164,7 @@ private struct HubEmptyState: View {
     let message: String
 
     var body: some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            Text(message)
-        } actions: {
-            MoreSettingsNavigationLink()
-        }
+        ServiceSetupView(title: title, message: message, systemImage: systemImage)
         .listRowBackground(Color.clear)
     }
 }
@@ -2195,6 +2188,12 @@ struct MoreSettingsNavigationLink: View {
 private struct LinkedApplicationsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    /// Which integration's linked apps the detail pane is showing, at regular width.
+    /// Nil on iPhone, where the row pushes instead.
+    @State private var selectedIntegration: MoreDestination?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
     @Query private var seerrProfiles: [SeerrServiceProfile]
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var statusModel = LinkedApplicationsStatusViewModel()
@@ -2210,8 +2209,69 @@ private struct LinkedApplicationsManagementView: View {
             !seerrProfiles.isEmpty
     }
 
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func integrationRow<Label: View>(
+        _ destination: MoreDestination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(destination)
+        } else {
+            NavigationLink(value: destination, label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever integration's linked apps are selected.
+    @ViewBuilder
+    private var selectedIntegrationDetail: some View {
+        switch selectedIntegration {
+        case .prowlarrLinkedApplications:
+            if arrServiceManager.prowlarrConnected {
+                ProwlarrApplicationsListView()
+                    .environment(arrServiceManager)
+            } else {
+                listDetailPlaceholder("Prowlarr Not Connected", systemImage: ServiceIdentity.prowlarr.systemImage)
+            }
+        case .bazarrLinkedApplications:
+            if arrServiceManager.hasBazarrInstance {
+                BazarrLinkedApplicationsListView()
+                    .environment(arrServiceManager)
+            } else {
+                listDetailPlaceholder("Bazarr Not Connected", systemImage: ServiceIdentity.bazarr.systemImage)
+            }
+        case .seerrLinkedApplications:
+            if let client = seerrServiceManager.activeClient {
+                SeerrLinkedApplicationsView(apiClient: client)
+            } else {
+                listDetailPlaceholder("Seerr Not Connected", systemImage: ServiceIdentity.seerr.systemImage)
+            }
+        default:
+            listDetailPlaceholder("Select an Integration", systemImage: "link")
+        }
+    }
+
     var body: some View {
-        List {
+        // Two panes at regular width. These three screens answer one question -
+        // "is everything pointed at everything else?" - and answering it one screen
+        // at a time is what made the configuration audit necessary in the first place.
+        TrawlListDetailPanes {
+            integrationList
+        } detail: {
+            selectedIntegrationDetail
+        }
+    }
+
+    private var integrationList: some View {
+        List(selection: $selectedIntegration) {
             if !hasLinkableServices {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -2220,7 +2280,7 @@ private struct LinkedApplicationsManagementView: View {
                 )
             } else {
             Section {
-                NavigationLink(value: MoreDestination.prowlarrLinkedApplications) {
+                integrationRow(.prowlarrLinkedApplications) {
                     IntegrationRelationshipRow(
                         source: .prowlarr,
                         targets: [.sonarr, .radarr],
@@ -2230,7 +2290,7 @@ private struct LinkedApplicationsManagementView: View {
                     )
                 }
 
-                NavigationLink(value: MoreDestination.bazarrLinkedApplications) {
+                integrationRow(.bazarrLinkedApplications) {
                     IntegrationRelationshipRow(
                         source: .bazarr,
                         targets: [.sonarr, .radarr],
@@ -2240,7 +2300,7 @@ private struct LinkedApplicationsManagementView: View {
                     )
                 }
 
-                NavigationLink(value: MoreDestination.seerrLinkedApplications) {
+                integrationRow(.seerrLinkedApplications) {
                     IntegrationRelationshipRow(
                         source: .seerr,
                         targets: [.sonarr, .radarr],
@@ -2254,10 +2314,10 @@ private struct LinkedApplicationsManagementView: View {
             }
             }
         }
+        .navigationTitle("Linked Applications")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Linked Applications")
         .moreDestinationBackground(.integrations)
         .refreshable {
             await statusModel.load(
@@ -2339,10 +2399,51 @@ extension LinkedApplicationsManagementView {
 
 private struct DownloadClientsManagementView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
+    @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
     @State private var statusModel = DownloadClientsStatusViewModel()
+    /// Whose download clients the detail pane is showing, at regular width. Nil on
+    /// iPhone, where the row pushes instead.
+    @State private var selectedService: MoreDestination?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
     #if DEBUG
     private var skipsStatusRefresh = false
     #endif
+
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func clientRow<Label: View>(
+        _ destination: MoreDestination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(destination)
+        } else {
+            NavigationLink(value: destination, label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever server's client list is selected.
+    @ViewBuilder
+    private var selectedServiceDetail: some View {
+        switch selectedService {
+        case .downloadClients(let service):
+            ArrDownloadClientListView(serviceType: service)
+                .environment(arrServiceManager)
+                .environment(inAppNotificationCenter)
+        default:
+            listDetailPlaceholder("Select a Service", systemImage: "shippingbox.fill")
+        }
+    }
 
     private var hasSonarrOrRadarr: Bool {
         arrServiceManager.hasSonarrInstance || arrServiceManager.hasRadarrInstance
@@ -2362,7 +2463,18 @@ private struct DownloadClientsManagementView: View {
     }
 
     var body: some View {
-        List {
+        // Two panes at regular width. This screen exists to answer "is each server
+        // pointed at the right client?", and the answer lives one push away in the
+        // list it opens - so on a display wide enough to hold both, hold both.
+        TrawlListDetailPanes {
+            serviceList
+        } detail: {
+            selectedServiceDetail
+        }
+    }
+
+    private var serviceList: some View {
+        List(selection: $selectedService) {
             if !hasSonarrOrRadarr {
                 HubEmptyState(
                     title: "No Services Configured",
@@ -2371,7 +2483,7 @@ private struct DownloadClientsManagementView: View {
                 )
             } else {
             Section {
-                NavigationLink(value: MoreDestination.downloadClients(service: .sonarr)) {
+                clientRow(.downloadClients(service: .sonarr)) {
                     IntegrationRelationshipRow(
                         source: .sonarr,
                         targets: [.qbittorrent, .sabnzbd],
@@ -2381,7 +2493,7 @@ private struct DownloadClientsManagementView: View {
                     )
                 }
 
-                NavigationLink(value: MoreDestination.downloadClients(service: .radarr)) {
+                clientRow(.downloadClients(service: .radarr)) {
                     IntegrationRelationshipRow(
                         source: .radarr,
                         targets: [.qbittorrent, .sabnzbd],
@@ -2395,10 +2507,10 @@ private struct DownloadClientsManagementView: View {
             }
             }
         }
+        .navigationTitle("Download Clients")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Download Clients")
         .moreDestinationBackground(.integrations)
         .refreshable {
             await statusModel.load(arrServiceManager: arrServiceManager)
@@ -2956,10 +3068,16 @@ private struct SubtitleManagementView: View {
             } else {
                 if showLanguageProfileTip {
                     Section {
-                        LanguageProfileTipBanner {
-                            SubtitleLanguageProfileTipState.dismissedThisLaunch = true
-                            withAnimation(.snappy) { showLanguageProfileTip = false }
-                        }
+                        TrawlInlineCallout(
+                            icon: "globe.badge.chevron.backward",
+                            tint: MoreDestinationAccent.languageProfiles.color,
+                            title: "No Language Profile",
+                            message: "Bazarr needs at least one language profile before it can find subtitles. Create one to get started.",
+                            onDismiss: {
+                                SubtitleLanguageProfileTipState.dismissedThisLaunch = true
+                                withAnimation(.snappy) { showLanguageProfileTip = false }
+                            }
+                        )
                         .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 0, trailing: 16))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
@@ -3012,53 +3130,6 @@ private struct SubtitleManagementView: View {
         if profiles.isEmpty {
             withAnimation(.snappy) { showLanguageProfileTip = true }
         }
-    }
-}
-
-/// TipKit-style inline callout nudging the user to create a Bazarr language profile.
-private struct LanguageProfileTipBanner: View {
-    let onDismiss: () -> Void
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            Image(systemName: "globe.badge.chevron.backward")
-                .font(.title3)
-                .foregroundStyle(MoreDestinationAccent.languageProfiles.color)
-                .frame(width: 26)
-
-            VStack(alignment: .leading, spacing: 3) {
-                Text("No Language Profile")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                Text("Bazarr needs at least one language profile before it can find subtitles. Create one to get started.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-
-            Button(action: onDismiss) {
-                Image(systemName: "xmark")
-                    .font(.caption2.weight(.bold))
-                    .foregroundStyle(.secondary)
-                    .padding(6)
-                    .background(Circle().fill(Color.secondary.opacity(0.15)))
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel("Dismiss")
-        }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(.ultraThinMaterial)
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(MoreDestinationAccent.languageProfiles.color.opacity(0.25), lineWidth: 1)
-        )
-        .transition(.move(edge: .top).combined(with: .opacity))
     }
 }
 
@@ -3160,31 +3231,100 @@ private struct RequestsAndAccessHubView: View {
 private struct SystemHubView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(ConfigurationAuditStore.self) private var auditStore
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
     @Query private var qbittorrentServers: [ServerProfile]
     @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     @State private var showSetupCheck = false
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+
+    /// True where the app draws a sidebar, which is where this hub's rows have rows
+    /// of their own.
+    private var hasSidebarChrome: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
 
     /// The download clients Trawl itself is connected to. The audit compares these
     /// against what each Arr has been told, which is the whole point of it.
-    private var trawlClientHosts: [DownloadClientLinkKind: String] {
-        var hosts: [DownloadClientLinkKind: String] = [:]
-        if let server = qbittorrentServers.first(where: { $0.isActive }) ?? qbittorrentServers.first {
-            hosts[.qbittorrent] = server.hostURL
-        }
-        if let profile = sabnzbdProfiles.first(where: { $0.isEnabled }) ?? sabnzbdProfiles.first {
-            hosts[.sabnzbd] = profile.hostURL
-        }
-        return hosts
+    private var trawlClientHosts: [DownloadClientLinkKind: [String]] {
+        ConfigurationAuditInput.trawlClientHosts(
+            qbittorrentServers: qbittorrentServers,
+            sabnzbdProfiles: sabnzbdProfiles
+        )
+    }
+
+    private var auditInputRevision: String {
+        ConfigurationAuditInput.revision(
+            arrServiceManager: arrServiceManager,
+            trawlClients: trawlClientHosts,
+            seerrServiceManager: seerrServiceManager,
+            cleanuparrServiceManager: cleanuparrServiceManager
+        )
     }
 
     private var setupCheckSubtitle: String {
         guard auditStore.hasCompletedAnAudit else { return "How your services are wired to each other" }
         let count = auditStore.problemCount
+        // A check that could not be run is not a check that passed, so the row never
+        // says "nothing needs attention" while something is unverified.
+        if count == 0, !auditStore.unknowns.isEmpty {
+            return auditStore.unknowns.count == 1 ? "1 check could not be completed" : "\(auditStore.unknowns.count) checks could not be completed"
+        }
         if count == 0 { return "Nothing needs attention" }
         return count == 1 ? "1 problem found" : "\(count) problems found"
     }
 
     var body: some View {
+        Group {
+            if hasSidebarChrome {
+                setupCheckScreen
+            } else {
+                hubList
+            }
+        }
+        // "System" is the name of the *hub*, and on the sidebar chrome this is no
+        // longer a hub - every other row it used to hold has a row of its own, and
+        // what is left is the Setup Check itself.
+        .navigationTitle(hasSidebarChrome ? "Setup Check" : "System")
+        .moreDestinationBackground(.systemHub)
+    }
+
+    /// The Setup Check as the screen, where it has a sidebar row of its own.
+    ///
+    /// Every other row of this hub was promoted, so what remained on iPad and Mac was
+    /// a screen whose entire content was one button that opened a sheet - a click
+    /// spent on nothing, and a pane of empty space beside it. The wizard is the
+    /// screen here. Its fixes push onto the column's own stack rather than into a
+    /// modal, which is the same place they would land if the user had navigated to
+    /// them by hand.
+    private var setupCheckScreen: some View {
+        ConfigurationWizardView(
+            issues: auditStore.issues,
+            onDismissIssue: { auditStore.dismiss($0) },
+            onRecheck: { await refreshAudit() },
+            presentation: .screen
+        )
+        .environment(arrServiceManager)
+        .refreshesConfigurationAudit()
+    }
+
+    private func refreshAudit() async {
+        await auditStore.refresh(
+            serviceManager: arrServiceManager,
+            trawlClients: trawlClientHosts,
+            seerrServiceManager: seerrServiceManager,
+            cleanuparrServiceManager: cleanuparrServiceManager,
+            inputRevision: auditInputRevision
+        )
+    }
+
+    private var hubList: some View {
         List {
             Section {
                 Button {
@@ -3200,6 +3340,11 @@ private struct SystemHubView: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("more-setup-check")
 
+                // Hidden where each of these is a sidebar row of its own: repeating
+                // them here would make the screen a menu of things already listed
+                // beside it. Setup Check above stays, because it is what this screen
+                // is *for* on that chrome.
+                if !hasSidebarChrome {
                 NavigationLink(value: MoreDestination.health) {
                     NavigationMenuRow(
                         icon: "heart.text.square.fill",
@@ -3244,6 +3389,7 @@ private struct SystemHubView: View {
                         subtitle: "System backups for Sonarr, Radarr, Prowlarr and Bazarr"
                     )
                 }
+                }
             }
         }
         #if os(iOS)
@@ -3256,24 +3402,17 @@ private struct SystemHubView: View {
             ConfigurationWizardView(
                 issues: auditStore.issues,
                 onDismissIssue: { auditStore.dismiss($0) },
-                onRecheck: {
-                    await auditStore.refresh(
-                        serviceManager: arrServiceManager,
-                        trawlClients: trawlClientHosts
-                    )
-                }
+                onRecheck: { await refreshAudit() }
             )
             .environment(arrServiceManager)
         }
-        .task {
-            guard !auditStore.hasCompletedAnAudit else { return }
-            await auditStore.refresh(
-                serviceManager: arrServiceManager,
-                trawlClients: trawlClientHosts
-            )
+        .refreshesConfigurationAudit()
+        // Returning from a repair re-checks, so the row and the wizard cannot keep
+        // reporting a fault the user has just fixed.
+        .onChange(of: showSetupCheck) { wasPresented, isPresented in
+            guard wasPresented, !isPresented else { return }
+            Task { await refreshAudit() }
         }
-        .navigationTitle("System")
-        .moreDestinationBackground(.systemHub)
     }
 }
 
@@ -3483,6 +3622,12 @@ private struct TasksHubView: View {
     @Environment(ArrServiceManager.self) private var arrServiceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    /// Whose tasks the detail pane is showing, at regular width. Nil on iPhone, where
+    /// the row pushes instead.
+    @State private var selectedTaskSource: MoreDestination?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
 
     private var hasArrTasks: Bool {
         arrServiceManager.hasSonarrInstance ||
@@ -3495,12 +3640,68 @@ private struct TasksHubView: View {
         hasArrTasks || seerrServiceManager.activeClient != nil || jellyfinServiceManager.activeClient != nil
     }
 
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func taskRow<Label: View>(
+        _ destination: MoreDestination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(destination)
+        } else {
+            NavigationLink(value: destination, label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever service's tasks are selected.
+    @ViewBuilder
+    private var selectedTasksDetail: some View {
+        switch selectedTaskSource {
+        case .arrTasks:
+            ArrScheduledTasksView()
+                .environment(arrServiceManager)
+        case .seerrJobs:
+            if let client = seerrServiceManager.activeClient {
+                SeerrJobsView(apiClient: client)
+            } else {
+                listDetailPlaceholder("Seerr Not Connected", systemImage: ServiceIdentity.seerr.systemImage)
+            }
+        case .jellyfinScheduledTasks:
+            if let client = jellyfinServiceManager.activeClient {
+                JellyfinScheduledTasksView(apiClient: client)
+            } else {
+                listDetailPlaceholder("Jellyfin Not Connected", systemImage: ServiceIdentity.jellyfin.systemImage)
+            }
+        default:
+            listDetailPlaceholder("Select a Service", systemImage: "clock.arrow.2.circlepath")
+        }
+    }
+
     var body: some View {
-        List {
+        // Two panes at regular width. Scheduled tasks are something you *watch* -
+        // kick one off on Sonarr, see whether Seerr's sync has run - and a layout that
+        // shows one service at a time makes comparing them a navigation exercise.
+        TrawlListDetailPanes {
+            taskList
+        } detail: {
+            selectedTasksDetail
+        }
+    }
+
+    private var taskList: some View {
+        List(selection: $selectedTaskSource) {
             if hasAnyTaskDestination {
                 Section {
                     if hasArrTasks {
-                        NavigationLink(value: MoreDestination.arrTasks) {
+                        taskRow(.arrTasks) {
                             NavigationMenuRow(
                                 icon: "clock.arrow.2.circlepath",
                                 color: MoreDestinationAccent.tasks.color,
@@ -3511,7 +3712,7 @@ private struct TasksHubView: View {
                     }
 
                     if seerrServiceManager.activeClient != nil {
-                        NavigationLink(value: MoreDestination.seerrJobs) {
+                        taskRow(.seerrJobs) {
                             NavigationMenuRow(
                                 icon: "clock.arrow.2.circlepath",
                                 color: ServiceIdentity.seerr.brandColor,
@@ -3522,7 +3723,7 @@ private struct TasksHubView: View {
                     }
 
                     if jellyfinServiceManager.activeClient != nil {
-                        NavigationLink(value: MoreDestination.jellyfinScheduledTasks) {
+                        taskRow(.jellyfinScheduledTasks) {
                             NavigationMenuRow(
                                 icon: "clock.arrow.2.circlepath",
                                 color: ServiceIdentity.jellyfin.brandColor,
@@ -3540,10 +3741,10 @@ private struct TasksHubView: View {
                 )
             }
         }
+        .navigationTitle("Tasks")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        .navigationTitle("Tasks")
         .moreDestinationBackground(.tasks)
     }
 }
@@ -3760,11 +3961,7 @@ struct MoreDestinationGradientBackground: View {
 extension View {
     @ViewBuilder
     func moreDestinationTitleStyle() -> some View {
-        #if os(iOS)
-        self.navigationBarTitleDisplayMode(.inline)
-        #else
-        self
-        #endif
+        modifier(MoreDestinationTitleStyle())
     }
 
     func moreDestinationBackground(_ accent: MoreDestinationAccent) -> some View {
@@ -3781,6 +3978,28 @@ extension View {
     }
 }
 
+
+/// How a More destination titles itself: inline on the phone, large under a sidebar.
+///
+/// `.inline` everywhere left every promoted sidebar destination with a small centred
+/// title floating over the middle of the split - and for the two-pane hubs, over the
+/// divider between their own list and detail. Beside Series and Downloads, which draw
+/// a large title at the top of their column, those hubs read as untitled. The phone
+/// keeps `.inline`, where a large title costs a third of a screen that is already a
+/// push deep.
+private struct MoreDestinationTitleStyle: ViewModifier {
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+
+    func body(content: Content) -> some View {
+        #if os(iOS)
+        content.navigationBarTitleDisplayMode(hSizeClass == .regular ? .large : .inline)
+        #else
+        content
+        #endif
+    }
+}
 
 struct NotificationSettingsHubView: View {
     @Environment(\.openURL) private var openURL
@@ -4009,10 +4228,13 @@ private struct SeerrWebhookNotificationConfigView: View {
     var body: some View {
         Form {
             if let loadError {
-                Section {
-                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
+                ServiceErrorView(
+                    title: "Notification Settings Unavailable",
+                    message: loadError,
+                    identity: .seerr,
+                    hasContent: true,
+                    onRetry: { await load() }
+                )
             }
 
             if profile == nil || !isConnected || !hasDeviceToken {

@@ -830,13 +830,7 @@ struct BazarrInteractiveSearchSheet: View {
             ProgressView("Searching providers…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error {
-            ContentUnavailableView {
-                Label("Search Failed", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
-            } actions: {
-                Button("Retry") { Task { await fetchResults() } }
-            }
+            ServiceErrorView(title: "Search Failed", message: error, identity: .bazarr, onRetry: { await fetchResults() })
         } else if results.isEmpty {
             ContentUnavailableView(
                 "No Results",

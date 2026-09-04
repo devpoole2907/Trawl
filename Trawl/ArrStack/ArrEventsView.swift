@@ -178,13 +178,7 @@ struct ArrEventsView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "list.bullet.rectangle")
-                } description: {
-                    Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view events.", systemImage: "list.bullet.rectangle")
                 .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
@@ -264,9 +258,12 @@ struct ArrEventsView: View {
     private var logList: some View {
         List {
             if let error = currentError {
-                Section {
-                    Text(error).font(.footnote).foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Events Unavailable",
+                    message: error,
+                    hasContent: !displayedEntries.isEmpty,
+                    onRetry: { for instance in availableInstances { await loadService(instance) } }
+                )
             }
 
             if isCurrentLoading && displayedEntries.isEmpty {
@@ -274,12 +271,14 @@ struct ArrEventsView: View {
                     ProgressView().frame(maxWidth: .infinity)
                 }
             } else if displayedEntries.isEmpty {
-                ContentUnavailableView(
-                    "No Events",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("No log entries match the current filter.")
-                )
-                .listRowBackground(Color.clear)
+                if currentError == nil {
+                    ContentUnavailableView(
+                        "No Events",
+                        systemImage: "list.bullet.rectangle",
+                        description: Text("No log entries match the current filter.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(displayedEntries) { entry in

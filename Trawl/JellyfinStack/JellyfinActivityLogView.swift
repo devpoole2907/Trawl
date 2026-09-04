@@ -54,12 +54,14 @@ struct JellyfinActivityLogView: View {
         let entries = filteredEntries(from: viewModel.entries)
 
         List {
-            if let error = viewModel.errorMessage, viewModel.entries.isEmpty {
-                Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = viewModel.errorMessage {
+                ServiceErrorView(
+                    title: "Activity Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !viewModel.entries.isEmpty,
+                    onRetry: { await viewModel.load() }
+                )
             }
 
             if viewModel.isLoading && viewModel.entries.isEmpty {
@@ -68,12 +70,14 @@ struct JellyfinActivityLogView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if viewModel.entries.isEmpty {
-                ContentUnavailableView(
-                    "No Activity",
-                    systemImage: "list.bullet.rectangle",
-                    description: Text("No activity log entries were returned by Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Activity",
+                        systemImage: "list.bullet.rectangle",
+                        description: Text("No activity log entries were returned by Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else if entries.isEmpty {
                 ContentUnavailableView.search(text: searchText)
                     .listRowBackground(Color.clear)

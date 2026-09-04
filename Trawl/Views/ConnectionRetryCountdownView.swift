@@ -2,12 +2,12 @@ import Foundation
 import SwiftUI
 
 struct ConnectionRetryCountdownView: View {
-    @Environment(ConnectionRetryScheduler.self) private var retryScheduler
+    @Environment(ConnectionRetryScheduler.self) private var retryScheduler: ConnectionRetryScheduler?
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
-            if let nextRetryDate = retryScheduler.nextRetryDate,
-               !retryScheduler.isRetrying {
+            if let nextRetryDate = retryScheduler?.nextRetryDate,
+               retryScheduler?.isRetrying == false {
                 let remainingSeconds = Self.remainingSeconds(until: nextRetryDate, from: context.date)
                 if remainingSeconds > 0 {
                     HStack(spacing: 4) {
@@ -21,8 +21,8 @@ struct ConnectionRetryCountdownView: View {
                 }
             }
         }
-        .animation(.snappy, value: retryScheduler.nextRetryDate)
-        .animation(.snappy, value: retryScheduler.isRetrying)
+        .animation(.snappy, value: retryScheduler?.nextRetryDate)
+        .animation(.snappy, value: retryScheduler?.isRetrying)
     }
 
     private static func remainingSeconds(until retryDate: Date, from currentDate: Date) -> Int {

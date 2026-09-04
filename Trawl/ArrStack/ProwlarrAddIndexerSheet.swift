@@ -46,16 +46,12 @@ struct ProwlarrAddIndexerSheet: View {
                     ProgressView("Loading indexer types…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = viewModel.schemaError {
-                    ContentUnavailableView {
-                        Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Retry") {
-                            Task { await viewModel.reloadSchema() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+                    ServiceErrorView(
+                        title: "Failed to Load",
+                        message: error,
+                        identity: .prowlarr,
+                        onRetry: { await viewModel.reloadSchema() }
+                    )
                 } else if filteredSchema.isEmpty && !searchText.isEmpty {
                     ContentUnavailableView(
                         "No Results",

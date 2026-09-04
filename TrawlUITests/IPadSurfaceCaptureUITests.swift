@@ -270,6 +270,184 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         capture(app, "31-welcome-portrait")
     }
 
+    // MARK: - Detail-pane titles
+
+    /// The one assertion-bearing test in this file, and it earns the exception.
+    ///
+    /// Every two-pane screen puts its own title on the *list* pane and gives the
+    /// detail pane a `NavigationStack` of its own. Both halves are needed and
+    /// neither is obvious, so both have already been got wrong once: with no stack
+    /// on the detail pane its `navigationTitle` is written into the column's bar and
+    /// wins on sibling order, blanking the screen's name the moment a row is picked;
+    /// with the stack but the title hoisted onto a wrapper *around* both panes, the
+    /// title attaches to that inner stack instead and the column's bar goes empty.
+    ///
+    /// A capture alone cannot defend that - the regression is a title that is
+    /// *absent*, and nobody re-reads an old screenshot. So this asserts the screen's
+    /// name is still in the bar after a row is selected, and photographs both states
+    /// either way so a failure can be looked at rather than guessed at.
+    @MainActor
+    func testDetailPaneTitlesSurviveSelection() async throws {
+        let app = try await launchFullyConfiguredApp(orientation: .landscapeLeft)
+
+        guard reachedTabUI(app) else {
+            capture(app, "40-UNREACHED-tab-ui-panes")
+            dumpHierarchy(app, label: "pane titles, tab UI unreachable")
+            return
+        }
+        ensureSidebarExpanded(app)
+
+        // Sidebar case name -> the title the column's bar must keep showing. Every
+        // screen in the app that renders `TrawlListDetailPanes` is listed; a new
+        // pane screen belongs here too.
+        // The row to select is named rather than taken as "the first cell". These
+        // lists open with stat tiles and disclosure rows above the real content, so
+        // the first cell is routinely something that selects nothing - and a check
+        // run against a screen where no selection happened passes without ever
+        // exercising the thing it exists to catch.
+        let panes: [(sidebarCase: String, title: String, row: String)] = [
+            ("indexers", "Indexers", ProwlarrUIFixtureServer.indexerName),
+            ("downloadClients", "Download Clients", "Sonarr Download Clients"),
+        ]
+
+        for (offset, pane) in panes.enumerated() {
+            capturePaneSelection(
+                app,
+                sidebarCase: pane.sidebarCase,
+                title: pane.title,
+                row: pane.row,
+                index: 41 + offset
+            )
+        }
+    }
+
+    /// The x at which the detail column starts, measured before anything is selected.
+    ///
+    /// Taken from the placeholder the detail shows when empty ("Select a Service" and
+    /// friends) where there is one, and otherwise from the right-hand end of the list
+    /// column's own navigation bar.
+    @MainActor
+    private func detailColumnLeftEdge(_ app: XCUIApplication, listBar: XCUIElement) -> CGFloat {
+        let placeholder = app.staticTexts
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Select a"))
+            .firstMatch
+        if placeholder.exists { return placeholder.frame.minX }
+        return listBar.frame.maxX
+    }
+
+    /// Finds a sidebar row, scrolling the sidebar itself to reach it.
+    ///
+    /// The shared `waitForExistence(in:)` helper cannot do this: it deliberately
+    /// scrolls the *content* column and skips the sidebar, because on every other
+    /// screen the sidebar is the wrong thing to move. Here the sidebar is exactly
+    /// what has to move - the pane screens live under Integrations and Management,
+    /// well below the fold, and a `List` does not put off-screen rows in the tree at
+    /// all, so a plain wait reports them missing.
+    @MainActor
+    private func sidebarRow(_ app: XCUIApplication, _ sidebarCase: String) -> XCUIElement? {
+        let row = app.cells
+            .containing(NSPredicate(format: "identifier == %@", "nav.\(sidebarCase)"))
+            .firstMatch
+        if row.waitForExistence(timeout: 3) { return row }
+
+        let sidebar = app.collectionViews["Sidebar"]
+        guard sidebar.exists else { return nil }
+        // Both directions. These screens are not all below each other - Requests sits
+        // near the top and Quality Profiles near the bottom - so a run that only ever
+        // swiped up would find the first few and then report the rest missing purely
+        // because of the order they were asked for.
+        for _ in 0..<8 {
+            sidebar.swipeUp()
+            if row.waitForExistence(timeout: 1) { return row }
+        }
+        for _ in 0..<10 {
+            sidebar.swipeDown()
+            if row.waitForExistence(timeout: 1) { return row }
+        }
+        return nil
+    }
+
+    /// Opens one pane screen, photographs it unselected, picks its first row, and
+    /// checks the screen's own name is still in the bar.
+    @MainActor
+    private func capturePaneSelection(
+        _ app: XCUIApplication,
+        sidebarCase: String,
+        title: String,
+        row rowLabel: String,
+        index: Int
+    ) {
+        guard let row = sidebarRow(app, sidebarCase) else {
+            capture(app, "\(index)-\(sidebarCase)-MISS-not-in-sidebar")
+            XCTFail("\(title): no sidebar row nav.\(sidebarCase)")
+            return
+        }
+        tapEvenIfNotHittable(row)
+
+        let bar = app.navigationBars[title]
+        guard bar.waitForExistence(timeout: 15) else {
+            capture(app, "\(index)-\(sidebarCase)-MISS-title-before-selection")
+            XCTFail("\(title): the screen's title never appeared, before any row was picked")
+            return
+        }
+        capture(app, "\(index)-\(sidebarCase)-1-list-only")
+
+        // The left edge of the *detail* column, read before anything is selected.
+        // Everything at or right of this belongs to the detail; the list column's own
+        // bar is to its left. Read now because the detail pane grows a navigation bar
+        // of its own once a row is picked, and then "which bar is which" cannot be
+        // told apart by title alone.
+        let detailLeft = detailColumnLeftEdge(app, listBar: bar)
+
+        let target = app.staticTexts[rowLabel].firstMatch
+        guard target.waitForExistence(timeout: 10) else {
+            capture(app, "\(index)-\(sidebarCase)-2-MISS-row-absent")
+            XCTFail("\(title): no row labelled \(rowLabel) to select")
+            return
+        }
+        tapEvenIfNotHittable(target)
+
+        // The detail pane now has a navigation bar of its own, so waiting on "a bar
+        // exists" would pass even in the broken arrangement. Wait for the detail to
+        // arrive - a second bar - and only then read the column's title back.
+        //
+        // An expectation rather than a `while` loop over `navigationBars.count`: that
+        // loop re-runs a UI query with no backoff for as long as it takes, and it got
+        // the runner killed outright ("Test crashed with signal kill") rather than
+        // failing an assertion.
+        let twoBars = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "count >= 2"),
+            object: app.navigationBars
+        )
+        let selected = XCTWaiter().wait(for: [twoBars], timeout: 10) == .completed
+
+        capture(app, "\(index)-\(sidebarCase)-3-row-selected")
+
+        // Nothing was selected, so nothing was tested. Say so instead of passing:
+        // a green result here would mean only that the tap missed.
+        guard selected else {
+            XCTFail("\(title): tapping \(rowLabel) produced no detail pane, so the "
+                + "title could not be checked against a real selection")
+            return
+        }
+
+        // Not `bar.exists`. Where the detail repeats the screen's name - the Sonarr
+        // download-client list is itself titled "Download Clients" - a query by title
+        // matches the *detail's* bar and reports the list column healthy while its
+        // title has actually gone. The list column's bar is the one left of the
+        // detail column, so ask for that one specifically.
+        let listBarStillTitled = app.navigationBars
+            .matching(NSPredicate(format: "identifier == %@", title))
+            .allElementsBoundByIndex
+            .contains { $0.frame.minX < detailLeft - 1 }
+
+        XCTAssertTrue(
+            listBarStillTitled,
+            "\(title): the list column lost its title when \(rowLabel) was selected - "
+                + "the detail pane is writing into the column's navigation bar."
+        )
+    }
+
     // MARK: - Surface walking
 
     @MainActor

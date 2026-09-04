@@ -94,13 +94,12 @@ struct ArrOfflineServicesSheet: View {
             List {
                 Section {
                     ForEach(offlineServices) { service in
-                        ConnectionIssueRow(
+                        ConnectionStatusCard(
                             identity: service.serviceIdentity,
                             title: isConnecting(service) ? "Connecting to \(service.displayName)" : "\(service.displayName) Unreachable",
                             message: message(for: service),
                             isConnecting: isConnecting(service),
-                            actionStyle: .glassIcons,
-                            onRetry: { Task { await serviceManager.retry(service) } },
+                                onRetry: { Task { await serviceManager.retry(service) } },
                             onEdit: {
                                 withAnimation(.snappy) {
                                     settingsService = service

@@ -72,16 +72,7 @@ struct ArrNamingConfigView: View {
                 ProgressView("Loading naming settings…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage {
-                ContentUnavailableView {
-                    Label("Could Not Load Settings", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry", systemImage: "arrow.clockwise") {
-                        Task { await load() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                ServiceErrorView(title: "Could Not Load Settings", message: error, onRetry: { await load() })
             } else if selectedService == .sonarr, let config = sonarrConfig {
                 sonarrForm(config: config)
             } else if selectedService == .radarr, let config = radarrConfig {

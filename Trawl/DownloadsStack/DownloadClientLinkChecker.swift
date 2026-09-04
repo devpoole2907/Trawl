@@ -142,7 +142,15 @@ enum DownloadClientLinkChecker {
     static func normalizedHost(from value: String) -> String {
         var host = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
 
-        if let url = URL(string: host), let urlHost = url.host {
+        if ["localhost", "127.0.0.1", "0.0.0.0", "::1", "[::1]", "host.docker.internal"].contains(host) {
+            return "localhost"
+        }
+
+        if let components = URLComponents(string: host), let urlHost = components.host {
+            host = urlHost.lowercased()
+        } else if !host.contains("://"),
+                  let components = URLComponents(string: "http://\(host)"),
+                  let urlHost = components.host {
             host = urlHost.lowercased()
         } else {
             // Not parseable as a URL - strip a scheme, then any port/path by hand.
@@ -158,5 +166,43 @@ enum DownloadClientLinkChecker {
         }
 
         return host
+    }
+
+    /// Host and port identity for one concrete download-client endpoint. Sonarr and
+    /// Radarr store these as separate fields while Trawl stores a full URL; comparing
+    /// only the host makes two qBittorrent containers on different ports look like
+    /// the same client.
+    static func normalizedEndpoint(from value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let candidate = trimmed.contains("://") ? trimmed : "http://\(trimmed)"
+        guard let components = URLComponents(string: candidate), let host = components.host else {
+            return "\(normalizedHost(from: value)):?"
+        }
+        let port = components.port ?? defaultPort(for: components.scheme)
+        return normalizedEndpoint(host: host, port: port.map(String.init))
+    }
+
+    static func normalizedEndpoint(host: String, port: String?) -> String {
+        let normalizedPort = port?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .split(separator: ".")
+            .first
+            .map(String.init)
+        return "\(normalizedHost(from: host)):\(normalizedPort.flatMap { $0.isEmpty ? nil : $0 } ?? "?")"
+    }
+
+    static func displayEndpoint(host: String, port: String?) -> String {
+        guard let port = port?.trimmingCharacters(in: .whitespacesAndNewlines), !port.isEmpty else {
+            return host
+        }
+        return "\(host):\(port)"
+    }
+
+    private static func defaultPort(for scheme: String?) -> Int? {
+        switch scheme?.lowercased() {
+        case "http": 80
+        case "https": 443
+        default: nil
+        }
     }
 }

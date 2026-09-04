@@ -105,16 +105,7 @@ struct ArrQualityDefinitionsView: View {
                 ProgressView("Loading quality definitions…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = errorMessage, definitions.isEmpty {
-                ContentUnavailableView {
-                    Label("Could Not Load", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry", systemImage: "arrow.clockwise") {
-                        Task { await load() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                ServiceErrorView(title: "Could Not Load", message: error, onRetry: { await load() })
             } else {
                 definitionsList
             }

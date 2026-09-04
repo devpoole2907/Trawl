@@ -42,10 +42,7 @@ struct ArrRemotePathMappingListView: View {
                     }
                 }
             } else if let loadError {
-                Section {
-                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
+                ServiceErrorView(title: "Remote Path Mappings Unavailable", message: loadError, onRetry: { await loadMappings() })
             } else if mappings.isEmpty {
                 ContentUnavailableView(
                     "No Remote Path Mappings",
@@ -60,9 +57,18 @@ struct ArrRemotePathMappingListView: View {
                             mappingBeingEdited = entry
                         } label: {
                             mappingRow(entry)
+                                // Width first, then shape, and both inside the label.
+                                // A plain-styled button hit-tests the shape of what it
+                                // draws; the row's content hugs itself, so on an iPad -
+                                // where the row is hundreds of points wider than its
+                                // text - a tap anywhere to the right of the paths did
+                                // nothing. `.contentShape` on the Button, which is what
+                                // this was, shapes the button rather than the label,
+                                // and has no width to work with either way.
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)
-                        .contentShape(Rectangle())
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 mappingPendingDelete = entry

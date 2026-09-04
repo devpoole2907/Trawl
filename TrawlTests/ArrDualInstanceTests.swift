@@ -400,6 +400,51 @@ struct ArrDualInstanceTests {
         #expect(InAppNotificationCenter.shared.recentNotifications.first?.title == "Added")
     }
 
+    /// The regression the search journey caught: a 500 from Sonarr reached the sheet
+    /// as "Could not add to Sonarr", with the server's own words dropped. The reason
+    /// lives in `ArrLibraryViewModel.error`, which is shared library state that the
+    /// next library reload clears - so reading it a moment later, or at render time,
+    /// frequently finds nothing. It has to be taken at the point of failure.
+    @Test("A failed add keeps the reason the server gave, read at the point of failure")
+    func failureMessageKeepsTheServersReason() async {
+        let hd = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let state = ArrAddDestinationState(serviceType: .sonarr)
+        state.destination = .instance(hd.id)
+        state.profileByInstance = [hd.id: 1]
+        state.rootFolderByInstance = [hd.id: "/tv"]
+
+        // Stands in for the view model: set when the add fails, wiped by the library
+        // reload that follows it.
+        var liveError: String? = nil
+        let succeeded = await state.execute(
+            targets: [hd],
+            itemName: "Arrival",
+            failureReason: { liveError }
+        ) { _, _, _ in
+            liveError = "Server error (500): Sonarr rejected the add."
+            return false
+        }
+        liveError = nil
+
+        #expect(succeeded == false)
+        #expect(state.failureMessage?.contains(hd.qualifiedLabel) == true)
+        #expect(state.failureMessage?.contains("Server error (500): Sonarr rejected the add.") == true)
+        #expect(state.failureMessage?.contains("retry") == true)
+    }
+
+    /// With nothing to add, the message is the summary alone rather than a stray
+    /// double space where a reason would have gone.
+    @Test("A failed add with no reason available reads normally")
+    func failureMessageWithoutAReason() async {
+        let hd = ArrInstanceRef(id: UUID(), serviceType: .sonarr, displayName: "Sonarr", tier: .hd)
+        let state = ArrAddDestinationState(serviceType: .sonarr)
+        state.profileByInstance = [hd.id: 1]
+        state.rootFolderByInstance = [hd.id: "/tv"]
+
+        _ = await state.execute(targets: [hd]) { _, _, _ in false }
+        #expect(state.failureMessage?.contains("  ") == false)
+    }
+
     // MARK: - Capacity
 
     @Test("Sonarr and Radarr are tiered; Prowlarr and Bazarr are not")

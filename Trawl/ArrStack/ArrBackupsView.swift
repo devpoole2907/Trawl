@@ -1,5 +1,6 @@
 import CoreTransferable
 import SwiftUI
+import SwiftData
 import UniformTypeIdentifiers
 
 /// A selectable backup provider in the segment bar. The Arr services and Jellyfin
@@ -50,6 +51,7 @@ private enum BackupSource: Hashable, Sendable, Identifiable {
 struct ArrBackupsView: View {
     @Environment(ArrServiceManager.self) private var serviceManager
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
+    @Query private var jellyfinProfiles: [JellyfinServiceProfile]
 
     /// Nil until the first appear picks the first configured server; there is no
     /// sensible default before the manager knows what exists.
@@ -186,13 +188,7 @@ struct ArrBackupsView: View {
     var body: some View {
         Group {
             if availableSources.isEmpty {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "externaldrive.fill")
-                } description: {
-                    Text("Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Add a Sonarr, Radarr, Prowlarr, Bazarr, or Jellyfin server in Settings to manage backups.", systemImage: "externaldrive.fill")
                 .scrollableUnavailableState()
             } else {
                 selectedContent
@@ -440,21 +436,27 @@ struct ArrBackupsView: View {
     @ViewBuilder
     private func backupList(state: BackupViewState, instance: ArrInstanceRef) -> some View {
         List {
-            if let error = state.error, state.backups.isEmpty {
-                Section {
-                    Text(error).font(.footnote).foregroundStyle(.secondary)
-                }
+            if let error = state.error {
+                ServiceErrorView(
+                    title: "Backups Unavailable",
+                    message: error,
+                    identity: instance.serviceType.serviceIdentity,
+                    hasContent: !state.backups.isEmpty,
+                    onRetry: { await loadService(instance) }
+                )
             }
 
             if state.isLoading && state.backups.isEmpty {
                 Section { ProgressView().frame(maxWidth: .infinity) }
             } else if state.backups.isEmpty {
-                ContentUnavailableView(
-                    "No Backups",
-                    systemImage: "externaldrive",
-                    description: Text("No backups found for \(serviceManager.scopeLabel(for: instance)).")
-                )
-                .listRowBackground(Color.clear)
+                if state.error == nil {
+                    ContentUnavailableView(
+                        "No Backups",
+                        systemImage: "externaldrive",
+                        description: Text("No backups found for \(serviceManager.scopeLabel(for: instance)).")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(sortedBackups(state.backups), id: \.id) { backup in
@@ -537,10 +539,11 @@ struct ArrBackupsView: View {
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !jellyfinServiceManager.isConnected {
-            ContentUnavailableView(
-                "Jellyfin Unreachable",
-                systemImage: "exclamationmark.triangle",
-                description: Text(jellyfinServiceManager.connectionError ?? "Jellyfin is configured but currently unreachable.")
+            ServiceErrorView(
+                title: "Jellyfin Unreachable",
+                message: jellyfinServiceManager.connectionError ?? "Jellyfin is configured but currently unreachable.",
+                identity: .jellyfin,
+                onRetry: { await jellyfinServiceManager.initialize(from: jellyfinProfiles) }
             )
         } else {
             jellyfinBackupList()
@@ -550,21 +553,27 @@ struct ArrBackupsView: View {
     @ViewBuilder
     private func jellyfinBackupList() -> some View {
         List {
-            if let error = jellyfinState.error, jellyfinState.backups.isEmpty {
-                Section {
-                    Text(error).font(.footnote).foregroundStyle(.secondary)
-                }
+            if let error = jellyfinState.error {
+                ServiceErrorView(
+                    title: "Backups Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !jellyfinState.backups.isEmpty,
+                    onRetry: { await loadJellyfin() }
+                )
             }
 
             if jellyfinState.isLoading && jellyfinState.backups.isEmpty {
                 Section { ProgressView().frame(maxWidth: .infinity) }
             } else if jellyfinState.backups.isEmpty {
-                ContentUnavailableView(
-                    "No Backups",
-                    systemImage: "externaldrive",
-                    description: Text("No backups found for Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if jellyfinState.error == nil {
+                    ContentUnavailableView(
+                        "No Backups",
+                        systemImage: "externaldrive",
+                        description: Text("No backups found for Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(sortedJellyfinBackups(jellyfinState.backups)) { backup in

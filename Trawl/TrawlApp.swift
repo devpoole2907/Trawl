@@ -139,6 +139,20 @@ struct TrawlApp: App {
                 }
         }
         .modelContainer(modelContainer)
+        #if os(macOS)
+        // Settings is a sidebar row like everything else, but a Mac user looks in the
+        // menu bar first - and ⌘, is the shortcut they will try without being told.
+        // `openSettings` selects the row rather than opening a second window, so
+        // there is only ever one Settings on screen.
+        .commands {
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") {
+                    NotificationCenter.default.post(name: .trawlOpenSettings, object: nil)
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+        }
+        #endif
     }
 
     #if DEBUG

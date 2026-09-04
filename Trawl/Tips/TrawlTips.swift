@@ -77,6 +77,14 @@ enum TrawlTips {
         #if DEBUG
         guard ProcessInfo.processInfo.arguments.contains("-TrawlUITestInMemoryStore") else { return }
 
+        // The tip datastore outlives the app install, so a tip shown - or permanently
+        // invalidated - by one run stays that way for every run after it, on that
+        // simulator, forever. That is not a hypothetical: an unrelated journey routing
+        // to Torrents once burned the queue-switch tip, and the test that asserts it
+        // appears could never pass again. `-TrawlUITestInMemoryStore` already means
+        // "this launch keeps nothing", and the tips are the last thing that did.
+        try? Tips.resetDatastore()
+
         Tips.hideAllTipsForTesting()
 
         guard let requested = ProcessInfo.processInfo.environment["TRAWL_UITEST_SHOW_TIP"],

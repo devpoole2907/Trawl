@@ -84,30 +84,33 @@ struct ArrLibraryListView<Item: Identifiable, Row: View>: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error, items.isEmpty {
-            ContentUnavailableView {
-                Label("Failed to Load", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
-            } actions: {
-                if let retry {
-                    Button("Retry") { Task { await retry() } }
-                }
-            }
+            ServiceErrorView(title: "Failed to Load", message: error, systemImage: emptyIcon, onRetry: retry)
         } else {
             // Keep the List mounted even when filtering yields zero results so the
             // segment-bar search field doesn't lose keyboard focus the moment the
             // results drop to empty. Swapping the List out for a ContentUnavailableView
             // tears down the scroll container and resigns first responder.
-            ZStack {
-                listContent
-                    .opacity(items.isEmpty ? 0 : 1)
-                    .allowsHitTesting(!items.isEmpty)
+            VStack(spacing: 0) {
+                if let error {
+                    ServiceErrorView(
+                        title: "Failed to Refresh",
+                        message: error,
+                        hasContent: true,
+                        systemImage: emptyIcon,
+                        onRetry: retry
+                    )
+                }
+                ZStack {
+                    listContent
+                        .opacity(items.isEmpty ? 0 : 1)
+                        .allowsHitTesting(!items.isEmpty)
 
-                if items.isEmpty {
-                    ContentUnavailableView {
-                        Label("No \(nounPlural)", systemImage: emptyIcon)
-                    } description: {
-                        Text("No \(nounPlural.lowercased()) match the current filter.")
+                    if items.isEmpty {
+                        ContentUnavailableView {
+                            Label("No \(nounPlural)", systemImage: emptyIcon)
+                        } description: {
+                            Text("No \(nounPlural.lowercased()) match the current filter.")
+                        }
                     }
                 }
             }

@@ -16,13 +16,7 @@ struct ArrDiskSpaceView: View {
     var body: some View {
         Group {
             if !hasConfiguredService {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "server.rack")
-                } description: {
-                    Text("Connect Sonarr or Radarr to inspect storage usage.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr or Radarr to inspect storage usage.", systemImage: "server.rack")
                 .scrollableUnavailableState()
             } else if !hasConnectedService {
                 ArrServicesConnectionStatusView(

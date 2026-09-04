@@ -73,10 +73,11 @@ struct ProwlarrApplicationsListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoadingApplications, viewModel.supportedApplications.isEmpty {
-                ContentUnavailableView(
-                    "Could Not Load Apps",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage)
+                ServiceErrorView(
+                    title: "Could Not Load Apps",
+                    message: errorMessage,
+                    identity: .prowlarr,
+                    onRetry: { await viewModel.loadApplications() }
                 )
                 .listRowBackground(Color.clear)
             } else if viewModel.supportedApplications.isEmpty {

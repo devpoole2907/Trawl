@@ -67,7 +67,7 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
         // tap even when it hits the wrong row, so without this the failure surfaces
         // several assertions later pointing at the wrong thing.
         XCTAssertTrue(
-            openDestination(.automation, in: app),
+            openDestination(.downloadClients, in: app),
             "The Integrations & Automation hub should be reachable."
         )
 

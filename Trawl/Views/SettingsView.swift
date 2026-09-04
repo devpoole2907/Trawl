@@ -15,6 +15,9 @@ struct SettingsView: View {
     @Query private var arrProfiles: [ArrServiceProfile]
     @State private var viewModel = SettingsViewModel()
     @AppStorage("startupTab") private var startupTab: String = RootTab.downloads.displayName
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
     @AppStorage("themeOverride") private var themeOverride: ThemeOverride = .system
     @AppStorage("hapticsEnabled") private var hapticsEnabled = true
     let showsDoneButton: Bool
@@ -279,11 +282,20 @@ struct SettingsView: View {
             #endif
 
             Section("Appearance") {
-                Picker("Startup Tab", selection: $startupTab) {
-                    ForEach(RootTab.startupChoices, id: \.self) { tab in
-                        Text(tab.displayName).tag(tab.displayName)
+                // Only where there are tabs to start on. The sidebar chrome - iPad at
+                // regular width, and every Mac window - has no tab bar at all, so the
+                // setting was offering a choice that could not be honoured. An iPad
+                // in a narrow multitasking slot is compact and does get the tab bar,
+                // which is why this follows the size class rather than the idiom.
+                #if os(iOS)
+                if hSizeClass == .compact {
+                    Picker("Startup Tab", selection: $startupTab) {
+                        ForEach(RootTab.startupChoices, id: \.self) { tab in
+                            Text(tab.displayName).tag(tab.displayName)
+                        }
                     }
                 }
+                #endif
 
                 Picker("Theme", selection: $themeOverride) {
                     ForEach(ThemeOverride.allCases, id: \.self) { theme in
@@ -970,6 +982,16 @@ private struct NavigateToSettingsKey: EnvironmentKey {
     static let defaultValue: () -> Void = {}
 }
 
+/// Opens a library title in the detail column beside the list.
+///
+/// Nil on the tab chrome, which has no detail column - there a caller pushes the
+/// title onto its own stack instead, which is the right move when the screen you are
+/// on fills the window. On iPad the two panes are side by side, and pushing a *third*
+/// title on top of the second one buries the list the user is picking from.
+private struct SelectLibraryTitleKey: EnvironmentKey {
+    static let defaultValue: ((ArrMergeKey) -> Void)? = nil
+}
+
 extension EnvironmentValues {
     var navigateToSeriesTab: () -> Void {
         get { self[NavigateToSeriesTabKey.self] }
@@ -1034,6 +1056,11 @@ extension EnvironmentValues {
     var navigateToSettings: () -> Void {
         get { self[NavigateToSettingsKey.self] }
         set { self[NavigateToSettingsKey.self] = newValue }
+    }
+
+    var selectLibraryTitle: ((ArrMergeKey) -> Void)? {
+        get { self[SelectLibraryTitleKey.self] }
+        set { self[SelectLibraryTitleKey.self] = newValue }
     }
 }
 
@@ -1122,19 +1149,25 @@ extension QBittorrentSettingsView {
 
 
 extension View {
-    /// Caps a settings form at a readable width and centres it.
+    /// Caps a settings form at a readable width and centres it - on macOS only.
     ///
-    /// This constraint already existed - behind `#if os(macOS)`, because a Mac window
-    /// was the only place wide enough to need it. iPad has that width now: at
-    /// ~1100pt a row's label sits on the left edge and its toggle on the right, with
-    /// several hundred points of nothing between them, and the eye has to travel the
-    /// whole way to see which control belongs to which setting.
+    /// A Mac window is a window: the form is the whole of it, and centring a 720pt
+    /// column in it reads as a document. A split-view detail column is not, and the
+    /// same treatment there looked wrong in a way the width alone does not explain:
+    /// the navigation bar, the background and the scroll view all span the column
+    /// while the rows sit in a narrow strip in the middle, so the screen reads as an
+    /// iPhone view cropped into a wide pane with its own Back button stranded to the
+    /// left of it.
     ///
-    /// Applied unconditionally rather than gated on size class, because `maxWidth` is
-    /// a cap: on a 390pt iPhone the form is already narrower than 720 and the
-    /// modifier does nothing.
+    /// iPadOS's own Settings runs its grouped lists at the full width of the pane.
+    /// The long gap between a label and its control is the cost of that, and it is a
+    /// smaller cost than looking broken.
     func readableFormWidth(_ width: CGFloat = 720) -> some View {
+        #if os(macOS)
         frame(maxWidth: width, maxHeight: .infinity, alignment: .top)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        #else
+        self
+        #endif
     }
 }

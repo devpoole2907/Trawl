@@ -174,6 +174,17 @@ final class NotificationSettingsUIFixtureServer: @unchecked Sendable {
             return .json(#"[{"id":1,"path":"/tv"}]"#)
         case ("GET", "/api/v3/tag"):
             return .json(#"[{"id":27,"label":"Release Alerts"}]"#)
+        case ("GET", "/api/v3/downloadclient"):
+            // The Notifications sheet now performs the same live configuration
+            // audit as System. Keep this fixture healthy and hermetic while that
+            // audit verifies Sonarr has at least one enabled client.
+            return .json(#"[{"id":5,"enable":true,"name":"Fixture Downloader","implementation":"Sabnzbd","fields":[]}]"#)
+        case ("GET", "/api/v3/indexer"):
+            return .json(#"[{"id":8,"enable":true,"name":"Fixture Indexer","implementation":"Newznab","fields":[]}]"#)
+        case ("GET", "/api/v3/remotepathmapping"):
+            // Also the audit's. An empty table is a real answer: this fixture's
+            // download client has no host, so nothing about it is remote.
+            return .json("[]")
 
         // Normal app startup and the Notifications sheet prefetch these Sonarr
         // surfaces. They are intentionally empty but correctly shaped so this

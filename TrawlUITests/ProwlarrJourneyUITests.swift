@@ -76,7 +76,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
         fixtureServer = server
         let app = launchApp(server: server)
 
-        XCTAssertTrue(openDestination(.automation, in: app), "Integrations & Automation should be reachable.")
+        XCTAssertTrue(openDestination(.linkedApplications, in: app), "Linked Applications should be reachable.")
 
         let linkedApplications = button(containing: "Linked Applications", in: app)
         XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
@@ -173,7 +173,7 @@ final class ProwlarrJourneyUITests: XCTestCase {
 
     @MainActor
     private func openIndexers(in app: XCUIApplication) {
-        XCTAssertTrue(openDestination(.automation, in: app), "Integrations & Automation should be reachable.")
+        XCTAssertTrue(openDestination(.indexers, in: app), "Indexers should be reachable.")
 
         let indexers = button(containing: "Indexers", in: app)
         XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")

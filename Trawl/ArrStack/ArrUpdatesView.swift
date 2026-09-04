@@ -51,13 +51,7 @@ struct ArrUpdatesView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "arrow.down.app")
-                } description: {
-                    Text("Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Add Sonarr, Radarr, or Prowlarr in Settings to check for updates.", systemImage: "arrow.down.app")
                 .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
@@ -143,10 +137,11 @@ struct ArrUpdatesView: View {
                 .controlSize(.large)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error = data?.error {
-            ContentUnavailableView(
-                "Could Not Load Updates",
-                systemImage: "exclamationmark.triangle",
-                description: Text(error)
+            ServiceErrorView(
+                title: "Updates Unavailable",
+                message: error,
+                identity: instance.serviceType.serviceIdentity,
+                onRetry: { await viewModel.load(instance: instance, serviceManager: serviceManager) }
             )
         }
     }

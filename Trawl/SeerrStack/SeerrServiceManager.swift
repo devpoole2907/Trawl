@@ -12,6 +12,14 @@ final class SeerrServiceManager {
     private(set) var connectionError: String?
     private(set) var cachedUserCount: Int?
 
+    /// Whether a profile exists at all, apart from whether it is reachable.
+    ///
+    /// `activeProfileID` is cleared on every failed connect, so it cannot tell a
+    /// service that was never set up from one that is set up and broken. The
+    /// configuration audit needs that difference: for the first, silence is correct;
+    /// for the second, silence is the bug.
+    private(set) var hasConfiguredProfile = false
+
     func initialize(from profiles: [SeerrServiceProfile]) async {
         guard let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first else {
             disconnect()
@@ -22,6 +30,7 @@ final class SeerrServiceManager {
     }
 
     func connectService(_ profile: SeerrServiceProfile) async {
+        hasConfiguredProfile = true
         isConnecting = true
         connectionError = nil
 
@@ -67,6 +76,7 @@ final class SeerrServiceManager {
     }
 
     func disconnect() {
+        hasConfiguredProfile = false
         activeClient = nil
         activeProfileID = nil
         isConnected = false

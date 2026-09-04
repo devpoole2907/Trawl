@@ -166,7 +166,11 @@ final class ArrSetupEditJourneyUITests: XCTestCase {
         // MARK: The rejection must be visible, and the editor must stay open
 
         XCTAssertTrue(
-            app.staticTexts["Invalid API key. Check your *arr service settings."].waitForExistence(timeout: 20),
+            // `waitForExistence(in:)`: the error section is the last thing in the form,
+            // and on iPad the sheet is a form sheet with far less height than an
+            // iPhone's - so the row is below the fold and, SwiftUI rendering `Form`
+            // rows lazily, absent from the tree entirely rather than merely off screen.
+            app.staticTexts["Invalid API key. Check your *arr service settings."].waitForExistence(in: app, timeout: 20),
             "The exact ArrError.invalidAPIKey description should be shown in the editor's ValidationErrorSection - regression: the 401 was swallowed, mapped to a different case, or replaced with a generic 'connection failed' message."
         )
 

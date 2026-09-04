@@ -5,6 +5,7 @@ struct QBittorrentRSSView: View {
     @Environment(AppServices.self) private var appServices
 
     @State private var rssItems: [String: JSONValue] = [:]
+    @State private var loadError: String?
     @State private var isLoading = false
     @State private var actionErrorAlert: ErrorAlertItem?
     
@@ -20,17 +21,28 @@ struct QBittorrentRSSView: View {
 
     var body: some View {
         List {
+            if let loadError {
+                ServiceErrorView(
+                    title: "RSS Feeds Unavailable",
+                    message: loadError,
+                    identity: .qbittorrent,
+                    hasContent: !rssItems.isEmpty,
+                    onRetry: { await loadRSSItems() }
+                )
+            }
             if isLoading && rssItems.isEmpty {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .center)
                     .listRowBackground(Color.clear)
             } else if rssItems.isEmpty {
-                ContentUnavailableView(
-                    "No RSS Feeds",
-                    systemImage: "dot.radiowaves.left.and.right",
-                    description: Text("Add RSS feed URLs to automatically monitor trackers.")
-                )
-                .listRowBackground(Color.clear)
+                if loadError == nil {
+                    ContentUnavailableView(
+                        "No RSS Feeds",
+                        systemImage: "dot.radiowaves.left.and.right",
+                        description: Text("Add RSS feed URLs to automatically monitor trackers.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section("Feeds & Folders") {
                     ForEach(rssItemKeys, id: \.self) { key in
@@ -260,11 +272,12 @@ struct QBittorrentRSSView: View {
     }
     
     private func loadRSSItems() async {
+        loadError = nil
         isLoading = true
         do {
             rssItems = try await appServices.apiClient.getRSSItems(withData: false)
         } catch {
-            actionErrorAlert = ErrorAlertItem(title: "Failed to Load RSS", message: error.localizedDescription)
+            loadError = error.localizedDescription
         }
         isLoading = false
     }

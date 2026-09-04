@@ -225,18 +225,14 @@ final class ServiceSetupEditJourneyUITests: XCTestCase {
                 element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 return true
             }
-            let scroller = app.collectionViews.firstMatch.exists
-                ? app.collectionViews.firstMatch
-                : app.scrollViews.firstMatch
-            if scroller.exists {
-                // SwiftUI may restore a destination Form at its previous bottom
-                // offset. Move toward an off-screen element instead of always
-                // pushing content farther upward.
-                if element.frame.midY < app.frame.midY {
-                    scroller.swipeDown()
-                } else {
-                    scroller.swipeUp()
-                }
+            let scroller = app.scroller(for: element)
+            // Direction follows the target: SwiftUI may restore a Form at its
+            // previous bottom offset, so always pushing upward can move an
+            // already-passed control further away.
+            if element.frame.midY < app.frame.midY {
+                scroller.swipeDown()
+            } else {
+                scroller.swipeUp()
             }
             _ = element.waitForExistence(timeout: 0.25)
         }

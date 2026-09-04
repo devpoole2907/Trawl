@@ -1,23 +1,5 @@
 import SwiftUI
 
-nonisolated enum RemotePathEntryKind: String, Codable, Sendable {
-    case directory
-    case file
-    case drive
-    case networkShare
-    case parent
-    case unknown
-}
-
-nonisolated struct RemotePathEntry: Identifiable, Hashable, Sendable {
-    let name: String
-    let path: String
-    let kind: RemotePathEntryKind
-    let isDirectory: Bool
-
-    var id: String { "\(kind.rawValue)|\(path)|\(name)" }
-}
-
 nonisolated struct RemotePathBrowserSource: Sendable {
     let serviceName: String
     let loadRoots: @Sendable () async throws -> [RemotePathEntry]
@@ -67,10 +49,11 @@ struct RemotePathBrowserView: View {
                         Spacer()
                     }
                 } else if let errorMessage {
-                    ContentUnavailableView(
-                        "Cannot Browse Folder",
-                        systemImage: "exclamationmark.triangle",
-                        description: Text(errorMessage)
+                    ServiceErrorView(
+                        title: "Cannot Browse Folder",
+                        message: errorMessage,
+                        systemImage: "folder",
+                        onRetry: { await loadEntries() }
                     )
                 } else if entries.isEmpty {
                     ContentUnavailableView(

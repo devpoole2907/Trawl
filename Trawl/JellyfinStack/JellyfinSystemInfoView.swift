@@ -17,11 +17,13 @@ struct JellyfinSystemInfoView: View {
     var body: some View {
         List {
             if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "System Information Unavailable",
+                    message: errorMessage,
+                    identity: .jellyfin,
+                    hasContent: systemInfo != nil,
+                    onRetry: { await loadSystemInfo() }
+                )
             }
 
             if let systemInfo {

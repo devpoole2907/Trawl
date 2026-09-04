@@ -7,23 +7,91 @@ struct SeerrDashboardView: View {
     @State private var deleteTarget: SeerrRequestDisplayItem?
     @State private var requestSearchText = ""
     @State private var isSearchExpanded = false
+    /// Which request the detail pane is showing, at regular width. Nil on iPhone,
+    /// where the row pushes instead.
+    @State private var selectedRequestID: Int?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
 
     var body: some View {
         Group {
             if let viewModel {
-                requestList(viewModel: viewModel)
+                // Two panes at regular width. A request is a thing you *act on* -
+                // approve, decline, delete - and doing that from a screen that
+                // replaced the list means going back to find the next one. Side by
+                // side, the queue stays in front of you while you work through it.
+                TrawlListDetailPanes {
+                    requestList(viewModel: viewModel)
+                } detail: {
+                    selectedRequestDetail(viewModel: viewModel)
+                }
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Requests")
+        // An approved request that never becomes a download is almost always Seerr
+        // having no Sonarr or Radarr to hand it to, and this is where it is noticed.
+        .configurationAttention(.requests)
         .task {
             if viewModel == nil, let client = seerrServiceManager.activeClient {
                 viewModel = SeerrRequestManagementViewModel(apiClient: client)
             }
             await viewModel?.loadIfNeeded()
         }
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func requestRow(
+        _ item: SeerrRequestDisplayItem,
+        viewModel: SeerrRequestManagementViewModel
+    ) -> some View {
+        if showsDetailPane {
+            SeerrRequestRow(item: item)
+                .tag(item.id)
+        } else {
+            NavigationLink {
+                requestDetail(item, viewModel: viewModel)
+            } label: {
+                SeerrRequestRow(item: item)
+            }
+        }
+    }
+
+    /// The right-hand pane: whichever request is selected, or an invitation to pick
+    /// one. Looked up by id rather than held as a value so an approve or a decline
+    /// repaints it - the row's own model is replaced when the list reloads, and a
+    /// captured copy would keep showing the state it had when it was tapped.
+    @ViewBuilder
+    private func selectedRequestDetail(viewModel: SeerrRequestManagementViewModel) -> some View {
+        if let id = selectedRequestID,
+           let item = (viewModel.requests + viewModel.searchRequests).first(where: { $0.id == id }) {
+            requestDetail(item, viewModel: viewModel)
+        } else {
+            listDetailPlaceholder("Select a Request", systemImage: "square.and.arrow.down.on.square")
+        }
+    }
+
+    private func requestDetail(
+        _ item: SeerrRequestDisplayItem,
+        viewModel: SeerrRequestManagementViewModel
+    ) -> some View {
+        SeerrRequestDetailView(
+            request: item.request,
+            onApprove: { Task { await viewModel.approve(item) } },
+            onDecline: { Task { await viewModel.decline(item) } },
+            onDelete: { Task { await viewModel.delete(item) } }
+        )
     }
 
     @ViewBuilder
@@ -36,17 +104,19 @@ struct SeerrDashboardView: View {
                     || item.request.requestedBy?.displayName.localizedCaseInsensitiveContains(query) == true
             }
 
-        List {
+        List(selection: $selectedRequestID) {
             if !isSearchExpanded, let requestCount = viewModel.requestCount {
                 seerrOverviewSection(requestCount)
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Section("Unavailable") {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Requests Unavailable",
+                    message: errorMessage,
+                    identity: .seerr,
+                    hasContent: !viewModel.requests.isEmpty,
+                    onRetry: { await viewModel.loadRequests() }
+                )
             }
 
             if viewModel.isLoading && viewModel.requests.isEmpty {
@@ -54,23 +124,16 @@ struct SeerrDashboardView: View {
             } else if !query.isEmpty && viewModel.isLoadingSearch && viewModel.searchRequests.isEmpty {
                 loadingRows
             } else if query.isEmpty && viewModel.requests.isEmpty {
-                emptyState
+                if viewModel.errorMessage == nil { emptyState }
             } else if filteredRequests.isEmpty {
-                ContentUnavailableView.search(text: query)
-                    .listRowBackground(Color.clear)
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView.search(text: query)
+                        .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(filteredRequests) { item in
-                        NavigationLink {
-                            SeerrRequestDetailView(
-                                request: item.request,
-                                onApprove: { Task { await viewModel.approve(item) } },
-                                onDecline: { Task { await viewModel.decline(item) } },
-                                onDelete: { Task { await viewModel.delete(item) } }
-                            )
-                        } label: {
-                            SeerrRequestRow(item: item)
-                        }
+                        requestRow(item, viewModel: viewModel)
                             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                                 if item.request.requestStatus == .pending {
                                     Button {
@@ -141,6 +204,11 @@ struct SeerrDashboardView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
+        // On the *list*, never on the panes or a wrapper around them: the detail pane
+        // holds a `NavigationStack` of its own, and a `navigationTitle` applied to a
+        // view that contains a navigation container attaches to that container rather
+        // than to the column's bar.
+        .navigationTitle("Requests")
         // Applied before .safeAreaInset so the RefreshAction stays scoped to the
         // list. Attached after the inset it also propagates into the segment bar,
         // which then becomes pull-to-refreshable itself.
@@ -159,6 +227,9 @@ struct SeerrDashboardView: View {
                 searchPlacement: .leading,
                 alignment: .leading
             )
+            // The shared bar leaves its scroll viewport unclipped for glass effects.
+            // Contain this bar within the request pane, away from the detail view.
+            .clipped()
             .transition(.opacity.combined(with: .move(edge: .top)))
         }
         .onChange(of: requestSearchText) { _, newValue in

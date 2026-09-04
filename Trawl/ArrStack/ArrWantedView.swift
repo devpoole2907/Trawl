@@ -118,13 +118,7 @@ struct ArrWantedView: View {
     var body: some View {
         Group {
             if !hasConfiguredService {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "server.rack")
-                } description: {
-                    Text("Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Connect Sonarr, Radarr, or Bazarr to view monitored items with missing files or subtitles.", systemImage: "server.rack")
                 .scrollableUnavailableState()
             } else if !hasConnectedService {
                 ArrServicesConnectionStatusView(

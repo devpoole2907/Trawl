@@ -372,18 +372,12 @@ struct LibraryImportScanView: View {
             } else if viewModel.hasPerformedInitialScan {
                 countChipsRow
             } else if let errorMessage = viewModel.scanError {
-                ContentUnavailableView {
-                    Label(
-                        viewModel.scanFolderMissing ? "No Files to Import" : "Scan Failed",
-                        systemImage: viewModel.scanFolderMissing ? "folder.badge.questionmark" : "exclamationmark.triangle"
-                    )
-                } description: {
-                    Text(errorMessage)
-                } actions: {
-                    Button("Retry") { Task { await viewModel.loadFiles() } }
-                        .buttonStyle(.bordered)
-                }
-                .listRowBackground(Color.clear)
+                ServiceErrorView(
+                    title: viewModel.scanFolderMissing ? "No Files to Import" : "Scan Failed",
+                    message: errorMessage,
+                    systemImage: viewModel.scanFolderMissing ? "folder.badge.questionmark" : "exclamationmark.triangle",
+                    onRetry: { await viewModel.loadFiles() }
+                )
             }
 
             if viewModel.isImporting {

@@ -53,7 +53,7 @@ struct UnifiedUserListView: View {
                     ProgressView()
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
-            } else if viewModel.users.isEmpty && viewModel.jellyfinLoadError == nil {
+            } else if viewModel.users.isEmpty && viewModel.jellyfinLoadError == nil && viewModel.seerrLoadError == nil {
                 ContentUnavailableView(
                     "No Users",
                     systemImage: "person.2.slash",
@@ -62,19 +62,23 @@ struct UnifiedUserListView: View {
                 .listRowBackground(Color.clear)
             } else {
                 if let error = viewModel.jellyfinLoadError {
-                    Section("Jellyfin") {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    ServiceErrorView(
+                        title: "Jellyfin Users Unavailable",
+                        message: error,
+                        identity: .jellyfin,
+                        hasContent: !viewModel.users.isEmpty,
+                        onRetry: { await viewModel.load() }
+                    )
                 }
 
                 if let error = viewModel.seerrLoadError {
-                    Section("Seerr") {
-                        Label(error, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                    ServiceErrorView(
+                        title: "Seerr Users Unavailable",
+                        message: error,
+                        identity: .seerr,
+                        hasContent: !viewModel.users.isEmpty,
+                        onRetry: { await viewModel.load() }
+                    )
                 }
 
                 if !viewModel.users.isEmpty {

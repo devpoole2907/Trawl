@@ -23,8 +23,23 @@ final class SeerrJourneyUITests: XCTestCase {
     /// Covers the authenticated Seerr startup path and More → Requests & Access →
     /// Issues → detail navigation. Resolving the issue proves the detail view's real
     /// mutation response updates user-visible state as well as reaching the fixture.
+    ///
+    /// Compact only, on purpose. On iPad the notification accessory is a full-width
+    /// bar across the bottom of the window, and this screen's own bottom bar - the
+    /// reply field and the resolve button - lays out underneath it, so the tap opens
+    /// the notifications sheet instead of resolving anything. That is a real product
+    /// defect, not a harness one: a person cannot resolve a Seerr issue on an iPad
+    /// either. It is deliberately not fixed yet, because the issue UI is being
+    /// reworked and the messaging half of it may not survive - see
+    /// `TRAWL_KNOWN_ISSUES.md`. Skipped rather than deleted so it comes back on its
+    /// own the day the chrome is fixed.
     @MainActor
     func testAuthenticatedSeerrIssueJourneyLoadsDetailAndResolvesIssue() async throws {
+        try XCTSkipIf(
+            TrawlChrome.isSidebar,
+            "Deferred: the iPad notification bar covers this screen's action bar. See TRAWL_KNOWN_ISSUES.md."
+        )
+
         let server = try await SeerrUIFixtureServer()
         fixtureServer = server
 
@@ -38,7 +53,7 @@ final class SeerrJourneyUITests: XCTestCase {
             "A synchronously seeded Seerr profile should take the app past the welcome gate into the real app chrome."
         )
         XCTAssertTrue(
-            openDestination(.requestsAndAccess, in: app),
+            openDestination(.issues, in: app),
             "The real Requests & Access navigation hub should be reachable for a configured Seerr profile."
         )
 

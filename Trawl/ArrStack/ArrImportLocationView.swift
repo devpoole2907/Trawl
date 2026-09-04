@@ -124,15 +124,13 @@ struct ArrImportLocationView: View {
     }
 
     private var emptyState: some View {
-        ContentUnavailableView {
-            Label("No Services Configured", systemImage: "tray.and.arrow.down")
-        } description: {
-            Text(kind == .manual
-                 ? "Add a Sonarr or Radarr server in Settings to import files into your library."
-                 : "Add a Sonarr or Radarr server in Settings to import an existing library.")
-        } actions: {
-            MoreSettingsNavigationLink()
-        }
+        ServiceSetupView(
+            title: "No Services Configured",
+            message: kind == .manual
+                ? "Add a Sonarr or Radarr server in Settings to import files into your library."
+                : "Add a Sonarr or Radarr server in Settings to import an existing library.",
+            systemImage: "tray.and.arrow.down"
+        )
         .scrollableUnavailableState()
     }
 

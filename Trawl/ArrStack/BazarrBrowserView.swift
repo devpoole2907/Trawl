@@ -62,11 +62,7 @@ struct BazarrBrowserView: View {
                         message: viewModel.connectionError ?? "Checking your configured Bazarr server."
                     )
                 } else {
-                    ContentUnavailableView {
-                        Label("Bazarr Not Set Up", systemImage: "captions.bubble")
-                    } description: {
-                        Text("Add a Bazarr server in Settings to browse subtitles.")
-                    }
+                    ServiceSetupView(title: "Bazarr Not Set Up", message: "Add a Bazarr server in Settings to browse subtitles.", systemImage: "captions.bubble")
                     .scrollableUnavailableState()
                     .moreDestinationBackground(.subtitleManagement)
                 }
@@ -74,6 +70,10 @@ struct BazarrBrowserView: View {
                 contentView
             }
         }
+        // Bazarr fetches subtitles only for libraries it is linked to, so an
+        // unlinked or wrongly pointed app looks exactly like a library with no
+        // subtitles available.
+        .configurationAttention(.subtitles)
         .navigationTitle("Subtitles")
         .navigationSubtitle("Bazarr")
         #if os(iOS)
@@ -105,7 +105,7 @@ struct BazarrBrowserView: View {
 
     @ViewBuilder
     private var seriesList: some View {
-        let effectiveError: String? = viewModel.series.isEmpty ? viewModel.seriesError : nil
+        let effectiveError: String? = viewModel.seriesError
         let seriesItems: [BazarrSeries] = viewModel.filteredSeries
         ArrLoadingErrorEmptyView(
             isLoading: viewModel.isLoadingSeries,
@@ -174,7 +174,7 @@ struct BazarrBrowserView: View {
 
     @ViewBuilder
     private var moviesList: some View {
-        let effectiveError: String? = viewModel.movies.isEmpty ? viewModel.moviesError : nil
+        let effectiveError: String? = viewModel.moviesError
         ArrLoadingErrorEmptyView(
             isLoading: viewModel.isLoadingMovies,
             error: effectiveError,

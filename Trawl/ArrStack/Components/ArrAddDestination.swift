@@ -77,12 +77,21 @@ final class ArrAddDestinationState {
     /// Runs every requested add and succeeds only when every server succeeds.
     /// Successful destinations are remembered immediately, but a partial failure
     /// remains on screen so the user can retry the servers that did not accept it.
+    /// - Parameter failureReason: Read immediately after a failed `operation`, to
+    ///   pick up the message the caller's view model caught. It has to be read *then*
+    ///   rather than after the loop: the Arr view models keep their last error in
+    ///   `ArrLibraryViewModel.error`, which is shared library state that the next
+    ///   library reload clears - so a message read a moment later is frequently gone,
+    ///   and the sheet says only that the add failed while the server's own words are
+    ///   thrown away.
     func execute(
         targets: [ArrInstanceRef],
         itemName: String? = nil,
+        failureReason: () -> String? = { nil },
         operation: (ArrInstanceRef, Int, String) async -> Bool
     ) async -> Bool {
         var failed: [ArrInstanceRef] = []
+        var reasons: [String] = []
 
         for target in targets {
             guard let profileID = profileByInstance[target.id],
@@ -95,11 +104,16 @@ final class ArrAddDestinationState {
                 ArrAddDestinationMemory.rememberRootFolder(folderPath, on: target.id)
             } else {
                 failed.append(target)
+                if let reason = failureReason()?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !reason.isEmpty, !reasons.contains(reason) {
+                    reasons.append(reason)
+                }
             }
         }
 
         guard failed.isEmpty else {
-            failureMessage = "Could not add to \(failed.map(\.qualifiedLabel).joined(separator: ", ")). You can retry without repeating successful destinations."
+            let cause = reasons.isEmpty ? "" : " \(reasons.joined(separator: " "))"
+            failureMessage = "Could not add to \(failed.map(\.qualifiedLabel).joined(separator: ", ")).\(cause) You can retry without repeating successful destinations."
             destination = failed.count == 1 ? .instance(failed[0].id) : .everyCandidate
             if itemName != nil, let failureMessage {
                 ArrOperationFeedback.showFailure(title: "Add Failed", message: failureMessage)

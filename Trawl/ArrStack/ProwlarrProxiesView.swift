@@ -72,10 +72,11 @@ struct ProwlarrProxiesListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoadingProxies, viewModel.proxies.isEmpty {
-                ContentUnavailableView(
-                    "Could Not Load Proxies",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage)
+                ServiceErrorView(
+                    title: "Could Not Load Proxies",
+                    message: errorMessage,
+                    identity: .prowlarr,
+                    onRetry: { await viewModel.loadProxies() }
                 )
                 .listRowBackground(Color.clear)
             } else if viewModel.proxies.isEmpty {

@@ -7,6 +7,14 @@ import UIKit
 import AppKit
 #endif
 
+extension Notification.Name {
+    /// Posted by the Mac menu bar's Settings command. A notification rather than a
+    /// binding because the command lives on the `Scene` and the selection lives in
+    /// `ContentView`, and threading one into the other would mean hoisting the app's
+    /// whole navigation state up a level for one menu item.
+    static let trawlOpenSettings = Notification.Name("com.poole.james.Trawl.openSettings")
+}
+
 #if os(iOS)
 private let notificationSheetTransitionID = "recent-notifications-accessory"
 #endif
@@ -52,6 +60,8 @@ struct ContentView: View {
     /// Which title the library split views have open. Owned here rather than inside
     /// the lists because the content column and the detail column are two separate
     /// closures of one split view, and both need to read it.
+    /// Which download the detail column is showing, when the sidebar chrome is up.
+    @State private var downloadSelection: DownloadDetailSelection?
     @State private var seriesSelection: ArrMergeKey?
     @State private var moviesSelection: ArrMergeKey?
     @State private var magnetDeepLink: MagnetDeepLink?
@@ -76,7 +86,21 @@ struct ContentView: View {
     @Namespace private var notificationTransitionNamespace
     @State private var notificationWindowPresenter = InAppNotificationWindowPresenter()
     @State private var isTabChromeHidden = false
+    /// The measured width of the sidebar column, so the notification bar can be held
+    /// inside it rather than running the width of the window.
     #endif
+    /// Which sidebar sections the user has closed. Stored rather than defaulted so
+    /// the choice survives a relaunch; see `expansionBinding(for:)`. Not iOS-only:
+    /// the Mac draws the same sidebar.
+    ///
+    /// A newline-joined string because `AppStorage` holds no `Set`. The section's
+    /// raw value is its title, which never contains a newline.
+    @AppStorage("collapsedSidebarSections") private var collapsedSidebarSectionsRaw: String = ""
+
+    private var collapsedSidebarSections: Set<String> {
+        get { Set(collapsedSidebarSectionsRaw.split(separator: "\n").map(String.init)) }
+        nonmutating set { collapsedSidebarSectionsRaw = newValue.sorted().joined(separator: "\n") }
+    }
     #if DEBUG
     private var isPreview = false
     #endif
@@ -555,19 +579,13 @@ struct ContentView: View {
                 twoColumnLayout(services: services, downloadBadge: downloadBadge)
             }
         }
-        #if os(iOS)
-        .safeAreaInset(edge: .bottom) {
-            // The tab bar's bottom accessory has no equivalent here, and the
-            // notification bar is how the app surfaces failures app-wide - dropping
-            // it on iPad would quietly remove that.
-            if !isTabChromeHidden {
-                NotificationTabBarAccessory()
-                    .environment(services.syncService)
-                    .environment(downloadsNavigator)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 10)
-            }
+        #if os(macOS)
+        .onReceive(NotificationCenter.default.publisher(for: .trawlOpenSettings)) { _ in
+            selectedTab = .settings
+            sidebarPath(for: .settings).wrappedValue = []
         }
+        #endif
+        #if os(iOS)
         .environment(\.setTabChromeHidden) { isHidden in
             withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
                 isTabChromeHidden = isHidden
@@ -579,8 +597,7 @@ struct ContentView: View {
     /// Three columns, for the destinations that are a list of things you open.
     private func threeColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            sidebarList(downloadBadge: downloadBadge)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+            sidebarColumn(services: services, downloadBadge: downloadBadge)
         } content: {
             contentColumn(for: selectedTab, services: services)
                 .navigationSplitViewColumnWidth(min: 360, ideal: 420, max: 560)
@@ -588,6 +605,7 @@ struct ContentView: View {
             detailColumn(for: selectedTab, services: services)
         }
         .navigationSplitViewStyle(.balanced)
+        .environment(\.selectLibraryTitle, selectLibraryTitle)
     }
 
     /// Two columns, for the hubs.
@@ -604,8 +622,7 @@ struct ContentView: View {
     /// hub itself, so `path.append(...)` from a deep link still lands somewhere real.
     private func twoColumnLayout(services: AppServices, downloadBadge: Int) -> some View {
         NavigationSplitView(columnVisibility: $sidebarVisibility) {
-            sidebarList(downloadBadge: downloadBadge)
-                .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+            sidebarColumn(services: services, downloadBadge: downloadBadge)
         } detail: {
             moreStack(
                 rootedAt: selectedTab.moreRoot,
@@ -614,6 +631,48 @@ struct ContentView: View {
             )
         }
         .navigationSplitViewStyle(.balanced)
+    }
+
+    /// The sidebar column, with the notification bar pinned beneath it.
+    ///
+    /// The inset belongs to *this column*, not to the split view around it. Attached
+    /// outside, it laid the bar across the whole window: the sidebar's own scroll
+    /// view never learned about it, so the last rows of the last section - System's
+    /// Settings among them - sat under a bar that swallowed their taps. Attached
+    /// here, UIKit insets the list's content by the bar's height, so those rows
+    /// scroll clear of it, and the columns beside it keep their full height instead
+    /// of being shortened by chrome that does not belong to them.
+    private func sidebarColumn(services: AppServices, downloadBadge: Int) -> some View {
+        sidebarList(downloadBadge: downloadBadge)
+            .safeAreaInset(edge: .bottom) {
+                sidebarNotificationBar(services: services)
+            }
+            .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
+    }
+
+    /// The notification bar, as the sidebar's own footer.
+    ///
+    /// The tab bar's bottom accessory has no equivalent in this chrome, and the
+    /// notification bar is how the app surfaces failures app-wide - dropping it on
+    /// iPad would quietly remove that. Empty on macOS, where an inset of nothing
+    /// costs nothing.
+    @ViewBuilder
+    private func sidebarNotificationBar(services: AppServices) -> some View {
+        #if os(iOS)
+        if !isTabChromeHidden {
+            NotificationTabBarAccessory()
+                .environment(services.syncService)
+                .environment(downloadsNavigator)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
+                // Glass, because here the bar floats over a column rather than
+                // sitting in a tab bar that already has a material behind it - what
+                // `tabViewBottomAccessory` gives the compact chrome for free.
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .padding(.horizontal, 10)
+                .padding(.bottom, 10)
+        }
+        #endif
     }
 
     /// The sidebar's own list. Searchable, which is the point: it replaces More's
@@ -633,29 +692,58 @@ struct ContentView: View {
             if isSearchingSidebar {
                 sidebarSearchResults
             } else {
-                Section("Library") {
-                    sidebarRow(.downloads, badge: downloadBadge)
-                    sidebarRow(.series)
-                    sidebarRow(.movies)
-                    sidebarRow(.search)
-                }
-
-                Section("Manage") {
-                    sidebarRow(.missing)
-                    sidebarRow(.libraryManagement)
-                    sidebarRow(.requestsAndAccess)
-                    sidebarRow(.mediaServer)
-                    sidebarRow(.automation)
-                    sidebarRow(.system)
-                }
-
-                Section {
-                    sidebarRow(.settings)
+                ForEach(SidebarSection.allCases) { section in
+                    Section(isExpanded: expansionBinding(for: section)) {
+                        ForEach(section.rows, id: \.self) { row in
+                            sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
+                        }
+                    } header: {
+                        Text(section.title)
+                    }
                 }
             }
         }
         .navigationTitle("Trawl")
-        .searchable(text: $sidebarSearch, placement: .sidebar, prompt: "Search Trawl")
+        .searchable(
+            text: $sidebarSearch,
+            // `.sidebar` reads like the obvious placement and renders *nothing* on
+            // iPadOS - no field in the bar, no field in the list, nothing in the
+            // accessibility tree. It is a macOS placement. The drawer is what iOS
+            // actually draws under a navigation bar, and `.always` keeps it there
+            // rather than hiding it until the list is pulled down, which matters
+            // when this field is the only search this chrome has.
+            placement: sidebarSearchPlacement,
+            prompt: "Search Trawl"
+        )
+    }
+
+    private var sidebarSearchPlacement: SearchFieldPlacement {
+        #if os(macOS)
+        .sidebar
+        #else
+        .navigationBarDrawer(displayMode: .always)
+        #endif
+    }
+
+    /// Whether a section is open, remembered across launches.
+    ///
+    /// Thirty rows is a lot to re-collapse every launch, and a section someone has
+    /// closed is a statement about what they use rather than transient view state.
+    /// Stored as the set of *collapsed* sections so the default - a fresh install,
+    /// with nothing stored - is everything open.
+    private func expansionBinding(for section: SidebarSection) -> Binding<Bool> {
+        Binding(
+            get: { !collapsedSidebarSections.contains(section.rawValue) },
+            set: { isExpanded in
+                var collapsed = collapsedSidebarSections
+                if isExpanded {
+                    collapsed.remove(section.rawValue)
+                } else {
+                    collapsed.insert(section.rawValue)
+                }
+                collapsedSidebarSections = collapsed
+            }
+        )
     }
 
     private var isSearchingSidebar: Bool {
@@ -715,9 +803,11 @@ struct ContentView: View {
             return
         }
 
-        let owner = RootTab.owningSidebarDestination(forSearchCategory: entry.category)
+        let owner = RootTab.owningSidebarDestination(for: destination, category: entry.category)
         selectedTab = owner
-        pathBinding(for: owner).wrappedValue = [destination]
+        // A row that *is* the destination roots its own stack at it, so pushing it
+        // again would show the same screen twice with a Back button between them.
+        pathBinding(for: owner).wrappedValue = owner.moreRoot == destination ? [] : [destination]
     }
 
     /// A sidebar row, or nothing when the search field excludes it.
@@ -746,7 +836,7 @@ struct ContentView: View {
     private func contentColumn(for destination: RootTab, services: AppServices) -> some View {
         switch destination {
         case .downloads:
-            downloadsRoot(services: services)
+            downloadsRoot(services: services, detailSelection: $downloadSelection)
         case .series:
             SonarrSeriesListView(detailSelection: $seriesSelection)
                 .environment(arrServiceManager)
@@ -776,6 +866,28 @@ struct ContentView: View {
         }
     }
 
+    /// Opens a title in the library column's detail pane.
+    ///
+    /// Installed only on the three-column layout, which is the only place a detail
+    /// pane exists. A cast sheet that offers "and they were also in this" has to land
+    /// somewhere: on iPhone it pushes, because the screen you are on is the whole
+    /// window; here the list is still beside you, so the right move is to change what
+    /// the pane is showing rather than to stack a third title on top of the second.
+    private var selectLibraryTitle: ((ArrMergeKey) -> Void)? {
+        { key in
+            switch key.serviceType {
+            case .sonarr:
+                seriesSelection = key
+                selectedTab = .series
+            case .radarr:
+                moviesSelection = key
+                selectedTab = .movies
+            case .prowlarr, .bazarr:
+                break
+            }
+        }
+    }
+
     /// The detail column: what a selection from the middle column opens into.
     ///
     /// The library destinations put a placeholder here and let their own pushes fill
@@ -787,7 +899,23 @@ struct ContentView: View {
     private func detailColumn(for destination: RootTab, services: AppServices) -> some View {
         switch destination {
         case .downloads:
-            ContentUnavailableView("Select a download", systemImage: "tray.and.arrow.down")
+            // Rendered as this column's *root*, keyed by the selection - never pushed
+            // into it. A push from the content column survives a change of sidebar
+            // destination, so a download opened here used to still be sitting on top
+            // of the detail column after switching to Series or Search.
+            switch downloadSelection {
+            case .torrent(let hash):
+                TorrentDetailView(torrentHash: hash)
+                    .id(hash)
+                    .environment(services.syncService)
+                    .environment(services.torrentService)
+            case .sabJob(let id, let name):
+                SABnzbdJobDetailView(jobID: id, fallbackName: name)
+                    .id(id)
+                    .environment(sabnzbdServiceManager)
+            case nil:
+                ContentUnavailableView("Select a download", systemImage: "tray.and.arrow.down")
+            }
         case .series:
             // A detail view builds its own view model from the service manager -
             // the same thing `arrMediaNavigationDestinations` does for every pushed
@@ -844,8 +972,11 @@ struct ContentView: View {
         destination == .more ? $morePath : sidebarPath(for: destination)
     }
 
-    private func downloadsRoot(services: AppServices) -> some View {
-        DownloadsView()
+    private func downloadsRoot(
+        services: AppServices,
+        detailSelection: Binding<DownloadDetailSelection?>? = nil
+    ) -> some View {
+        DownloadsView(detailSelection: detailSelection)
             .environment(services)
             .environment(services.syncService)
             .environment(services.torrentService)
@@ -906,23 +1037,48 @@ struct ContentView: View {
             .environment(\.navigateToSeriesTab) { selectedTab = .series }
             .environment(\.navigateToMoviesTab) { selectedTab = .movies }
             .environment(\.navigateToDownloadsTab) { selectedTab = .downloads }
-            // Every one of these pushes onto `path` - the stack this particular copy
-            // is driving - and deliberately not onto `morePath`. On iPhone they are
-            // the same array. On iPad they are not: a "go to Sonarr settings" sent
-            // from the System sidebar tab has to land on System's own stack, or the
-            // push happens on a More stack nobody is looking at and the screen simply
-            // never appears.
-            .environment(\.navigateToQbittorrentSettings) { path.wrappedValue.append(.qbittorrentSettings) }
-            .environment(\.navigateToSABnzbdSettings) { path.wrappedValue.append(.sabnzbdSettings) }
-            .environment(\.navigateToSonarrSettings) { path.wrappedValue.append(.sonarrSettings) }
-            .environment(\.navigateToRadarrSettings) { path.wrappedValue.append(.radarrSettings) }
-            .environment(\.navigateToProwlarrSettings) { path.wrappedValue.append(.prowlarrSettings) }
-            .environment(\.navigateToBazarrSettings) { path.wrappedValue.append(.bazarrSettings) }
-            .environment(\.navigateToSeerrSettings) { path.wrappedValue.append(.seerrSettings) }
+            // Settings destinations route by chrome - see `openSettings`.
+            .environment(\.navigateToQbittorrentSettings) { openSettings(.qbittorrentSettings, from: path) }
+            .environment(\.navigateToSABnzbdSettings) { openSettings(.sabnzbdSettings, from: path) }
+            .environment(\.navigateToSonarrSettings) { openSettings(.sonarrSettings, from: path) }
+            .environment(\.navigateToRadarrSettings) { openSettings(.radarrSettings, from: path) }
+            .environment(\.navigateToProwlarrSettings) { openSettings(.prowlarrSettings, from: path) }
+            .environment(\.navigateToBazarrSettings) { openSettings(.bazarrSettings, from: path) }
+            .environment(\.navigateToSeerrSettings) { openSettings(.seerrSettings, from: path) }
             .environment(\.navigateToSeerrIssues) { path.wrappedValue.append(.seerrIssues) }
-            .environment(\.navigateToJellyfinSettings) { path.wrappedValue.append(.jellyfinSettings) }
-            .environment(\.navigateToCleanuparrSettings) { path.wrappedValue.append(.cleanuparrSettings) }
-            .environment(\.navigateToSettings) { path.wrappedValue.append(.settings) }
+            .environment(\.navigateToJellyfinSettings) { openSettings(.jellyfinSettings, from: path) }
+            .environment(\.navigateToCleanuparrSettings) { openSettings(.cleanuparrSettings, from: path) }
+            .environment(\.navigateToSettings) { openSettings(nil, from: path) }
+    }
+
+    /// Takes the user to a settings screen, by whichever route the chrome provides.
+    ///
+    /// On the tab chrome this pushes onto `path` - the stack this copy is driving,
+    /// and deliberately not `morePath`, because on iPad those are different arrays
+    /// and a push onto the wrong one lands on a stack nobody is looking at.
+    ///
+    /// On the sidebar chrome pushing is wrong twice over. Settings is a destination
+    /// of its own there, so pushing it inside Media Server buried a second copy of it
+    /// under a screen it has nothing to do with. And the service-specific
+    /// destinations were being appended to stacks that register no
+    /// `navigationDestination` for them - Library Management → Jellyfin Libraries →
+    /// "Open Settings" appended `.jellyfinSettings` to Library Management's path and
+    /// nothing happened at all. So the sidebar route changes destination instead, and
+    /// puts the requested screen on Settings' own stack.
+    private func openSettings(_ destination: MoreDestination?, from path: Binding<[MoreDestination]>) {
+        #if os(iOS)
+        guard hSizeClass == .regular else {
+            path.wrappedValue.append(destination ?? .settings)
+            return
+        }
+        let settingsPath = sidebarPath(for: .settings)
+        settingsPath.wrappedValue = destination.map { [$0] } ?? []
+        selectedTab = .settings
+        #else
+        let settingsPath = sidebarPath(for: .settings)
+        settingsPath.wrappedValue = destination.map { [$0] } ?? []
+        selectedTab = .settings
+        #endif
     }
 
     /// Single entry point for every URL that reaches the app - external links,

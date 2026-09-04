@@ -6,6 +6,9 @@ struct ArrQualityProfilesListView: View {
     /// Quality profiles are per-server, and an HD/4K pair's are the whole point
     /// of running two servers - one cuts off at 1080p, the other starts at 2160p.
     @State private var selectedInstanceID: UUID?
+    /// Which profile the detail pane is showing, at regular width. Nil on iPhone,
+    /// where the row pushes instead.
+    @State private var selectedProfileID: ArrQualityProfile.ID?
     @State private var editorSession: ArrQualityProfileEditorSession?
     @State private var profilePendingDelete: ArrQualityProfile?
     @State private var isSaving = false
@@ -44,73 +47,71 @@ struct ArrQualityProfilesListView: View {
         profiles.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
-    var body: some View {
-        List {
-            Section {
-                ForEach(sortedProfiles) { profile in
-                    NavigationLink {
-                        ArrQualityProfileDetailView(
-                            serviceType: selectedService,
-                            profile: profile,
-                            instance: selectedInstance,
-                            onEdit: {
-                                editorSession = .edit(profile)
-                            },
-                            onDuplicate: {
-                                editorSession = .duplicate(from: profile)
-                            },
-                            onDelete: {
-                                profilePendingDelete = profile
-                            }
-                        )
-                    } label: {
-                        ArrQualityProfileSummaryRow(profile: profile)
-                    }
-                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                        Button(role: .destructive) {
-                            profilePendingDelete = profile
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
 
-                        Button {
-                            editorSession = .duplicate(from: profile)
-                        } label: {
-                            Label("Duplicate", systemImage: "plus.square.on.square")
-                        }
-                        .tint(.blue)
-
-                        Button {
-                            editorSession = .edit(profile)
-                        } label: {
-                            Label("Edit", systemImage: "pencil")
-                        }
-                        .tint(.indigo)
-                    }
-                    .contextMenu {
-                        Button("Edit", systemImage: "pencil") {
-                            editorSession = .edit(profile)
-                        }
-                        Button("Duplicate", systemImage: "plus.square.on.square") {
-                            editorSession = .duplicate(from: profile)
-                        }
-                        Button("Delete", systemImage: "trash", role: .destructive) {
-                            profilePendingDelete = profile
-                        }
-                    }
-                }
-            } footer: {
-                Text("Quality profiles define which releases qualify, whether upgrades are allowed, and where upgrades stop.")
-            }
-        }
-        .navigationTitle("Quality Profiles")
+    private var showsDetailPane: Bool {
         #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        .scrollContentBackground(.hidden)
+        hSizeClass == .regular
+        #else
+        true
         #endif
-        .moreDestinationBackground(.qualityProfiles)
-        .safeAreaInset(edge: .top) {
-            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+    }
+
+    private var selectedProfile: ArrQualityProfile? {
+        sortedProfiles.first { $0.id == selectedProfileID }
+    }
+
+    /// The right-hand pane: whichever profile is selected.
+    ///
+    /// The same detail view the row pushes on iPhone, given the same actions - the
+    /// editor and the delete confirmation are presented by this screen either way,
+    /// so a profile edited from the pane and one edited from a push go through one
+    /// path.
+    @ViewBuilder
+    private var selectedProfileDetail: some View {
+        if let profile = selectedProfile {
+            ArrQualityProfileDetailView(
+                serviceType: selectedService,
+                profile: profile,
+                instance: selectedInstance,
+                onEdit: { editorSession = .edit(profile) },
+                onDuplicate: { editorSession = .duplicate(from: profile) },
+                onDelete: { profilePendingDelete = profile }
+            )
+            .id(profile.id)
+        } else {
+            listDetailPlaceholder("Select a Quality Profile", systemImage: "slider.horizontal.3")
+        }
+    }
+
+    /// Keeps the pane pointed at something that is still there.
+    ///
+    /// The list is rebuilt whenever the scope bar changes server, and the two halves
+    /// of an HD/4K pair do not share profile ids - so a selection carried across a
+    /// scope change names a profile the new server has never heard of, and the pane
+    /// goes blank while a row still looks selected. Nothing is auto-selected in its
+    /// place: which profile matters is the user's choice, not the list's order.
+    private func reconcileSelection() {
+        guard showsDetailPane else {
+            selectedProfileID = nil
+            return
+        }
+        if let selectedProfileID, !sortedProfiles.contains(where: { $0.id == selectedProfileID }) {
+            self.selectedProfileID = nil
+        }
+    }
+
+    var body: some View {
+        // Two panes at regular width. A quality profile is read by comparing it with
+        // the ones beside it - which cutoff, whether upgrades are allowed, where they
+        // stop - and a layout that shows one at a time turns every comparison into a
+        // round trip through the list.
+        TrawlListDetailPanes {
+            profileList
+        } detail: {
+            selectedProfileDetail
         }
         .toolbar {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
@@ -158,6 +159,91 @@ struct ArrQualityProfilesListView: View {
         }
         .onAppear {
             selectedInstanceID = serviceManager.defaultScopeInstanceID(preferring: selectedInstanceID)
+            reconcileSelection()
+        }
+        // The scope bar rebuilds the list from a different server, and a profile is
+        // deleted out from under the pane; both leave a selection naming something
+        // that is no longer there.
+        .onChange(of: selectedInstanceID) { reconcileSelection() }
+        .onChange(of: sortedProfiles.map(\.id)) { reconcileSelection() }
+    }
+
+
+    private var profileList: some View {
+        List(selection: $selectedProfileID) {
+            Section {
+                ForEach(sortedProfiles) { profile in
+                    profileRow(profile)
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            profilePendingDelete = profile
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+
+                        Button {
+                            editorSession = .duplicate(from: profile)
+                        } label: {
+                            Label("Duplicate", systemImage: "plus.square.on.square")
+                        }
+                        .tint(.blue)
+
+                        Button {
+                            editorSession = .edit(profile)
+                        } label: {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .tint(.indigo)
+                    }
+                    .contextMenu {
+                        Button("Edit", systemImage: "pencil") {
+                            editorSession = .edit(profile)
+                        }
+                        Button("Duplicate", systemImage: "plus.square.on.square") {
+                            editorSession = .duplicate(from: profile)
+                        }
+                        Button("Delete", systemImage: "trash", role: .destructive) {
+                            profilePendingDelete = profile
+                        }
+                    }
+                }
+            } footer: {
+                Text("Quality profiles define which releases qualify, whether upgrades are allowed, and where upgrades stop.")
+            }
+        }
+        #if os(iOS)
+        .scrollContentBackground(.hidden)
+        #endif
+        // On the *list*, never on the panes around it: the detail pane holds a
+        // `NavigationStack` of its own, and a `navigationTitle` applied to a view
+        // that contains a navigation container attaches to that container instead of
+        // to the column's bar.
+        .navigationTitle("Quality Profiles")
+        .moreDestinationBackground(.qualityProfiles)
+        .safeAreaInset(edge: .top) {
+            ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
+        }
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func profileRow(_ profile: ArrQualityProfile) -> some View {
+        if showsDetailPane {
+            ArrQualityProfileSummaryRow(profile: profile)
+                .tag(profile.id)
+        } else {
+            NavigationLink {
+                ArrQualityProfileDetailView(
+                    serviceType: selectedService,
+                    profile: profile,
+                    instance: selectedInstance,
+                    onEdit: { editorSession = .edit(profile) },
+                    onDuplicate: { editorSession = .duplicate(from: profile) },
+                    onDelete: { profilePendingDelete = profile }
+                )
+            } label: {
+                ArrQualityProfileSummaryRow(profile: profile)
+            }
         }
     }
 

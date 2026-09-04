@@ -14,15 +14,13 @@ struct ServerListView: View {
     var body: some View {
         List {
             if servers.isEmpty {
-                ContentUnavailableView {
-                    Label("No Servers", systemImage: "server.rack")
-                } description: {
-                    Text("Connect your qBittorrent server to manage torrents in Trawl.")
-                } actions: {
-                    Button("Add Server") {
-                        showAddSheet = true
-                    }
-                }
+                ServiceSetupView(
+                    title: "No Servers",
+                    message: "Connect your qBittorrent server to manage torrents in Trawl.",
+                    systemImage: "server.rack",
+                    actionTitle: "Add Server",
+                    onSetup: { showAddSheet = true }
+                )
                 .listRowBackground(Color.clear)
             } else {
                 Section("Servers") {
@@ -244,14 +242,10 @@ struct ServerListView: View {
     PreviewHost(profiles: .empty) {
         NavigationStack {
             List {
-                Section("Unavailable") {
-                    Label(
-                        "Could not connect to qBittorrent. Check your server settings.",
-                        systemImage: "exclamationmark.triangle"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "qBittorrent Unavailable",
+                    message: "Could not connect to qBittorrent. Check your server settings."
+                )
             }
             .navigationTitle("Servers")
             #if os(iOS)

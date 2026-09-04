@@ -6,7 +6,6 @@ struct JellyfinScheduledTasksView: View {
     let apiClient: JellyfinAPIClient
 
     @State private var viewModel: JellyfinScheduledTasksViewModel?
-    @State private var errorAlert: ErrorAlertItem?
     @State private var taskPendingStop: JellyfinScheduledTask?
     #if DEBUG
     private var isPreview = false
@@ -39,23 +38,20 @@ struct JellyfinScheduledTasksView: View {
         .onDisappear {
             viewModel?.stopPolling()
         }
-        .errorAlert(item: $errorAlert)
-        .onChange(of: viewModel?.errorMessage) { _, message in
-            guard let message else { return }
-            errorAlert = ErrorAlertItem(title: "Task Action Failed", message: message)
-            viewModel?.clearError()
-        }
+
     }
 
     @ViewBuilder
     private func tasksContent(_ viewModel: JellyfinScheduledTasksViewModel) -> some View {
         List {
-            if let error = viewModel.errorMessage, viewModel.tasks.isEmpty {
-                Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = viewModel.errorMessage {
+                ServiceErrorView(
+                    title: "Tasks Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !viewModel.tasks.isEmpty,
+                    onRetry: { await viewModel.refresh() }
+                )
             }
 
             if viewModel.isLoading && viewModel.tasks.isEmpty {
@@ -64,12 +60,14 @@ struct JellyfinScheduledTasksView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if viewModel.tasks.isEmpty {
-                ContentUnavailableView(
-                    "No Scheduled Tasks",
-                    systemImage: "clock.badge.questionmark",
-                    description: Text("No scheduled tasks were returned by Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Scheduled Tasks",
+                        systemImage: "clock.badge.questionmark",
+                        description: Text("No scheduled tasks were returned by Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 ForEach(groupedCategories, id: \.key) { category, tasks in
                     Section(category.isEmpty ? "General" : category) {

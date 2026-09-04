@@ -214,17 +214,11 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
                 element.tap()
                 return true
             }
-            let scroller: XCUIElement
-            if app.tables.firstMatch.exists {
-                scroller = app.tables.firstMatch
-            } else if app.collectionViews.firstMatch.exists {
-                scroller = app.collectionViews.firstMatch
-            } else {
-                scroller = app.scrollViews.firstMatch
-            }
-            if scroller.exists {
-                scroller.swipeUp()
-            }
+            // `scroller(for:)`, not `collectionViews.firstMatch`: on iPad the sidebar,
+            // the content column and the keyboard are all scrollable and all on
+            // screen, and the first one in the hierarchy is never the screen under
+            // test.
+            app.scroller(for: element).swipeUp()
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false
@@ -242,11 +236,11 @@ final class NotificationSettingsJourneyUITests: XCTestCase {
                 element.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
                 return true
             }
-            if app.collectionViews.firstMatch.exists {
-                app.collectionViews.firstMatch.swipeUp()
-            } else if app.scrollViews.firstMatch.exists {
-                app.scrollViews.firstMatch.swipeUp()
-            }
+            // `scroller(for:)`, not `collectionViews.firstMatch`: on iPad the sidebar,
+            // the content column and the keyboard are all scrollable and all on
+            // screen, and the first one in the hierarchy is never the screen under
+            // test.
+            app.scroller(for: element).swipeUp()
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false

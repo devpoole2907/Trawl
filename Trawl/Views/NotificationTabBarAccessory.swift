@@ -1,4 +1,5 @@
 import SwiftUI
+import SwiftData
 
 /// Defined on both platforms even though the accessory below is iOS-only.
 ///
@@ -398,6 +399,8 @@ struct RecentNotificationsSheet: View {
     @Environment(SABnzbdServiceManager.self) private var sabnzbdServiceManager
     @Environment(SyncService.self) private var syncService
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
+    @Environment(ConfigurationAuditStore.self) private var configurationAuditStore: ConfigurationAuditStore?
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
     @Environment(\.navigateToDownloadsTab) private var navigateToDownloadsTab
     /// Optional so the sheet still works anywhere a navigator isn't injected.
     @Environment(DownloadsNavigator.self) private var downloadsNavigator: DownloadsNavigator?
@@ -411,6 +414,9 @@ struct RecentNotificationsSheet: View {
     @State private var requestActionIDs: Set<Int> = []
     @State private var isAttentionExpanded = false
     @State private var attentionVisibleCount = NotificationSheetLayout.attentionPageSize
+    @State private var showSetupCheck = false
+    @Query private var qbittorrentServers: [ServerProfile]
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
 
     fileprivate static let attentionPageSize = NotificationSheetLayout.attentionPageSize
 
@@ -445,6 +451,29 @@ struct RecentNotificationsSheet: View {
 
     private var hasImportActivity: Bool {
         !activeJobs.isEmpty || !displayedImportCommands.isEmpty
+    }
+
+    private var trawlClientHosts: [DownloadClientLinkKind: [String]] {
+        ConfigurationAuditInput.trawlClientHosts(
+            qbittorrentServers: qbittorrentServers,
+            sabnzbdProfiles: sabnzbdProfiles
+        )
+    }
+
+    private var auditInputRevision: String {
+        ConfigurationAuditInput.revision(
+            arrServiceManager: arrServiceManager,
+            trawlClients: trawlClientHosts,
+            seerrServiceManager: seerrServiceManager,
+            cleanuparrServiceManager: cleanuparrServiceManager
+        )
+    }
+
+    private var hasConfigurationAttention: Bool {
+        guard let configurationAuditStore else { return false }
+        return (configurationAuditStore.isAuditing && !configurationAuditStore.hasCompletedAnAudit)
+            || !configurationAuditStore.problems.isEmpty
+            || !configurationAuditStore.unknowns.isEmpty
     }
 
     private var displayedImportCommands: [QueuedImportCommand] {
@@ -537,11 +566,32 @@ struct RecentNotificationsSheet: View {
         .task {
             await seerrServiceManager.refreshPendingRequests()
         }
+        .task(id: auditInputRevision) {
+            await refreshConfigurationAuditIfNeeded()
+        }
         .task {
             await refreshQueuedImportCommands()
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(5))
                 await refreshQueuedImportCommands()
+            }
+        }
+        .sheet(isPresented: $showSetupCheck) {
+            if let configurationAuditStore {
+                ConfigurationWizardView(
+                    issues: configurationAuditStore.issues,
+                    onDismissIssue: { configurationAuditStore.dismiss($0) },
+                    onRecheck: {
+                        await configurationAuditStore.refresh(
+                            serviceManager: arrServiceManager,
+                            trawlClients: trawlClientHosts,
+                            seerrServiceManager: seerrServiceManager,
+                            cleanuparrServiceManager: cleanuparrServiceManager,
+                            inputRevision: auditInputRevision
+                        )
+                    }
+                )
+                .environment(arrServiceManager)
             }
         }
     }
@@ -552,7 +602,7 @@ struct RecentNotificationsSheet: View {
     @ViewBuilder
     private var activityContent: some View {
         let failures = attentionItems
-        if failures.isEmpty && pendingRequests.isEmpty && !hasImportActivity
+        if failures.isEmpty && pendingRequests.isEmpty && !hasImportActivity && !hasConfigurationAttention
             && inAppNotificationCenter.recentNotifications.isEmpty {
             ContentUnavailableView {
                 Label("No Notifications Yet", systemImage: "bell.slash")
@@ -569,6 +619,8 @@ struct RecentNotificationsSheet: View {
             }
         } else {
             List {
+                configurationAttentionSection
+
                 if !failures.isEmpty {
                     // Collapsed by default and paged: this list is unbounded, and
                     // fully expanded it buried the notification log underneath it.
@@ -665,6 +717,85 @@ struct RecentNotificationsSheet: View {
         }
     }
 
+    @ViewBuilder
+    private var configurationAttentionSection: some View {
+        if let configurationAuditStore, hasConfigurationAttention {
+            Section {
+                Button {
+                    showSetupCheck = true
+                } label: {
+                    HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: configurationAuditStore.isAuditing ? "checklist" : "exclamationmark.triangle.fill")
+                            .foregroundStyle(configurationAuditStore.isAuditing ? Color.secondary : Color.orange)
+                            .frame(width: 24)
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(configurationAttentionTitle(configurationAuditStore))
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                            Text(configurationAttentionDetail(configurationAuditStore))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+
+                        Spacer(minLength: 8)
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.tertiary)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(configurationAuditStore.isAuditing && !configurationAuditStore.hasCompletedAnAudit)
+                .accessibilityIdentifier("notifications-setup-attention")
+
+                Button("Check Again", systemImage: "arrow.clockwise") {
+                    Task {
+                        await configurationAuditStore.refresh(
+                            serviceManager: arrServiceManager,
+                            trawlClients: trawlClientHosts,
+                            inputRevision: auditInputRevision
+                        )
+                    }
+                }
+                .disabled(configurationAuditStore.isAuditing)
+            } header: {
+                Text("System Attention")
+            }
+        }
+    }
+
+    private func configurationAttentionTitle(_ store: ConfigurationAuditStore) -> String {
+        if store.isAuditing && !store.hasCompletedAnAudit { return "Checking your setup…" }
+        if !store.problems.isEmpty {
+            return store.problems.count == 1 ? "Setup needs attention" : "\(store.problems.count) setup problems"
+        }
+        return "Setup check incomplete"
+    }
+
+    private func configurationAttentionDetail(_ store: ConfigurationAuditStore) -> String {
+        if store.isAuditing && !store.hasCompletedAnAudit {
+            return "Trawl is checking how your services are connected."
+        }
+        if !store.problems.isEmpty, !store.unknowns.isEmpty {
+            return "\(store.unknowns.count) additional \(store.unknowns.count == 1 ? "check could" : "checks could") not be completed."
+        }
+        if let first = store.problems.first ?? store.unknowns.first { return first.title }
+        return "Review the affected connections and check again."
+    }
+
+    private func refreshConfigurationAuditIfNeeded() async {
+        guard let configurationAuditStore else { return }
+        await configurationAuditStore.refreshIfNeeded(
+            serviceManager: arrServiceManager,
+            trawlClients: trawlClientHosts,
+            seerrServiceManager: seerrServiceManager,
+            cleanuparrServiceManager: cleanuparrServiceManager,
+            inputRevision: auditInputRevision
+        )
+    }
+
     private var sectionSegmentBar: some View {
         TrawlSegmentBar(
             "Notifications",
@@ -688,11 +819,13 @@ struct RecentNotificationsSheet: View {
     private var actionsContent: some View {
         let actions = availableActions
         if actions.isEmpty {
-            ContentUnavailableView {
-                Label("No Quick Actions", systemImage: "bolt.slash")
-            } description: {
-                Text("Connect Sonarr, Radarr, Prowlarr, Jellyfin, or SABnzbd to run service commands from here.")
-            }
+            ConnectionStatusCard(
+                title: "No Quick Actions",
+                message: "Connect Sonarr, Radarr, Prowlarr, Jellyfin, or SABnzbd to run service commands from here.",
+                presentation: .embedded,
+                systemImage: "bolt.slash",
+                showsRetryCountdown: false
+            )
             .scrollableUnavailableState()
         } else {
             List {

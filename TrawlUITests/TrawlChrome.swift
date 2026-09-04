@@ -59,25 +59,59 @@ enum TrawlChrome {
 
 /// A destination reachable from the app's root chrome.
 ///
-/// The twelve cases mirror `RootTab`, and the titles are the same strings on both
-/// platforms: the sidebar row, the More row, and the screen's own navigation title
-/// all read "Media Server". That is not luck - both chromes render these rows from
-/// `MoreSearchIndex`, so one name is genuinely enough, and a test naming a
-/// destination does not have to know which chrome will serve it.
+/// The two chromes no longer agree about what a destination *is*, which is the point
+/// of this type. On compact there are five tabs and seven hub screens inside More,
+/// each hub listing the screens beneath it. On regular there is no More and there are
+/// no hubs: every screen worth going to is a sidebar row, so what is three taps away
+/// on a phone is one click away on a tablet.
+///
+/// So a case here is a *screen*, and the route to it is the chrome's business. A hub
+/// case exists only for the compact route - `parentHub` is how a screen says which
+/// one it is filed under - and asking for a hub itself on the sidebar chrome is a
+/// test bug rather than a navigation one, because there is nothing there to open.
 enum TrawlDestination: CaseIterable {
-    // Primary tabs - present in both chromes.
+    // Primary tabs, present in both chromes.
     case downloads
     case series
     case movies
     case search
 
-    // The seven hubs. Rows of the More list on compact; sidebar rows on regular.
-    case missing
+    // The hubs. Compact only: on regular their contents are sidebar rows.
     case libraryManagement
     case requestsAndAccess
     case mediaServer
     case automation
     case system
+
+    // Sidebar rows. On compact each is reached through the hub named by `parentHub`.
+    case missing
+    case calendar
+    case requests
+    case issues
+    case users
+    case jellyfinLibraries
+    case jellyfinSessions
+    case jellyfinTranscoding
+    case jellyfinPlugins
+    case jellyfinActivity
+    case indexers
+    case downloadClients
+    case qbittorrent
+    case sabnzbd
+    case linkedApplications
+    case remotePaths
+    case cleanuparr
+    case rootFolders
+    case qualityProfiles
+    case libraryImport
+    case subtitles
+    case setupCheck
+    case health
+    case tasks
+    case logs
+    case diskSpace
+    case updates
+    case backups
     case settings
 
     /// The row's label, and the navigation title of the screen it opens.
@@ -87,12 +121,39 @@ enum TrawlDestination: CaseIterable {
         case .series: "Series"
         case .movies: "Movies"
         case .search: "Search"
-        case .missing: "Missing"
         case .libraryManagement: "Library Management"
         case .requestsAndAccess: "Requests & Access"
         case .mediaServer: "Media Server"
         case .automation: "Integrations & Automation"
         case .system: "System"
+        case .missing: "Missing"
+        case .calendar: "Calendar"
+        case .requests: "Requests"
+        case .issues: "Issues"
+        case .users: "Users"
+        case .jellyfinLibraries: "Libraries"
+        case .jellyfinSessions: "Sessions"
+        case .jellyfinTranscoding: "Transcoding"
+        case .jellyfinPlugins: "Plugins"
+        case .jellyfinActivity: "Activity"
+        case .indexers: "Indexers"
+        case .downloadClients: "Download Clients"
+        case .qbittorrent: "qBittorrent"
+        case .sabnzbd: "SABnzbd"
+        case .linkedApplications: "Linked Applications"
+        case .remotePaths: "Remote Path Mappings"
+        case .cleanuparr: "Cleanuparr"
+        case .rootFolders: "Root Folders"
+        case .qualityProfiles: "Quality Profiles"
+        case .libraryImport: "Library Import"
+        case .subtitles: "Subtitles"
+        case .setupCheck: "Setup Check"
+        case .health: "Health"
+        case .tasks: "Tasks"
+        case .logs: "Logs"
+        case .diskSpace: "Disk Space"
+        case .updates: "Updates"
+        case .backups: "Backups"
         case .settings: "Settings"
         }
     }
@@ -108,35 +169,88 @@ enum TrawlDestination: CaseIterable {
         case .series: "nav.series"
         case .movies: "nav.movies"
         case .search: "nav.search"
+        case .libraryManagement, .requestsAndAccess, .mediaServer, .automation, .system:
+            // No sidebar row exists for a hub; see `sidebarRow(for:)`.
+            "nav.none"
         case .missing: "nav.missing"
-        case .libraryManagement: "nav.libraryManagement"
-        case .requestsAndAccess: "nav.requestsAndAccess"
-        case .mediaServer: "nav.mediaServer"
-        case .automation: "nav.automation"
-        case .system: "nav.system"
+        case .calendar: "nav.calendar"
+        case .requests: "nav.requests"
+        case .issues: "nav.issues"
+        case .users: "nav.users"
+        case .jellyfinLibraries: "nav.jellyfinLibraries"
+        case .jellyfinSessions: "nav.jellyfinSessions"
+        case .jellyfinTranscoding: "nav.jellyfinTranscoding"
+        case .jellyfinPlugins: "nav.jellyfinPlugins"
+        case .jellyfinActivity: "nav.jellyfinActivity"
+        case .indexers: "nav.indexers"
+        case .downloadClients: "nav.downloadClients"
+        case .qbittorrent: "nav.qbittorrent"
+        case .sabnzbd: "nav.sabnzbd"
+        case .linkedApplications: "nav.linkedApplications"
+        case .remotePaths: "nav.remotePaths"
+        case .cleanuparr: "nav.cleanuparr"
+        case .rootFolders: "nav.rootFolders"
+        case .qualityProfiles: "nav.qualityProfiles"
+        case .libraryImport: "nav.libraryImport"
+        case .subtitles: "nav.subtitles"
+        case .setupCheck: "nav.setupCheck"
+        case .health: "nav.health"
+        case .tasks: "nav.tasks"
+        case .logs: "nav.logs"
+        case .diskSpace: "nav.diskSpace"
+        case .updates: "nav.updates"
+        case .backups: "nav.backups"
         case .settings: "nav.settings"
         }
     }
 
-    /// True for the seven that are reached *through* More on compact. On regular they
-    /// are sidebar rows in their own right, which is the difference this file exists
-    /// to absorb.
+    /// Which hub this screen is filed under in the compact chrome, if any.
+    ///
+    /// Nil for the primary tabs, which are in the tab bar, and for the hubs
+    /// themselves, which are rows of More's own list.
+    var parentHub: TrawlDestination? {
+        switch self {
+        case .downloads, .series, .movies, .search,
+             .libraryManagement, .requestsAndAccess, .mediaServer, .automation, .system,
+             .missing, .settings:
+            nil
+        case .calendar:
+            .series
+        case .requests, .issues, .users:
+            .requestsAndAccess
+        case .jellyfinLibraries, .jellyfinSessions, .jellyfinTranscoding,
+             .jellyfinPlugins, .jellyfinActivity:
+            .mediaServer
+        case .indexers, .downloadClients, .qbittorrent, .sabnzbd,
+             .linkedApplications, .remotePaths, .cleanuparr, .tasks:
+            .automation
+        case .rootFolders, .qualityProfiles, .libraryImport, .subtitles:
+            .libraryManagement
+        case .setupCheck, .health, .logs, .diskSpace, .updates, .backups:
+            .system
+        }
+    }
+
+    /// True for the screens reached *through* More on compact - the hubs themselves,
+    /// and Missing and Settings, which are rows of More's list rather than tabs.
     var isHubBehindMore: Bool {
         switch self {
         case .downloads, .series, .movies, .search: false
-        case .missing, .libraryManagement, .requestsAndAccess,
-             .mediaServer, .automation, .system, .settings: true
+        default: true
         }
     }
 
     /// Whether arriving here can be confirmed by a navigation bar carrying `title`.
     ///
-    /// True for the hubs, whose pushed screen is titled exactly as its row. False for
-    /// the primary tabs: Downloads titles its bar with a "change view" menu, and the
-    /// libraries retitle theirs per instance ("Series" becomes the server's name when
-    /// only one is configured), so asserting on those would fail for reasons that have
-    /// nothing to do with navigation.
-    var arrivalIsConfirmedByNavigationBar: Bool { isHubBehindMore }
+    /// False for the primary tabs, whose bars are retitled - Downloads titles its bar
+    /// with a "change view" menu, and the libraries take the server's name when only
+    /// one is configured - and for Calendar, which is a sheet on compact.
+    var arrivalIsConfirmedByNavigationBar: Bool {
+        switch self {
+        case .downloads, .series, .movies, .search, .calendar: false
+        default: true
+        }
+    }
 }
 
 // MARK: - Reaching a destination
@@ -184,7 +298,11 @@ extension XCTestCase {
     func ensureRootChromeIsReady(in app: XCUIApplication, timeout: TimeInterval = 20) -> Bool {
         switch TrawlChrome.current {
         case .tabBar:
-            return app.tabBars.buttons[TrawlDestination.downloads.title].waitForExistence(timeout: timeout)
+            let downloads = app.tabBars.buttons[TrawlDestination.downloads.title]
+            if downloads.waitForExistence(timeout: timeout) { return true }
+            // A relaunch inside a suite can come back with the bar still minimised.
+            expandTabBarIfMinimized(in: app)
+            return downloads.waitForExistence(timeout: 5)
         case .sidebar:
             // Landscape, and this is the one place it can be set: right after launch,
             // before any navigation has happened.
@@ -228,6 +346,11 @@ extension XCTestCase {
         in app: XCUIApplication,
         timeout: TimeInterval
     ) -> Bool {
+        // A hub is not a place on this chrome. Its contents are sidebar rows, so a
+        // test that asks for one is describing the compact route; failing loudly here
+        // is better than selecting something arbitrary and reporting success.
+        guard destination.navigationIdentifier != "nav.none" else { return false }
+
         // Short wait, then reveal, then the real wait - see `ensureRootChromeIsReady`.
         // A collapsed sidebar is not a slow sidebar, and waiting for it as though it
         // were burns the whole budget before trying the one thing that would work.
@@ -302,22 +425,94 @@ extension XCTestCase {
     ) -> Bool {
         guard destination.isHubBehindMore else {
             let tab = app.tabBars.buttons[destination.title]
-            guard tab.waitForExistence(timeout: timeout) else { return false }
+            if !tab.waitForExistence(timeout: 3) {
+                expandTabBarIfMinimized(in: app)
+                guard tab.waitForExistence(timeout: timeout) else { return false }
+            }
             return tapWhenPossible(tab)
         }
 
+        // A screen filed under a hub is two rows deep on this chrome: More, the hub,
+        // then the screen. The sidebar promotes both levels to one click, which is
+        // the whole difference between the chromes and the reason a test names the
+        // *screen* rather than the route to it.
+        if let hub = destination.parentHub {
+            guard openViaTabBar(hub, in: app, timeout: timeout) else { return false }
+            return tapListRow(titled: destination.title, in: app)
+                && confirmArrival(at: destination, in: app, timeout: timeout)
+        }
+
         let more = app.tabBars.buttons["More"]
+        if !more.waitForExistence(timeout: 3) {
+            expandTabBarIfMinimized(in: app)
+        }
         guard more.waitForExistence(timeout: timeout), tapWhenPossible(more) else { return false }
 
         // More's own list is long enough that several rows start below the fold, so
         // the row is scrolled to rather than merely waited for.
         let row = app.buttons
-            .matching(NSPredicate(format: "label CONTAINS[c] %@", destination.title))
+            .matching(NSPredicate(
+                format: "label ==[c] %@ OR label BEGINSWITH[c] %@",
+                destination.title,
+                "\(destination.title),"
+            ))
             .firstMatch
-        guard row.waitForExistence(in: app, timeout: 10) else { return false }
-        guard tapWhenPossible(row) else { return false }
+        guard row.waitForExistence(timeout: 10) else { return false }
+
+        // A TabView keeps off-screen tabs mounted. The shared scrolling helper can
+        // therefore find the previous tab's retained list before More's visible
+        // list and scroll the wrong screen. Settings is the last More row and starts
+        // below the fold, so drive the gesture through the visible application until
+        // that exact row is hittable. Do not coordinate-tap an off-screen row: its
+        // synthesized coordinate can overlap the tab bar and silently select the
+        // previous tab instead.
+        for _ in 0..<8 where !row.isHittable {
+            app.swipeUp()
+            _ = row.waitForExistence(timeout: 0.5)
+        }
+        guard row.isHittable else { return false }
+        row.tap()
 
         return confirmArrival(at: destination, in: app, timeout: timeout)
+    }
+
+    /// Taps a row of whatever list is on screen, by its title.
+    ///
+    /// Used to walk the second level of the compact chrome - the hub's own list -
+    /// where the row is an ordinary `NavigationLink` rather than a chrome control.
+    @MainActor
+    private func tapListRow(titled title: String, in app: XCUIApplication) -> Bool {
+        let row = app.buttons
+            .matching(NSPredicate(
+                format: "label ==[c] %@ OR label BEGINSWITH[c] %@",
+                title,
+                "\(title),"
+            ))
+            .firstMatch
+        guard row.waitForExistence(in: app, timeout: 10) else { return false }
+        return tapWhenPossible(row, timeout: 10)
+    }
+
+    /// Restores a tab bar that iOS 26 has minimised behind the selected tab.
+    ///
+    /// When the content behind the bar scrolls, the bar collapses to a single pill
+    /// carrying the selected tab, and every *other* tab leaves the accessibility
+    /// hierarchy outright - so a query for one fails in exactly the way it would if
+    /// the chrome had never appeared. Reaching Settings scrolls More's list far
+    /// enough to trigger it, which is why a journey that edited a server and then
+    /// went back to Series reported that the Series tab did not exist.
+    ///
+    /// The collapsed pill is found by its value rather than by which tab it is: the
+    /// selected tab is whichever one the journey happens to be on. Tapping it is the
+    /// same gesture a user makes, and it is a no-op when the bar is already expanded
+    /// because no button reports itself collapsed then.
+    @MainActor
+    func expandTabBarIfMinimized(in app: XCUIApplication) {
+        let collapsed = app.tabBars.buttons.allElementsBoundByIndex.first {
+            ($0.value as? String)?.localizedCaseInsensitiveContains("collapsed") == true
+        }
+        guard let collapsed, collapsed.isHittable else { return }
+        collapsed.tap()
     }
 
     // MARK: Shared
@@ -340,7 +535,14 @@ extension XCTestCase {
         timeout: TimeInterval
     ) -> Bool {
         guard destination.arrivalIsConfirmedByNavigationBar else { return true }
-        return app.navigationBars[destination.title].waitForExistence(timeout: timeout)
+        if app.navigationBars[destination.title].waitForExistence(timeout: timeout) { return true }
+        // Several screens take a subtitle or the owning server's name in their bar -
+        // "Linked Apps / Prowlarr", "Indexers / Prowlarr" - so the title is a prefix
+        // rather than the whole of it.
+        return app.navigationBars
+            .matching(NSPredicate(format: "identifier BEGINSWITH[c] %@", destination.title))
+            .firstMatch
+            .waitForExistence(timeout: 3)
     }
 
     /// Types into a field, routing the keystrokes through the application rather than
@@ -593,11 +795,22 @@ extension XCTestCase {
     /// always was.
     @MainActor
     func backButton(in navigationBar: XCUIElement) -> XCUIElement {
+        // UIKit's own identifier, when it is there. It is unambiguous, and it is what
+        // makes this safe on a bar that carries trailing actions too.
+        let identified = navigationBar.buttons["BackButton"]
+        if identified.exists { return identified }
+
         let isNotSidebarToggle = NSPredicate(
             format: "NOT (identifier ==[c] %@ OR label ==[c] %@ OR label ==[c] %@)",
             "togglesidebar", "show sidebar", "hide sidebar"
         )
-        return navigationBar.buttons.matching(isNotSidebarToggle).firstMatch
+        let candidates = navigationBar.buttons.matching(isNotSidebarToggle)
+        // Leading-most, not `firstMatch`. Query order is not screen order: on the
+        // iPad SABnzbd hub, "first" was the Categories screen's trailing **+**, so
+        // popping back opened an Add Category sheet instead - and the walk then failed
+        // three screens later, on a hub it had never returned to.
+        let leading = candidates.allElementsBoundByIndex.min { $0.frame.minX < $1.frame.minX }
+        return leading ?? candidates.firstMatch
     }
 
     /// Taps an element, falling back to its centre coordinate when it is on screen but

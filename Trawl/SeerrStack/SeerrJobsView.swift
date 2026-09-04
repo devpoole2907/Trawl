@@ -18,12 +18,14 @@ struct SeerrJobsView: View {
 
     var body: some View {
         List {
-            if let error = errorMessage, jobs.isEmpty {
-                Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = errorMessage {
+                ServiceErrorView(
+                    title: "Jobs Unavailable",
+                    message: error,
+                    identity: .seerr,
+                    hasContent: !jobs.isEmpty,
+                    onRetry: { await load() }
+                )
             }
 
             if isLoading && jobs.isEmpty {
@@ -31,12 +33,14 @@ struct SeerrJobsView: View {
                     ProgressView().frame(maxWidth: .infinity)
                 }
             } else if jobs.isEmpty {
-                ContentUnavailableView(
-                    "No Jobs",
-                    systemImage: "clock.arrow.2.circlepath",
-                    description: Text("No scheduled jobs were returned by Seerr.")
-                )
-                .listRowBackground(Color.clear)
+                if errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Jobs",
+                        systemImage: "clock.arrow.2.circlepath",
+                        description: Text("No scheduled jobs were returned by Seerr.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(jobs) { job in

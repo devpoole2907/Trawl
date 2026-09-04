@@ -204,13 +204,7 @@ struct ArrHealthView: View {
     @ViewBuilder
     private var contentView: some View {
         if !hasConfiguredService {
-            ContentUnavailableView {
-                Label("No Services Configured", systemImage: "heart.text.square")
-            } description: {
-                Text("Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.")
-            } actions: {
-                MoreSettingsNavigationLink()
-            }
+            ServiceSetupView(title: "No Services Configured", message: "Add Sonarr, Radarr, or Prowlarr in Settings to view health checks.", systemImage: "heart.text.square")
             .scrollableUnavailableState()
         } else if !hasConnectedService {
             ArrServicesConnectionStatusView(

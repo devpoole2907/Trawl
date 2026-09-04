@@ -48,6 +48,19 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     @State private var showSettings = false
     @State private var showAddSheet = false
     @State private var showCalendar = false
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+
+    /// True where the app draws a sidebar, which is where these toolbar shortcuts
+    /// have a row of their own and stop earning their place.
+    private var hasSidebarChrome: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
     @State private var showWantedMissing = false
     @State private var pendingDeleteItem: Entry?
     @State private var isRunningCommand = false
@@ -230,12 +243,12 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
     }
 
     private var notSetUpContent: some View {
-        ContentUnavailableView {
-            Label("\(serviceType.displayName) Not Set Up", systemImage: emptyIcon)
-        } description: {
-            Text("Add a \(serviceType.displayName) server in Settings to get started.")
-        } actions: {
-            Button {
+        ServiceSetupView(
+            title: "\(serviceType.displayName) Not Set Up",
+            message: "Add a \(serviceType.displayName) server in Settings to get started.",
+            systemImage: emptyIcon,
+            actionTitle: "Add Server",
+            onSetup: {
                 withAnimation(.snappy) {
                     if profiles.filter({ $0.resolvedServiceType == serviceType }).isEmpty {
                         showAddSheet = true
@@ -243,13 +256,8 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
                         showSettings = true
                     }
                 }
-            } label: {
-                Label("Add Server", systemImage: "plus")
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
             }
-            .buttonStyle(.glass)
-        }
+        )
     }
 
     @ViewBuilder
@@ -429,14 +437,20 @@ where Item: Identifiable & JellyfinMatchable & Equatable & ArrMergeableLibraryIt
             }
         } else {
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {
-                Button("Calendar", systemImage: "calendar") {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
-                        showCalendar = true
+                // Not where there is a sidebar. Calendar is a row there, and a
+                // toolbar button that opens a sheet over the library duplicates a
+                // destination that is already one click away - with the sheet being
+                // the worse of the two, because it covers the list it came from.
+                if !hasSidebarChrome {
+                    Button("Calendar", systemImage: "calendar") {
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                            showCalendar = true
+                        }
                     }
+                    #if os(iOS)
+                    .matchedTransitionSource(id: "calendar", in: namespace)
+                    #endif
                 }
-                #if os(iOS)
-                .matchedTransitionSource(id: "calendar", in: namespace)
-                #endif
             }
             ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
             ToolbarItemGroup(placement: platformTopBarTrailingPlacement) {

@@ -33,11 +33,13 @@ struct SABnzbdCategoriesView: View {
     var body: some View {
         List {
             if let error = serviceManager.categoryConfigsError {
-                Section("Unavailable") {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Categories Unavailable",
+                    message: error,
+                    identity: .sabnzbd,
+                    hasContent: !categories.isEmpty,
+                    onRetry: { await serviceManager.refreshCategoryConfigs() }
+                )
             }
 
             if selectedTab == 0 {

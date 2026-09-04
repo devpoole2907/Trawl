@@ -12,6 +12,20 @@ struct ProwlarrIndexerListView: View {
     @State private var addDestination: AddIndexerDestination?
     @State private var searchText = ""
     @State private var showTestAllConfirm = false
+    @State private var showSetupCheck = false
+    @State private var isPreparingSetupCheck = false
+    @State private var dismissedProwlarrNudge = false
+    /// Which indexer the detail pane is showing, at regular width. Nil on iPhone,
+    /// where the row pushes instead.
+    @State private var selectedIndexerID: String?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+    @Environment(ConfigurationAuditStore.self) private var auditStore: ConfigurationAuditStore?
+    @Environment(SeerrServiceManager.self) private var seerrServiceManager: SeerrServiceManager?
+    @Environment(CleanuparrServiceManager.self) private var cleanuparrServiceManager: CleanuparrServiceManager?
+    @Query private var qbittorrentServers: [ServerProfile]
+    @Query private var sabnzbdProfiles: [SABnzbdServiceProfile]
     private let loadsDataOnAppear: Bool
 
     init(loadsDataOnAppear: Bool = true) {
@@ -21,21 +35,40 @@ struct ProwlarrIndexerListView: View {
     var body: some View {
         Group {
             if let prowlarrViewModel, let directViewModel {
-                content(
-                    prowlarrViewModel: prowlarrViewModel,
-                    directViewModel: directViewModel,
-                    applicationsViewModel: applicationsViewModel
-                )
+                // Two panes at regular width: an indexer's detail is where you check
+                // whether it is actually working, and doing that from a screen that
+                // replaced the list means going back for every one of them.
+                TrawlListDetailPanes {
+                    content(
+                        prowlarrViewModel: prowlarrViewModel,
+                        directViewModel: directViewModel,
+                        applicationsViewModel: applicationsViewModel
+                    )
+                } detail: {
+                    selectedIndexerDetail(
+                        prowlarrViewModel: prowlarrViewModel,
+                        directViewModel: directViewModel
+                    )
+                }
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Indexers")
-        .navigationSubtitle("Prowlarr")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.large)
-        #endif
+        .sheet(isPresented: $showSetupCheck) {
+            if let auditStore {
+                ConfigurationWizardView(
+                    issues: auditStore.issues,
+                    onDismissIssue: { auditStore.dismiss($0) },
+                    onRecheck: { await refreshAudit() },
+                    // Opened about the nudge that was tapped, not about the setup at
+                    // large: a screen that offers to add Prowlarr and then presents a
+                    // download-client repair has answered a question nobody asked.
+                    focusedKind: .prowlarrDetectedButNotConnected
+                )
+                .environment(serviceManager)
+            }
+        }
         .task {
             if prowlarrViewModel == nil {
                 prowlarrViewModel = ProwlarrViewModel(serviceManager: serviceManager)
@@ -74,7 +107,24 @@ struct ProwlarrIndexerListView: View {
         directViewModel: ArrIndexerManagementViewModel,
         applicationsViewModel: ProwlarrApplicationsViewModel?
     ) -> some View {
-        List {
+        List(selection: $selectedIndexerID) {
+            if let prowlarr = undiscoveredProwlarr(directViewModel), !dismissedProwlarrNudge {
+                Section {
+                    TrawlInlineCallout(
+                        icon: "sparkle.magnifyingglass",
+                        tint: MoreDestinationAccent.indexers.color,
+                        title: "Prowlarr Is Managing These",
+                        message: "These indexers are being served through Prowlarr at \(prowlarr), and Trawl is not connected to it - so it cannot show or manage them here. Everything keeps working either way.",
+                        actionTitle: isPreparingSetupCheck ? "Checking…" : "Set It Up",
+                        action: { openSetupCheck() },
+                        onDismiss: { withAnimation(.snappy) { dismissedProwlarrNudge = true } }
+                    )
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 0, trailing: 16))
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                }
+            }
+
             if let stats = prowlarrViewModel.indexerStats, serviceManager.prowlarrConnected {
                 prowlarrStatsOverviewSection(stats: stats)
             }
@@ -115,15 +165,20 @@ struct ProwlarrIndexerListView: View {
 
             if serviceManager.prowlarrConnected, let error = prowlarrViewModel.indexerError {
                 Section("Prowlarr") {
-                    Label(error, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                    ServiceErrorView(
+                        title: "Prowlarr Unavailable",
+                        message: error,
+                        identity: .prowlarr,
+                        hasContent: !combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel).isEmpty,
+                        onRetry: { await reloadData() }
+                    )
                 }
             }
 
             if isLoadingInitialData(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel) && combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel).isEmpty {
                 loadingRows
             } else if combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel).isEmpty {
-                emptyState
+                if unavailableSources.isEmpty && prowlarrViewModel.indexerError == nil { emptyState }
             } else {
                 sections(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
             }
@@ -135,6 +190,12 @@ struct ProwlarrIndexerListView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
+        // On the *list*, never on the panes or a wrapper around them: the detail pane
+        // holds a `NavigationStack` of its own, and a `navigationTitle` applied to a
+        // view that contains a navigation container attaches to that container rather
+        // than to the column's bar.
+        .navigationTitle("Indexers")
+        .navigationSubtitle("Prowlarr")
         .refreshable { await reloadData() }
         .searchable(text: $searchText, prompt: "Search indexers")
         .toolbar { toolbarContent(prowlarrViewModel: prowlarrViewModel) }
@@ -230,7 +291,7 @@ struct ProwlarrIndexerListView: View {
     ) -> some View {
         switch item.kind {
         case .prowlarr(let indexer):
-            NavigationLink {
+            rowLink(id: item.id) {
                 ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
             } label: {
                 UnifiedIndexerRowView(
@@ -288,7 +349,7 @@ struct ProwlarrIndexerListView: View {
             }
 
         case .direct(let ownedIndexer):
-            NavigationLink {
+            rowLink(id: item.id) {
                 DirectIndexerEditorView(
                     profile: ownedIndexer.profile,
                     serviceType: ownedIndexer.serviceType,
@@ -831,15 +892,12 @@ struct ProwlarrIndexerListView: View {
 
     @ViewBuilder
     private func unavailableRow(_ source: UnavailableIndexerSource) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(source.profile.displayName)
-                .font(.body.weight(.medium))
-
-            Text(source.error)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-        }
-        .padding(.vertical, 4)
+        ServiceErrorView(
+            title: "\(source.profile.displayName) Unavailable",
+            message: source.error,
+            hasContent: true,
+            onRetry: { await reloadData() }
+        )
     }
 
     private var loadingRows: some View {
@@ -861,6 +919,113 @@ struct ProwlarrIndexerListView: View {
             }
             .padding(.vertical, 4)
         }
+    }
+
+    /// The Prowlarr these indexers are being served through, when Trawl has never
+    /// been told about it.
+    ///
+    /// Read from the indexers already on screen rather than from the configuration
+    /// audit: this screen has the data in hand, and a nudge that waited on a
+    /// service-wide audit would arrive late on the one screen where the answer is
+    /// already sitting in front of the user.
+    /// A row that selects beside a detail pane, and pushes without one.
+    ///
+    /// Shaped like `NavigationLink(destination:label:)` on purpose, so every swipe
+    /// action and context menu already hanging off these rows stays exactly where it
+    /// is rather than being rebuilt for the second layout.
+    @ViewBuilder
+    private func rowLink<Destination: View, Label: View>(
+        id: String,
+        @ViewBuilder destination: @escaping () -> Destination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(id)
+        } else {
+            NavigationLink(destination: destination(), label: label)
+        }
+    }
+
+    /// The right-hand pane: whichever indexer is selected, or an invitation to pick
+    /// one. Resolved from the current lists rather than held as a value, so an
+    /// indexer that is edited, disabled or deleted repaints the pane instead of
+    /// leaving a stale copy of itself in it.
+    @ViewBuilder
+    private func selectedIndexerDetail(
+        prowlarrViewModel: ProwlarrViewModel,
+        directViewModel: ArrIndexerManagementViewModel
+    ) -> some View {
+        let selected = selectedIndexerID.flatMap { id in
+            combinedItems(prowlarrViewModel: prowlarrViewModel, directViewModel: directViewModel)
+                .first { $0.id == id }
+        }
+        switch selected?.kind {
+        case .prowlarr(let indexer):
+            ProwlarrIndexerDetailView(indexer: indexer, viewModel: prowlarrViewModel)
+        case .direct(let ownedIndexer):
+            DirectIndexerEditorView(
+                profile: ownedIndexer.profile,
+                serviceType: ownedIndexer.serviceType,
+                viewModel: directViewModel,
+                mode: .edit(ownedIndexer.indexer),
+                linkedApplication: linkedApplication(for: ownedIndexer.profile, serviceType: ownedIndexer.serviceType)
+            )
+        case nil:
+            listDetailPlaceholder("Select an Indexer", systemImage: "magnifyingglass.circle")
+        }
+    }
+
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
+
+    private func undiscoveredProwlarr(_ directViewModel: ArrIndexerManagementViewModel) -> String? {
+        guard !serviceManager.hasProwlarrInstance else { return nil }
+        let baseURLs = (
+            directViewModel.sonarrIndexersByProfileID.values.flatMap(\.self)
+                + directViewModel.radarrIndexersByProfileID.values.flatMap(\.self)
+        ).compactMap(\.baseURLDisplayValue)
+        return ProwlarrIndexerOrigin.syncedBaseURL(inIndexerBaseURLs: baseURLs)
+    }
+
+    /// Runs the audit, then opens the wizard on its findings.
+    ///
+    /// Refreshed on the way in rather than when this screen appears: the wizard is
+    /// the only thing here that reads the audit, and running it on every visit to
+    /// Indexers would fan out across every service to build findings nobody asked to
+    /// see.
+    private func openSetupCheck() {
+        guard auditStore != nil, !isPreparingSetupCheck else { return }
+        isPreparingSetupCheck = true
+        Task {
+            await refreshAudit()
+            isPreparingSetupCheck = false
+            showSetupCheck = true
+        }
+    }
+
+    private func refreshAudit() async {
+        guard let auditStore else { return }
+        let clients = ConfigurationAuditInput.trawlClientHosts(
+            qbittorrentServers: qbittorrentServers,
+            sabnzbdProfiles: sabnzbdProfiles
+        )
+        await auditStore.refresh(
+            serviceManager: serviceManager,
+            trawlClients: clients,
+            seerrServiceManager: seerrServiceManager,
+            cleanuparrServiceManager: cleanuparrServiceManager,
+            inputRevision: ConfigurationAuditInput.revision(
+                arrServiceManager: serviceManager,
+                trawlClients: clients,
+                seerrServiceManager: seerrServiceManager,
+                cleanuparrServiceManager: cleanuparrServiceManager
+            )
+        )
     }
 
     private var emptyState: some View {

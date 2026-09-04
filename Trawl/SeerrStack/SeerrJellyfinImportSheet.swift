@@ -35,14 +35,12 @@ struct SeerrJellyfinImportSheet: View {
                     ProgressView("Fetching Jellyfin users…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let loadError, availableUsers.isEmpty {
-                    ContentUnavailableView {
-                        Label("Couldn't Load Users", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(loadError)
-                    } actions: {
-                        Button("Retry") { Task { await loadUsers() } }
-                            .buttonStyle(.bordered)
-                    }
+                    ServiceErrorView(
+                        title: "Couldn't Load Users",
+                        message: loadError,
+                        identity: .seerr,
+                        onRetry: { await loadUsers() }
+                    )
                 } else if availableUsers.isEmpty {
                     ContentUnavailableView(
                         "No Jellyfin Users",

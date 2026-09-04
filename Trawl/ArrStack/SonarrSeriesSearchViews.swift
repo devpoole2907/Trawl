@@ -297,7 +297,11 @@ struct SonarrAddToLibrarySheet: View {
         isAdding = true
         defer { isAdding = false }
 
-        let success = await addState.execute(targets: targets, itemName: series.title) { target, profileID, folderPath in
+        let success = await addState.execute(
+            targets: targets,
+            itemName: series.title,
+            failureReason: { viewModel.error }
+        ) { target, profileID, folderPath in
             await viewModel.addSeries(
                 tvdbId: tvdbId,
                 title: series.title,

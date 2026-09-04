@@ -117,6 +117,17 @@ struct SearchView: View {
                 onLibraryChanged: { await refreshLibrary() },
                 zoomNamespace: trendingTransition
             )
+            // A search that finds nothing looks like a search problem. An Arr with no
+            // enabled indexer, or one that can only search interactively, is the
+            // reason.
+            //
+            // Inside `searchScreen`, not around `searchChrome`'s result: `.searchable`
+            // has to be the outermost thing so its field lands in the container's
+            // navigation bar. Wrapping the chrome in a safe-area inset put a view
+            // between them, and on iPad - where the container is the split view's
+            // content column rather than a stack of its own - the field disappeared
+            // entirely, which is the exact defect the two-chrome work fixed.
+            .configurationAttention(.search)
         }
     }
 
@@ -205,10 +216,12 @@ struct SearchView: View {
         #if os(macOS)
         .automatic
         #else
-        switch presentation {
-        case .stack: .navigationBarDrawer(displayMode: .always)
-        case .contentColumn: .automatic
-        }
+        // `.navigationBarDrawer(.always)` on both. `.automatic` in a split view's
+        // content column produced no field at all on iPadOS 26: the split view
+        // already carries the sidebar's own `.searchable`, and the system keeps that
+        // one - so Search had a scope bar, a trending grid and nowhere to type.
+        // Naming the placement stops it being merged away.
+        .navigationBarDrawer(displayMode: .always)
         #endif
     }
 
@@ -335,12 +348,7 @@ struct SearchView: View {
                 }
                 .frame(maxWidth: .infinity)
             } else if let error = viewModel.trendingError, !hasContent {
-                ContentUnavailableView {
-                    Label("Couldn't Load Trending", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                }
-                .padding(.top, 60)
+                ServiceErrorView(title: "Couldn't Load Trending", message: error, onRetry: { await loadTrending() })
             } else if hasContent {
                 LazyVStack(alignment: .leading, spacing: 24) {
                     if !viewModel.trendingMovies.isEmpty {
@@ -633,21 +641,13 @@ struct SearchView: View {
 
     @ViewBuilder
     private var discoverUnavailableContent: some View {
-        ContentUnavailableView {
-            Label("Discovery Needs Sonarr or Radarr", systemImage: "sparkle.magnifyingglass")
-        } description: {
-            Text("Add a Sonarr or Radarr server in Settings to search for and add new movies and shows.")
-        } actions: {
-            Button {
-                showArrSetupSheet = true
-            } label: {
-                Label("Add Server", systemImage: "plus")
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-            }
-            .buttonStyle(.glass)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        ServiceSetupView(
+            title: "Discovery Needs Sonarr or Radarr",
+            message: "Add a Sonarr or Radarr server in Settings to search for and add new movies and shows.",
+            systemImage: "sparkle.magnifyingglass",
+            actionTitle: "Add Server",
+            onSetup: { showArrSetupSheet = true }
+        )
     }
 
     @ViewBuilder
@@ -680,17 +680,11 @@ struct SearchView: View {
                 ContentUnavailableView.search(text: viewModel.searchText)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ContentUnavailableView {
-                    Label("Search Failed", systemImage: "exclamationmark.triangle")
-                } description: {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("The request reached Sonarr and/or Radarr but the API returned an error.")
-                        ForEach(lookupErrors) { error in
-                            lookupErrorLine(error)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ServiceErrorView(
+                    title: "Search Failed",
+                    message: lookupErrors.map { "\($0.service): \($0.message)" }.joined(separator: "\n\n"),
+                    onRetry: { await viewModel.performArrLookup(term: viewModel.searchText) }
+                )
             }
         } else {
             List {
@@ -842,35 +836,12 @@ struct SearchView: View {
 
     @ViewBuilder
     private func lookupErrorsCard(_ errors: [ArrLookupError]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Label("API Errors", systemImage: "exclamationmark.triangle.fill")
-                .font(.headline)
-                .foregroundStyle(.orange)
-
-            Text("One or more discovery requests failed. These are API responses rather than empty search results.")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-
-            ForEach(errors) { error in
-                lookupErrorLine(error)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    @ViewBuilder
-    private func lookupErrorLine(_ error: ArrLookupError) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(error.service)
-                .font(.subheadline.weight(.semibold))
-            Text(error.message)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        ServiceErrorView(
+            title: "Search Partially Unavailable",
+            message: errors.map { "\($0.service): \($0.message)" }.joined(separator: "\n\n"),
+            hasContent: true,
+            onRetry: { await viewModel.performArrLookup(term: viewModel.searchText) }
+        )
     }
 
     private func isInLibrary(_ item: TMDbItem) -> Bool {

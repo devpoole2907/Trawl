@@ -102,6 +102,12 @@ struct RadarrMovieListView: View {
                         instances: serviceManager.badgeRefs(for: entry)
                     )
                 },
+                // Forwarded, which it was not. `RadarrMovieListView` declared the
+                // binding and took it in its initialiser but never handed it on, so
+                // on iPad the movies list drove nothing and the detail column sat on
+                // "Select a movie" no matter what was tapped. Series worked because
+                // `SonarrSeriesListView` passes the same argument.
+                detailSelection: detailSelection,
                 detailDestination: { key in
                     RadarrMovieDetailView(mergeKey: key, viewModel: vm)
                 }
@@ -168,20 +174,7 @@ struct RadarrMovieListView: View {
     @ViewBuilder
     private var radarrUnavailableContent: some View {
         if !serviceManager.hasRadarrInstance {
-            ContentUnavailableView {
-                Label("Radarr Not Set Up", systemImage: ServiceIdentity.radarr.tabSystemImage)
-            } description: {
-                Text("Add a Radarr server in Settings to manage your movies.")
-            } actions: {
-                Button {
-                    showSetupSheet = true
-                } label: {
-                    Label("Add Server", systemImage: "plus")
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                }
-                .buttonStyle(.glass)
-            }
+            ServiceSetupView(title: "Radarr Not Set Up", message: "Add a Radarr server in Settings to manage your movies.", systemImage: ServiceIdentity.radarr.tabSystemImage, actionTitle: "Add Server", onSetup: { showSetupSheet = true })
             .scrollableUnavailableState()
         } else if serviceManager.radarrIsConnecting || serviceManager.isInitializing {
             ArrServiceConnectionStatusView(

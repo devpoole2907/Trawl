@@ -166,19 +166,13 @@ struct SeerrRequestDetailView: View {
             .padding(.vertical, 14)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
         } else if let detailError {
-            VStack(spacing: 4) {
-                Text("Details Unavailable")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(detailError)
-                    .font(.footnote)
-                    .foregroundStyle(.white.opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 14)
-            .padding(.horizontal, 12)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16))
+            ServiceErrorView(
+                title: "Details Unavailable",
+                message: detailError,
+                identity: .seerr,
+                hasContent: true,
+                onRetry: { await loadDetail() }
+            )
         }
 
         if let onDelete {

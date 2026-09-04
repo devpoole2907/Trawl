@@ -141,11 +141,7 @@ struct BazarrProvidersView: View {
     @ViewBuilder
     private var serviceContent: some View {
         if !serviceManager.hasBazarrInstance {
-            ContentUnavailableView(
-                "Bazarr Not Set Up",
-                systemImage: "captions.bubble",
-                description: Text("Add a Bazarr server in Settings to manage subtitle providers.")
-            )
+            ServiceSetupView(title: "Bazarr Not Set Up", message: "Add a Bazarr server in Settings to manage subtitle providers.", systemImage: "captions.bubble")
             .scrollableUnavailableState()
             .background(backgroundGradient)
         } else if client == nil {
@@ -163,11 +159,13 @@ struct BazarrProvidersView: View {
     private var contentView: some View {
         List {
             if let errorMessage {
-                Section("Unavailable") {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Providers Unavailable",
+                    message: errorMessage,
+                    identity: .bazarr,
+                    hasContent: !enabledProviderKeys.isEmpty,
+                    onRetry: { await load() }
+                )
             }
 
             if searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -178,7 +176,7 @@ struct BazarrProvidersView: View {
             if isLoading && enabledProviderKeys.isEmpty {
                 loadingRows
             } else if filteredProviders.isEmpty {
-                emptyState
+                if errorMessage == nil { emptyState }
             } else {
                 Section("Enabled Providers") {
                     ForEach(filteredProviders) { provider in

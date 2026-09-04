@@ -20,8 +20,39 @@ enum ConfigurationIssueKind: String, Hashable, Sendable, CaseIterable {
     case rootFolderInaccessible
     case rootFolderShared
     case noIndexers
+    case noAutomaticIndexer
     case missingProwlarrApplication
+    case prowlarrSyncDisabled
+    case prowlarrDetectedButNotConnected
     case bazarrAppNotLinked
+    case bazarrPointsElsewhere
+    case bazarrNoLanguageProfile
+    case bazarrNoProvider
+    case downloadClientCategoryShared
+    case remotePathMappingMissing
+    case serviceHealthError
+    case serviceHealthWarning
+    case seerrNotInitialized
+    case seerrMissingDVR
+    case seerrNoDefaultDVR
+    case seerrDVRIncomplete
+    case cleanuparrNotReady
+}
+
+/// Which part of the app a finding is about.
+///
+/// Derived from the kind rather than stored, so a new check cannot forget to declare
+/// one. It exists for the contextual banners: the Downloads screen shows what stops
+/// downloads working and nothing else, and asking it to know which of fifteen kinds
+/// those are would put the audit's taxonomy into every screen that reads it.
+enum ConfigurationIssueTopic: String, Hashable, Sendable, CaseIterable {
+    case connection
+    case downloads
+    case library
+    case search
+    case subtitles
+    case requests
+    case maintenance
 }
 
 /// How much this matters.
@@ -64,7 +95,13 @@ enum ConfigurationFixDestination: Hashable, Sendable {
     case prowlarrIndexers
     case prowlarrApplications
     case bazarrLinkedApplications(instanceID: UUID)
+    case bazarrLanguageProfiles(instanceID: UUID)
+    case bazarrProviders(instanceID: UUID)
     case serviceSettings(ArrServiceType, instanceID: UUID?)
+    case arrRemotePathMappings
+    case arrHealth
+    case seerrLinkedApplications
+    case cleanuparr
 }
 
 /// What can be done about an issue.
@@ -148,16 +185,75 @@ struct ConfigurationIssue: Identifiable, Hashable, Sendable {
             "arrow.down.circle"
         case .noRootFolder, .rootFolderInaccessible, .rootFolderShared:
             "folder"
-        case .noIndexers:
+        case .noIndexers, .noAutomaticIndexer:
             "magnifyingglass"
-        case .missingProwlarrApplication, .bazarrAppNotLinked:
+        case .missingProwlarrApplication, .prowlarrSyncDisabled,
+             .bazarrAppNotLinked, .bazarrPointsElsewhere:
             "link"
+        case .prowlarrDetectedButNotConnected:
+            "sparkle.magnifyingglass"
+        case .bazarrNoLanguageProfile:
+            "globe.badge.chevron.backward"
+        case .bazarrNoProvider:
+            "captions.bubble"
+        case .downloadClientCategoryShared:
+            "tray.2"
+        case .remotePathMappingMissing:
+            "arrow.triangle.branch"
+        case .serviceHealthError, .serviceHealthWarning:
+            "stethoscope"
+        case .seerrNotInitialized, .seerrMissingDVR, .seerrNoDefaultDVR, .seerrDVRIncomplete:
+            "person.crop.circle.badge.questionmark"
+        case .cleanuparrNotReady:
+            "sparkles"
+        }
+    }
+
+    var topic: ConfigurationIssueTopic { kind.topic }
+}
+
+extension ConfigurationIssueKind {
+    /// A connection or health fault is `.connection` wherever it was raised: it is
+    /// the reason every other check on that server is unknown, so a screen that
+    /// filters to its own topic would otherwise show nothing at all while the server
+    /// it depends on is unreachable. `contextualTopics` below is what a screen uses.
+    var topic: ConfigurationIssueTopic {
+        switch self {
+        case .serviceUnreachable, .configurationUnavailable,
+             .serviceHealthError, .serviceHealthWarning:
+            .connection
+        case .noDownloadClient, .downloadClientsAllDisabled, .downloadClientElsewhere,
+             .downloadClientUnused, .downloadClientCategoryShared, .remotePathMappingMissing:
+            .downloads
+        case .noRootFolder, .rootFolderInaccessible, .rootFolderShared:
+            .library
+        case .noIndexers, .noAutomaticIndexer, .missingProwlarrApplication,
+             .prowlarrSyncDisabled, .prowlarrDetectedButNotConnected:
+            .search
+        case .bazarrAppNotLinked, .bazarrPointsElsewhere,
+             .bazarrNoLanguageProfile, .bazarrNoProvider:
+            .subtitles
+        case .seerrNotInitialized, .seerrMissingDVR, .seerrNoDefaultDVR, .seerrDVRIncomplete:
+            .requests
+        case .cleanuparrNotReady:
+            .maintenance
         }
     }
 }
 
 extension Array where Element == ConfigurationIssue {
     var problems: [ConfigurationIssue] { filter { $0.severity == .problem } }
+
+    /// The findings a screen about `topic` should show.
+    ///
+    /// Connection and health faults come along with every topic on purpose: they are
+    /// the reason that topic's own checks could not be run, so a Downloads screen
+    /// filtering them out would give a clean bill of health for a server it cannot
+    /// reach - the exact failure the unknown severity exists to prevent.
+    func concerning(_ topic: ConfigurationIssueTopic) -> [ConfigurationIssue] {
+        filter { $0.topic == topic || $0.topic == .connection }
+    }
+
     var unknowns: [ConfigurationIssue] { filter { $0.severity == .unknown } }
     var notes: [ConfigurationIssue] { filter { $0.severity == .note } }
 

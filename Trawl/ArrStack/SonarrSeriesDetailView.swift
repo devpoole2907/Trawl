@@ -41,6 +41,11 @@ struct SonarrSeriesDetailView: View {
     @State private var selectedCastMember: CastPersonRoute?
     /// Filmography tap captured while the cast sheet is up; navigation runs after
     /// the sheet dismisses so the push doesn't race the dismissal animation.
+    /// Present only on the iPad three-column chrome. When it is, a title picked from
+    /// the cast sheet changes what the detail pane is showing rather than stacking a
+    /// third screen on top of the second one, with the list the user is picking from
+    /// still beside it.
+    @Environment(\.selectLibraryTitle) private var selectLibraryTitle
     @State private var pendingCastCredit: TMDbPersonCredit?
     @State private var castCreditMovie: RadarrMovie?
     @State private var castCreditSeries: SonarrSeries?
@@ -565,7 +570,11 @@ struct SonarrSeriesDetailView: View {
             let resolver = ArrMediaLookupResolver(serviceManager: serviceManager)
             if credit.isMovie {
                 if let resolved = await resolver.resolveMovie(tmdbId: credit.id) {
-                    castCreditMovie = resolved
+                    if let selectLibraryTitle {
+                        selectLibraryTitle(resolved.mergeKey)
+                    } else {
+                        castCreditMovie = resolved
+                    }
                 } else {
                     InAppNotificationCenter.shared.showError(
                         title: "Couldn't Open Title",
@@ -574,7 +583,11 @@ struct SonarrSeriesDetailView: View {
                 }
             } else {
                 if let resolved = await resolver.resolveSeries(tmdbId: credit.id) {
-                    castCreditSeries = resolved
+                    if let selectLibraryTitle {
+                        selectLibraryTitle(resolved.mergeKey)
+                    } else {
+                        castCreditSeries = resolved
+                    }
                 } else {
                     InAppNotificationCenter.shared.showError(
                         title: "Couldn't Open Title",

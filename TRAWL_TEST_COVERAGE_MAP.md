@@ -40,6 +40,7 @@ Use this map before changing production behavior. It identifies the focused suit
 
 | `Trawl/DownloadsStack/DownloadsListChrome.swift`, `DownloadListItem.batchTarget` — the Downloads tab's one toolbar and its mixed selection | `TrawlTests/DownloadsBatchSelectionTests.swift`; `TrawlUITests/DownloadsJourneyUITests.swift`; `TrawlUITests/NavigationSmokeWalkUITests.swift` | The tab shows three lists — blended, SABnzbd, qBittorrent — through one toolbar, so each list publishes its capabilities into `DownloadsListChrome` rather than drawing buttons of its own. `reset()` is load-bearing: a value left behind by the previous list is a button acting on rows that are no longer on screen, which is why the test asserts every field and closure clears. `batchTarget` is the other half — a row in the blended list is a torrent, a SABnzbd job, an *arr queue row, or history, and only the first two name something a client can act on. An *arr row resolves to whichever download it is a *view of*, so pausing it pauses the real thing; an unlinked row and a history row resolve to nothing and are skipped and counted, because a batch that treated them as done would report more successes than it performed. Fixtures decode from real qBittorrent and SABnzbd payloads rather than being built field by field, so a model gaining a field cannot silently drift. Selection itself is `List`'s, not hand-drawn: the rows are `NavigationLink`s, which edit mode disables on its own, so there is no second tap handler to keep in step and no re-derived chrome to get wrong — the hand-rolled version applied its transparent row background to only one of its two branches, which over the services gradient rendered every selected-mode row as an opaque black block. `selectionDisabled` now refuses the rows `batchTarget` resolves to nothing for, so a history row cannot be ticked at all rather than being ticked and then silently dropped from the batch. |
 | `DownloadsViewModel.activity(of:linkedTorrent:linkedSABJob:)` — which section a blended download row sits in | `TrawlTests/DownloadsBatchSelectionTests.swift` ("Downloads active/queue classification") | The blended list and the client-scoped lists have to agree about what a download is doing, and they didn't. A blended row backed by a download client was filed by the *arr's state, but `ArrQueueItem.normalizedState` is the *import* lifecycle — downloading, importPending, imported — and stays "downloading" while the client has the job paused. So one paused SABnzbd download read as Active in the blended list and Queue under the SABnzbd scope: the same download, filed by two different sources of truth depending only on which scope was on screen. The client wins whenever it has an opinion, because it is the only one that knows whether bytes are moving; when its state is terminal (seeding, completed, errored) the work left is the import, so the *arr decides. That fallback is not a nicety — it is what keeps the function total. The old code was a plain `isActive` / `!isActive` split, so every non-issue row landed in exactly one section, and a client-derived pair of predicates is not a complement. A test walks every status combination asserting a row is always in one section or the other, because losing that drops downloads off the tab entirely rather than misfiling them. |
+| `ArrAddDestinationState.execute(targets:itemName:failureReason:operation:)` — what a failed add tells the user | `TrawlTests/ArrDualInstanceTests.swift` ("Arr dual instance"); `TrawlUITests/ArrSearchAddJourneyUITests.swift` | A 500 from Sonarr reached the add sheet as "Could not add to Sonarr", with the server's own words gone. The reason lives in `ArrLibraryViewModel.error`, which is *shared library state*: `loadLibraryItems` clears it, so any library reload racing the add wipes the message before the sheet renders. `execute` therefore reads the reason through `failureReason` at the point of failure and folds it into `failureMessage`, which belongs to the sheet and nothing else touches. The unit test pins that ordering by wiping the stand-in error immediately after the operation returns; the journey pins the whole path against a fixture that answers the add with a real 500. |
 
 ## Download clients and transport
 
@@ -94,9 +95,12 @@ Use this map before changing production behavior. It identifies the focused suit
 
 | Production surface | Owning tests | What the tests pin, and why it matters |
 | --- | --- | --- |
-| `Trawl/Diagnostics/ConfigurationAudit.swift`, `ConfigurationSnapshot` — reconciling what each service has been told about the others | `TrawlTests/ConfigurationAuditTests.swift`; `TrawlUITests/ConfigurationAuditJourneyUITests.swift` | Nothing else in the app checks that Trawl, Sonarr/Radarr, Prowlarr and Bazarr agree about each other, so a wrong answer here is silent in both directions: a fault nobody is told about, or a warning about a setup that is fine. The fetching is split into `ConfigurationAuditStore` and every rule is a pure function of `ConfigurationSnapshot`, which is what lets the suite build the wiring it wants to describe instead of standing up servers. Three properties are load-bearing and each has its own test. **Per instance, never unioned:** a pair does not share download clients, so a 4K server with none at all must be reported even while its HD partner is healthy — the older `DownloadClientLinkChecker` unions across a service and cannot see it. **Optional means "could not ask":** a server that was down when the audit ran reports nothing, because claiming a link is broken when we simply could not look sends the user hunting for a problem that isn't there. **Host *and* port for Prowlarr:** an HD/4K pair is normally one machine on two ports, and matching on hostname alone — reusing the download-client comparison, which has no port available — made Prowlarr's entry for one answer for both, so the server genuinely getting no indexers was never reported. Loopback spellings still fold together, and a trailing slash is not a second root folder. The journey is the half that proves a finding reaches the user: the Sonarr fixture answers `/downloadclient` with an empty array — a real answer, not a failure — and the test walks More → System → Setup Check to the wizard naming the missing client. It caught the audit working perfectly behind a dead button, because `.sheet` was attached to a `Section` inside a `List` and never presented. |
+| `Trawl/Diagnostics/ConfigurationAudit.swift`, `ConfigurationSnapshot` — reconciling what each service has been told about the others | `TrawlTests/ConfigurationAuditTests.swift`; `TrawlUITests/ConfigurationAuditJourneyUITests.swift` | Nothing else in the app checks that Trawl, Sonarr/Radarr, Prowlarr, Bazarr, Seerr and Cleanuparr agree about each other, so a wrong answer here is silent in both directions: a fault nobody is told about, or a warning about a setup that is fine. The fetching is split into `ConfigurationAuditStore` and every rule is a pure function of `ConfigurationSnapshot`, which is what lets the suite build the wiring it wants to describe instead of standing up servers. **Per instance, never unioned or visibility-filtered:** every enabled profile is audited, so a disconnected or filtered-out 4K server cannot hide behind a healthy HD partner. **Unknown is not healthy:** a failed configuration read - including a failed `/health` read - produces an explicit unknown finding and prevents the wizard from showing an all-clear result. **Download-client identity includes host and port:** multiple Trawl endpoints of one kind are compared individually, so two qBittorrent instances on one host do not collapse together. **Finding identity includes the related endpoint/service/path:** two Bazarr links or shared paths on one subject cannot collide and dismiss one another. **Host *and* port for Prowlarr, plus the app type and sync level:** an HD/4K pair is normally one machine on two ports, matching on hostname alone makes Prowlarr's entry for one answer for both, an entry for Radarr is not evidence Sonarr gets indexers, and an entry whose sync level is disabled syncs nothing at all. **Arr's own health is a finding, weighted by source:** `DownloadClientStatusCheck` and its neighbours are things Trawl cannot see from outside and become problems; an update notice from the same server stays a note; an `error` is a problem whoever raised it. **Indexers are counted twice:** having any enabled indexer and having one that RSS or automatic search can use are different facts, and an interactive-only setup never grabs anything on its own. **Categories and remote paths:** two servers sharing one client endpoint *and* one category will import each other's downloads, which is a problem; a client on another host with no path mapping is only a note, because an identical mount is the common case and Arr's own `RemotePathMappingCheck` covers the failing one. **Seerr and Cleanuparr are topology, not decoration:** an uninitialised Seerr, a missing or defaultless DVR entry, or one with no root folder or profile all accept a request and then drop it; Cleanuparr already decides its own readiness and the audit now reads it. Loopback spellings still fold together, and a trailing slash is not a second root folder. The journeys prove findings reach all three user entry points: the Sonarr fixture answers `/downloadclient` with an empty array — a real answer, not a failure — then one test walks More → System → Setup Check, one opens the notifications sheet's live System Attention card, and one reads the Downloads screen's contextual banner. The card is backed by the shared store and must not be inserted into notification history, which can be marked read or cleared. **Contextual banners are hidden on a UI-test launch** (`ConfigurationAttention.isContextuallyVisible`) for the reason the discovery tips are: nearly every suite in the target asserts on a screen one would sit above. `testDownloadsShowsSetupAttentionForADownloadClientFault` opts back in through `TRAWL_UITEST_SHOW_ATTENTION`, and `testAnOrdinaryTestLaunchShowsNoContextualBanner` is the guard that proves an ordinary launch stays silent while the audit has genuinely found something. |
 
 | `DownloadListItem.sortedByDownloadOrder(_:)` - the Downloads list sort | `TrawlTests/DownloadsHistorySortPerformanceTests.swift` | The History section froze the tab. `DownloadsView.items` passed `sortValues` - a *computed* property - straight into `.sorted`, so the key was rebuilt roughly `2 n log n` times rather than `n`; for an `.arrHistory` row that key costs a string interpolation, an event-name formatter lookup and two dictionary reads. Measured at 2,000 rows: **0.18s rebuilt per comparison against 0.034s built once**. Three things stack only on History - it is the largest list (everything ever grabbed, across both services and both instances of each, where Active and Queue hold only what is in flight), its rows are the most expensive to key, and its dates tie constantly (history arrives in bursts, and unparseable dates all collapse to `.distantPast`), so nearly every comparison falls through to the `localizedCaseInsensitiveCompare` tiebreaker. `items` is a computed property on the *view*, so all of it re-ran on every body evaluation while the polling services ticked. The suite pins both halves: the timing, and that the helper produces **byte-identical ordering** to the direct comparator across every criterion - a faster sort that reorders the list is not a fix. Note this is the same mistake twice in one path: `HistoryItem.sortDate` already carries a comment about being parsed once at construction for exactly this reason, one layer down. |
+
+| `ProwlarrIndexerOrigin`, and the Indexers nudge that uses it | `TrawlTests/ConfigurationAuditTests.swift` ("Configuration audit"); `TrawlUITests/ConfigurationAuditJourneyUITests.swift` (`testIndexersScreenOffersToAddAProwlarrItCanSee`) | Prowlarr does not announce itself, and Sonarr and Radarr keep no record that an indexer was synced rather than typed in - so a user whose indexers are managed somewhere Trawl cannot see gets an Indexers screen that lists them with no explanation. The one mark Prowlarr does leave is that it proxies every indexer it manages under its own numeric id, so a synced entry points at `<prowlarr>/<id>/api` while a hand-added Newznab points at the tracker. That distinction is the whole check, and it is what the unit tests pin from both sides: the proxy path is recognised (including behind a reverse-proxy URL base), a tracker URL that merely ends in `/api` is not, and the most-seen address wins so one stray entry cannot outvote a real sync. **The answer has to be stable across orderings** - ties break alphabetically - because the address is the finding's `discriminator`, and an id that moves between audits is a dismissal that stops sticking. It is a **note, never a problem**: nothing is broken, and managing Prowlarr in a browser is a reasonable choice. The journey proves the nudge reaches the wizard *about that finding* - `focusedKind` - rather than dropping the user into an unrelated repair step, which is what it did before the wizard learned to open focused. |
+| `ConfigurationWizardView` notes, and `focusedKind` | `TrawlUITests/ConfigurationAuditJourneyUITests.swift` | Notes were rendered as static rows, so a note carrying a fix destination - "review your download clients", "add the Prowlarr that is managing these" - offered a button nothing could reach. They are now links, while still staying out of the numbered repair sequence: a note is something to know, not something to be marched through. `focusedKind` is the other half: a caller that opens the wizard *about* one finding gets that finding, with the rest of the check one tap behind it. |
 
 ## Screens that had never been rendered
 
@@ -207,6 +211,24 @@ every subsequent tap.
 | `TrawlApp.init()` → `TrawlTips.configure()`; presentation in `DownloadsView`, `ArrMediaListView`, `ArrCalendarView` | `TrawlUITests/TipsPresentationUITests.swift` | Each tip is asserted on the surface it is anchored to, using the `TRAWL_UITEST_SHOW_TIP` override — which forces one tip past its own rules, so a presentation test does not have to manufacture three detail openings or a second launch. The quick-actions case runs on a **single**-instance library on purpose: that is the case `.firstAvailable` grouping exists for, and an `.ordered` group would leave those users never seeing it. |
 | The UI-test hide, in `TrawlTips.applyTestingOverridesIfNeeded()` | `TrawlUITests/TipsPresentationUITests.swift` (`testOrdinaryLaunchesShowNoTips`) | **This one protects the rest of the target.** A popover anchored to a toolbar item swallows the taps aimed at it, and an inline tip pushes the first library row down past where a test expects it — so a new tip that forgets the hide breaks unrelated journeys in a way that reads as *those screens* being broken. The test seeds the richest configuration the tips care about (two download clients, two Sonarr instances), so every state rule is satisfied, and asserts all four titles are absent anyway. |
 
+**A `.popoverTip` in a `.principal` toolbar item never presents.** The queue-switch
+tip was anchored to `DownloadsView`'s title menu and simply did not appear - not
+because of its rules, and not because of the `Menu` it sat on (an anchor beside the
+menu behaves the same). `.principal` replaces the navigation title, and popovers from
+there do not show. It is now an inline `TipView` in a top safe-area inset immediately
+below the bar. A `.popoverTip` on an ordinary toolbar button is fine, which is what
+`ArrCalendarView` still uses and what `testCalendarSubscribeTipAppearsOnTheSubscribeButton`
+holds in place.
+
+**Two things made that test unrepeatable, and both are fixed in production.** The tip
+datastore outlives the app install, so `TrawlTips.applyTestingOverridesIfNeeded()` now
+calls `Tips.resetDatastore()` on a UI-test launch - `-TrawlUITestInMemoryStore` already
+means "this launch keeps nothing", and the tips were the last thing that did. And the
+queue-switch tip was invalidated from `onChange(of: titleDestination)`, which More's
+search also triggers by routing to Torrents: the one hint that would have shown someone
+the menu was being spent on a route they took another way. Invalidation now happens
+only through the menu's own binding.
+
 Rules themselves are unit-tested, not UI-tested: whether TipKit evaluates a `#Rule`,
 whether a popover draws, when the daily budget resets — those are Apple's, they need a
 configured datastore, and asserting them in a simulator would be testing the framework
@@ -244,10 +266,70 @@ learn:
   field has two in the tree. `firstMatch` returns the sidebar's — further up the
   hierarchy and further left — and a test typing into it searches the feature index
   instead of the screen, gets nothing, and blames the screen.
+- **One journey is skipped on iPad, and says why.** `SeerrJourneyUITests`'s resolve
+  journey is `XCTSkipIf(TrawlChrome.isSidebar)`: the notification accessory is a
+  full-width bar across the bottom of the window, and the issue screen's own bottom bar
+  lays out underneath it, so the tap opens the notifications sheet instead of resolving
+  anything. That is a product defect - a person cannot resolve a Seerr issue on an iPad
+  either - deliberately deferred while the issue UI is reworked. It is written up in
+  `TRAWL_KNOWN_ISSUES.md`, and the skip is what brings the coverage back the day the
+  chrome is fixed. Skipping is the exception here, not a pattern to copy: a skip
+  without an entry in that file is a hole, not a decision.
+- **`backButton(in:)` on every pushed screen, not `buttons.firstMatch`.** The rule was
+  documented but two suites still spelled it by index;
+  `RadarrSearchAddJourneyUITests` pressed the sidebar toggle instead of Back and then
+  failed on the screen it had never left. The helper itself was also not safe on a bar
+  with trailing actions: query order is not screen order, and on the iPad SABnzbd hub
+  "first" was the Categories screen's trailing **+**, so popping back opened an Add
+  Category sheet. It now prefers UIKit's `BackButton` identifier and otherwise takes
+  the leading-most non-toggle button.
+- **`waitForExistence(in:)` scrolls both ways.** A pushed screen restores its previous
+  offset when it is popped back to, so a row that was above the fold on arrival is
+  still above it - and scrolling only downward walks away from it.
 - **A label that names a destination is ambiguous.** "Series" is the tab bar button on
   iPhone and the sidebar row on iPad, so a menu option of the same name has to be
   disambiguated by position. `ArrBlendedLibraryJourneyUITests` does this against
   whichever neighbour is actually on screen.
+- **The iPhone tab bar minimises itself.** iOS 26 collapses the bar to a single pill
+  carrying the selected tab as soon as the content behind it scrolls, and every other
+  tab leaves the accessibility tree outright — so a query for one fails exactly as it
+  would if the chrome had never appeared. Reaching Settings scrolls More's list far
+  enough to trigger it, which is why a journey that edited a server and then went back
+  to Series reported that the Series tab did not exist. `expandTabBarIfMinimized(in:)`
+  taps the collapsed pill, and `openViaTabBar` calls it before giving up on a tab. It
+  is a *compact*-only failure, so an iPad-only run never sees it.
+- **`.searchable(placement: .automatic)` in a split-view column produces no field.**
+  Running the plan on an iPad destination for the first time found Search with a
+  scope bar, a trending grid, and nowhere to type: iPadOS 26 already carries the
+  sidebar's own `.searchable`, and given `.automatic` it keeps that one and drops the
+  column's. `SearchView.searchFieldPlacement` now names
+  `.navigationBarDrawer(displayMode: .always)` on both chromes. Four journeys were
+  reporting this as "the lookup returned nothing".
+- **A plain-styled button is only tappable where it draws.** The System hub's Setup
+  Check row is a `Button(...) { NavigationMenuRow(...) }.buttonStyle(.plain)`. On an
+  iPhone the row is narrow enough that its centre is over the text; on an iPad the row
+  is over a thousand points wide and its centre is empty space, so tapping it did
+  nothing at all - on the one screen whose job is to say something is wrong. The fix
+  is `.frame(maxWidth: .infinity, alignment: .leading)` **and** `.contentShape` inside
+  the *label*: on the Button it shapes the button rather than the label, and
+  `.contentShape` alone has no width to shape. `testSetupCheckSurfacesAServerWithNoDownloadClient`
+  taps the row's centre deliberately, and is what says so.
+- **The keyboard is a collection view, hosted out of process.** On iPad it is the
+  *last* one, so "take the frontmost scroller" swiped the keyboard: four rounds of
+  "Wait for com.apple.springboard to idle" while the sheet under test sat still.
+  `XCUIApplication.scroller(for:)` excludes it by frame and then narrows to the
+  candidate the target control is horizontally inside, which is what tells a form
+  sheet's list apart from the sidebar beside it.
+- **With a sheet up, `collectionViews.firstMatch` is the list *underneath*.** A setup
+  sheet is presented over Settings, so two lists are on screen and the first in the
+  hierarchy is the background one. `ServiceSetupEditJourneyUITests` swiped it four
+  times while the sheet stayed exactly where it was, then reported that a nonempty
+  form would not enable its confirm button - the button was simply below the keyboard
+  raised by the field just typed into. Its `tap` helper now swipes the *last*
+  candidate, which is the presented one (and on iPad also steps past the sidebar, for
+  the same reason `XCUIElement.contentScroller` skips it). `XCUIElement.contentScroller`
+  still takes the first non-sidebar match; it has not bitten a suite that presents a
+  sheet over a list, and is worth the same treatment when one appears.
 - **"Leaving" a hub is not a pop on iPad.** A sidebar destination is the root of its
   own column, not a push onto More's stack, so there is no back button. The equivalent
   gesture is selecting something else — see `assertHubOpensAndCanBeLeft` in
@@ -268,10 +350,74 @@ xcodebuild -project Trawl.xcodeproj -scheme Trawl \
 One at a time: concurrent simulator runs fake crashes and leave result bundles
 unfinalized.
 
+## The sidebar is the map
+
+The seven hub *screens* are gone from the sidebar chrome. A hub was a screen whose
+entire job was to list the screens under it - which is what a sidebar already is, so
+on a display wide enough to hold one the hub was a click spent on nothing.
+`SidebarSection` now owns six collapsible groups and every screen worth going to is a
+row: 32 of them, against the eleven that came before.
+
+**Both chromes still work, and they work differently, which is the point.**
+`RootTab.moreRoot` says which screen a row roots its stack at; `MoreView` and its hubs
+are untouched, because on iPhone the hub is still how you get there. So the same
+screen is one click away on iPad and three taps away on a phone, and neither route is
+a special case of the other.
+
+**What that means for this target.** `TrawlDestination` is a *screen*, not a route.
+`parentHub` is how a screen says which hub it is filed under on compact, and
+`openViaTabBar` walks More → hub → row on its own. A test therefore names the screen -
+`openDestination(.indexers, in: app)` - and never the route, which is why the same call
+works on both chromes. Asking for a hub itself on the sidebar chrome fails loudly
+rather than selecting something arbitrary: there is nothing there to open, and a
+harness that reported success for that would send the failure somewhere else entirely.
+
+**Setup Check was the one thing that nearly got lost.** Every other row of the System
+hub was promoted, so the hub would have been a screen containing a single item that
+nothing linked to. It is a row of its own now, and `SystemHubView` hides the promoted
+rows on the sidebar chrome rather than repeating a list that is already beside it.
+
+**One name per screen.** The sidebar row, the More row and the navigation bar now agree
+everywhere, because the harness confirms arrival by the bar and a screen that calls
+itself something else is indistinguishable from a screen that never opened. Two names
+were changed to make that true: `SeerrIssueListView` was "Issue Management" under a row
+called Issues, and the Remote Paths row is now "Remote Path Mappings", which is what the
+screen and More's own row already called it.
+
+**The connection fallbacks are the ones to watch.** Every service-backed destination has
+two or three of them — connected, unreachable, not set up — and only the connected
+branch tends to get a title. Indexers had *neither* fallback titled, so with the servers
+down it arrived under a blank bar; Libraries, Sessions, Users and Issues shared a
+fallback that titled itself after the *service*, so they arrived saying "Jellyfin" or
+"Requests". These are invisible when the fixtures are healthy and are exactly what a
+run against unreachable servers catches, which is worth doing deliberately: launch with
+the `TRAWL_UITEST_*_BASE_URL` variables pointed at `http://127.0.0.1:1/...` and walk the
+sidebar.
+
+**Where a two-pane screen puts its title, and why it is not obvious.** The detail pane
+of `TrawlListDetailPanes` holds a `NavigationStack` of its own. Without one, the pane's
+`navigationTitle`, `navigationSubtitle` and `toolbar` are written into the *column's*
+bar — the same bar the screen titles — and being the later sibling they win: selecting
+a row blanked the screen's title, replaced it with the selection's, and moved the
+selection's buttons into the screen's bar.
+
+Setting the title on the panes' parent does **not** fix that, and makes it worse. A
+`navigationTitle` applied to a view that *contains* a navigation container attaches to
+that container, not to the enclosing one — so the title went into the pane's own stack,
+where the detail promptly overrode it, and the column's bar was left with nothing at
+all. The rule that actually holds: **the screen's title goes on the list pane**, which
+contains no navigation container, and the detail's title stays in the pane's own bar
+where it belongs. Both halves are needed; neither works alone.
+
+This is invisible until a row is selected *and* the detail has a title of its own — a
+pane showing `listDetailPlaceholder` has none, so a screen tested only in its empty
+state looks correct while being broken.
+
 ## iPad behaviour
 
 | Production surface | Owning tests | What the tests pin, and why it matters |
 | --- | --- | --- |
+| `DownloadsView.detailSelection`, and `ContentView.detailColumn(for: .downloads)` | `TrawlUITests/IPadSidebarJourneyUITests.swift` (`testOpeningADownloadDoesNotLeaveItInTheDetailColumnOfTheNextDestination`) | Downloads was the last content-column list still pushing with `NavigationLink(destination:)`. A destination link in a split view's *content* column presents into the *detail* column, and that presentation outlives the sidebar selection that made it - so opening a download and then selecting Series left the download's detail sitting on top of the Series column, two destinations on screen at once. The list now drives the column through a selection and the detail is that column's **root**, which is the pattern `ArrMediaListView` already used and the reason Series and Movies never had the bug. The selection names the *screen* rather than the row, so an Arr queue row and the torrent row behind it resolve to one destination; and a selection whose download has left the list is cleared, but nothing is auto-selected - this list churns, and auto-selecting would take the detail column away from whatever the user was reading every time a download finished. On iPhone `detailSelection` is nil and the row keeps its link, so nothing changes there. |
 | `ContentView`'s iPad sidebar; `RootTab.sidebarDestinations`; `MoreView(root:presentation:)` | `TrawlUITests/IPadSidebarJourneyUITests.swift` | The sidebar lists all seven promoted More rows **and does not list More** — both halves are asserted, since checking only that the seven appeared would still pass with More sitting alongside them, which is the arrangement this replaced. Selecting a destination is checked by its *screen* arriving, not by the tap succeeding: an earlier chrome reported taps as successful while the content column never moved. |
 | `ArrMediaListView.detailSelection`, `reconcileSelection` | `TrawlUITests/IPadSidebarJourneyUITests.swift` (`testSeriesOpensOnItsFirstTitle`) | A three-column layout that opens on "Select a series" spends half the display saying nothing. The assertion is on the *detail column's* navigation bar carrying the title, not on the row — the row's title is in the list either way, so matching it would pass even with an empty detail pane. |
 | `MoreSearchIndex` as the sidebar's search; `RootTab.owningSidebarDestination(forSearchCategory:)` | `TrawlUITests/IPadSidebarJourneyUITests.swift` (`testSidebarSearchReachesAScreenThatIsNotASidebarRow`) | On iPad the sidebar's field is the *only* search — More, which used to own one, is not in this chrome. So it searches the same index More does, and the test deliberately looks for Quality Profiles: two levels down under Library Management and not a sidebar row, so a filter over the eleven destination names could never find it. It also asserts the result lands on the hub that owns it, so there is a way back. |
@@ -378,3 +524,9 @@ xcodebuild -project Trawl.xcodeproj -scheme Trawl -testPlan Trawl \
 ```
 
 Every result must be accepted by `python3 Scripts/assert-test-results.py <result bundle>`. An exit code without nonzero test execution is not evidence.
+
+## Shared service availability presentation
+
+| Production surface | Focused coverage to read/run | Current boundary |
+|---|---|---|
+| `ConnectionStatusCard`, `ServiceErrorView`, `ServiceSetupView`; Sonarr connection recovery, Seerr failed requests, mixed qBittorrent/SABnzbd downloads | `TrawlUITests/ServiceUnavailableJourneyUITests.swift`; `SABnzbdUnauthorizedJourneyUITests.swift` | Real loopback paths prove an unavailable Sonarr exposes server editing, a failed Seerr fetch does not claim an empty inbox and Retry reaches the server, and a failed SABnzbd leaves healthy qBittorrent content visible. Screenshots retain the centered and compact presentations. Other migrated service/admin screens share the renderer; their individual retry operations retain existing service suites. Dynamic Type and every per-service layout are manual visual coverage. |

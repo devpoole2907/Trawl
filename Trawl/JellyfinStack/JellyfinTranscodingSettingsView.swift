@@ -59,11 +59,13 @@ struct JellyfinTranscodingSettingsView: View {
     var body: some View {
         Form {
             if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Transcoding Settings Unavailable",
+                    message: errorMessage,
+                    identity: .jellyfin,
+                    hasContent: options != nil,
+                    onRetry: { await loadEncodingOptions() }
+                )
             }
 
             if isLoading && options == nil {
@@ -77,7 +79,7 @@ struct JellyfinTranscodingSettingsView: View {
                 decodingSection
                 qualitySection(options)
                 presetSection
-            } else {
+            } else if errorMessage == nil {
                 ContentUnavailableView(
                     "No Transcoding Settings",
                     systemImage: "cpu",

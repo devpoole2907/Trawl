@@ -112,13 +112,7 @@ struct ArrScheduledTasksView: View {
     var body: some View {
         Group {
             if availableServices.isEmpty {
-                ContentUnavailableView {
-                    Label("No Services Configured", systemImage: "clock.arrow.2.circlepath")
-                } description: {
-                    Text("Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view tasks.")
-                } actions: {
-                    MoreSettingsNavigationLink()
-                }
+                ServiceSetupView(title: "No Services Configured", message: "Add a Sonarr, Radarr, Prowlarr, or Bazarr server in Settings to view tasks.", systemImage: "clock.arrow.2.circlepath")
                 .scrollableUnavailableState()
             } else if !hasAnyConnected {
                 ArrServicesConnectionStatusView(
@@ -189,9 +183,12 @@ struct ArrScheduledTasksView: View {
             if hasTaskSearch {
                 searchResultsList
             } else if let error = currentError {
-                Section {
-                    Text(error).font(.footnote).foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Tasks Unavailable",
+                    message: error,
+                    hasContent: !currentScheduledTasks.isEmpty || !currentBazarrTasks.isEmpty || !currentCommandQueue.isEmpty,
+                    onRetry: { if let instance = selectedInstance { await loadService(instance) } }
+                )
             }
 
             if isCurrentLoading && currentScheduledTasks.isEmpty && currentBazarrTasks.isEmpty {

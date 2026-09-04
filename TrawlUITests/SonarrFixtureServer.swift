@@ -38,6 +38,7 @@ final class SonarrFixtureServer: @unchecked Sendable {
     private let episodesResponseBody: String
     private let episodeFilesResponseBody: String
     private let downloadClientsJSON: String
+    private let indexersJSON: String
     private let logJSON: String
 
     private let lock = NSLock()
@@ -63,11 +64,16 @@ final class SonarrFixtureServer: @unchecked Sendable {
         /// Defaults to none, which is a real answer rather than a failure: a server
         /// with no download client is a state the app has to render.
         downloadClientsJSON: String = "[]",
+        /// Defaults to none, for the same reason. Give it entries whose `baseUrl` is
+        /// a `<host>/<id>/api` proxy path to describe a server whose indexers are
+        /// being synced from Prowlarr.
+        indexersJSON: String = "[]",
         /// Defaults to an empty page, which is a real answer: a server with nothing
         /// logged is a state the Events screen has to render.
         logJSON: String = #"{"page":1,"pageSize":50,"totalRecords":0,"records":[]}"#
     ) async throws {
         self.downloadClientsJSON = downloadClientsJSON
+        self.indexersJSON = indexersJSON
         self.logJSON = logJSON
         self.queue = DispatchQueue(label: "SonarrFixtureServer")
         self.listener = try NWListener(using: .tcp, on: .any)
@@ -174,6 +180,8 @@ final class SonarrFixtureServer: @unchecked Sendable {
             return logJSON
         case ("GET", "/api/v3/downloadclient"):
             return downloadClientsJSON
+        case ("GET", "/api/v3/indexer"):
+            return indexersJSON
         case ("GET", "/api/v3/rootfolder"):
             return "[]"
         case ("GET", "/api/v3/tag"):

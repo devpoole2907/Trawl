@@ -13,6 +13,14 @@ final class CleanuparrServiceManager {
     private(set) var isReady: Bool?
     private(set) var connectionError: String?
 
+    /// Whether a profile exists at all, apart from whether it is reachable.
+    ///
+    /// `activeProfileID` is cleared on every failed connect, so it cannot tell a
+    /// service that was never set up from one that is set up and broken. The
+    /// configuration audit needs that difference: for the first, silence is correct;
+    /// for the second, silence is the bug.
+    private(set) var hasConfiguredProfile = false
+
     func initialize(from profiles: [CleanuparrServiceProfile]) async {
         guard let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first else {
             disconnect()
@@ -22,6 +30,7 @@ final class CleanuparrServiceManager {
     }
 
     func connectService(_ profile: CleanuparrServiceProfile) async {
+        hasConfiguredProfile = true
         isConnecting = true
         connectionError = nil
         defer { isConnecting = false }
@@ -72,6 +81,7 @@ final class CleanuparrServiceManager {
     }
 
     func disconnect() {
+        hasConfiguredProfile = false
         clearConnection()
         connectionError = nil
         isConnecting = false

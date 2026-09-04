@@ -92,10 +92,11 @@ struct ProwlarrTagsListView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else if let errorMessage = viewModel.errorMessage, !viewModel.isLoading, viewModel.tags.isEmpty {
-                ContentUnavailableView(
-                    "Could Not Load Tags",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(errorMessage)
+                ServiceErrorView(
+                    title: "Could Not Load Tags",
+                    message: errorMessage,
+                    identity: .prowlarr,
+                    onRetry: { await viewModel.loadTags() }
                 )
                 .listRowBackground(Color.clear)
             } else if viewModel.tags.isEmpty {

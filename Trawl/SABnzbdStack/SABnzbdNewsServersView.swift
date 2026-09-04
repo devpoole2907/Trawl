@@ -24,11 +24,13 @@ struct SABnzbdNewsServersView: View {
     var body: some View {
         List {
             if let error = serviceManager.newsServersError {
-                Section("Unavailable") {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "News Servers Unavailable",
+                    message: error,
+                    identity: .sabnzbd,
+                    hasContent: !servers.isEmpty,
+                    onRetry: { await serviceManager.refreshNewsServers() }
+                )
             }
 
             if servers.isEmpty {

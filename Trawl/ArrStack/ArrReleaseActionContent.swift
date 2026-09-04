@@ -902,17 +902,11 @@ struct ArrInteractiveSearchBrowser<Destination: View>: View {
         return NavigationStack {
             Group {
                 if let error = searchError, !error.isEmpty {
-                    ContentUnavailableView {
-                        Label("Search Failed", systemImage: "exclamationmark.triangle.fill")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Retry", systemImage: "arrow.clockwise") {
-                            searchError = nil
-                            hasLoaded = false
-                            Task { await loadReleases() }
-                        }
-                    }
+                    ServiceErrorView(title: "Search Failed", message: error, onRetry: {
+                        searchError = nil
+                        hasLoaded = false
+                        await loadReleases()
+                    })
                 } else if releases.isEmpty && hasLoaded {
                     ContentUnavailableView {
                         Label("No Releases Found", systemImage: "magnifyingglass")

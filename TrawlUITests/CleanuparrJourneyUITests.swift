@@ -142,7 +142,7 @@ final class CleanuparrJourneyUITests: XCTestCase {
         )
 
         XCTAssertTrue(
-            openDestination(.automation, in: app),
+            openDestination(.cleanuparr, in: app),
             "Integrations & Automation, which owns the configured Cleanuparr dashboard route, should be reachable."
         )
         XCTAssertTrue(
@@ -182,11 +182,11 @@ final class CleanuparrJourneyUITests: XCTestCase {
                 element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
                 return true
             }
-            if app.collectionViews.firstMatch.exists {
-                app.collectionViews.firstMatch.swipeUp()
-            } else if app.scrollViews.firstMatch.exists {
-                app.scrollViews.firstMatch.swipeUp()
-            }
+            // `scroller(for:)`, not `collectionViews.firstMatch`: on iPad the sidebar,
+            // the content column and the keyboard are all scrollable and all on
+            // screen, and the first one in the hierarchy is never the screen under
+            // test.
+            app.scroller(for: element).swipeUp()
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false
@@ -201,14 +201,23 @@ final class CleanuparrJourneyUITests: XCTestCase {
         let deadline = Date.now.addingTimeInterval(timeout)
         while Date.now < deadline {
             if element.exists, element.isHittable {
-                element.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5)).tap()
+                // SwiftUI exposes the whole Toggle row as the switch element, so the
+                // tap has to find the control at its trailing edge rather than the
+                // Label at its leading one. Offset by points, not by a fraction of the
+                // row: a fraction that lands on the switch in an iPhone's row lands
+                // well short of it in an iPad's, which is three times wider - the tap
+                // registered on the row and the toggle never moved.
+                element
+                    .coordinate(withNormalizedOffset: CGVector(dx: 1, dy: 0.5))
+                    .withOffset(CGVector(dx: -28, dy: 0))
+                    .tap()
                 return true
             }
-            if app.collectionViews.firstMatch.exists {
-                app.collectionViews.firstMatch.swipeDown()
-            } else if app.scrollViews.firstMatch.exists {
-                app.scrollViews.firstMatch.swipeDown()
-            }
+            // `scroller(for:)`, not `collectionViews.firstMatch`: on iPad the sidebar,
+            // the content column and the keyboard are all scrollable and all on
+            // screen, and the first one in the hierarchy is never the screen under
+            // test.
+            app.scroller(for: element).swipeDown()
             _ = element.waitForExistence(timeout: 0.25)
         }
         return false

@@ -239,16 +239,11 @@ struct DirectIndexerSchemaPickerSheet: View {
                     ProgressView("Loading indexer types…")
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if let error = viewModel.schemaError(for: profile.id) {
-                    ContentUnavailableView {
-                        Label("Failed to Load", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(error)
-                    } actions: {
-                        Button("Retry") {
-                            Task { await viewModel.loadSchema(for: profile.id, serviceType: serviceType, force: true) }
-                        }
-                        .buttonStyle(.borderedProminent)
-                    }
+                    ServiceErrorView(
+                        title: "Failed to Load",
+                        message: error,
+                        onRetry: { await viewModel.loadSchema(for: profile.id, serviceType: serviceType, force: true) }
+                    )
                 } else if filteredSchema.isEmpty && !searchText.isEmpty {
                     ContentUnavailableView(
                         "No Results",

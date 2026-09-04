@@ -27,6 +27,21 @@ final class DownloadsNavigator {
     }
 }
 
+/// Which download the split view's detail column is showing.
+///
+/// The Downloads tab is three lists in one - qBittorrent torrents, SABnzbd jobs and
+/// the Arr queues - but every row that opens anything opens one of two screens. So
+/// this names the screen rather than the row: an Arr queue row backed by a torrent
+/// and that torrent's own row are the same destination, and selecting either should
+/// leave the detail column showing the same thing rather than two views of it.
+///
+/// Rows that open nothing - history, and an Arr queue row whose download Trawl cannot
+/// reach - have no case here, which is what makes them unselectable in this mode.
+enum DownloadDetailSelection: Hashable, Sendable {
+    case torrent(hash: String)
+    case sabJob(id: String, name: String)
+}
+
 /// Everything in the Downloads tab that sits one push below the list: the toolbar
 /// overflow destinations, plus the qBittorrent tools that More's search links into.
 enum DownloadsManagementRoute: Hashable {
@@ -95,7 +110,12 @@ struct DownloadsView: View {
     @State private var selectedRowIDs: Set<String> = []
     @State private var showBatchDeleteConfirm = false
 
-    init(initialSection: DownloadSection = .active) {
+    /// Set by the split view's content column, so a tap selects instead of pushing.
+    /// Nil in the tab chrome, where the row keeps its `NavigationLink`.
+    var detailSelection: Binding<DownloadDetailSelection?>?
+
+    init(initialSection: DownloadSection = .active, detailSelection: Binding<DownloadDetailSelection?>? = nil) {
+        self.detailSelection = detailSelection
         _selectedSection = State(initialValue: initialSection)
     }
 
@@ -144,9 +164,28 @@ struct DownloadsView: View {
         // titles, two subtitles, and a polling task that stopped itself when the list
         // it was attached to went away. Those were symptoms of the same mistake.
         downloadsContent
+            // Directly under the title, not anchored to it. A `.popoverTip` on the
+            // `.principal` toolbar item never presented: that placement replaces the
+            // navigation title and its popovers do not appear, whether the tip is
+            // attached to the menu or to a hairline sibling beside it - both were
+            // tried. An inset immediately below the bar is the nearest thing that
+            // does show, it is the same inline treatment the two library tips use,
+            // and the tip's own words say which control to tap.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if showsTitleMenu {
+                    TipView(queueSwitchTip)
+                        .tipBackground(.bar)
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 8)
+                }
+            }
             .trawlTitleMenuShrinksOnScroll($isTitleCompact)
             .toolbar { titleMenuToolbarItem }
             .toolbar { sharedToolbarContent }
+            // A queue that never fills is the symptom; "Sonarr has no download
+            // client" is the cause, and this is the screen the user is looking at
+            // when they notice.
+            .configurationAttention(.downloads)
     }
 
     /// The title menu replaces the navigation title rather than joining it, so
@@ -164,6 +203,25 @@ struct DownloadsView: View {
     /// condition, so the popover cannot be anchored to a control that is not drawn.
     private func updateQueueSwitchTipEligibility() {
         DownloadsQueueSwitchTip.isEligible = showsTitleMenu
+    }
+
+    /// The title menu's own selection, told apart from the app changing lists by
+    /// itself.
+    ///
+    /// Invalidating the tip on `titleDestination` alone was too broad: More's search
+    /// can route to Torrents, which sets the same state without the user ever finding
+    /// the menu - and the invalidation is permanent, so the one hint that would have
+    /// shown them the menu was spent on a route they took another way. Only a change
+    /// that arrives *through* the menu counts as having done the thing.
+    private var userChosenTitleDestination: Binding<DownloadsTitleDestination> {
+        Binding(
+            get: { titleDestination },
+            set: { newValue in
+                guard newValue != titleDestination else { return }
+                titleDestination = newValue
+                queueSwitchTip.invalidate(reason: .actionPerformed)
+            }
+        )
     }
 
     /// The title doubles as the switch between this tab's three lists.
@@ -184,13 +242,9 @@ struct DownloadsView: View {
                     options: availableTitleDestinations.map {
                         TrawlTitleMenuOption(value: $0, title: $0.title, systemImage: $0.systemImage)
                     },
-                    selection: $titleDestination,
+                    selection: userChosenTitleDestination,
                     isCompact: isTitleCompact
                 )
-                // Anchored to the menu itself rather than floated over the screen:
-                // the whole point of the tip is *which* control to tap, and a
-                // popover that points at it says that better than any sentence.
-                .popoverTip(queueSwitchTip)
             }
         }
     }
@@ -290,8 +344,13 @@ struct DownloadsView: View {
 
                     Divider()
 
-                    Button("Client Management", systemImage: "server.rack") {
-                        managementRoute = .clients
+                    // Same reasoning as Calendar: Download Clients, qBittorrent and
+                    // SABnzbd are sidebar rows on iPad and Mac, so the shortcut into
+                    // them only earns its place in the tab chrome.
+                    if !isDrivingDetailColumn {
+                        Button("Client Management", systemImage: "server.rack") {
+                            managementRoute = .clients
+                        }
                     }
 
                     Button("Blocklist", systemImage: "hand.raised.slash.fill") {
@@ -409,9 +468,6 @@ struct DownloadsView: View {
                 editMode = .inactive
                 selectedRowIDs.removeAll()
                 publishChrome()
-                // The user just did the thing the tip exists to explain. Anything
-                // further would be the app narrating a gesture back at them.
-                queueSwitchTip.invalidate(reason: .actionPerformed)
             }
             .onAppear { updateQueueSwitchTipEligibility() }
             .onChange(of: showsTitleMenu) { _, _ in updateQueueSwitchTipEligibility() }
@@ -461,15 +517,7 @@ struct DownloadsView: View {
             // Reachable from More's search even with no torrent client configured, so
             // it points at Client Management - the place in *this* tab where you'd add
             // one - rather than at Settings.
-            ContentUnavailableView {
-                Label("qBittorrent Not Set Up", systemImage: ServiceIdentity.qbittorrent.systemImage)
-            } description: {
-                Text("Add a qBittorrent server to use its transfer stats, categories, and RSS tools.")
-            } actions: {
-                Button("Client Management") {
-                    managementRoute = .clients
-                }
-            }
+            ServiceSetupView(title: "qBittorrent Not Set Up", message: "Add a qBittorrent server to use its transfer stats, categories, and RSS tools.", systemImage: ServiceIdentity.qbittorrent.systemImage, actionTitle: "Client Management", onSetup: { managementRoute = .clients })
             .scrollableUnavailableState()
         } else {
             switch route {
@@ -530,29 +578,22 @@ struct DownloadsView: View {
             // has to say so. Showing an empty list instead would report "no
             // downloads" for a server that is simply refusing to answer - and an
             // expired API key would look exactly like an idle queue.
-            ContentUnavailableView {
-                Label(scopedFailure.title, systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(scopedFailure.message)
-            } actions: {
-                Button("Retry") { scopedFailure.retry() }
-            }
-            .scrollableUnavailableState()
+            ServiceErrorView(
+                title: scopedFailure.title,
+                message: scopedFailure.message,
+                identity: scopedFailure.identity,
+                onRetry: { scopedFailure.retry() }
+            )
         } else if let errorMessage = arrServiceManager.queueError,
                   items.isEmpty,
                   syncService.torrents.isEmpty,
                   !hasQBittorrentServer,
                   !hasSABnzbdServer {
-            ContentUnavailableView {
-                Label("Downloads Unavailable", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(errorMessage)
-            } actions: {
-                Button("Retry") {
-                    Task { await viewModel.refresh(serviceManager: arrServiceManager) }
-                }
-            }
-            .scrollableUnavailableState()
+            ServiceErrorView(
+                title: "Downloads Unavailable",
+                message: errorMessage,
+                onRetry: { await viewModel.refresh(serviceManager: arrServiceManager) }
+            )
         } else {
             // Keep the List mounted even when filtering yields zero results so the
             // segment-bar search field doesn't lose keyboard focus the moment the
@@ -583,23 +624,13 @@ struct DownloadsView: View {
     @ViewBuilder
     private var sabnzbdConnectionWarning: some View {
         if hasSABnzbdServer, let message = sabnzbdServiceManager.connectionError {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: "exclamationmark.triangle.fill")
-                    .foregroundStyle(.orange)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("SABnzbd Unavailable")
-                        .font(.subheadline)
-                        .fontWeight(.medium)
-                    Text(message)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityElement(children: .combine)
+            ServiceErrorView(
+                title: "SABnzbd Unavailable",
+                message: message,
+                identity: .sabnzbd,
+                hasContent: true,
+                onRetry: { await sabnzbdServiceManager.refresh() }
+            )
         }
     }
 
@@ -607,6 +638,7 @@ struct DownloadsView: View {
     /// cannot answer. Nil on the blended list, which still has other clients' rows
     /// to show and its own empty state to fall back on.
     private struct ScopedFailure {
+        let identity: ServiceIdentity
         let title: String
         let message: String
         let retry: () -> Void
@@ -618,35 +650,34 @@ struct DownloadsView: View {
             return nil
         case .sabQueue:
             guard let message = sabnzbdServiceManager.connectionError else { return nil }
-            return ScopedFailure(title: "SABnzbd Unavailable", message: message) {
+            return ScopedFailure(identity: .sabnzbd, title: "SABnzbd Unavailable", message: message) {
                 Task { await sabnzbdServiceManager.refresh() }
             }
         case .torrents:
             guard let error = syncService.lastError else { return nil }
-            return ScopedFailure(title: "qBittorrent Unavailable", message: error.localizedDescription) {
+            return ScopedFailure(identity: .qbittorrent, title: "qBittorrent Unavailable", message: error.localizedDescription) {
                 Task { await syncService.refreshNow() }
             }
         }
+    }
+
+    /// True while the list is driving a detail column rather than pushing.
+    ///
+    /// Editing wins when both are available: a split view still needs multi-select
+    /// while the user is picking rows to delete, and the two selections cannot share
+    /// one `List` - one is a set of row ids, the other an optional destination.
+    private var isDrivingDetailColumn: Bool {
+        detailSelection != nil && !editMode.isEditing
     }
 
     private var list: some View {
         // Rows drop their `NavigationLink` while editing (see `rowLink`), so
         // selecting never fights with pushing and there is no second tap handler to
         // keep in step.
-        List(selection: $selectedRowIDs) {
+        selectableList {
             ForEach(items) { item in
-                row(for: item)
-                    // A row that names no client cannot be acted on - a history
-                    // entry, or an *arr queue row whose download Trawl can't reach.
-                    // Making those unselectable is stricter than the hand-rolled
-                    // version, which let them be ticked and then dropped them from
-                    // the batch without saying so.
-                    .selectionDisabled(item.batchTarget == nil)
+                listRow(for: item)
             }
-            // The list draws over the services gradient with its own background
-            // hidden, so a row that keeps the default `systemBackground` punches an
-            // opaque block through it - black in dark mode.
-            .listRowBackground(Color.clear)
         }
         .listStyle(.plain)
         .scrollContentBackground(.hidden)
@@ -655,6 +686,104 @@ struct DownloadsView: View {
         #endif
         .animation(.default, value: items.map(\.id))
         .animation(.snappy, value: editMode.isEditing)
+        .onChange(of: items.map(\.id)) { _, _ in reconcileDetailSelection() }
+    }
+
+    /// Drops the detail column's selection once the download it names has left the
+    /// list.
+    ///
+    /// Deliberately not the libraries' rule, which also *opens* the first row on
+    /// arrival. A library is a stable list where landing on something beats landing
+    /// on an empty pane; this list churns - downloads finish and disappear on their
+    /// own - and auto-selecting would take the detail column away from whatever the
+    /// user was reading every time it did. Clearing a selection that no longer exists
+    /// is the half that is unambiguously right: the alternative is a detail view of a
+    /// download that has gone.
+    private func reconcileDetailSelection() {
+        guard let detailSelection, let current = detailSelection.wrappedValue else { return }
+        guard !items.contains(where: { detailDestination(for: $0) == current }) else { return }
+        detailSelection.wrappedValue = nil
+    }
+
+    @ViewBuilder
+    private func selectableList<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        if let detailSelection, !editMode.isEditing {
+            List(selection: detailSelection) { content() }
+        } else {
+            List(selection: $selectedRowIDs) { content() }
+        }
+    }
+
+    /// One row, tagged for whichever selection the list is currently running.
+    ///
+    /// The tag is applied only while the detail column is being driven: a `.tag` of
+    /// the wrong type is silently ignored by `List`, and leaving a destination tag on
+    /// a row whose list selects by id is exactly the kind of mismatch that shows up
+    /// later as "selection stopped working" rather than as a compile error.
+    @ViewBuilder
+    private func listRow(for item: DownloadListItem) -> some View {
+        if isDrivingDetailColumn, let destination = detailDestination(for: item) {
+            row(for: item)
+                // The tag is the destination itself, not an optional wrapping one:
+                // `List` matches a tag against its selection by type, and an
+                // `Optional<DownloadDetailSelection>` tag never matches a
+                // `DownloadDetailSelection` selection - the rows simply stop
+                // selecting, with nothing to say why.
+                .tag(destination)
+                .listRowBackground(detailRowBackground(for: item))
+        } else if isDrivingDetailColumn {
+            row(for: item)
+                .selectionDisabled(true)
+                .listRowBackground(Color.clear)
+        } else {
+            row(for: item)
+                // A row that names no client cannot be acted on - a history
+                // entry, or an *arr queue row whose download Trawl can't reach.
+                // Making those unselectable is stricter than the hand-rolled
+                // version, which let them be ticked and then dropped them from
+                // the batch without saying so.
+                .selectionDisabled(item.batchTarget == nil)
+                // The list draws over the services gradient with its own background
+                // hidden, so a row that keeps the default `systemBackground` punches
+                // an opaque block through it - black in dark mode.
+                .listRowBackground(Color.clear)
+        }
+    }
+
+    /// What this row opens in the detail column, if anything.
+    ///
+    /// An Arr queue row resolves to whichever client is actually carrying the grab,
+    /// which is the same screen that client's own row opens. That is deliberate: the
+    /// two rows are two views of one download, and selecting either should leave the
+    /// detail column showing the same thing.
+    private func detailDestination(for item: DownloadListItem) -> DownloadDetailSelection? {
+        switch item {
+        case .torrent(let torrent):
+            return .torrent(hash: torrent.hash)
+        case .sab(let job):
+            return .sabJob(id: job.id, name: job.name)
+        case .arrQueue(_, _, let linkedTorrent, let linkedSABJob, _):
+            if let linkedTorrent { return .torrent(hash: linkedTorrent.hash) }
+            if let linkedSABJob { return .sabJob(id: linkedSABJob.id, name: linkedSABJob.name) }
+            return nil
+        case .arrHistory:
+            return nil
+        }
+    }
+
+    /// Rows are transparent so the services gradient shows through, and that
+    /// transparency also swallows the system's selection tint - the row driving the
+    /// detail column looked exactly like every other row. So it is drawn here.
+    @ViewBuilder
+    private func detailRowBackground(for item: DownloadListItem) -> some View {
+        if let destination = detailDestination(for: item),
+           destination == detailSelection?.wrappedValue {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.accentColor.opacity(0.16))
+                .padding(.vertical, 2)
+        } else {
+            Color.clear
+        }
     }
 
     // MARK: - Batch actions across mixed rows
@@ -791,19 +920,28 @@ struct DownloadsView: View {
         items.filter { selectedRowIDs.contains($0.id) }
     }
 
-    /// A row that pushes when tapped normally, and is plain content while editing.
+    /// A row that pushes when tapped normally, and is plain content while editing or
+    /// while a detail column is being driven.
     ///
     /// `List` disables `NavigationLink`s in edit mode so its own tap can select the
     /// row - but a disabled link dims everything inside its label, so every row went
     /// grey the moment Select was pressed while still being perfectly selectable.
     /// Removing the link rather than letting it be disabled keeps the row at full
     /// strength; selection is the List's either way.
+    ///
+    /// The same applies beside a detail column, for a different reason. A
+    /// `NavigationLink(destination:)` in a split view's *content* column presents
+    /// into the *detail* column, and that presentation outlives the sidebar selection
+    /// that made it: opening a download and then switching to Series swapped the
+    /// detail column's root underneath while the download detail stayed sitting on
+    /// top of it. Driving the column from state instead is what the libraries already
+    /// do - see `ArrMediaListView.itemRow`.
     @ViewBuilder
     private func rowLink<Destination: View, Label: View>(
         @ViewBuilder destination: () -> Destination,
         @ViewBuilder label: () -> Label
     ) -> some View {
-        if editMode.isEditing {
+        if editMode.isEditing || isDrivingDetailColumn {
             label()
         } else {
             NavigationLink(destination: destination(), label: label)

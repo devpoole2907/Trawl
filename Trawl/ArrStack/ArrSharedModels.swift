@@ -203,6 +203,20 @@ nonisolated enum ArrIndexerProtocol: String, Codable, Sendable {
     }
 }
 
+extension ArrManagedIndexer {
+    /// The address this indexer points at.
+    ///
+    /// Newznab and Torznab both call it `baseUrl`. Read by the configuration audit to
+    /// work out whether Prowlarr is managing these entries - see
+    /// `ProwlarrIndexerOrigin`.
+    var baseURLDisplayValue: String? {
+        fields?
+            .first { $0.name?.caseInsensitiveCompare("baseUrl") == .orderedSame }?
+            .value?
+            .displayString
+    }
+}
+
 nonisolated struct ArrManagedIndexer: Codable, Identifiable, Sendable, ArrAPIIdentifiable {
     let id: Int
     var name: String?
@@ -1431,6 +1445,20 @@ nonisolated struct ArrDownloadClient: Codable, Identifiable, Sendable {
 
     var portDisplayValue: String? {
         fields?.first(where: { $0.name?.lowercased() == "port" })?.value?.displayString
+    }
+
+    /// The category this client tags the server's downloads with.
+    ///
+    /// Sonarr calls it `tvCategory`, Radarr `movieCategory`, and some clients simply
+    /// `category`, so all three are accepted. It is the only thing keeping two
+    /// servers that share one client from importing each other's downloads, which is
+    /// why the configuration audit reads it.
+    var categoryDisplayValue: String? {
+        let names = ["category", "tvcategory", "moviecategory", "musiccategory"]
+        return fields?
+            .first { names.contains($0.name?.lowercased() ?? "") && !($0.value?.displayString ?? "").isEmpty }?
+            .value?
+            .displayString
     }
 
     func updatingField(named fieldName: String, with value: ArrIndexerFieldValue) -> ArrDownloadClient {

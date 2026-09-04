@@ -48,7 +48,7 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         let app = launchApp(sonarrBaseURL: sonarr.baseURL, bazarrBaseURL: nil)
 
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A configured Sonarr launch should reach the app chrome.")
-        XCTAssertTrue(openDestination(.system, in: app), "The System hub should be reachable.")
+        XCTAssertTrue(openDestination(.logs, in: app), "Logs should be reachable.")
 
         let logs = firstButton(labelContaining: "Logs", in: app)
         XCTAssertTrue(tapWhenHittable(logs, in: app, timeout: 12), "System should expose Logs.")
@@ -83,7 +83,7 @@ final class ArrUncoveredScreensJourneyUITests: XCTestCase {
         // chrome. Each step asserts where it landed: a CONTAINS match reports a
         // successful tap even when it hits the wrong row, which is what made this
         // fail three steps later.
-        XCTAssertTrue(openDestination(.libraryManagement, in: app), "Library Management should be reachable.")
+        XCTAssertTrue(openDestination(.subtitles, in: app), "Subtitles should be reachable.")
 
         let subtitles = firstButton(labelContaining: "Subtitles", in: app)
         XCTAssertTrue(tapWhenHittable(subtitles, in: app, timeout: 12), "Library Management should expose the Subtitles area for a configured Bazarr.")

@@ -52,12 +52,14 @@ struct JellyfinSessionsView: View {
     @ViewBuilder
     private func sessionsContent(_ viewModel: JellyfinSessionsViewModel) -> some View {
         List {
-            if let error = viewModel.errorMessage, viewModel.sessions.isEmpty {
-                Section {
-                    Text(error)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = viewModel.errorMessage {
+                ServiceErrorView(
+                    title: "Sessions Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !viewModel.sessions.isEmpty,
+                    onRetry: { await viewModel.refresh() }
+                )
             }
 
             if viewModel.isLoading && viewModel.sessions.isEmpty {
@@ -66,12 +68,14 @@ struct JellyfinSessionsView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if viewModel.sessions.isEmpty {
-                ContentUnavailableView(
-                    "No Active Sessions",
-                    systemImage: "play.slash",
-                    description: Text("No playback sessions are currently active on Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if viewModel.errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Active Sessions",
+                        systemImage: "play.slash",
+                        description: Text("No playback sessions are currently active on Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(viewModel.sessions) { session in

@@ -131,9 +131,13 @@ final class NavigationSmokeWalkUITests: XCTestCase {
         let app = try await launchWithSonarrAndSABnzbd()
         waitForRootChrome(app)
 
-        for hub in [TrawlDestination.missing, .libraryManagement, .requestsAndAccess,
-                    .mediaServer, .automation, .system, .settings] {
-            assertHubOpensAndCanBeLeft(app, hub)
+        // One per section rather than the old seven hubs, which no longer exist as
+        // destinations on the sidebar chrome - their contents are sidebar rows. The
+        // question this asks is unchanged: does each of these open, and can you leave
+        // it again by whatever gesture the running chrome provides?
+        for destination in [TrawlDestination.missing, .subtitles, .users,
+                            .jellyfinSessions, .indexers, .setupCheck, .settings] {
+            assertHubOpensAndCanBeLeft(app, destination)
         }
     }
 
@@ -293,36 +297,29 @@ final class NavigationSmokeWalkUITests: XCTestCase {
     func testAutomationAndSystemHubChildrenRenderWithoutCrashing() async throws {
         let app = try await launchWithSonarrAndSABnzbd()
         waitForRootChrome(app)
-        XCTAssertTrue(
-            openDestination(.automation, in: app),
-            "Screen: 'Integrations & Automation' should open AutomationAndClientsHubView."
-        )
-
-        assertRowPushesAndPops(app, rowLabel: "Indexers", expectedTitle: "Indexers")
-        assertRowPushesAndPops(app, rowLabel: "Cleanuparr", expectedTitle: "Cleanuparr")
-        assertRowPushesAndPops(app, rowLabel: "Linked Applications", expectedTitle: "Linked Applications")
-        assertRowPushesAndPops(app, rowLabel: "Download Clients", expectedTitle: "Download Clients")
-        assertRowPushesAndPops(app, rowLabel: "Remote Path Mappings", expectedTitle: "Remote Path Mappings")
-        assertRowPushesAndPops(app, rowLabel: "Tasks", expectedTitle: "Tasks")
+        // Each of these is a destination in its own right now, on both chromes -
+        // a sidebar row on iPad, a hub row on iPhone - so the walk opens each one
+        // rather than opening a hub and tapping down through its list. The question is
+        // unchanged: does the real screen render, rather than an empty state or a
+        // trap on a missing environment object, which is what N-02 was.
+        for destination in [TrawlDestination.indexers, .cleanuparr, .linkedApplications,
+                            .downloadClients, .remotePaths, .tasks] {
+            XCTAssertTrue(
+                openDestination(destination, in: app),
+                "Screen: '\(destination.title)' should open."
+            )
+        }
 
         // One level deeper: Tasks -> Arr Tasks, visible because Sonarr is configured.
-        let tasksRow = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", "Tasks")).firstMatch
-        XCTAssertTrue(tasksRow.waitForExistence(in: app, timeout: 10), "Screen: Integrations & Automation should list 'Tasks' again.")
-        tasksRow.tap()
-        XCTAssertTrue(app.navigationBars["Tasks"].waitForExistence(timeout: 10), "Screen: 'Tasks' should push TasksHubView.")
+        XCTAssertTrue(openDestination(.tasks, in: app), "Screen: 'Tasks' should open.")
         assertRowPushesAndPops(app, rowLabel: "Arr Tasks", expectedTitle: "Tasks")
-        popBack(app, fromTitle: "Tasks")
 
-        XCTAssertTrue(
-            openDestination(.system, in: app),
-            "Screen: 'System' should open SystemHubView after a walk through Integrations & Automation."
-        )
-
-        assertRowPushesAndPops(app, rowLabel: "Health", expectedTitle: "Health")
-        assertRowPushesAndPops(app, rowLabel: "Disk Space", expectedTitle: "Disk Space")
-        assertRowPushesAndPops(app, rowLabel: "Logs", expectedTitle: "Logs")
-        assertRowPushesAndPops(app, rowLabel: "Updates", expectedTitle: "Updates")
-        assertRowPushesAndPops(app, rowLabel: "Backups", expectedTitle: "Backups")
+        for destination in [TrawlDestination.health, .diskSpace, .logs, .updates, .backups] {
+            XCTAssertTrue(
+                openDestination(destination, in: app),
+                "Screen: '\(destination.title)' should open."
+            )
+        }
     }
 
     // MARK: - 5. Arr calendar (from the Series toolbar) and Settings' service rows

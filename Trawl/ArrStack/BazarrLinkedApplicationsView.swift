@@ -35,9 +35,11 @@ struct BazarrLinkedApplicationsListView: View {
     @State private var loadingInstanceIDs: Set<UUID> = []
     @State private var editorTarget: BazarrLinkedApplicationTarget?
     private let previewState: BazarrLinkedApplicationsPreviewState?
+    private let initialInstanceID: UUID?
 
-    init() {
+    init(initialInstanceID: UUID? = nil) {
         previewState = nil
+        self.initialInstanceID = initialInstanceID
     }
 
     private func settings(for instanceID: UUID) -> [String: JSONValue] {
@@ -54,7 +56,11 @@ struct BazarrLinkedApplicationsListView: View {
     }
 
     private var availableInstances: [ArrInstanceRef] {
-        serviceManager.bazarrRefs
+        serviceManager.bazarrRefs.sorted { lhs, rhs in
+            if lhs.id == initialInstanceID { return true }
+            if rhs.id == initialInstanceID { return false }
+            return lhs.ordinal < rhs.ordinal
+        }
     }
 
     private var isLoadingEverything: Bool {
@@ -65,10 +71,10 @@ struct BazarrLinkedApplicationsListView: View {
     var body: some View {
         List {
             if availableInstances.isEmpty {
-                ContentUnavailableView(
-                    "No Bazarr Servers",
-                    systemImage: "captions.bubble",
-                    description: Text("Connect Bazarr to manage the apps it syncs from.")
+                ServiceSetupView(
+                    title: "No Bazarr Servers",
+                    message: "Connect Bazarr to manage the apps it syncs from.",
+                    systemImage: "captions.bubble"
                 )
                 .listRowBackground(Color.clear)
             } else if isLoadingEverything {
@@ -110,9 +116,13 @@ struct BazarrLinkedApplicationsListView: View {
     private func instanceSection(_ instance: ArrInstanceRef) -> some View {
         Section {
             if let errorMessage = errorMessage(for: instance.id) {
-                Label(errorMessage, systemImage: "exclamationmark.triangle")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                ServiceErrorView(
+                    title: "\(instance.displayName) Unavailable",
+                    message: errorMessage,
+                    identity: .bazarr,
+                    hasContent: availableInstances.count > 1,
+                    onRetry: { await loadAll() }
+                )
             } else if isLoading(for: instance.id) {
                 ProgressView()
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -267,6 +277,7 @@ extension BazarrLinkedApplicationsListView {
         isLoading: Bool = false,
         errorMessage: String? = nil
     ) {
+        initialInstanceID = nil
         previewState = BazarrLinkedApplicationsPreviewState(
             settings: previewSettings,
             isLoading: isLoading,

@@ -70,10 +70,11 @@ struct SeerrLinkedApplicationsView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                 }
             } else if let error = viewModel.errorMessage, viewModel.entries.isEmpty {
-                ContentUnavailableView(
-                    "Could Not Load Apps",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(error)
+                ServiceErrorView(
+                    title: "Could Not Load Apps",
+                    message: error,
+                    identity: .seerr,
+                    onRetry: { await viewModel.loadAll() }
                 )
                 .listRowBackground(Color.clear)
             } else if viewModel.entries.isEmpty {

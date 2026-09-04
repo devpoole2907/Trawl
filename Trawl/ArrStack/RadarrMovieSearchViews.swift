@@ -199,7 +199,11 @@ struct RadarrAddToLibrarySheet: View {
         isAdding = true
         defer { isAdding = false }
 
-        let success = await addState.execute(targets: targets, itemName: movie.title) { target, profileID, folderPath in
+        let success = await addState.execute(
+            targets: targets,
+            itemName: movie.title,
+            failureReason: { viewModel.error }
+        ) { target, profileID, folderPath in
             await viewModel.addMovie(
                 title: movie.title,
                 tmdbId: tmdbId,

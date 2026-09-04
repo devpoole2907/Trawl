@@ -4,7 +4,6 @@ struct SeerrIssueListView: View {
     let apiClient: SeerrAPIClient
 
     @State private var viewModel: SeerrIssueListViewModel
-    @State private var errorAlert: ErrorAlertItem?
     @State private var issueSearchText = ""
     @State private var isSearchExpanded = false
 
@@ -18,7 +17,7 @@ struct SeerrIssueListView: View {
             issueContentView
         }
         .background(backgroundGradient)
-        .navigationTitle("Issue Management")
+        .navigationTitle("Issues")
         .navigationSubtitle("Seerr")
 #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -41,12 +40,7 @@ struct SeerrIssueListView: View {
         .onChange(of: issueSearchText) { _, newValue in
             Task { await viewModel.updateSearchIssues(for: newValue) }
         }
-        .errorAlert(item: $errorAlert)
-        .onChange(of: viewModel.errorMessage) { _, message in
-            guard let message else { return }
-            errorAlert = ErrorAlertItem(title: "Issue Load Failed", message: message)
-            viewModel.clearError()
-        }
+
     }
 
     @ViewBuilder
@@ -59,7 +53,7 @@ struct SeerrIssueListView: View {
             emptyTitle: "No Issues",
             emptyIcon: "checkmark.bubble",
             emptyDescription: query.isEmpty ? "No issues match the current status filter." : "No issues match your search.",
-            onRetry: { Task { await viewModel.loadIssues() } }
+            onRetry: { await viewModel.loadIssues() }
         ) {
             List {
                 if query.isEmpty {

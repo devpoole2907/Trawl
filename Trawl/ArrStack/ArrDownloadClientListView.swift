@@ -23,8 +23,9 @@ struct ArrDownloadClientListView: View {
     /// lists once a pair exists.
     @State private var selectedInstanceID: UUID?
 
-    init(serviceType: ArrServiceType) {
+    init(serviceType: ArrServiceType, initialInstanceID: UUID? = nil) {
         self.serviceType = serviceType
+        _selectedInstanceID = State(initialValue: initialInstanceID)
     }
 
     #if DEBUG
@@ -72,11 +73,12 @@ struct ArrDownloadClientListView: View {
         List {
             if !serviceManager.isConnected(serviceType) {
                 Section {
-                    ConnectionIssueRow(
+                    ConnectionStatusCard(
                         identity: serviceType.serviceIdentity,
                         title: isServiceConnecting ? "Connecting to \(serviceType.displayName)" : "\(serviceType.displayName) Unreachable",
                         message: serviceManager.connectionError(serviceType) ?? "Check your server connection and try again.",
                         isConnecting: isServiceConnecting,
+                        presentation: .embedded,
                         onRetry: { Task { await serviceManager.retry(serviceType) } },
                         onEdit: {
                             withAnimation(.snappy) {
@@ -96,10 +98,12 @@ struct ArrDownloadClientListView: View {
                     }
                 }
             } else if let loadError {
-                Section {
-                    Label(loadError, systemImage: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.orange)
-                }
+                ServiceErrorView(
+                    title: "Download Clients Unavailable",
+                    message: loadError,
+                    identity: serviceType.serviceIdentity,
+                    onRetry: { await loadClients() }
+                )
             } else if !supportsDownloadClients {
                 ContentUnavailableView(
                     "Not Supported",

@@ -6,15 +6,18 @@ struct ConnectionStatusCard: View {
         case embedded
     }
 
-    let identity: ServiceIdentity?
+    var identity: ServiceIdentity? = nil
     let title: String
     let message: String
-    let isConnecting: Bool
+    var isConnecting: Bool = false
     var detailTitle: String?
     var detailSubtitle: String?
     var retryTitle = "Retry Connection"
     var editTitle = "Edit Server"
     var presentation: Presentation = .card
+    var systemImage: String?
+    /// Only connection retries are driven by the global scheduler.
+    var showsRetryCountdown = true
     var onRetry: (() -> Void)?
     var onEdit: (() -> Void)?
 
@@ -23,43 +26,25 @@ struct ConnectionStatusCard: View {
         switch presentation {
         case .card:
             cardContent
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         case .embedded:
             embeddedContent
+                .listRowBackground(Color.clear)
+                .listRowSeparator(.hidden)
         }
     }
 
     private var cardContent: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .top, spacing: 14) {
-                statusIcon
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(title)
-                        .font(.headline)
-
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    if let detailTitle {
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text(detailTitle)
-                                .font(.subheadline.weight(.medium))
-                            if let detailSubtitle {
-                                Text(detailSubtitle)
-                                    .font(.footnote)
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                        .padding(.top, 2)
+            ViewThatFits(in: .horizontal) {
+                cardHeader
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack(alignment: .top, spacing: 14) {
+                        statusIcon
+                        cardMessage
                     }
-                }
-
-                if onRetry != nil || onEdit != nil {
                     cardActions
-                } else {
-                    Spacer(minLength: 0)
                 }
             }
 
@@ -73,8 +58,43 @@ struct ConnectionStatusCard: View {
                 .strokeBorder(.quaternary)
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity)
         .animation(.snappy, value: isConnecting)
+    }
+
+    private var cardHeader: some View {
+        HStack(alignment: .top, spacing: 14) {
+            statusIcon
+            cardMessage
+            if onRetry != nil || onEdit != nil {
+                cardActions
+            } else {
+                Spacer(minLength: 0)
+            }
+        }
+    }
+
+    private var cardMessage: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if let detailTitle {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(detailTitle)
+                        .font(.subheadline.weight(.medium))
+                    if let detailSubtitle {
+                        Text(detailSubtitle)
+                            .font(.footnote)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 2)
+            }
+        }
     }
 
     private var cardActions: some View {
@@ -96,7 +116,7 @@ struct ConnectionStatusCard: View {
                                 .foregroundStyle(.primary)
                         }
                     }
-                    .frame(width: 34, height: 34)
+                    .frame(width: 44, height: 44)
                     .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -108,7 +128,7 @@ struct ConnectionStatusCard: View {
                 Button(action: onEdit) {
                     Image(systemName: "pencil")
                         .foregroundStyle(.primary)
-                        .frame(width: 34, height: 34)
+                        .frame(width: 44, height: 44)
                         .contentShape(.circle)
                 }
                 .buttonStyle(.plain)
@@ -167,7 +187,7 @@ struct ConnectionStatusCard: View {
             }
         }
         .padding()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .frame(maxWidth: .infinity, minHeight: 360, maxHeight: .infinity)
         .animation(.snappy, value: isConnecting)
     }
 
@@ -177,7 +197,7 @@ struct ConnectionStatusCard: View {
                 .fill(statusColor.opacity(0.15))
                 .frame(width: 44, height: 44)
 
-            Image(systemName: identity?.systemImage ?? "network.slash")
+            Image(systemName: systemImage ?? identity?.systemImage ?? "network.slash")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(statusColor)
         }
@@ -191,7 +211,7 @@ struct ConnectionStatusCard: View {
                 .controlSize(.regular)
                 .tint(statusColor)
         } else {
-            Image(systemName: identity?.systemImage ?? "network.slash")
+            Image(systemName: systemImage ?? identity?.systemImage ?? "network.slash")
                 .font(.system(size: 102, weight: .semibold))
                 .foregroundStyle(statusColor)
                 .accessibilityHidden(true)
@@ -200,7 +220,7 @@ struct ConnectionStatusCard: View {
 
     @ViewBuilder
     private var connectionTiming: some View {
-        if !isConnecting, onRetry != nil {
+        if showsRetryCountdown, !isConnecting, onRetry != nil {
             ConnectionRetryCountdownView()
                 .transition(.opacity.combined(with: .move(edge: .top)))
         }

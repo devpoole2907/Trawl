@@ -110,16 +110,11 @@ final class MoreSettingsBreadthUITests: XCTestCase {
         bazarrServer = bazarr
 
         let app = launchApp(bazarr: bazarr)
-        openHub(.libraryManagement, in: app)
+        // One call: Subtitles is a sidebar row on iPad and a Library Management row
+        // on iPhone, and `openDestination` walks whichever route the chrome provides.
         XCTAssertTrue(
-            app.navigationBars["Library Management"].waitForExistence(timeout: 10),
-            "Library Management should render after its destination is selected."
-        )
-
-        let subtitles = firstButton(labelContaining: "Subtitles", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(subtitles, in: app),
-            "Library Management should expose its Bazarr subtitle administration route."
+            openDestination(.subtitles, in: app),
+            "Subtitles should be reachable after the seeded launch."
         )
         XCTAssertTrue(
             app.navigationBars["Subtitles"].waitForExistence(timeout: 10),
@@ -162,16 +157,9 @@ final class MoreSettingsBreadthUITests: XCTestCase {
 
         let app = launchApp(sonarr: sonarr, radarr: radarr)
         waitForConnectedMediaServices(in: app, seriesTitle: "Mappings Route Series")
-        openHub(.automation, in: app)
         XCTAssertTrue(
-            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
-            "Integrations & Automation should render its real hub after its destination is selected."
-        )
-
-        let mappings = firstButton(labelContaining: "Remote Path Mappings", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(mappings, in: app),
-            "Integrations & Automation should expose Remote Path Mappings through its service-link section."
+            openDestination(.remotePaths, in: app),
+            "Remote Paths should be reachable after the seeded launch."
         )
         XCTAssertTrue(
             app.navigationBars["Remote Path Mappings"].waitForExistence(timeout: 10),
@@ -203,13 +191,9 @@ final class MoreSettingsBreadthUITests: XCTestCase {
 
         let app = launchApp(sonarr: sonarr, radarr: radarr)
         waitForConnectedMediaServices(in: app, seriesTitle: "Health Route Series")
-        openHub(.system, in: app)
-        XCTAssertTrue(app.navigationBars["System"].waitForExistence(timeout: 10), "The System hub should render its navigation title.")
-
-        let health = firstButton(labelContaining: "Health", in: app)
         XCTAssertTrue(
-            tapWhenHittable(health, in: app),
-            "System should expose its connected-service health route."
+            openDestination(.health, in: app),
+            "Health should be reachable after the seeded launch."
         )
         XCTAssertTrue(app.navigationBars["Health"].waitForExistence(timeout: 10), "Health should render after navigation from System.")
         XCTAssertTrue(
@@ -242,13 +226,9 @@ final class MoreSettingsBreadthUITests: XCTestCase {
             "The Radarr library must load before its Quality Profiles administration route is exercised."
         )
 
-        openHub(.libraryManagement, in: app)
-        XCTAssertTrue(app.navigationBars["Library Management"].waitForExistence(timeout: 10), "Library Management should render after navigation.")
-
-        let qualityProfiles = firstButton(labelContaining: "Quality Profiles", in: app)
         XCTAssertTrue(
-            tapWhenHittable(qualityProfiles, in: app),
-            "Library Management should expose the Quality Profiles route."
+            openDestination(.qualityProfiles, in: app),
+            "Quality Profiles should be reachable after the seeded launch."
         )
         XCTAssertTrue(app.navigationBars["Quality Profiles"].waitForExistence(timeout: 10), "Quality Profiles should render after navigation.")
         XCTAssertTrue(

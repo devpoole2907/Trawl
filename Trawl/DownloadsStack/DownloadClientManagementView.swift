@@ -13,15 +13,79 @@ struct DownloadClientManagementView: View {
     @State private var showSABnzbdSetup = false
     @State private var links: [DownloadClientLink] = []
     @State private var pendingArrLink: DownloadClientLink?
+    /// Which client's hub the detail pane is showing, at regular width. Nil on
+    /// iPhone, where the row pushes instead.
+    @State private var selectedSource: Source?
+    #if os(iOS)
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    #endif
+
+    /// The clients this screen can open. Deliberately not the *Arr* download-client
+    /// lists below - those are wiring, and belong to the server that owns them.
+    private enum Source: String, Hashable {
+        case qbittorrent
+        case sabnzbd
+    }
+
+    private var showsDetailPane: Bool {
+        #if os(iOS)
+        hSizeClass == .regular
+        #else
+        true
+        #endif
+    }
 
     var body: some View {
-        List {
+        // Two panes at regular width: the clients on the left, whichever one you are
+        // working in on the right. Going back to this list for every switch between
+        // qBittorrent and SABnzbd is the sort of thing a sidebar-width display exists
+        // to stop.
+        TrawlListDetailPanes {
+            clientList
+        } detail: {
+            selectedSourceDetail
+        }
+    }
+
+    @ViewBuilder
+    private var selectedSourceDetail: some View {
+        switch selectedSource {
+        case .qbittorrent:
+            QBittorrentClientHubView()
+                .environment(syncService)
+                .environment(torrentService)
+        case .sabnzbd:
+            SABnzbdClientHubView()
+                .environment(sabnzbdServiceManager)
+                .environment(syncService)
+                .environment(torrentService)
+        case nil:
+            listDetailPlaceholder("Select a Client", systemImage: "arrow.down.circle")
+        }
+    }
+
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func sourceRow<Destination: View, Label: View>(
+        _ source: Source,
+        @ViewBuilder destination: @escaping () -> Destination,
+        @ViewBuilder label: () -> Label
+    ) -> some View {
+        if showsDetailPane {
+            label().tag(source)
+        } else {
+            NavigationLink(destination: destination(), label: label)
+        }
+    }
+
+    private var clientList: some View {
+        List(selection: $selectedSource) {
             linkIssueSection
 
             if !qbittorrentServers.isEmpty || !sabnzbdProfiles.isEmpty {
                 Section {
                     if !qbittorrentServers.isEmpty {
-                        NavigationLink {
+                        sourceRow(.qbittorrent) {
                             QBittorrentClientHubView()
                                 .environment(syncService)
                                 .environment(torrentService)
@@ -36,7 +100,7 @@ struct DownloadClientManagementView: View {
                     }
 
                     if !sabnzbdProfiles.isEmpty {
-                        NavigationLink {
+                        sourceRow(.sabnzbd) {
                             SABnzbdClientHubView()
                                 .environment(sabnzbdServiceManager)
                                 // `SABnzbdManagerView` used to sit under this hub and
@@ -101,6 +165,10 @@ struct DownloadClientManagementView: View {
         #else
         .listStyle(.inset)
         #endif
+        // On the *list*, never on the panes around it: the detail pane holds a
+        // `NavigationStack` of its own, and a `navigationTitle` applied to a view
+        // that contains a navigation container attaches to that container instead of
+        // to the column's bar. Set here it reaches the bar the screen actually has.
         .navigationTitle("Download Clients")
         .task(id: linkCheckKey) {
             links = await DownloadClientLinkChecker.check(kinds: trawlClientHosts, serviceManager: arrServiceManager)

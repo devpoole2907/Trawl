@@ -174,7 +174,7 @@ final class SeerrJellyfinUserImportJourneyUITests: XCTestCase {
             ensureRootChromeIsReady(in: app),
             "Seeded Jellyfin and Seerr profiles should take the app past the welcome gate into the real app chrome."
         )
-        XCTAssertTrue(openDestination(.requestsAndAccess, in: app), "The Requests & Access hub should be reachable.")
+        XCTAssertTrue(openDestination(.users, in: app), "Users should be reachable.")
 
         let usersRow = firstButton(labelContaining: "Jellyfin and Seerr accounts", in: app)
         XCTAssertTrue(

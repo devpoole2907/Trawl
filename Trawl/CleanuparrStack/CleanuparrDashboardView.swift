@@ -19,6 +19,16 @@ struct CleanuparrDashboardView: View {
                 Text("Activity comes from Cleanuparr's documented read-only Stats API.")
             }
 
+            if let error = serviceManager.connectionError, serviceManager.stats != nil {
+                ServiceErrorView(
+                    title: "Cleanuparr Unavailable",
+                    message: error,
+                    identity: .cleanuparr,
+                    hasContent: true,
+                    onRetry: { await serviceManager.refresh(hours: timeframeHours, includeDryRun: includeDryRun) }
+                )
+            }
+
             if let stats = serviceManager.stats {
                 Section("Activity") {
                     LabeledContent("Events", value: stats.events.total, format: .number)
@@ -108,11 +118,12 @@ struct CleanuparrDashboardView: View {
                 }
             } else {
                 Section {
-                    ContentUnavailableView {
-                        Label("Cleanuparr Unavailable", systemImage: ServiceIdentity.cleanuparr.tabSystemImage)
-                    } description: {
-                        Text(serviceManager.connectionError ?? "Set up Cleanuparr in Settings to view cleanup activity.")
-                    }
+                    ServiceErrorView(
+                        title: "Cleanuparr Unavailable",
+                        message: serviceManager.connectionError ?? "Set up Cleanuparr in Settings to view cleanup activity.",
+                        identity: .cleanuparr,
+                        onRetry: { await serviceManager.refresh(hours: timeframeHours, includeDryRun: includeDryRun) }
+                    )
                 }
             }
         }

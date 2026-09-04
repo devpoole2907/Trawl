@@ -36,6 +36,9 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     ]
 
     private static let headlineSeries = "Aurora Reach"
+    /// The SABnzbd job `launchOnIPad` seeds, which is the Downloads list's one
+    /// openable row.
+    private static let headlineDownload = "Sidebar Journey NZB"
 
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -116,6 +119,52 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         XCTAssertFalse(
             app.staticTexts["Select a series"].exists,
             "The placeholder should not be showing once a title has been auto-selected."
+        )
+    }
+
+    /// A detail column shows the destination you are on, and nothing else.
+    ///
+    /// The Downloads rows used to be `NavigationLink(destination:)`, and a
+    /// destination link in a split view's *content* column presents into the *detail*
+    /// column - a presentation that outlives the sidebar selection that made it. So
+    /// opening a download and then selecting Series left the download's detail
+    /// sitting on top of the Series column: two destinations on screen at once, one
+    /// of them the one you just left.
+    ///
+    /// The fix is the pattern the libraries already use - the list drives the column
+    /// through a selection and the detail is that column's *root* - and this is what
+    /// says so. Asserted in both directions: the download has to open in the first
+    /// place, or the second half would pass against a column that never worked.
+    @MainActor
+    func testOpeningADownloadDoesNotLeaveItInTheDetailColumnOfTheNextDestination() async throws {
+        let app = try await launchOnIPad()
+
+        XCTAssertTrue(select(app, "Downloads"), "The sidebar should offer Downloads.")
+
+        let jobRow = app.cells
+            .containing(NSPredicate(format: "label CONTAINS[c] %@", Self.headlineDownload))
+            .firstMatch
+        XCTAssertTrue(
+            jobRow.waitForExistence(in: app, timeout: 20),
+            "The seeded SABnzbd job should reach the Downloads list."
+        )
+        jobRow.tap()
+
+        let downloadDetail = app.navigationBars[Self.headlineDownload]
+        XCTAssertTrue(
+            downloadDetail.waitForExistence(timeout: 15),
+            "Selecting a download should open it in the detail column beside the list."
+        )
+
+        XCTAssertTrue(select(app, "Series"), "The sidebar should offer Series.")
+
+        XCTAssertTrue(
+            app.navigationBars[Self.headlineSeries].waitForExistence(timeout: 20),
+            "Series should arrive in the detail column."
+        )
+        XCTAssertFalse(
+            downloadDetail.exists,
+            "The download's detail should not still be on screen after moving to Series - a push into the detail column outlives the destination that made it, which is why the list drives the column by selection instead."
         )
     }
 

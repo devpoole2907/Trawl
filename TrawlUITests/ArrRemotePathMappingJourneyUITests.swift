@@ -185,7 +185,7 @@ final class ArrRemotePathMappingJourneyUITests: XCTestCase {
     private func openMappings(in app: XCUIApplication) {
         XCTAssertTrue(ensureRootChromeIsReady(in: app), "A seeded Sonarr profile should bring the app to its root chrome.")
         XCTAssertTrue(
-            openDestination(.automation, in: app),
+            openDestination(.remotePaths, in: app),
             "Integrations & Automation should be reachable and render its real hub."
         )
 

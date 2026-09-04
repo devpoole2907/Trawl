@@ -102,11 +102,7 @@ struct BazarrLanguageProfilesView: View {
     @ViewBuilder
     private var serviceContent: some View {
         if !serviceManager.hasBazarrInstance {
-            ContentUnavailableView(
-                "Bazarr Not Set Up",
-                systemImage: "captions.bubble",
-                description: Text("Add a Bazarr server in Settings to manage language profiles.")
-            )
+            ServiceSetupView(title: "Bazarr Not Set Up", message: "Add a Bazarr server in Settings to manage language profiles.", systemImage: "captions.bubble")
             .scrollableUnavailableState()
             .background(backgroundGradient)
         } else if client == nil {
@@ -124,17 +120,19 @@ struct BazarrLanguageProfilesView: View {
     private var contentView: some View {
         List {
             if let errorMessage {
-                Section("Unavailable") {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+                ServiceErrorView(
+                    title: "Language Profiles Unavailable",
+                    message: errorMessage,
+                    identity: .bazarr,
+                    hasContent: !profiles.isEmpty,
+                    onRetry: { await load() }
+                )
             }
 
             if isLoading && profiles.isEmpty {
                 loadingRows
             } else if filteredProfiles.isEmpty {
-                emptyState
+                if errorMessage == nil { emptyState }
             } else {
                 Section("Profiles") {
                     ForEach(filteredProfiles) { profile in

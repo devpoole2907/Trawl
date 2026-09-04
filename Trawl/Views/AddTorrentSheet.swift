@@ -372,11 +372,13 @@ struct AddTorrentSheet: View {
     }
 
     private var noClientsState: some View {
-        ContentUnavailableView {
-            Label("No Download Clients", systemImage: "arrow.down.circle")
-        } description: {
-            Text("Add a qBittorrent or SABnzbd server before adding downloads.")
-        }
+        ConnectionStatusCard(
+            title: "No Download Clients",
+            message: "Add a qBittorrent or SABnzbd server before adding downloads.",
+            presentation: .embedded,
+            systemImage: "arrow.down.circle",
+            showsRetryCountdown: false
+        )
         .scrollableUnavailableState()
     }
 

@@ -35,15 +35,7 @@ struct ArrLoadingErrorEmptyView<Content: View>: View {
             ProgressView()
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let error, isEmpty {
-            ContentUnavailableView {
-                Label("Failed to Load", systemImage: "exclamationmark.triangle")
-            } description: {
-                Text(error)
-            } actions: {
-                if let onRetry {
-                    Button("Retry") { Task { await onRetry() } }
-                }
-            }
+            ServiceErrorView(title: "Failed to Load", message: error, onRetry: onRetry)
         } else if isEmpty {
             ContentUnavailableView {
                 Label(emptyTitle, systemImage: emptyIcon)
@@ -53,7 +45,12 @@ struct ArrLoadingErrorEmptyView<Content: View>: View {
                 }
             }
         } else {
-            content
+            VStack(spacing: 0) {
+                if let error {
+                    ServiceErrorView(title: "Failed to Refresh", message: error, hasContent: true, onRetry: onRetry)
+                }
+                content
+            }
         }
     }
 }

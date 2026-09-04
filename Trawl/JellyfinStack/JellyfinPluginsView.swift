@@ -17,12 +17,14 @@ struct JellyfinPluginsView: View {
 
     var body: some View {
         List {
-            if let errorMessage {
-                Section {
-                    Text(errorMessage)
-                        .font(.footnote)
-                        .foregroundStyle(.secondary)
-                }
+            if let error = errorMessage {
+                ServiceErrorView(
+                    title: "Plugins Unavailable",
+                    message: error,
+                    identity: .jellyfin,
+                    hasContent: !plugins.isEmpty,
+                    onRetry: { await loadPlugins() }
+                )
             }
 
             if isLoading && plugins.isEmpty {
@@ -31,12 +33,14 @@ struct JellyfinPluginsView: View {
                         .frame(maxWidth: .infinity)
                 }
             } else if plugins.isEmpty {
-                ContentUnavailableView(
-                    "No Plugins",
-                    systemImage: "puzzlepiece.extension",
-                    description: Text("No plugins were returned by Jellyfin.")
-                )
-                .listRowBackground(Color.clear)
+                if errorMessage == nil {
+                    ContentUnavailableView(
+                        "No Plugins",
+                        systemImage: "puzzlepiece.extension",
+                        description: Text("No plugins were returned by Jellyfin.")
+                    )
+                    .listRowBackground(Color.clear)
+                }
             } else {
                 Section {
                     ForEach(plugins) { plugin in
