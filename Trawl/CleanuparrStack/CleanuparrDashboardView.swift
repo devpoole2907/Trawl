@@ -7,6 +7,19 @@ struct CleanuparrDashboardView: View {
 
     var body: some View {
         List {
+            if !serviceManager.hasConfiguredProfile {
+                // No server, rather than a server that will not answer. The
+                // error card below says "Cleanuparr Unavailable" and offers a
+                // retry, which reads as a broken connection to someone who has
+                // simply never set Cleanuparr up - the same distinction the
+                // subtitle screen draws for Bazarr.
+                ServiceSetupView(
+                    title: "Cleanuparr Not Set Up",
+                    message: "Add a Cleanuparr server in Settings to see cleanup activity, strikes, and job runs.",
+                    systemImage: ServiceIdentity.cleanuparr.systemImage
+                )
+                .listRowBackground(Color.clear)
+            } else {
             Section {
                 Picker("Timeframe", selection: $timeframeHours) {
                     Text("24 Hours").tag(24)
@@ -126,6 +139,7 @@ struct CleanuparrDashboardView: View {
                     )
                 }
             }
+            }
         }
         .navigationTitle("Cleanuparr")
         #if os(iOS)
@@ -133,9 +147,11 @@ struct CleanuparrDashboardView: View {
         #endif
         .tint(ServiceIdentity.cleanuparr.brandColor)
         .task(id: refreshKey) {
+            guard serviceManager.hasConfiguredProfile else { return }
             await serviceManager.refresh(hours: timeframeHours, includeDryRun: includeDryRun)
         }
         .refreshable {
+            guard serviceManager.hasConfiguredProfile else { return }
             await serviceManager.refresh(hours: timeframeHours, includeDryRun: includeDryRun)
         }
     }
