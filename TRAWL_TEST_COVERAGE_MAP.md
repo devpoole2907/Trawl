@@ -501,6 +501,18 @@ one, because none of them is a production bug:
   worse, lands on something else on the open screen and navigates away from it. Those
   steps are wrapped in `if !TrawlChrome.isSidebar`.
 
+**Seven of these suites fail on iPhone, and did so before any of this.** Measured
+rather than assumed: the same four suites were run against `774a039` in a worktree and
+failed on exactly the same seven assertions. They are `ArrDownloadClientsJourney
+UITests.testSonarrDownloadClientsRenderTheServersOwnClient`, `ConfigurationAudit
+JourneyUITests.testSetupCheckSurfacesAServerWithNoDownloadClient` and
+`.testIndexersScreenOffersToAddAProwlarrItCanSee`, both `CleanuparrJourneyUITests`, and
+both `BazarrLinkedAppsJourneyUITests`. The shape is the same in each: More's list
+carries a connection-issues card and a service-unreachable card at the top - the
+fixtures deliberately serve failures - which pushes the hub rows below the fold, and
+these tests wait for a row without scrolling to it. Worth fixing; not caused by the
+iPad pane work, and not fixed by it either.
+
 **Whether a list has a pane beside it is asked of the chrome, not the size class.** A
 `NavigationSplitView`'s content column reports itself `compact` on iPad, so a row that
 decides between selecting and pushing on `horizontalSizeClass` gets it wrong.

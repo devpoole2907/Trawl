@@ -196,7 +196,11 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
     @MainActor
     private func firstRow(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
         let button = firstButton(labelContaining: text, in: app)
-        if button.exists { return button }
+        // Waited for, not merely asked about: the row this wants is
+        // usually the Button, and testing `exists` the instant the screen
+        // opens finds it absent and falls through to a Cell that wraps it -
+        // which is a different element, and tapping it does not always push.
+        if button.waitForExistence(timeout: 3) { return button }
         return app.cells.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
