@@ -450,11 +450,20 @@ pane screens are fixed by the same mechanism but are not yet covered.
 scaled, blurred, safe-area-ignoring backdrop, and `ignoresSafeArea` resolves against
 the *column* rather than the pane - so the backdrop spreads across the list beside it.
 It cannot be contained at the source, because everything inside that modifier is handed
-the column-sized proposal too. `TrawlListDetailPanes` therefore clips the detail *and*
-sets `contentShape(Rectangle())` on it. The clip alone is what shipped first, and it
-hid the overspill without disarming it: the list sat under an invisible sheet of
-artwork and every row stopped responding the moment anything was selected, which reads
-as the whole screen freezing. A clip stops the drawing, not the touches.
+the column-sized proposal too. `TrawlListDetailPanes` therefore masks the detail *and*
+sets `contentShape(Rectangle())` on it. The mask alone is what shipped first, as a
+plain `clipped`, and it hid the overspill without disarming it: the list sat under an
+invisible sheet of artwork and every row stopped responding the moment anything was
+selected, which reads as the whole screen freezing. A clip stops the drawing, not the
+touches.
+
+The mask is a rectangle with negative vertical padding rather than `clipped`, because
+the pane must be clipped *sideways only*. A plain clip also cuts the strip beneath the
+shared navigation bar, and the pane's background with it - so the detail sat under a
+band of bare white while the list's background ran up behind the bar as it should.
+Two bugs that look the same in a screenshot: white above the detail because the bar's
+background was opaque over half the column, and white above the detail because the
+pane was clipped out of it.
 `ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` is the test that
 holds this - it selects a second row *after* a first is already open, which is the only
 thing the frozen build could not do.
@@ -471,6 +480,26 @@ the Series and Movies toolbars, where there is no room.
 `IPadSurfaceCaptureUITests.testCalendarAndMissingOpenBesideAnEmptyPane` pins the
 arrangement: the screen names itself, and the placeholder beside it says nothing is
 selected.
+
+**Three test-harness habits break on a two-pane screen, and all of them read as
+"this screen is unreachable".** They are worth knowing before diagnosing the next
+one, because none of them is a production bug:
+
+- `TrawlChrome.confirmArrival` proved arrival by the navigation bar carrying the
+  destination's title. Every suite that opens Indexers, Download Clients, Linked
+  Applications, Quality Profiles, Tasks, Requests, Calendar or Missing goes through
+  it, so when the bar stopped carrying those names they all failed at their first
+  navigation. It now falls through to the pane header, and `showsScreen(named:)` on
+  `XCUIApplication` is the same test for a suite's own assertions.
+- A row is a `Button` where it pushes and a `Cell` where it selects, so
+  `app.buttons.matching(... CONTAINS ...)` finds nothing on a screen that is plainly
+  full of rows. Suites that need one either way use a local `firstRow`/`row` helper
+  that falls back to `cells.containing`.
+- Several journeys walk the *compact* route explicitly - open the Integrations hub,
+  then tap the row for the screen. There is no hub on the sidebar chrome, so
+  `openDestination` has already arrived and the extra tap either finds nothing or,
+  worse, lands on something else on the open screen and navigates away from it. Those
+  steps are wrapped in `if !TrawlChrome.isSidebar`.
 
 **Whether a list has a pane beside it is asked of the chrome, not the size class.** A
 `NavigationSplitView`'s content column reports itself `compact` on iPad, so a row that

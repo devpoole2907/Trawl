@@ -78,18 +78,25 @@ struct TrawlListDetailPanes<ListContent: View, DetailContent: View>: View {
                 detail
                     .environment(\.isDetailPane, true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    // Detail screens paint full-bleed artwork backgrounds - scaled
-                    // up, blurred, and ignoring the safe area. `ignoresSafeArea`
-                    // resolves against the *column*, not the pane, so that artwork
-                    // spreads across the list beside it; it cannot be contained at
-                    // the source, because everything inside the modifier is handed
-                    // the column-sized proposal too.
+                    // Clipped sideways only. Detail screens paint full-bleed artwork
+                    // backgrounds - scaled up, blurred, and ignoring the safe area -
+                    // and `ignoresSafeArea` resolves against the *column* rather than
+                    // the pane, so that artwork spreads across the list beside it. It
+                    // cannot be contained at the source, because everything inside
+                    // the modifier is handed the column-sized proposal too.
                     //
-                    // `clipped` hides the overspill. `contentShape` is the half that
-                    // was missing: a clip stops the drawing, not the touches, so the
+                    // A plain `clipped` also cuts the strip beneath the shared
+                    // navigation bar, and the pane's background with it: the detail
+                    // then sat under a band of bare white while the list's background
+                    // ran up behind the bar as it should. The mask keeps the pane's
+                    // width and lets it grow past its own top and bottom, which is
+                    // the only direction the overspill needs to be allowed in.
+                    .mask {
+                        Rectangle().padding(.vertical, -600)
+                    }
+                    // A clip stops the drawing, not the touches. Without this the
                     // list sat under an invisible sheet of artwork and its rows
                     // stopped responding the moment anything was selected.
-                    .clipped()
                     .contentShape(Rectangle())
             }
             #if os(iOS)
@@ -97,8 +104,11 @@ struct TrawlListDetailPanes<ListContent: View, DetailContent: View>: View {
             // One bar across two panes, so it is drawn as one. Left to itself each
             // pane's scroll view decides the background over its own half, and the
             // usual answer - list at rest, detail scrolled under - is a bar that is
-            // clear over the list and opaque over the detail, split down the middle.
-            .toolbarBackground(.visible, for: .navigationBar)
+            // clear over the list and opaque white over the detail, split down the
+            // middle. Hidden rather than visible: these screens paint their own
+            // background and it should run the full width behind the bar, which is
+            // what the list half was already doing.
+            .toolbarBackground(.hidden, for: .navigationBar)
             #endif
         } else {
             list
@@ -197,9 +207,37 @@ extension View {
     /// screen around it has moved its own name out to the bar's leading slot rather
     /// than competing for the centre. The suppression this used to do - a pane naming
     /// nothing, so the screen's title survived - is gone with it.
-    func paneAwareNavigationTitle(_ title: String, subtitle: String? = nil) -> some View {
-        self
-            .navigationTitle(title)
-            .navigationSubtitle(subtitle ?? "")
+    /// - Parameter whenPane: what to call this view while it is somebody's detail
+    ///   pane. Some of these views repeat the name of the screen that holds them -
+    ///   the Sonarr download-client list is itself "Download Clients" - and the bar
+    ///   saying what the header beside it already says is the duplication this whole
+    ///   arrangement exists to remove. A pane name replaces the subtitle as well,
+    ///   since the scope is usually what the shorter name *is*.
+    func paneAwareNavigationTitle(
+        _ title: String,
+        subtitle: String? = nil,
+        whenPane paneTitle: String? = nil
+    ) -> some View {
+        modifier(PaneAwareNavigationTitle(title: title, subtitle: subtitle, paneTitle: paneTitle))
+    }
+}
+
+private struct PaneAwareNavigationTitle: ViewModifier {
+    @Environment(\.isDetailPane) private var isDetailPane
+
+    let title: String
+    let subtitle: String?
+    let paneTitle: String?
+
+    func body(content: Content) -> some View {
+        if isDetailPane, let paneTitle {
+            content
+                .navigationTitle(paneTitle)
+                .navigationSubtitle("")
+        } else {
+            content
+                .navigationTitle(title)
+                .navigationSubtitle(subtitle ?? "")
+        }
     }
 }

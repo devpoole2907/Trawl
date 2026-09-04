@@ -145,16 +145,21 @@ final class CleanuparrJourneyUITests: XCTestCase {
             openDestination(.cleanuparr, in: app),
             "Integrations & Automation, which owns the configured Cleanuparr dashboard route, should be reachable."
         )
-        XCTAssertTrue(
-            app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
-            "Tapping Integrations & Automation should push its hub before the Cleanuparr dashboard is selected."
-        )
+        // Compact only. There is no Integrations hub on the sidebar chrome - its
+        // contents are sidebar rows - so `openDestination` has already landed on the
+        // dashboard and there is nothing in between to walk through.
+        if !TrawlChrome.isSidebar {
+            XCTAssertTrue(
+                app.navigationBars["Integrations & Automation"].waitForExistence(timeout: 10),
+                "Tapping Integrations & Automation should push its hub before the Cleanuparr dashboard is selected."
+            )
 
-        let cleanuparrRow = firstButton(labelContaining: "Cleanuparr", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(cleanuparrRow, in: app, timeout: 10),
-            "The Integrations & Automation hub should expose Cleanuparr's dashboard destination."
-        )
+            let cleanuparrRow = firstButton(labelContaining: "Cleanuparr", in: app)
+            XCTAssertTrue(
+                tapWhenHittable(cleanuparrRow, in: app, timeout: 10),
+                "The Integrations & Automation hub should expose Cleanuparr's dashboard destination."
+            )
+        }
         XCTAssertTrue(
             app.navigationBars["Cleanuparr"].waitForExistence(timeout: 10),
             "Tapping Cleanuparr should push CleanuparrDashboardView rather than leaving the user on the Integrations & Automation hub."

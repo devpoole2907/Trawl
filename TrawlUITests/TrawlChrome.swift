@@ -566,10 +566,19 @@ extension XCTestCase {
         // Several screens take a subtitle or the owning server's name in their bar -
         // "Linked Apps / Prowlarr", "Indexers / Prowlarr" - so the title is a prefix
         // rather than the whole of it.
-        return app.navigationBars
+        if app.navigationBars
             .matching(NSPredicate(format: "identifier BEGINSWITH[c] %@", destination.title))
             .firstMatch
-            .waitForExistence(timeout: 3)
+            .waitForExistence(timeout: 3) {
+            return true
+        }
+        // And a screen with a detail pane beside it is not in the bar at all: both
+        // panes share the column's one bar, whose title belongs to whatever the
+        // detail is showing, so the screen's own name is pinned above its list. Every
+        // suite that opens Indexers, Download Clients, Linked Applications, Quality
+        // Profiles, Tasks, Requests, Calendar or Missing reaches this line.
+        let paneName = app.staticTexts[XCUIApplication.listDetailScreenNameIdentifier]
+        return paneName.waitForExistence(timeout: 3) && paneName.label.contains(destination.title)
     }
 
     /// Types into a field, routing the keystrokes through the application rather than

@@ -317,7 +317,8 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
                 "downloadClients",
                 "Download Clients",
                 "Sonarr Download Clients",
-                ["Download Clients", "Sonarr"]
+                // Named for the server, not repeated from the header beside it.
+                ["Sonarr"]
             ),
             (
                 "indexers",

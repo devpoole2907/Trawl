@@ -124,7 +124,7 @@ struct ArrScheduledTasksView: View {
                 taskList
             }
         }
-        .paneAwareNavigationTitle("Tasks", subtitle: hasTaskSearch ? "Search" : (selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? ""))
+        .paneAwareNavigationTitle("Tasks", subtitle: hasTaskSearch ? "Search" : (selectedInstance.map { serviceManager.scopeLabel(for: $0) } ?? ""), whenPane: "Arr Tasks")
         .moreDestinationBackground(.tasks)
         .safeAreaInset(edge: .top) {
             if !availableInstances.isEmpty {

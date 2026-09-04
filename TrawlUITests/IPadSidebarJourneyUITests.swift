@@ -30,9 +30,17 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     private var sabnzbd: SABnzbdFixtureServer?
 
     /// The promoted More rows, in sidebar order.
+    /// Screens the compact chrome files inside More, each of which is a sidebar row
+    /// of its own here.
+    ///
+    /// These were the seven *hub* names until the sidebar grew sections. A hub is a
+    /// screen whose whole job is to list the screens under it, which is what a
+    /// sidebar already is - so the hubs became headings and the screens they
+    /// introduced became rows. Naming the headings here asserted the arrangement this
+    /// replaced, and failed against the one that shipped.
     private static let promotedDestinations = [
-        "Missing", "Library Management", "Requests & Access",
-        "Media Server", "Integrations & Automation", "System", "Settings"
+        "Missing", "Calendar", "Requests", "Indexers",
+        "Download Clients", "Quality Profiles", "Setup Check", "Settings"
     ]
 
     private static let headlineSeries = "Aurora Reach"
@@ -85,13 +93,13 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     func testSelectingAPromotedDestinationOpensIt() async throws {
         let app = try await launchOnIPad()
 
-        for destination in ["Settings", "System", "Missing"] {
+        for destination in ["Settings", "Calendar", "Missing"] {
             XCTAssertTrue(
                 select(app, destination),
                 "Selecting '\(destination)' in the sidebar should open it."
             )
             XCTAssertTrue(
-                app.navigationBars[destination].waitForExistence(timeout: 10),
+                app.showsScreen(named: destination),
                 "'\(destination)' should render its own screen in the content column."
             )
         }
@@ -203,8 +211,8 @@ final class IPadSidebarJourneyUITests: XCTestCase {
             "Choosing a search result should open that screen."
         )
         XCTAssertNotNil(
-            sidebarRow(app, "Library Management"),
-            "The result should land on the hub that owns it, so there is a way back."
+            sidebarRow(app, "Quality Profiles"),
+            "The result should leave its own sidebar row on screen, so there is a way back."
         )
     }
 
@@ -244,12 +252,31 @@ final class IPadSidebarJourneyUITests: XCTestCase {
     /// "Downloads, change view" title menu, and matching by text tapped that instead -
     /// opening a popover that swallowed every later tap in the run.
     @MainActor
+    /// Finds a sidebar row, scrolling the sidebar to reach it.
+    ///
+    /// The sidebar lists every destination in the app and only a dozen fit at once,
+    /// and a `List` does not put off-screen rows in the accessibility tree at all -
+    /// so a plain wait reports Settings, Quality Profiles and everything else below
+    /// the fold as missing, against a sidebar that has them. Both directions, because
+    /// a caller asking for Missing after Settings is asking to go back up.
     private func sidebarRow(_ app: XCUIApplication, _ displayName: String) -> XCUIElement? {
         guard let suffix = Self.identifierSuffix(for: displayName) else { return nil }
         let match = app.cells
             .containing(NSPredicate(format: "identifier == %@", "nav.\(suffix)"))
             .firstMatch
-        return match.waitForExistence(timeout: 5) ? match : nil
+        if match.waitForExistence(timeout: 5) { return match }
+
+        let sidebar = app.collectionViews["Sidebar"]
+        guard sidebar.exists else { return nil }
+        for _ in 0..<8 {
+            sidebar.swipeUp()
+            if match.waitForExistence(timeout: 1) { return match }
+        }
+        for _ in 0..<10 {
+            sidebar.swipeDown()
+            if match.waitForExistence(timeout: 1) { return match }
+        }
+        return nil
     }
 
     @MainActor
@@ -272,11 +299,12 @@ final class IPadSidebarJourneyUITests: XCTestCase {
         case "Search": "search"
         case "More": "more"
         case "Missing": "missing"
-        case "Library Management": "libraryManagement"
-        case "Requests & Access": "requestsAndAccess"
-        case "Media Server": "mediaServer"
-        case "Integrations & Automation": "automation"
-        case "System": "system"
+        case "Calendar": "calendar"
+        case "Requests": "requests"
+        case "Indexers": "indexers"
+        case "Download Clients": "downloadClients"
+        case "Quality Profiles": "qualityProfiles"
+        case "Setup Check": "setupCheck"
         case "Settings": "settings"
         default: nil
         }

@@ -156,11 +156,15 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
             "The Integrations & Automation hub should be reachable."
         )
 
-        let linkedApplications = firstButton(labelContaining: "Linked Applications", in: app)
-        XCTAssertTrue(
-            tapWhenHittable(linkedApplications, in: app, timeout: 12),
-            "Integrations & Automation should expose the Linked Applications hub."
-        )
+        // Compact only: there is no Integrations hub on the sidebar chrome, so
+        // `openDestination` has already landed on Linked Applications itself.
+        if !TrawlChrome.isSidebar {
+            let linkedApplications = firstButton(labelContaining: "Linked Applications", in: app)
+            XCTAssertTrue(
+                tapWhenHittable(linkedApplications, in: app, timeout: 12),
+                "Integrations & Automation should expose the Linked Applications hub."
+            )
+        }
         XCTAssertTrue(
             app.showsScreen(named: "Linked Applications"),
             "The Linked Applications hub should render."
@@ -169,7 +173,9 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
         // Bazarr's links are presented as an integration relationship - "Subtitle
         // Sync" - not under a heading containing the word Bazarr. That naming is a
         // fair part of why this screen had never been opened by a test.
-        let subtitleSync = firstButton(labelContaining: "Subtitle Sync", in: app)
+        // A row, and beside a detail pane a selecting row is a Cell rather than a
+        // Button.
+        let subtitleSync = firstRow(labelContaining: "Subtitle Sync", in: app)
         XCTAssertTrue(
             tapWhenHittable(subtitleSync, in: app, timeout: 12),
             "Linked Applications should expose Subtitle Sync for a configured Bazarr."
@@ -183,6 +189,15 @@ final class BazarrLinkedAppsJourneyUITests: XCTestCase {
     @MainActor
     private func firstButton(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+    }
+
+    /// A row, whichever element the chrome makes of it: a `Button` where it pushes,
+    /// a `Cell` where it selects beside a detail pane.
+    @MainActor
+    private func firstRow(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
+        let button = firstButton(labelContaining: text, in: app)
+        if button.exists { return button }
+        return app.cells.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
     @discardableResult

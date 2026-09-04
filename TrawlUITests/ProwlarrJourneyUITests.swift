@@ -78,12 +78,16 @@ final class ProwlarrJourneyUITests: XCTestCase {
 
         XCTAssertTrue(openDestination(.linkedApplications, in: app), "Linked Applications should be reachable.")
 
-        let linkedApplications = button(containing: "Linked Applications", in: app)
-        XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
-        linkedApplications.tap()
+        if !TrawlChrome.isSidebar {
+            let linkedApplications = button(containing: "Linked Applications", in: app)
+            XCTAssertTrue(linkedApplications.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Linked Applications.")
+            linkedApplications.tap()
+        }
 
-        let indexerSync = button(containing: "Indexer Sync", in: app)
-        XCTAssertTrue(indexerSync.waitForExistence(in: app, timeout: 10), "The linked-applications hub should expose Prowlarr's Indexer Sync route.")
+        // The Indexer Sync row selects beside a detail pane and pushes without one,
+        // so it is a Cell on one chrome and a Button on the other.
+        let indexerSync = row(containing: "Indexer Sync", in: app)
+        XCTAssertTrue(indexerSync.waitForExistence(in: app, timeout: 10), "The linked-applications screen should expose Prowlarr's Indexer Sync route.")
         indexerSync.tap()
 
         XCTAssertTrue(app.navigationBars["Linked Apps"].waitForExistence(timeout: 10), "Indexer Sync should push Prowlarr's linked-app list.")
@@ -175,15 +179,30 @@ final class ProwlarrJourneyUITests: XCTestCase {
     private func openIndexers(in app: XCUIApplication) {
         XCTAssertTrue(openDestination(.indexers, in: app), "Indexers should be reachable.")
 
-        let indexers = button(containing: "Indexers", in: app)
-        XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
-        indexers.tap()
+        // Compact only: there the destination is the Integrations hub and this is the
+        // row that opens Indexers. On the sidebar chrome Indexers *is* the
+        // destination, and a CONTAINS query for a button called "Indexers" against a
+        // screen that is already open matches something else on it and taps that.
+        if !TrawlChrome.isSidebar {
+            let indexers = button(containing: "Indexers", in: app)
+            XCTAssertTrue(indexers.waitForExistence(in: app, timeout: 10), "Integrations & Automation should expose Indexers.")
+            indexers.tap()
+        }
         XCTAssertTrue(app.showsScreen(named: "Indexers"), "Indexers should push ProwlarrIndexerListView.")
     }
 
     @MainActor
     private func button(containing text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+    }
+
+    /// A row, whichever element the chrome makes of it: a `Button` where it pushes,
+    /// a `Cell` where it selects beside a detail pane.
+    @MainActor
+    private func row(containing text: String, in app: XCUIApplication) -> XCUIElement {
+        let button = button(containing: text, in: app)
+        if button.exists { return button }
+        return app.cells.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
     @MainActor

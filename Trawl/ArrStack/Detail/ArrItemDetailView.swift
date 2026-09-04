@@ -38,11 +38,11 @@ struct ArrItemDetailView<Item, BodyContent: View>: View {
         .navigationTitle(title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
-        // Only as a screen of its own. A hidden bar background lets the artwork run
-        // up behind the title, which is the point - but as a *pane* the bar is the
-        // whole column's, and hiding it there leaves a white strip over the detail
-        // (the artwork is clipped to the pane) with white-on-white text in it.
-        .toolbarBackground(isDetailPane ? .visible : .hidden, for: .navigationBar)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        // Light contents only when this fills the screen. As a *pane* the bar is the
+        // whole column's, and the list on the other half of it is on a pale
+        // background - so forcing the bar's text white there makes the screen's own
+        // toolbar buttons vanish into it.
         .toolbarColorScheme(isDetailPane ? nil : .dark, for: .navigationBar)
         #endif
     }

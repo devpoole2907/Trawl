@@ -71,14 +71,20 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
             "The Integrations & Automation hub should be reachable."
         )
 
-        let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
-        XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")
+        // Compact only. `openDestination` lands on the Integrations hub there and
+        // this is the row that opens the screen; on the sidebar chrome the screen
+        // *is* the destination and there is no hub in between, so looking for a row
+        // to tap fails against a screen that is already open.
+        if !TrawlChrome.isSidebar {
+            let downloadClients = firstButton(labelContaining: "Download Clients", in: app)
+            XCTAssertTrue(tapWhenHittable(downloadClients, in: app, timeout: 12), "Integrations & Automation should expose Download Clients.")
+        }
         XCTAssertTrue(
             app.showsScreen(named: "Download Clients"),
             "The Download Clients hub should render."
         )
 
-        let sonarrClients = firstButton(labelContaining: "Sonarr Download Clients", in: app)
+        let sonarrClients = firstRow(labelContaining: "Sonarr Download Clients", in: app)
         XCTAssertTrue(
             tapWhenHittable(sonarrClients, in: app, timeout: 12),
             "The hub should offer Sonarr's own download clients - this is where the setup check routes a server that has none."
@@ -106,6 +112,18 @@ final class ArrDownloadClientsJourneyUITests: XCTestCase {
     @MainActor
     private func firstButton(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
+    }
+
+    /// A row, whichever element the chrome makes of it.
+    ///
+    /// These rows push at compact width, where a row is a `Button`. Beside a detail
+    /// pane they select instead, and a selecting row is a `Cell` - so a query for
+    /// buttons finds nothing and reports a list that is plainly on screen as empty.
+    @MainActor
+    private func firstRow(labelContaining text: String, in app: XCUIApplication) -> XCUIElement {
+        let button = firstButton(labelContaining: text, in: app)
+        if button.exists { return button }
+        return app.cells.containing(NSPredicate(format: "label CONTAINS[c] %@", text)).firstMatch
     }
 
     @discardableResult
