@@ -180,11 +180,31 @@ struct ConfigurationAttentionBanner: View {
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
+                .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.bar)
-                .overlay(alignment: .bottom) { Divider() }
+                // An inset card, not a slab of chrome. This used to be edge-to-edge
+                // with `.background(.bar)` and a `Divider()` under it, which reads
+                // correctly on iPhone - it tucks under an opaque navigation bar and
+                // looks like part of it. On iPadOS the bar is translucent and the
+                // inset's content is laid out into the bar's own region, so the slab
+                // painted up behind the toolbar and stopped partway across the row,
+                // leaving a hard seam with the chevron floating outside it. The
+                // button's frame reaching the top of the window is the same fact seen
+                // from the test side.
+                //
+                // Matching `TrawlInlineCallout` rather than inventing a third style:
+                // this is the same kind of notice - one sentence about the user's own
+                // setup, with one thing to do about it.
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(.ultraThinMaterial)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(Color.orange.opacity(0.25), lineWidth: 1)
+                )
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("configuration-attention-\(topic.rawValue)")
