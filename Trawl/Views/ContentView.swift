@@ -73,6 +73,8 @@ struct ContentView: View {
     @State private var missingSelection = TrawlColumnSelection<ArrWantedDestination>()
     @State private var qualityProfileBrowser = ArrQualityProfileBrowserState()
     @State private var requestBrowser = SeerrRequestBrowserState()
+    @State private var userBrowser = UnifiedUserBrowserState()
+    @State private var jellyfinLibraryBrowser = JellyfinLibraryBrowserState()
     @State private var magnetDeepLink: MagnetDeepLink?
     @State private var pendingMagnetURL: String?  // holds URL during cold launch before services are ready
     @State private var pendingDeepLink: PendingDeepLink?  // holds deep link during welcome screen
@@ -928,7 +930,8 @@ struct ContentView: View {
                 presentation: .contentColumn
             )
             .environment(indexerBrowser)
-        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests, .calendar, .missing:
+        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
+             .calendar, .missing, .users, .jellyfinLibraries:
             nativeSidebarColumn(for: destination, services: services, column: .content)
         case .search:
             // `.contentColumn`, because this column *is* inside the split view's
@@ -1039,7 +1042,8 @@ struct ContentView: View {
             ProwlarrIndexerListView(showsSelectedIndexer: true)
                 .environment(indexerBrowser)
                 .environment(arrServiceManager)
-        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests, .calendar, .missing:
+        case .downloadClients, .linkedApplications, .qualityProfiles, .tasks, .requests,
+             .calendar, .missing, .users, .jellyfinLibraries:
             nativeSidebarColumn(for: destination, services: services, column: .detail)
         case .search:
             ContentUnavailableView("Search Trawl", systemImage: "magnifyingglass")
@@ -1073,6 +1077,8 @@ struct ContentView: View {
         .environment(missingSelection)
         .environment(qualityProfileBrowser)
         .environment(requestBrowser)
+        .environment(userBrowser)
+        .environment(jellyfinLibraryBrowser)
         .id(destination)
     }
 

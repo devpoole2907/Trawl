@@ -3,17 +3,25 @@ import SwiftUI
 struct JellyfinLibrariesView: View {
     let apiClient: JellyfinAPIClient
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(JellyfinLibraryBrowserState.self) private var sharedBrowser: JellyfinLibraryBrowserState?
+    @State private var localBrowser = JellyfinLibraryBrowserState()
+    private var browser: JellyfinLibraryBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
 
-    @State private var folders: [JellyfinVirtualFolder] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
+    private var folders: [JellyfinVirtualFolder] { browser.folders }
+    private var isLoading: Bool { browser.isLoading }
+    private var errorMessage: String? { browser.errorMessage }
+    private var scanningLibraryID: String? { browser.scanningLibraryID }
     @State private var scanningAll = false
     @State private var showingAddLibrary = false
     @State private var pendingLibraryRemoval: JellyfinVirtualFolder?
-    @State private var scanningLibraryID: String?
     #if DEBUG
     private var isPreview = false
     #endif
+
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     init(apiClient: JellyfinAPIClient) {
         self.apiClient = apiClient
@@ -36,7 +44,58 @@ struct JellyfinLibrariesView: View {
     }
 
     var body: some View {
-        List {
+        // Two panes at regular width. A library is worked on by its paths - add one,
+        // remove one, scan what changed - and a layout that replaces the list with
+        // one library sends you back through it for every next one.
+        TrawlListDetailPanes(title: "Libraries", subtitle: "Jellyfin") {
+            libraryList
+        } detail: {
+            selectedLibraryDetail
+        }
+        .task {
+            #if DEBUG
+            if isPreview { return }
+            #endif
+            // The detail column reads the list column's folders rather than
+            // fetching the same libraries a second time.
+            guard sidebarColumn != .detail else { return }
+            await loadLibraries()
+        }
+    }
+
+    /// The right-hand pane: whichever library is selected.
+    ///
+    /// Looked up by id rather than captured, so a rename or an added path repaints
+    /// the pane from the reloaded list instead of showing the folder as it was when
+    /// the row was clicked.
+    @ViewBuilder
+    private var selectedLibraryDetail: some View {
+        @Bindable var browser = self.browser
+        if let id = browser.selectedLibraryID,
+           let folder = folders.first(where: { $0.itemId == id }) {
+            libraryDetail(folder)
+                .id(folder.itemId)
+        } else {
+            listDetailPlaceholder("Select a Library", systemImage: "folder")
+        }
+    }
+
+    /// The same detail the row pushes without a pane, so a library changed either
+    /// way goes through one path.
+    private func libraryDetail(_ folder: JellyfinVirtualFolder) -> some View {
+        @Bindable var browser = self.browser
+        return JellyfinLibraryDetailView(
+            folder: folder,
+            apiClient: apiClient,
+            browserSource: browserSource,
+            scanningLibraryID: $browser.scanningLibraryID,
+            onChanged: { Task { await loadLibraries() } }
+        )
+    }
+
+    private var libraryList: some View {
+        @Bindable var browser = self.browser
+        return List(selection: $browser.selectedLibraryID) {
             if let error = errorMessage {
                 ServiceErrorView(
                     title: "Libraries Unavailable",
@@ -64,33 +123,23 @@ struct JellyfinLibrariesView: View {
             } else {
                 Section {
                     ForEach(folders) { folder in
-                        NavigationLink {
-                            JellyfinLibraryDetailView(
-                                folder: folder,
-                                apiClient: apiClient,
-                                browserSource: browserSource,
-                                scanningLibraryID: $scanningLibraryID,
-                                onChanged: { Task { await loadLibraries() } }
-                            )
-                        } label: {
-                            libraryRow(folder)
-                        }
-                        .swipeActions(edge: .leading, allowsFullSwipe: true) {
-                            Button {
-                                scanLibrary(folder)
-                            } label: {
-                                Label("Scan", systemImage: "arrow.triangle.2.circlepath")
+                        libraryLink(folder)
+                            .swipeActions(edge: .leading, allowsFullSwipe: true) {
+                                Button {
+                                    scanLibrary(folder)
+                                } label: {
+                                    Label("Scan", systemImage: "arrow.triangle.2.circlepath")
+                                }
+                                .tint(ServiceIdentity.jellyfin.brandColor)
+                                .disabled(scanningLibraryID == folder.itemId)
                             }
-                            .tint(ServiceIdentity.jellyfin.brandColor)
-                            .disabled(scanningLibraryID == folder.itemId)
-                        }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                pendingLibraryRemoval = folder
-                            } label: {
-                                Label("Remove", systemImage: "trash")
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    pendingLibraryRemoval = folder
+                                } label: {
+                                    Label("Remove", systemImage: "trash")
+                                }
                             }
-                        }
                     }
                 } footer: {
                     Text("Locations are paths on the Jellyfin server or container.")
@@ -104,15 +153,7 @@ struct JellyfinLibrariesView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .jellyfin))
-        .navigationTitle("Libraries")
-        .navigationSubtitle("Jellyfin")
         .refreshable { await loadLibraries() }
-        .task {
-            #if DEBUG
-            if isPreview { return }
-            #endif
-            await loadLibraries()
-        }
         .toolbar {
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
@@ -165,6 +206,21 @@ struct JellyfinLibrariesView: View {
         }
     }
 
+    /// A row that selects beside a detail pane, and pushes without one.
+    @ViewBuilder
+    private func libraryLink(_ folder: JellyfinVirtualFolder) -> some View {
+        if showsDetailPane {
+            libraryRow(folder)
+                .tag(folder.itemId)
+        } else {
+            NavigationLink {
+                libraryDetail(folder)
+            } label: {
+                libraryRow(folder)
+            }
+        }
+    }
+
     @ViewBuilder
     private func libraryRow(_ folder: JellyfinVirtualFolder) -> some View {
         HStack(spacing: 12) {
@@ -207,14 +263,14 @@ struct JellyfinLibrariesView: View {
     }
 
     private func loadLibraries() async {
-        isLoading = true
-        errorMessage = nil
+        browser.isLoading = true
+        browser.errorMessage = nil
         do {
-            folders = try await apiClient.getVirtualFolders()
+            browser.folders = try await apiClient.getVirtualFolders()
         } catch {
-            errorMessage = error.localizedDescription
+            browser.errorMessage = error.localizedDescription
         }
-        isLoading = false
+        browser.isLoading = false
     }
 
     private func addLibrary(name: String, collectionType: String, paths: [String]) async -> Bool {
@@ -265,7 +321,7 @@ struct JellyfinLibrariesView: View {
     }
 
     private func scanLibrary(_ folder: JellyfinVirtualFolder) {
-        scanningLibraryID = folder.itemId
+        browser.scanningLibraryID = folder.itemId
         inAppNotificationCenter.showProgress(
             title: "Scanning \(folder.name)",
             message: "Triggering library scan...",
@@ -287,7 +343,7 @@ struct JellyfinLibrariesView: View {
                     message: error.localizedDescription
                 )
             }
-            scanningLibraryID = nil
+            browser.scanningLibraryID = nil
         }
     }
 }
@@ -313,14 +369,99 @@ private struct JellyfinLibraryDetailView: View {
         scanningLibraryID == folder.itemId
     }
 
+    private var headerBadges: [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = [
+            ArrDetailBadge(
+                icon: "folder",
+                label: "\(folder.locations.count) \(folder.locations.count == 1 ? "path" : "paths")",
+                color: ServiceIdentity.jellyfin.brandColor
+            )
+        ]
+        if isScanning {
+            badges.append(ArrDetailBadge(
+                icon: "arrow.triangle.2.circlepath",
+                label: "Scanning",
+                color: .orange
+            ))
+        }
+        if folder.libraryOptions?.enableTrickplayImageExtraction == true {
+            badges.append(ArrDetailBadge(icon: "film.stack", label: "Trickplay", color: .teal))
+        }
+        if folder.libraryOptions?.saveLocalMetadata == true {
+            badges.append(ArrDetailBadge(icon: "externaldrive", label: "Local Metadata", color: .indigo))
+        }
+        return badges
+    }
+
+    /// Jellyfin only reports a refresh status while one is running, so the absence
+    /// of one is "Idle" rather than a row worth drawing.
+    private var refreshStatusLabel: String? {
+        if isScanning { return "Scanning…" }
+        guard let status = folder.refreshStatus, !status.isEmpty else { return nil }
+        return status == "Idle" ? nil : status
+    }
+
+    private func metadataLanguageLabel(_ options: JellyfinLibraryOptions) -> String {
+        let raw = options.preferredMetadataLanguage
+        guard !raw.isEmpty else { return "Server default" }
+        return Locale.current.localizedString(forLanguageCode: raw) ?? raw.uppercased()
+    }
+
+    private func refreshIntervalLabel(_ options: JellyfinLibraryOptions) -> String {
+        let days = options.automaticRefreshIntervalDays
+        guard days > 0 else { return "Never" }
+        return "Every \(days) \(days == 1 ? "day" : "days")"
+    }
+
     var body: some View {
         List {
+            // Opens with the library. In a detail pane this is also the only thing
+            // that names it: macOS draws one title for the whole window, and the
+            // list column beside this one has already claimed it for "Libraries".
             Section {
-                LabeledContent("Name", value: folder.name)
-                LabeledContent("Type", value: folder.collectionTypeDisplayName)
+                TrawlEntityHeader(
+                    title: folder.name,
+                    // A library called "Movies" whose type is Movies would otherwise
+                    // read "Movies / Movies", the same repetition the row avoids.
+                    subtitle: folder.collectionTypeDisplayName
+                        .caseInsensitiveCompare(folder.name) == .orderedSame
+                        ? nil
+                        : folder.collectionTypeDisplayName,
+                    systemImage: folder.collectionIcon,
+                    tint: ServiceIdentity.jellyfin.brandColor,
+                    badges: headerBadges
+                )
             }
+            .listRowBackground(Color.clear)
 
             Section {
+                if let status = refreshStatusLabel {
+                    LabeledContent("Scan Status") {
+                        Text(status)
+                            .foregroundStyle(isScanning ? ServiceIdentity.jellyfin.brandColor : .secondary)
+                    }
+                }
+
+                // Only when the server actually sent options. Defaulting a missing
+                // payload would print "Never" and "Off" over settings nobody chose,
+                // which reads as a configured library rather than an unanswered one.
+                if let options = folder.libraryOptions {
+                    LabeledContent("Metadata Language") {
+                        Text(metadataLanguageLabel(options))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Refresh Interval") {
+                        Text(refreshIntervalLabel(options))
+                            .foregroundStyle(.secondary)
+                    }
+
+                    LabeledContent("Realtime Monitoring") {
+                        Text(options.enableRealtimeMonitor ? "On" : "Off")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 NavigationLink {
                     JellyfinLibraryOptionsView(
                         folder: folder,
@@ -330,6 +471,8 @@ private struct JellyfinLibraryDetailView: View {
                 } label: {
                     Label("Scanning & Metadata", systemImage: "slider.horizontal.3")
                 }
+            } header: {
+                Text("Library")
             } footer: {
                 Text("Metadata downloaders, image fetchers, trickplay and more.")
             }
@@ -376,6 +519,13 @@ private struct JellyfinLibraryDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .toolbar {
+            // Beside a list pane this menu and the list's own "Library Actions" menu
+            // are the same glyph two inches apart, with nothing to say which one acts
+            // on the selected library. The spacer pushes this one to the window's
+            // trailing edge, clear of the list's.
+            #if os(macOS)
+            ToolbarSpacer(.flexible, placement: platformTopBarTrailingPlacement)
+            #endif
             ToolbarItem(placement: platformTopBarTrailingPlacement) {
                 Menu {
                     Button {
@@ -816,10 +966,12 @@ extension JellyfinLibrariesView {
         scanningLibraryID: String? = nil
     ) {
         self.apiClient = apiClient
-        self._folders = State(initialValue: previewFolders)
-        self._isLoading = State(initialValue: isLoading)
-        self._errorMessage = State(initialValue: errorMessage)
-        self._scanningLibraryID = State(initialValue: scanningLibraryID)
+        let browser = JellyfinLibraryBrowserState()
+        browser.folders = previewFolders
+        browser.isLoading = isLoading
+        browser.errorMessage = errorMessage
+        browser.scanningLibraryID = scanningLibraryID
+        self._localBrowser = State(initialValue: browser)
         self.isPreview = true
     }
 }

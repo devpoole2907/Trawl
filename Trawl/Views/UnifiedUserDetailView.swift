@@ -77,44 +77,124 @@ struct UnifiedUserDetailView: View {
         }
     }
 
+    /// Opens with the person, not with a field. In a detail pane this is also the
+    /// only thing that names them: macOS draws one title for the whole window and
+    /// the list column beside this one has already claimed it for "Users".
     @ViewBuilder
     private var headerSection: some View {
         Section {
-            HStack(spacing: 14) {
-                avatarView
+            TrawlEntityHeader(
+                title: displayName,
+                subtitle: membershipSummary,
+                systemImage: jellyfinUser?.isAdministrator == true
+                    ? "person.badge.key.fill"
+                    : "person.fill",
+                tint: avatarColor,
+                artworkURL: seerrUser?.avatarURL(baseURL: seerrBaseURL),
+                shape: .circle,
+                badges: headerBadges
+            )
+        }
+        .listRowBackground(Color.clear)
+    }
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(displayName)
-                        .font(.headline)
-
-                    HStack(spacing: 6) {
-                        if let jf = jellyfinUser {
-                            if jf.isAdministrator {
-                                statusChip("Admin", color: .indigo)
-                            }
-                            if jf.isDisabled {
-                                statusChip("Disabled", color: .red)
-                            }
-                        }
-                        if let seerr = seerrUser {
-                            statusChip(seerr.permissionLevelLabel, color: ServiceIdentity.seerr.brandColor)
-                            if let count = seerr.requestCount, count > 0 {
-                                Text("\(count) \(count == 1 ? "request" : "requests")")
-                                    .font(.caption2)
-                                    .foregroundStyle(.tertiary)
-                            }
-                        }
-                    }
-                }
-            }
-            .padding(.vertical, 4)
+    /// Which of the two services this account exists on. The pair is the point of
+    /// this screen - an account that is in Jellyfin but not Seerr cannot request
+    /// anything, and that is worth saying before any field is read.
+    private var membershipSummary: String {
+        switch (jellyfinUser != nil, seerrUser != nil) {
+        case (true, true): "Jellyfin · Seerr"
+        case (true, false): "Jellyfin only"
+        case (false, true): "Seerr only"
+        case (false, false): "No linked accounts"
         }
     }
 
+    private var headerBadges: [ArrDetailBadge] {
+        var badges: [ArrDetailBadge] = []
+        if let jf = jellyfinUser {
+            if jf.isAdministrator {
+                badges.append(ArrDetailBadge(icon: "key.fill", label: "Administrator", color: .indigo))
+            }
+            if jf.isDisabled {
+                badges.append(ArrDetailBadge(icon: "nosign", label: "Disabled", color: .red))
+            }
+            if jf.isHidden {
+                badges.append(ArrDetailBadge(icon: "eye.slash", label: "Hidden", color: .secondary))
+            }
+        }
+        if let seerr = seerrUser {
+            badges.append(ArrDetailBadge(
+                icon: "person.badge.shield.checkmark",
+                label: seerr.permissionLevelLabel,
+                color: ServiceIdentity.seerr.brandColor
+            ))
+            if let count = seerr.requestCount, count > 0 {
+                badges.append(ArrDetailBadge(
+                    icon: "square.and.arrow.down",
+                    label: "\(count) \(count == 1 ? "request" : "requests")",
+                    color: .teal
+                ))
+            }
+        }
+        return badges
+    }
+
+    /// What the account *is* on Jellyfin, then the way to change it.
+    ///
+    /// This screen used to answer "what can this person do?" with a single row
+    /// labelled "Edit Jellyfin Account" - the answer was only reachable by opening
+    /// the editor, which is the wrong way round for a pane you are looking at
+    /// precisely because you wanted to know.
     @ViewBuilder
     private var jellyfinSection: some View {
         Section {
             if let jf = jellyfinUser {
+                LabeledContent("Username", value: jf.name)
+
+                LabeledContent("Role") {
+                    Text(jf.isAdministrator ? "Administrator" : "User")
+                        .foregroundStyle(jf.isAdministrator ? .indigo : .secondary)
+                }
+
+                LabeledContent("Status") {
+                    Text(jellyfinStatusLabel(jf))
+                        .foregroundStyle(jf.isDisabled ? .red : .secondary)
+                }
+
+                LabeledContent("Password") {
+                    Text(jf.hasConfiguredPassword == true ? "Set" : "Not set")
+                        .foregroundStyle(.secondary)
+                }
+
+                if let access = libraryAccessLabel(jf) {
+                    LabeledContent("Library Access") {
+                        Text(access)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if jf.policy?.enableRemoteAccess != nil {
+                    LabeledContent("Remote Access") {
+                        Text(jf.policy?.enableRemoteAccess == true ? "Allowed" : "Blocked")
+                            .foregroundStyle(jf.policy?.enableRemoteAccess == true ? Color.secondary : .orange)
+                    }
+                }
+
+                if let lastActivity = jf.lastActivityDate, !lastActivity.isEmpty {
+                    LabeledContent("Last Active") {
+                        Text(relativeDate(from: lastActivity))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let lastLogin = jf.lastLoginDate, !lastLogin.isEmpty {
+                    LabeledContent("Last Sign-In") {
+                        Text(relativeDate(from: lastLogin))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 NavigationLink {
                     JellyfinUserEditorView(
                         user: jf,
@@ -128,15 +208,11 @@ struct UnifiedUserDetailView: View {
                     }
                     .environment(inAppNotificationCenter)
                 } label: {
-                    jellyfinUserRow(jf)
+                    Label("Edit Jellyfin Account", systemImage: "pencil")
                 }
             } else {
-                HStack {
-                    Image(systemName: ServiceIdentity.jellyfin.tabSystemImage)
-                        .foregroundStyle(.secondary)
-                    Text("Not in Jellyfin")
-                        .foregroundStyle(.secondary)
-                }
+                Label("Not in Jellyfin", systemImage: ServiceIdentity.jellyfin.tabSystemImage)
+                    .foregroundStyle(.secondary)
             }
         } header: {
             HStack(spacing: 6) {
@@ -146,17 +222,73 @@ struct UnifiedUserDetailView: View {
         }
     }
 
+    private func jellyfinStatusLabel(_ user: JellyfinUser) -> String {
+        if user.isDisabled { return "Disabled" }
+        if user.isHidden { return "Enabled · Hidden" }
+        return "Enabled"
+    }
+
+    /// Jellyfin says either "everything" or names the folders, so the count is the
+    /// only honest summary of the second case. A policy that says neither is not
+    /// "no libraries" - it is a server that did not answer, and the row is dropped
+    /// rather than guessed at.
+    private func libraryAccessLabel(_ user: JellyfinUser) -> String? {
+        guard let policy = user.policy else { return nil }
+        if policy.enableAllFolders == true { return "All libraries" }
+        guard let folders = policy.enabledFolders else { return nil }
+        if folders.isEmpty { return "No libraries" }
+        return "\(folders.count) \(folders.count == 1 ? "library" : "libraries")"
+    }
+
     @ViewBuilder
     private var seerrSection: some View {
         Section {
             if let seerr = seerrUser, let client = seerrClient {
+                LabeledContent("Display Name", value: seerr.displayName)
+
+                if let username = seerr.username ?? seerr.jellyfinUsername, !username.isEmpty {
+                    LabeledContent("Username", value: username)
+                }
+
+                if let email = seerr.email, !email.isEmpty {
+                    LabeledContent("Email") {
+                        Text(email)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+
+                LabeledContent("Permissions") {
+                    Text(seerr.permissionLevelLabel)
+                        .foregroundStyle(ServiceIdentity.seerr.brandColor)
+                }
+
+                LabeledContent("Auto-Approve") {
+                    Text(seerr.canAutoApprove ? "Yes" : "No")
+                        .foregroundStyle(.secondary)
+                }
+
+                if let count = seerr.requestCount {
+                    LabeledContent("Requests") {
+                        Text("\(count)")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                if let created = seerr.createdAt, !created.isEmpty {
+                    LabeledContent("Member Since") {
+                        Text(relativeDate(from: created))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
                 NavigationLink {
                     SeerrUserEditorView(user: seerr, apiClient: client) { updated in
                         seerrUser = updated
                         onSeerrUserUpdated(updated)
                     }
                 } label: {
-                    seerrUserRow(seerr)
+                    Label("Edit Seerr Account", systemImage: "pencil")
                 }
 
                 Button(role: .destructive) {
@@ -200,84 +332,10 @@ struct UnifiedUserDetailView: View {
         }
     }
 
-    @ViewBuilder
-    private func jellyfinUserRow(_ user: JellyfinUser) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Edit Jellyfin Account")
-                .font(.subheadline.weight(.medium))
-            HStack(spacing: 6) {
-                if user.isAdministrator {
-                    badgeText("Admin", color: .indigo)
-                }
-                if user.isDisabled {
-                    badgeText("Disabled", color: .red)
-                }
-                if user.isHidden {
-                    badgeText("Hidden", color: .secondary)
-                }
-                if let lastActivity = user.lastActivityDate, !lastActivity.isEmpty {
-                    Text(relativeDate(from: lastActivity))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func seerrUserRow(_ user: SeerrUser) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Edit Seerr Account")
-                .font(.subheadline.weight(.medium))
-            HStack(spacing: 6) {
-                badgeText(user.permissionLevelLabel, color: ServiceIdentity.seerr.brandColor)
-                if let count = user.requestCount {
-                    Text("\(count) \(count == 1 ? "request" : "requests")")
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var avatarView: some View {
-        let url = seerrUser?.avatarURL(baseURL: seerrBaseURL)
-        ArrArtworkView(url: url) {
-            Circle()
-                .fill(avatarColor.opacity(0.15))
-                .overlay {
-                    Image(systemName: jellyfinUser?.isAdministrator == true ? "person.badge.key.fill" : "person.fill")
-                        .font(.title3)
-                        .foregroundStyle(avatarColor)
-                }
-        }
-        .frame(width: 52, height: 52)
-        .clipShape(Circle())
-    }
-
     private var avatarColor: Color {
         if jellyfinUser?.isAdministrator == true { return .indigo }
         if jellyfinUser != nil { return .blue }
         return .secondary
-    }
-
-    private func statusChip(_ label: String, color: Color) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
-    }
-
-    private func badgeText(_ label: String, color: Color) -> some View {
-        Text(label)
-            .font(.caption2.weight(.semibold))
-            .padding(.horizontal, 6)
-            .padding(.vertical, 2)
-            .background(color.opacity(0.15), in: Capsule())
-            .foregroundStyle(color)
     }
 
     private func relativeDate(from raw: String) -> String {

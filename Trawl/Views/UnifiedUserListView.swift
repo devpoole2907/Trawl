@@ -8,11 +8,18 @@ struct UnifiedUserListView: View {
     @Environment(JellyfinServiceManager.self) private var jellyfinServiceManager
     @Environment(SeerrServiceManager.self) private var seerrServiceManager
     @Environment(InAppNotificationCenter.self) private var inAppNotificationCenter
-    @State private var viewModel: UnifiedUserViewModel?
-    @State private var viewModelSeerrClientID: ObjectIdentifier?
+    @Environment(\.sidebarNavigationColumn) private var sidebarColumn
+    @Environment(UnifiedUserBrowserState.self) private var sharedBrowser: UnifiedUserBrowserState?
+    @State private var localBrowser = UnifiedUserBrowserState()
+    private var browser: UnifiedUserBrowserState {
+        sidebarColumn == nil ? localBrowser : (sharedBrowser ?? localBrowser)
+    }
+    private var viewModel: UnifiedUserViewModel? { browser.viewModel }
     @State private var showingAddUser = false
     @State private var showingJellyfinImport = false
     @State private var pendingDeletion: PendingUserDeletion?
+
+    private var showsDetailPane: Bool { sidebarColumn != nil }
 
     private var seerrClientID: ObjectIdentifier? {
         seerrClient.map(ObjectIdentifier.init)
@@ -21,33 +28,100 @@ struct UnifiedUserListView: View {
     var body: some View {
         Group {
             if let viewModel {
-                content(viewModel: viewModel)
+                // Two panes at regular width. A user is read across two services at
+                // once - what Jellyfin allows them and what Seerr lets them request -
+                // and a layout that replaces the list with one account turns every
+                // comparison between two accounts into a round trip.
+                TrawlListDetailPanes(title: "Users") {
+                    content(viewModel: viewModel)
+                } detail: {
+                    selectedUserDetail(viewModel: viewModel)
+                }
+            } else if sidebarColumn == .detail {
+                listDetailPlaceholder("Select a User", systemImage: "person.2")
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Users")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
         .task(id: seerrClientID) {
-            if viewModel == nil || viewModelSeerrClientID != seerrClientID {
-                viewModel = UnifiedUserViewModel(
+            // The detail column reads the list column's model rather than fetching
+            // the same accounts a second time.
+            guard sidebarColumn != .detail else { return }
+            if browser.viewModel == nil || browser.viewModelSeerrClientID != seerrClientID {
+                browser.viewModel = UnifiedUserViewModel(
                     jellyfinClient: jellyfinClient,
                     seerrClient: seerrClient
                 )
-                viewModelSeerrClientID = seerrClientID
-                await viewModel?.load()
+                browser.viewModelSeerrClientID = seerrClientID
+                await browser.viewModel?.load()
             } else {
-                await viewModel?.loadIfNeeded()
+                await browser.viewModel?.loadIfNeeded()
             }
         }
     }
 
+    /// A row that selects beside a detail pane, and pushes without one.
     @ViewBuilder
+    private func userRow(
+        _ user: UnifiedUserViewModel.UnifiedUser,
+        viewModel: UnifiedUserViewModel
+    ) -> some View {
+        if showsDetailPane {
+            UnifiedUserRowView(user: user, seerrBaseURL: seerrBaseURL)
+                .tag(user.id)
+        } else {
+            NavigationLink {
+                userDetail(user, viewModel: viewModel)
+            } label: {
+                UnifiedUserRowView(user: user, seerrBaseURL: seerrBaseURL)
+            }
+        }
+    }
+
+    /// The right-hand pane: whichever user is selected.
+    ///
+    /// Looked up by id rather than captured, so an account edited in the pane
+    /// repaints from the reloaded list instead of showing the state it had when the
+    /// row was clicked.
+    @ViewBuilder
+    private func selectedUserDetail(viewModel: UnifiedUserViewModel) -> some View {
+        if let id = browser.selectedUserID,
+           let user = viewModel.users.first(where: { $0.id == id }) {
+            userDetail(user, viewModel: viewModel)
+                .id(user.id)
+        } else {
+            listDetailPlaceholder("Select a User", systemImage: "person.2")
+        }
+    }
+
+    /// The same detail the row pushes without a pane, given the same actions, so an
+    /// account edited either way goes through one path.
+    private func userDetail(
+        _ user: UnifiedUserViewModel.UnifiedUser,
+        viewModel: UnifiedUserViewModel
+    ) -> some View {
+        UnifiedUserDetailView(
+            user: user,
+            jellyfinClient: jellyfinClient,
+            seerrClient: seerrClient,
+            seerrBaseURL: seerrBaseURL,
+            onJellyfinUserUpdated: { viewModel.applyUpdatedJellyfinUser($0) },
+            onSeerrUserUpdated: { viewModel.applyUpdatedSeerrUser($0) },
+            onSeerrUserDeleted: {
+                guard let seerr = user.seerrUser else { return }
+                viewModel.removeSeerrUser(seerr)
+            },
+            onJellyfinUserDeleted: {
+                guard let jf = user.jellyfinUser else { return }
+                viewModel.removeJellyfinUser(jf)
+            }
+        )
+    }
+
     private func content(viewModel: UnifiedUserViewModel) -> some View {
-        List {
+        @Bindable var browser = self.browser
+        return List(selection: $browser.selectedUserID) {
             if viewModel.isLoading && viewModel.users.isEmpty {
                 Section {
                     ProgressView()
@@ -84,42 +158,23 @@ struct UnifiedUserListView: View {
                 if !viewModel.users.isEmpty {
                     Section {
                         ForEach(viewModel.users) { user in
-                            NavigationLink {
-                                UnifiedUserDetailView(
-                                    user: user,
-                                    jellyfinClient: jellyfinClient,
-                                    seerrClient: seerrClient,
-                                    seerrBaseURL: seerrBaseURL,
-                                    onJellyfinUserUpdated: { viewModel.applyUpdatedJellyfinUser($0) },
-                                    onSeerrUserUpdated: { viewModel.applyUpdatedSeerrUser($0) },
-                                    onSeerrUserDeleted: {
-                                        guard let seerr = user.seerrUser else { return }
-                                        viewModel.removeSeerrUser(seerr)
-                                    },
-                                    onJellyfinUserDeleted: {
-                                        guard let jf = user.jellyfinUser else { return }
-                                        viewModel.removeJellyfinUser(jf)
+                            userRow(user, viewModel: viewModel)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if let seerr = user.seerrUser, seerrClient != nil {
+                                        Button(role: .destructive) {
+                                            pendingDeletion = .seerr(seerr)
+                                        } label: {
+                                            Label("Remove from Seerr", systemImage: "person.badge.minus")
+                                        }
                                     }
-                                )
-                            } label: {
-                                UnifiedUserRowView(user: user, seerrBaseURL: seerrBaseURL)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                if let seerr = user.seerrUser, seerrClient != nil {
-                                    Button(role: .destructive) {
-                                        pendingDeletion = .seerr(seerr)
-                                    } label: {
-                                        Label("Remove from Seerr", systemImage: "person.badge.minus")
+                                    if let jf = user.jellyfinUser, !user.isInSeerr {
+                                        Button(role: .destructive) {
+                                            pendingDeletion = .jellyfin(jf)
+                                        } label: {
+                                            Label("Delete from Jellyfin", systemImage: "trash")
+                                        }
                                     }
                                 }
-                                if let jf = user.jellyfinUser, !user.isInSeerr {
-                                    Button(role: .destructive) {
-                                        pendingDeletion = .jellyfin(jf)
-                                    } label: {
-                                        Label("Delete from Jellyfin", systemImage: "trash")
-                                    }
-                                }
-                            }
                         }
                     } header: {
                         Text("\(viewModel.users.count) \(viewModel.users.count == 1 ? "user" : "users")")
@@ -320,15 +375,17 @@ extension UnifiedUserListView {
         self.jellyfinClient = jellyfinClient
         self.seerrClient = seerrClient
         self.seerrBaseURL = seerrBaseURL
-        self._viewModel = State(initialValue: UnifiedUserViewModel(
+        let browser = UnifiedUserBrowserState()
+        browser.viewModel = UnifiedUserViewModel(
             jellyfinClient: jellyfinClient,
             seerrClient: seerrClient,
             users: previewUsers,
             isLoading: isLoading,
             jellyfinLoadError: jellyfinLoadError,
             seerrLoadError: seerrLoadError
-        ))
-        self._viewModelSeerrClientID = State(initialValue: seerrClient.map(ObjectIdentifier.init))
+        )
+        browser.viewModelSeerrClientID = seerrClient.map(ObjectIdentifier.init)
+        self._localBrowser = State(initialValue: browser)
     }
 }
 

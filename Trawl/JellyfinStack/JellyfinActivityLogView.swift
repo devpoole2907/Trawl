@@ -103,6 +103,11 @@ struct JellyfinActivityLogView: View {
                             Spacer()
                         }
                     }
+                } header: {
+                    // Also closes a gap: a headerless section still reserves its
+                    // header on macOS, which left about fifty points of nothing
+                    // between the filter bar and the first entry.
+                    Text("\(entries.count) \(entries.count == 1 ? "entry" : "entries")")
                 }
             }
         }
