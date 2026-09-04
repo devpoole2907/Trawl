@@ -705,9 +705,11 @@ struct ContentView: View {
             .safeAreaInset(edge: .top) {
                 sidebarAttentionBanner
             }
+            #if os(iOS)
             .safeAreaInset(edge: .bottom) {
                 sidebarNotificationBar(services: services)
             }
+            #endif
             .refreshesConfigurationAudit(forContextualBanner: true)
             .navigationSplitViewColumnWidth(min: 240, ideal: 280, max: 340)
     }
@@ -739,8 +741,7 @@ struct ContentView: View {
     ///
     /// The tab bar's bottom accessory has no equivalent in this chrome, and the
     /// notification bar is how the app surfaces failures app-wide - dropping it on
-    /// iPad would quietly remove that. Empty on macOS, where an inset of nothing
-    /// costs nothing.
+    /// iPad would quietly remove that.
     @ViewBuilder
     private func sidebarNotificationBar(services: AppServices) -> some View {
         #if os(iOS)

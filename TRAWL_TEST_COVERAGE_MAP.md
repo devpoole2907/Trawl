@@ -206,6 +206,17 @@ prefixes the Downloads screen's own "Downloads, change view" title menu, and a t
 that matched by label tapped the menu instead, opening a popover that swallowed
 every subsequent tap.
 
+**The sidebar notification footer's `safeAreaInset` is iOS-only.** On macOS its
+content compiles to an empty view, but the inset itself can still consume all
+remaining height. The reproduced native scroll view had a 994-point viewport,
+184-point top inset and 810-point bottom inset: rows were painted but no usable
+hit-testing or scrolling area remained. Guard the modifier, not only its content.
+`IPadSidebarJourneyUITests.testSelectingAPromotedDestinationOpensIt` protects the
+shared iPad selection/scrolling path. Native Mac hit-testing remains a manual
+runtime check (the Mac scheme has no test target): click Series, scroll to Settings,
+open it, then return to Downloads across the two-/three-column layout change.
+This journey reproduced the failure before the fix and passed after rebuilding.
+
 ## Feature-discovery tips (TipKit)
 
 | Production surface | Owning tests | What the tests pin, and why it matters |
