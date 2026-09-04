@@ -522,7 +522,7 @@ struct DirectIndexerEditorView: View {
                 }
             }
         }
-        .navigationTitle(mode.navigationTitle)
+        .paneAwareNavigationTitle(mode.navigationTitle)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

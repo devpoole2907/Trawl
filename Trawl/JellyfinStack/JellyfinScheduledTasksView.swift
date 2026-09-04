@@ -25,8 +25,7 @@ struct JellyfinScheduledTasksView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .navigationTitle("Scheduled Tasks")
-        .navigationSubtitle("Jellyfin")
+        .paneAwareNavigationTitle("Scheduled Tasks", subtitle: "Jellyfin")
         .task {
             #if DEBUG
             if isPreview { return }

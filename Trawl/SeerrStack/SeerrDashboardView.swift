@@ -29,7 +29,7 @@ struct SeerrDashboardView: View {
                 // approve, decline, delete - and doing that from a screen that
                 // replaced the list means going back to find the next one. Side by
                 // side, the queue stays in front of you while you work through it.
-                TrawlListDetailPanes {
+                TrawlListDetailPanes(title: "Requests") {
                     requestList(viewModel: viewModel)
                 } detail: {
                     selectedRequestDetail(viewModel: viewModel)
@@ -77,6 +77,7 @@ struct SeerrDashboardView: View {
         if let id = selectedRequestID,
            let item = (viewModel.requests + viewModel.searchRequests).first(where: { $0.id == id }) {
             requestDetail(item, viewModel: viewModel)
+                .id(item.id)
         } else {
             listDetailPlaceholder("Select a Request", systemImage: "square.and.arrow.down.on.square")
         }
@@ -204,11 +205,6 @@ struct SeerrDashboardView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        // On the *list*, never on the panes or a wrapper around them: the detail pane
-        // holds a `NavigationStack` of its own, and a `navigationTitle` applied to a
-        // view that contains a navigation container attaches to that container rather
-        // than to the column's bar.
-        .navigationTitle("Requests")
         // Applied before .safeAreaInset so the RefreshAction stays scoped to the
         // list. Attached after the inset it also propagates into the segment bar,
         // which then becomes pull-to-refreshable itself.

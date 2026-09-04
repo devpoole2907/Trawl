@@ -56,7 +56,10 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
     private var recordedRequests: [RecordedRequest] = []
     private var issueIsResolved = false
 
-    init() async throws {
+    private let includesRequests: Bool
+
+    init(includesRequests: Bool = false) async throws {
+        self.includesRequests = includesRequests
         listener = try NWListener(using: .tcp, on: .any)
         listener.newConnectionHandler = { [weak self] connection in
             self?.accept(connection)
@@ -163,6 +166,12 @@ final class SeerrUIFixtureServer: @unchecked Sendable {
         switch (request.method, request.path) {
         case ("GET", "/api/v1/auth/me"):
             return (200, Self.authenticatedUserJSON)
+        case ("GET", "/api/v1/request") where includesRequests:
+            return (200, #"{"pageInfo":{"pages":1,"pageSize":20,"results":2,"page":1},"results":[{"id":801,"status":1,"media":{"id":901,"tmdbId":101,"mediaType":"movie","title":"Fixture Requested Movie"}},{"id":802,"status":1,"media":{"id":902,"tmdbId":102,"mediaType":"tv","name":"Fixture Requested Series"}}]}"#)
+        case ("GET", "/api/v1/movie/101") where includesRequests:
+            return (200, #"{"id":101,"title":"Fixture Requested Movie","overview":"Movie details loaded from the fixture."}"#)
+        case ("GET", "/api/v1/tv/102") where includesRequests:
+            return (200, #"{"id":102,"name":"Fixture Requested Series","overview":"Series details loaded from the fixture."}"#)
         case ("GET", "/api/v1/user"):
             return (200, Self.userListJSON)
         case ("GET", "/api/v1/issue"):

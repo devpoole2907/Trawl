@@ -19,8 +19,7 @@ struct ProwlarrApplicationsListView: View {
 
     var body: some View {
         content(viewModel: viewModel)
-        .navigationTitle("Linked Apps")
-        .navigationSubtitle("Prowlarr")
+        .paneAwareNavigationTitle("Linked Apps", subtitle: "Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

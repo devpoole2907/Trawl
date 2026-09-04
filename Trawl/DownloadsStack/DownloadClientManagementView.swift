@@ -40,7 +40,7 @@ struct DownloadClientManagementView: View {
         // working in on the right. Going back to this list for every switch between
         // qBittorrent and SABnzbd is the sort of thing a sidebar-width display exists
         // to stop.
-        TrawlListDetailPanes {
+        TrawlListDetailPanes(title: "Download Clients") {
             clientList
         } detail: {
             selectedSourceDetail
@@ -165,11 +165,6 @@ struct DownloadClientManagementView: View {
         #else
         .listStyle(.inset)
         #endif
-        // On the *list*, never on the panes around it: the detail pane holds a
-        // `NavigationStack` of its own, and a `navigationTitle` applied to a view
-        // that contains a navigation container attaches to that container instead of
-        // to the column's bar. Set here it reaches the bar the screen actually has.
-        .navigationTitle("Download Clients")
         .task(id: linkCheckKey) {
             links = await DownloadClientLinkChecker.check(kinds: trawlClientHosts, serviceManager: arrServiceManager)
         }
@@ -346,7 +341,7 @@ struct SABnzbdClientHubView: View {
         #else
         .listStyle(.inset)
         #endif
-        .navigationTitle("SABnzbd")
+        .paneAwareNavigationTitle("SABnzbd")
     }
 }
 
@@ -431,6 +426,6 @@ struct QBittorrentClientHubView: View {
         #else
         .listStyle(.inset)
         #endif
-        .navigationTitle("qBittorrent")
+        .paneAwareNavigationTitle("qBittorrent")
     }
 }

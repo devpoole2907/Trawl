@@ -60,7 +60,7 @@ struct SeerrJobsView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(MoreDestinationGradientBackground(accent: .seerr))
-        .navigationTitle("Seerr Jobs")
+        .paneAwareNavigationTitle("Seerr Jobs")
         .alert("Job Action Failed", isPresented: Binding(
             get: { actionError != nil },
             set: { if !$0 { actionError = nil } }

@@ -38,7 +38,7 @@ struct ProwlarrIndexerListView: View {
                 // Two panes at regular width: an indexer's detail is where you check
                 // whether it is actually working, and doing that from a screen that
                 // replaced the list means going back for every one of them.
-                TrawlListDetailPanes {
+                TrawlListDetailPanes(title: "Indexers", subtitle: "Prowlarr") {
                     content(
                         prowlarrViewModel: prowlarrViewModel,
                         directViewModel: directViewModel,
@@ -190,12 +190,6 @@ struct ProwlarrIndexerListView: View {
         #endif
         .scrollContentBackground(.hidden)
         .background(backgroundGradient)
-        // On the *list*, never on the panes or a wrapper around them: the detail pane
-        // holds a `NavigationStack` of its own, and a `navigationTitle` applied to a
-        // view that contains a navigation container attaches to that container rather
-        // than to the column's bar.
-        .navigationTitle("Indexers")
-        .navigationSubtitle("Prowlarr")
         .refreshable { await reloadData() }
         .searchable(text: $searchText, prompt: "Search indexers")
         .toolbar { toolbarContent(prowlarrViewModel: prowlarrViewModel) }

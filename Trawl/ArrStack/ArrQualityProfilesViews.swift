@@ -108,7 +108,7 @@ struct ArrQualityProfilesListView: View {
         // the ones beside it - which cutoff, whether upgrades are allowed, where they
         // stop - and a layout that shows one at a time turns every comparison into a
         // round trip through the list.
-        TrawlListDetailPanes {
+        TrawlListDetailPanes(title: "Quality Profiles") {
             profileList
         } detail: {
             selectedProfileDetail
@@ -214,11 +214,6 @@ struct ArrQualityProfilesListView: View {
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
-        // On the *list*, never on the panes around it: the detail pane holds a
-        // `NavigationStack` of its own, and a `navigationTitle` applied to a view
-        // that contains a navigation container attaches to that container instead of
-        // to the column's bar.
-        .navigationTitle("Quality Profiles")
         .moreDestinationBackground(.qualityProfiles)
         .safeAreaInset(edge: .top) {
             ArrInstanceScopeBar(instances: availableInstances, selection: $selectedInstanceID)
@@ -428,8 +423,7 @@ struct ArrQualityProfileDetailView: View {
                 }
             }
         }
-        .navigationTitle(profile.name)
-        .navigationSubtitle(serviceType.displayName)
+        .paneAwareNavigationTitle(profile.name, subtitle: serviceType.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

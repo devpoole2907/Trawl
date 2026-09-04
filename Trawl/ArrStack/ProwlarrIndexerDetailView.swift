@@ -167,8 +167,7 @@ struct ProwlarrIndexerDetailView: View {
                 }
             }
         }
-        .navigationTitle(indexer.name ?? "Indexer")
-        .navigationSubtitle("Prowlarr")
+        .paneAwareNavigationTitle(indexer.name ?? "Indexer", subtitle: "Prowlarr")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif

@@ -2263,7 +2263,7 @@ private struct LinkedApplicationsManagementView: View {
         // Two panes at regular width. These three screens answer one question -
         // "is everything pointed at everything else?" - and answering it one screen
         // at a time is what made the configuration audit necessary in the first place.
-        TrawlListDetailPanes {
+        TrawlListDetailPanes(title: "Linked Applications") {
             integrationList
         } detail: {
             selectedIntegrationDetail
@@ -2314,7 +2314,6 @@ private struct LinkedApplicationsManagementView: View {
             }
             }
         }
-        .navigationTitle("Linked Applications")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
@@ -2466,7 +2465,7 @@ private struct DownloadClientsManagementView: View {
         // Two panes at regular width. This screen exists to answer "is each server
         // pointed at the right client?", and the answer lives one push away in the
         // list it opens - so on a display wide enough to hold both, hold both.
-        TrawlListDetailPanes {
+        TrawlListDetailPanes(title: "Download Clients") {
             serviceList
         } detail: {
             selectedServiceDetail
@@ -2507,7 +2506,6 @@ private struct DownloadClientsManagementView: View {
             }
             }
         }
-        .navigationTitle("Download Clients")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif
@@ -3689,7 +3687,7 @@ private struct TasksHubView: View {
         // Two panes at regular width. Scheduled tasks are something you *watch* -
         // kick one off on Sonarr, see whether Seerr's sync has run - and a layout that
         // shows one service at a time makes comparing them a navigation exercise.
-        TrawlListDetailPanes {
+        TrawlListDetailPanes(title: "Tasks") {
             taskList
         } detail: {
             selectedTasksDetail
@@ -3741,7 +3739,6 @@ private struct TasksHubView: View {
                 )
             }
         }
-        .navigationTitle("Tasks")
         #if os(iOS)
         .scrollContentBackground(.hidden)
         #endif

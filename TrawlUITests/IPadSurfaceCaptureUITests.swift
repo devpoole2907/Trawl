@@ -297,42 +297,52 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
         ensureSidebarExpanded(app)
 
-        // Sidebar case name -> the title the column's bar must keep showing. Every
-        // screen in the app that renders `TrawlListDetailPanes` is listed; a new
-        // pane screen belongs here too.
         // The row to select is named rather than taken as "the first cell". These
         // lists open with stat tiles and disclosure rows above the real content, so
-        // the first cell is routinely something that selects nothing - and a check
-        // run against a screen where no selection happened passes without ever
-        // exercising the thing it exists to catch.
-        let panes: [(sidebarCase: String, title: String, row: String)] = [
-            ("indexers", "Indexers", ProwlarrUIFixtureServer.indexerName),
-            ("downloadClients", "Download Clients", "Sonarr Download Clients"),
+        // the first cell is routinely something that selects nothing - and a run
+        // against a screen where no selection happened passes without ever exercising
+        // the thing it exists to catch. That has now produced three false passes.
+        //
+        // `bar` is everything the column's navigation bar is allowed to say once a row
+        // is picked: the screen's own name, and its scope where it has one. Listing it
+        // in full rather than asserting "the title is still there" is what catches the
+        // case that started all this - the Sonarr download-client list is *itself*
+        // titled "Download Clients", so a title check matches the leaked detail title
+        // and calls the screen healthy while it is broken. The leak showed as an extra
+        // word in the bar, so the bar is compared whole.
+        let panes: [(sidebarCase: String, row: String, bar: [String])] = [
+            ("downloadClients", "Sonarr Download Clients", ["Download Clients"]),
+            ("indexers", ProwlarrUIFixtureServer.indexerName, ["Indexers", "Prowlarr"]),
         ]
 
         for (offset, pane) in panes.enumerated() {
             capturePaneSelection(
                 app,
                 sidebarCase: pane.sidebarCase,
-                title: pane.title,
                 row: pane.row,
+                expectedBar: pane.bar,
                 index: 41 + offset
             )
         }
     }
 
-    /// The x at which the detail column starts, measured before anything is selected.
+    /// Every navigation bar on screen, with its frame.
     ///
-    /// Taken from the placeholder the detail shows when empty ("Select a Service" and
-    /// friends) where there is one, and otherwise from the right-hand end of the list
-    /// column's own navigation bar.
+    /// Which bar a title landed in cannot be told from a screenshot once two bars are
+    /// in play and one repeats the other's title - the geometry is the only thing that
+    /// distinguishes the column's bar from the detail pane's.
     @MainActor
-    private func detailColumnLeftEdge(_ app: XCUIApplication, listBar: XCUIElement) -> CGFloat {
-        let placeholder = app.staticTexts
-            .matching(NSPredicate(format: "label BEGINSWITH %@", "Select a"))
-            .firstMatch
-        if placeholder.exists { return placeholder.frame.minX }
-        return listBar.frame.maxX
+    private func dumpNavigationBars(_ app: XCUIApplication, label: String) {
+        let bars = app.navigationBars.allElementsBoundByIndex.map { bar in
+            let titles = bar.staticTexts.allElementsBoundByIndex.map(\.label).joined(separator: " | ")
+            return "identifier=\(bar.identifier) frame=\(bar.frame) texts=[\(titles)]"
+        }
+        XCTContext.runActivity(named: "Navigation bars - \(label)") { activity in
+            let attachment = XCTAttachment(string: bars.joined(separator: "\n"))
+            attachment.name = "navbars-\(label)"
+            attachment.lifetime = .keepAlways
+            activity.add(attachment)
+        }
     }
 
     /// Finds a sidebar row, scrolling the sidebar itself to reach it.
@@ -367,22 +377,24 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         return nil
     }
 
-    /// Opens one pane screen, photographs it unselected, picks its first row, and
-    /// checks the screen's own name is still in the bar.
+    /// Opens one pane screen, photographs it unselected, selects a named row, and
+    /// checks the column's bar still says what the screen says it says.
     @MainActor
     private func capturePaneSelection(
         _ app: XCUIApplication,
         sidebarCase: String,
-        title: String,
         row rowLabel: String,
+        expectedBar: [String],
         index: Int
     ) {
-        guard let row = sidebarRow(app, sidebarCase) else {
+        let title = expectedBar[0]
+
+        guard let sidebarEntry = sidebarRow(app, sidebarCase) else {
             capture(app, "\(index)-\(sidebarCase)-MISS-not-in-sidebar")
             XCTFail("\(title): no sidebar row nav.\(sidebarCase)")
             return
         }
-        tapEvenIfNotHittable(row)
+        tapEvenIfNotHittable(sidebarEntry)
 
         let bar = app.navigationBars[title]
         guard bar.waitForExistence(timeout: 15) else {
@@ -392,12 +404,15 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
         capture(app, "\(index)-\(sidebarCase)-1-list-only")
 
-        // The left edge of the *detail* column, read before anything is selected.
-        // Everything at or right of this belongs to the detail; the list column's own
-        // bar is to its left. Read now because the detail pane grows a navigation bar
-        // of its own once a row is picked, and then "which bar is which" cannot be
-        // told apart by title alone.
-        let detailLeft = detailColumnLeftEdge(app, listBar: bar)
+        // The empty detail pane, which every one of these screens fills with a
+        // "Select a …" placeholder. It going away is the proof a row was actually
+        // selected. Counting navigation bars was tried and is worthless here: the
+        // sidebar has a bar of its own, so "two bars exist" is true before anything
+        // is tapped, and a run that selected nothing sailed through.
+        let placeholder = app.staticTexts
+            .matching(NSPredicate(format: "label BEGINSWITH %@", "Select a"))
+            .firstMatch
+        let hadPlaceholder = placeholder.exists
 
         let target = app.staticTexts[rowLabel].firstMatch
         guard target.waitForExistence(timeout: 10) else {
@@ -407,44 +422,29 @@ final class IPadSurfaceCaptureUITests: XCTestCase {
         }
         tapEvenIfNotHittable(target)
 
-        // The detail pane now has a navigation bar of its own, so waiting on "a bar
-        // exists" would pass even in the broken arrangement. Wait for the detail to
-        // arrive - a second bar - and only then read the column's title back.
-        //
-        // An expectation rather than a `while` loop over `navigationBars.count`: that
-        // loop re-runs a UI query with no backoff for as long as it takes, and it got
-        // the runner killed outright ("Test crashed with signal kill") rather than
-        // failing an assertion.
-        let twoBars = XCTNSPredicateExpectation(
-            predicate: NSPredicate(format: "count >= 2"),
-            object: app.navigationBars
-        )
-        let selected = XCTWaiter().wait(for: [twoBars], timeout: 10) == .completed
-
-        capture(app, "\(index)-\(sidebarCase)-3-row-selected")
-
-        // Nothing was selected, so nothing was tested. Say so instead of passing:
-        // a green result here would mean only that the tap missed.
-        guard selected else {
-            XCTFail("\(title): tapping \(rowLabel) produced no detail pane, so the "
-                + "title could not be checked against a real selection")
-            return
+        if hadPlaceholder {
+            let gone = XCTNSPredicateExpectation(
+                predicate: NSPredicate(format: "exists == false"),
+                object: placeholder
+            )
+            guard XCTWaiter().wait(for: [gone], timeout: 10) == .completed else {
+                capture(app, "\(index)-\(sidebarCase)-3-MISS-nothing-selected")
+                dumpNavigationBars(app, label: "\(sidebarCase), nothing selected")
+                XCTFail("\(title): tapping \(rowLabel) left the detail placeholder up, "
+                    + "so no selection happened and the bar was never really tested")
+                return
+            }
         }
 
-        // Not `bar.exists`. Where the detail repeats the screen's name - the Sonarr
-        // download-client list is itself titled "Download Clients" - a query by title
-        // matches the *detail's* bar and reports the list column healthy while its
-        // title has actually gone. The list column's bar is the one left of the
-        // detail column, so ask for that one specifically.
-        let listBarStillTitled = app.navigationBars
-            .matching(NSPredicate(format: "identifier == %@", title))
-            .allElementsBoundByIndex
-            .contains { $0.frame.minX < detailLeft - 1 }
+        capture(app, "\(index)-\(sidebarCase)-3-row-selected")
+        dumpNavigationBars(app, label: "\(sidebarCase) after selecting \(rowLabel)")
 
-        XCTAssertTrue(
-            listBarStillTitled,
-            "\(title): the list column lost its title when \(rowLabel) was selected - "
-                + "the detail pane is writing into the column's navigation bar."
+        let actual = app.navigationBars[title].staticTexts.allElementsBoundByIndex.map(\.label)
+        XCTAssertEqual(
+            actual, expectedBar,
+            "\(title): the column's bar reads \(actual) after selecting \(rowLabel), "
+                + "but this screen only names itself \(expectedBar) - the detail pane is "
+                + "writing into the column's navigation bar."
         )
     }
 

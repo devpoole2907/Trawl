@@ -394,24 +394,45 @@ run against unreachable servers catches, which is worth doing deliberately: laun
 the `TRAWL_UITEST_*_BASE_URL` variables pointed at `http://127.0.0.1:1/...` and walk the
 sidebar.
 
-**Where a two-pane screen puts its title, and why it is not obvious.** The detail pane
-of `TrawlListDetailPanes` holds a `NavigationStack` of its own. Without one, the pane's
-`navigationTitle`, `navigationSubtitle` and `toolbar` are written into the *column's*
-bar — the same bar the screen titles — and being the later sibling they win: selecting
-a row blanked the screen's title, replaced it with the selection's, and moved the
-selection's buttons into the screen's bar.
+**Where a two-pane screen puts its title.** On `TrawlListDetailPanes` itself, as its
+`title:` argument. Both panes live in one navigation column with one bar, and whatever
+the detail writes into that bar displaces the screen's own name: selecting a row blanked
+the screen's title, replaced it with the selection's, and dragged the selection's
+subtitle and buttons along with it.
 
-Setting the title on the panes' parent does **not** fix that, and makes it worse. A
-`navigationTitle` applied to a view that *contains* a navigation container attaches to
-that container, not to the enclosing one — so the title went into the pane's own stack,
-where the detail promptly overrode it, and the column's bar was left with nothing at
-all. The rule that actually holds: **the screen's title goes on the list pane**, which
-contains no navigation container, and the detail's title stays in the pane's own bar
-where it belongs. Both halves are needed; neither works alone.
+Two remedies were tried and neither worked. Giving the detail pane a `NavigationStack`
+of its own looks like it should contain the pane's title and does not — the pane's title
+and subtitle still reached the column's bar, and a dump of the accessibility tree showed
+no second bar had ever been created. It also broke the obvious alternative: with a
+navigation container inside, a `navigationTitle` applied *around* both panes attaches to
+that inner container instead of to the column, so the bar went empty rather than merely
+wrong. Applying the screen's title above both panes fixed the download-client screen and
+left the indexer screen still showing the selected indexer's name, so "the outer
+`navigationTitle` wins" is not a rule to lean on either.
 
-This is invisible until a row is selected *and* the detail has a title of its own — a
-pane showing `listDetailPlaceholder` has none, so a screen tested only in its empty
-state looks correct while being broken.
+What holds is suppressing the conflict at its source. `TrawlListDetailPanes` puts
+`\.isDetailPane` in the environment, and a detail view names itself with
+`paneAwareNavigationTitle(_:subtitle:)`, which titles the screen when the view is a
+destination in its own right and stays silent when it is somebody's pane. Any view used
+as a pane must use it rather than `navigationTitle` directly.
+
+**Testing this needs care — it has produced three false passes.** It is invisible unless
+a row is actually selected *and* the detail has a title of its own, and each of these
+looked green against a screen that was broken:
+
+- tapping "the first cell" in the list, which on these screens is a stat tile that
+  selects nothing, so the detail never changed;
+- waiting for `navigationBars.count >= 2` as proof a selection happened — the sidebar
+  has a bar of its own, so that is already true before anything is tapped;
+- asserting `navigationBars[title].exists`, which matches the *leaked detail title* on
+  any screen whose detail repeats the screen's name (the Sonarr download-client list is
+  itself titled "Download Clients").
+
+`IPadSurfaceCaptureUITests.testDetailPaneTitlesSurviveSelection` therefore names the row
+it selects, treats the detail placeholder disappearing as the proof of selection, and
+compares the column bar's contents *whole* against what the screen is allowed to say.
+It covers Indexers and Download Clients; the other five pane screens are fixed by the
+same mechanism but are not yet covered.
 
 ## iPad behaviour
 
@@ -530,3 +551,7 @@ Every result must be accepted by `python3 Scripts/assert-test-results.py <result
 | Production surface | Focused coverage to read/run | Current boundary |
 |---|---|---|
 | `ConnectionStatusCard`, `ServiceErrorView`, `ServiceSetupView`; Sonarr connection recovery, Seerr failed requests, mixed qBittorrent/SABnzbd downloads | `TrawlUITests/ServiceUnavailableJourneyUITests.swift`; `SABnzbdUnauthorizedJourneyUITests.swift` | Real loopback paths prove an unavailable Sonarr exposes server editing, a failed Seerr fetch does not claim an empty inbox and Retry reaches the server, and a failed SABnzbd leaves healthy qBittorrent content visible. Screenshots retain the centered and compact presentations. Other migrated service/admin screens share the renderer; their individual retry operations retain existing service suites. Dynamic Type and every per-service layout are manual visual coverage. |
+
+## Request selection in an iPad detail pane
+
+`TrawlListDetailPanes` contains scaled/blurred detail artwork within its column. `SeerrDashboardView` keys the selected detail by request ID so media loaded for a previous selection cannot remain in view. `ServiceUnavailableJourneyUITests/testRequestSelectionKeepsListUsable` uses the opt-in request responses in `SeerrUIFixtureServer` to open a movie, select a series from the still-usable list, and assert the series response appears. Before the identity fix, the series-detail assertion failed. Full-screen attachments provide visual coverage of artwork containment; XCTest accessibility alone does not detect background overdraw.

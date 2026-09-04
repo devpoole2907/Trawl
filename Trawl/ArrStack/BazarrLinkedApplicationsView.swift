@@ -88,7 +88,7 @@ struct BazarrLinkedApplicationsListView: View {
                 }
             }
         }
-        .navigationTitle("Linked Apps")
+        .paneAwareNavigationTitle("Linked Apps")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .listStyle(.insetGrouped)

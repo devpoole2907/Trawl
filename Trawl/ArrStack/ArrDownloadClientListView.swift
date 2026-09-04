@@ -129,8 +129,7 @@ struct ArrDownloadClientListView: View {
             await loadClients()
             checkReachabilityForAll()
         }
-        .navigationTitle("Download Clients")
-        .navigationSubtitle(serviceType.displayName)
+        .paneAwareNavigationTitle("Download Clients", subtitle: serviceType.displayName)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .scrollContentBackground(.hidden)

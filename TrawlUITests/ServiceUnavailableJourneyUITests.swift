@@ -81,6 +81,31 @@ final class ServiceUnavailableJourneyUITests: XCTestCase {
     }
 
     @MainActor
+    func testRequestSelectionKeepsListUsable() async throws {
+        let server = try await SeerrUIFixtureServer(includesRequests: true)
+        seerr = server
+        let app = application()
+        app.launchEnvironment["TRAWL_UITEST_SEERR_BASE_URL"] = server.baseURL
+        app.launch()
+        XCTAssertTrue(ensureRootChromeIsReady(in: app))
+        XCTAssertTrue(openDestination(.requests, in: app))
+        let movie = app.cells.containing(.staticText, identifier: "Fixture Requested Movie").firstMatch
+        XCTAssertTrue(movie.waitForExistence(timeout: 15))
+        movie.tap()
+        XCTAssertTrue(app.staticTexts["Movie details loaded from the fixture."].waitForExistence(timeout: 15))
+        capture(app, "04-request-movie-selected")
+        if TrawlChrome.isSidebar {
+            XCTAssertTrue(app.navigationBars["Requests"].exists)
+            let series = app.cells.containing(.staticText, identifier: "Fixture Requested Series").firstMatch
+            XCTAssertTrue(series.isHittable, "The request list must remain available beside the selected movie.")
+            series.tap()
+            XCTAssertTrue(app.staticTexts["Series details loaded from the fixture."].waitForExistence(timeout: 15))
+            XCTAssertTrue(movie.isHittable, "Selecting another request must preserve the list.")
+            capture(app, "05-request-series-selected")
+        }
+    }
+
+    @MainActor
     private func application() -> XCUIApplication {
         if TrawlChrome.isSidebar { XCUIDevice.shared.orientation = .landscapeLeft }
         let app = XCUIApplication()
