@@ -18,89 +18,79 @@ struct OnboardingSheet: View {
     }
 
     var body: some View {
-        NavigationStack {
-            onboardingForm
-            .modalFormStyle(
-                title: serverProfile == nil ? "Add Server" : "Edit Server",
-                primaryTitle: "Connect",
-                isPrimaryDisabled: viewModel.isValidating,
-                isSaving: viewModel.isValidating
-            ) {
-                saveTask?.cancel()
-                saveTask = Task {
-                    let success = await viewModel.validateAndSave(modelContext: modelContext, editingServer: serverProfile)
-                    if success && !Task.isCancelled {
-                        dismiss()
-                        onComplete()
-                    }
-                }
+        AppSheetShell(
+            title: serverProfile == nil ? "Add qBittorrent" : "Edit qBittorrent",
+            confirmTitle: serverProfile == nil ? "Connect" : "Save Connection",
+            // Deliberately not gated on a complete form. Pressing it with a field
+            // empty is how this sheet says which one - `hasAttemptedSubmit` turns
+            // the relevant footer red - and a disabled button explains nothing.
+            isConfirmDisabled: viewModel.isValidating,
+            isConfirmLoading: viewModel.isValidating,
+            onConfirm: connect,
+            confirmPlacement: .prominentBottom,
+            detents: [.large],
+            dragIndicator: .visible
+        ) {
+            Form {
+                ServiceSetupBlurb("Connect Trawl to your qBittorrent Web UI.")
+
+                ServiceServerSection(
+                    displayName: $viewModel.displayName,
+                    url: $viewModel.hostURL,
+                    urlTitle: "qBittorrent URL (e.g. http://192.168.1.100:8080)",
+                    urlMacLabel: "qBittorrent URL",
+                    allowsUntrustedTLS: $viewModel.allowsUntrustedTLS,
+                    footer: "Enter the full Web UI address, including port if needed. Enable self-signed certificates only for servers you control.",
+                    footerError: hostIsMissing ? "Server address is required." : nil
+                )
+
+                CredentialsSection(
+                    username: $viewModel.username,
+                    password: $viewModel.password,
+                    headerTitle: "Authentication",
+                    footerMessage: credentialsAreMissing ? "Username and password are required." : nil
+                )
+
+                ValidationErrorSection(error: viewModel.validationError)
             }
-            .onDisappear {
-                saveTask?.cancel()
-            }
-            #if os(macOS)
-            .frame(minWidth: 560, idealWidth: 620, minHeight: 480)
+            .tint(ServiceIdentity.qbittorrent.brandColor)
+            #if os(iOS)
+            .listStyle(.insetGrouped)
             #endif
-            .task {
-                #if DEBUG
-                guard !skipsAutomaticLoading else { return }
-                #endif
-                guard let serverProfile else { return }
-                await viewModel.loadExistingServer(serverProfile)
-            }
+        }
+        .onDisappear {
+            saveTask?.cancel()
+        }
+        .task {
+            #if DEBUG
+            guard !skipsAutomaticLoading else { return }
+            #endif
+            guard let serverProfile else { return }
+            await viewModel.loadExistingServer(serverProfile)
         }
     }
 
-    private var onboardingForm: some View {
-        Form {
-            Section {
-                Text("Connect Trawl to your qBittorrent Web UI.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+    private var hostIsMissing: Bool {
+        viewModel.hasAttemptedSubmit
+            && viewModel.hostURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
-            Section {
-                ServerURLField(url: $viewModel.hostURL)
+    private var credentialsAreMissing: Bool {
+        viewModel.hasAttemptedSubmit && (viewModel.username.isEmpty || viewModel.password.isEmpty)
+    }
 
-                TextField("Display Name (optional)", text: $viewModel.displayName)
-
-                AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)
-            } header: {
-                Text("Server")
-            } footer: {
-                if viewModel.hasAttemptedSubmit && viewModel.hostURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    Label("Server address is required.", systemImage: "exclamationmark.circle.fill")
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                } else {
-                    Text("Enter the full Web UI address, including port if needed. Example: http://192.168.1.100:8080. Enable self-signed certificates only for servers you control.")
-                }
-            }
-
-            CredentialsSection(
-                username: $viewModel.username,
-                password: $viewModel.password,
-                footerMessage: (viewModel.hasAttemptedSubmit && (viewModel.username.isEmpty || viewModel.password.isEmpty)) ? "Username and password are required." : nil
+    private func connect() {
+        saveTask?.cancel()
+        saveTask = Task {
+            let success = await viewModel.validateAndSave(
+                modelContext: modelContext,
+                editingServer: serverProfile
             )
-
-            ValidationErrorSection(error: viewModel.validationError)
-
-            if viewModel.isValidating {
-                Section {
-                    HStack {
-                        ProgressView()
-                        Text("Checking connection…")
-                            .foregroundStyle(.secondary)
-                    }
-                }
+            if success && !Task.isCancelled {
+                dismiss()
+                onComplete()
             }
         }
-        #if os(macOS)
-        .formStyle(.grouped)
-        .padding(20)
-        .frame(maxWidth: 680, maxHeight: .infinity, alignment: .top)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        #endif
     }
 }
 
@@ -110,62 +100,36 @@ extension OnboardingSheet {
         previewViewModel: OnboardingViewModel,
         serverProfile: ServerProfile? = nil
     ) {
-        self.init(serverProfile: serverProfile, onComplete: {})
-        self._viewModel = State(initialValue: previewViewModel)
+        self.serverProfile = serverProfile
+        self.onComplete = {}
+        _viewModel = State(initialValue: previewViewModel)
         self.skipsAutomaticLoading = true
     }
 }
 
-#Preview("Initial") {
-    PreviewHost(profiles: .empty) {
-        OnboardingSheet(previewViewModel: OnboardingViewModel())
-    }
+#Preview("Add qBittorrent") {
+    OnboardingSheet(previewViewModel: OnboardingViewModel())
 }
 
-#Preview("Mid Input") {
-    PreviewHost(profiles: .empty) {
-        OnboardingSheet(previewViewModel: OnboardingViewModel(
-            previewHostURL: "http://192.168.1.50:8080",
-            previewUsername: "admin",
-            previewPassword: "password",
-            previewDisplayName: "Home qBittorrent"
-        ))
-    }
+#Preview("Add qBittorrent - Validating") {
+    OnboardingSheet(previewViewModel: {
+        let vm = OnboardingViewModel()
+        vm.hostURL = "http://192.168.1.100:8080"
+        vm.username = "admin"
+        vm.password = "adminadmin"
+        vm.isValidating = true
+        return vm
+    }())
 }
 
-#Preview("Authenticating") {
-    PreviewHost(profiles: .empty) {
-        OnboardingSheet(previewViewModel: OnboardingViewModel(
-            previewHostURL: "http://192.168.1.50:8080",
-            previewUsername: "admin",
-            previewPassword: "password",
-            isValidating: true
-        ))
-    }
-}
-
-#Preview("Connection Error") {
-    PreviewHost(profiles: .empty) {
-        OnboardingSheet(previewViewModel: OnboardingViewModel(
-            previewHostURL: "http://nope.invalid:8080",
-            previewUsername: "admin",
-            previewPassword: "password",
-            validationError: "Connection failed: The server could not be reached.",
-            hasAttemptedSubmit: true
-        ))
-    }
-}
-
-#Preview("Edit Server") {
-    let server = ServerProfile.preview(displayName: "Seedbox", hostURL: "https://seedbox.example.com")
-    PreviewHost(profiles: .qBittorrentOnly) {
-        OnboardingSheet(previewViewModel: OnboardingViewModel(
-            previewHostURL: server.hostURL,
-            previewUsername: "admin",
-            previewPassword: "password",
-            previewDisplayName: server.displayName,
-            allowsUntrustedTLS: false
-        ), serverProfile: server)
-    }
+#Preview("Add qBittorrent - Error") {
+    OnboardingSheet(previewViewModel: {
+        let vm = OnboardingViewModel()
+        vm.hostURL = "http://nope.invalid:8080"
+        vm.username = "admin"
+        vm.password = "adminadmin"
+        vm.validationError = "Could not reach the Web UI. Check the address and try again."
+        return vm
+    }())
 }
 #endif

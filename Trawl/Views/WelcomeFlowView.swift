@@ -97,10 +97,10 @@ struct WelcomeFlowView: View {
                                title: "Prowlarr", description: "Manage and search your indexers")
                     featureRow(icon: ServiceIdentity.bazarr.systemImage, color: ServiceIdentity.bazarr.brandColor,
                                title: "Bazarr", description: "Manage subtitles for series and movies")
-                    featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
-                               title: "Seerr", description: "Manage requests and users")
                     featureRow(icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
                                title: "Jellyfin", description: "Manage your media server")
+                    featureRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
+                               title: "Seerr", description: "Manage requests and users")
                     featureRow(icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
                                title: "Cleanuparr", description: "Monitor automated download cleanup")
                 }
@@ -156,13 +156,13 @@ struct WelcomeFlowView: View {
                              title: "Bazarr", description: "Manage subtitles for series and movies",
                              isConfigured: configuredServices.bazarr) { setupTarget = .bazarr }
 
-                    setupRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
-                             title: "Seerr", description: "Manage requests and user access",
-                             isConfigured: configuredServices.seerr) { setupTarget = .seerr }
-
                     setupRow(icon: ServiceIdentity.jellyfin.systemImage, color: ServiceIdentity.jellyfin.brandColor,
                              title: "Jellyfin", description: "Manage users, libraries, and server activity",
                              isConfigured: configuredServices.jellyfin) { setupTarget = .jellyfin }
+
+                    setupRow(icon: ServiceIdentity.seerr.systemImage, color: ServiceIdentity.seerr.brandColor,
+                             title: "Seerr", description: "Manage requests and user access",
+                             isConfigured: configuredServices.seerr) { setupTarget = .seerr }
 
                     setupRow(icon: ServiceIdentity.cleanuparr.systemImage, color: ServiceIdentity.cleanuparr.brandColor,
                              title: "Cleanuparr", description: "Monitor cleanup activity and service health",

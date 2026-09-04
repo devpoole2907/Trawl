@@ -36,30 +36,19 @@ struct ArrSetupSheet: View {
     #endif
 
     var body: some View {
-        NavigationStack {
+        AppSheetShell(
+            title: sheetTitle,
+            confirmTitle: existingProfile == nil ? "Connect" : "Save Connection",
+            isConfirmDisabled: isConfirmDisabled,
+            isConfirmLoading: viewModel?.isSaving ?? false,
+            onConfirm: save,
+            confirmPlacement: .prominentBottom
+        ) {
             Group {
                 if let vm = viewModel {
                     setupForm(vm: vm)
                 } else {
                     ProgressView()
-                }
-            }
-            .modalFormStyle(
-                title: existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" } ?? (initialServiceType.map { "Add \($0.displayName)" } ?? "Add Service"),
-                primaryTitle: "Save",
-                isPrimaryDisabled: viewModel?.hostURL.isEmpty ?? true || viewModel?.apiKey.isEmpty ?? true || viewModel?.isValidating ?? false,
-                isSaving: viewModel?.isSaving ?? false
-            ) {
-                guard let vm = viewModel else { return }
-                saveTask?.cancel()
-                vm.isSaving = true
-                saveTask = Task {
-                    let success = await vm.validateAndSave(modelContext: modelContext)
-                    vm.isSaving = false
-                    if success && !Task.isCancelled {
-                        dismiss()
-                        onComplete()
-                    }
                 }
             }
             .onDisappear {
@@ -77,6 +66,31 @@ struct ArrSetupSheet: View {
                     vm.qualityTier = selectableTiers(for: initialServiceType).first ?? .hd
                 }
                 viewModel = vm
+            }
+        }
+    }
+
+    private var sheetTitle: String {
+        existingProfile.map { "Edit \($0.resolvedServiceType?.displayName ?? "Service")" }
+            ?? initialServiceType.map { "Add \($0.displayName)" }
+            ?? "Add Service"
+    }
+
+    private var isConfirmDisabled: Bool {
+        guard let viewModel else { return true }
+        return viewModel.hostURL.isEmpty || viewModel.apiKey.isEmpty || viewModel.isValidating
+    }
+
+    private func save() {
+        guard let viewModel else { return }
+        saveTask?.cancel()
+        viewModel.isSaving = true
+        saveTask = Task {
+            let success = await viewModel.validateAndSave(modelContext: modelContext)
+            viewModel.isSaving = false
+            if success && !Task.isCancelled {
+                dismiss()
+                onComplete()
             }
         }
     }
@@ -141,6 +155,8 @@ struct ArrSetupSheet: View {
     private func setupForm(vm: ArrSetupViewModel) -> some View {
         @Bindable var vm = vm
         Form {
+            ServiceSetupBlurb("Connect Trawl to \(vm.serviceType.displayName) to manage it alongside your other services.")
+
             if initialServiceType == nil && existingProfile == nil {
                 Section("Service Type") {
                     Picker("Type", selection: $vm.serviceType) {
@@ -166,31 +182,26 @@ struct ArrSetupSheet: View {
                 }
             }
 
-            Section("Connection") {
-                ServerURLField(url: $vm.hostURL, title: "http://192.168.1.100:\(vm.serviceType.defaultPort)")
+            ServiceServerSection(
+                displayName: $vm.displayName,
+                url: $vm.hostURL,
+                urlTitle: "http://192.168.1.100:\(vm.serviceType.defaultPort)",
+                urlMacLabel: "\(vm.serviceType.displayName) URL",
+                allowsUntrustedTLS: $vm.allowsUntrustedTLS,
+                footer: vm.serviceType == .prowlarr
+                    ? "Trawl supports one Prowlarr server. Saving updates the existing connection."
+                    : nil
+            )
 
+            Section {
                 SecureField("API Key", text: $vm.apiKey)
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
-
-                TextField("Display Name (optional)", text: $vm.displayName)
-
-                AllowUntrustedTLSToggle(allow: $vm.allowsUntrustedTLS)
-            }
-
-            Section {
-                Text("Find your API key in \(vm.serviceType.displayName) under Settings → General → Security. Enable self-signed certificates only for services you manage yourself.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                if vm.serviceType == .prowlarr {
-                    Text("Trawl supports a single Prowlarr server. Saving Prowlarr settings updates the existing server.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-
-
+            } header: {
+                Text("Authentication")
+            } footer: {
+                Text("Find the API key in \(vm.serviceType.displayName) under Settings → General → Security.")
             }
 
             if vm.isValidating {

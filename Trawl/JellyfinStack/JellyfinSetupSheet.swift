@@ -2,25 +2,9 @@ import SwiftUI
 import SwiftData
 
 struct JellyfinSetupSheet: View {
-    var onComplete: (() -> Void)?
-
-    var body: some View {
-        AppSheetShell(
-            title: "Add Jellyfin",
-            detents: [.medium, .large],
-            dragIndicator: .visible
-        ) {
-            JellyfinConnectionFormView(
-                profile: nil,
-                onComplete: onComplete
-            )
-        }
-    }
-}
-
-private struct JellyfinConnectionFormView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
+    @Environment(JellyfinCredentialHandoff.self) private var credentialHandoff: JellyfinCredentialHandoff?
     @State private var viewModel = JellyfinSetupViewModel()
 
     var profile: JellyfinServiceProfile?
@@ -29,107 +13,74 @@ private struct JellyfinConnectionFormView: View {
     private var skipsInitialSeed = false
     #endif
 
-    // Declared in the type body (not an extension) so it suppresses the
-    // synthesized memberwise initializer outright. The two were identical, and
-    // having both produced an "invalid redeclaration" under some compiler states.
     init(profile: JellyfinServiceProfile? = nil, onComplete: (() -> Void)? = nil) {
         self.profile = profile
         self.onComplete = onComplete
     }
 
-    private var submitTitle: String {
-        profile == nil ? "Connect" : "Save Connection"
-    }
-
     var body: some View {
-        Form {
-            Section {
-                Text("Connect directly to a Jellyfin server with an administrator account or API key.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
+        AppSheetShell(
+            title: profile == nil ? "Add Jellyfin" : "Edit Jellyfin",
+            confirmTitle: profile == nil ? "Connect" : "Save Connection",
+            isConfirmDisabled: !viewModel.canConnect,
+            isConfirmLoading: viewModel.isAuthenticating,
+            onConfirm: connect,
+            confirmPlacement: .prominentBottom,
+            detents: [.large],
+            dragIndicator: .visible
+        ) {
+            Form {
+                ServiceSetupBlurb("Connect directly to a Jellyfin server with an administrator account or API key.")
 
-            Section("Server") {
-                TextField("Display Name", text: $viewModel.displayName)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.words)
-                    #endif
-                    .autocorrectionDisabled()
-
-                ServerURLField(
+                ServiceServerSection(
+                    displayName: $viewModel.displayName,
                     url: $viewModel.hostURL,
-                    title: "Jellyfin URL (e.g. http://192.168.1.50:8096)",
-                    macLabel: "Jellyfin URL"
+                    urlTitle: "Jellyfin URL (e.g. http://192.168.1.50:8096)",
+                    urlMacLabel: "Jellyfin URL",
+                    allowsUntrustedTLS: $viewModel.allowsUntrustedTLS
                 )
 
-                AllowUntrustedTLSToggle(allow: $viewModel.allowsUntrustedTLS)
-            }
-
-            Section {
-                Picker("Authentication", selection: $viewModel.authMode) {
-                    Text("API Key").tag(JellyfinAuthMode.apiKey)
-                    Text("Password").tag(JellyfinAuthMode.userPass)
-                }
-                .pickerStyle(.segmented)
-
-                switch viewModel.authMode {
-                case .apiKey:
-                    SecureField("API Key", text: $viewModel.apiKey)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .textContentType(.password)
-                        #endif
-                        .autocorrectionDisabled()
-                case .userPass:
-                    TextField("Username", text: $viewModel.username)
-                        #if os(iOS)
-                        .textInputAutocapitalization(.never)
-                        .textContentType(.username)
-                        #endif
-                        .autocorrectionDisabled()
-
-                    SecureField("Password", text: $viewModel.password)
-                        #if os(iOS)
-                        .textContentType(.password)
-                        #endif
-                }
-            } header: {
-                Text("Authentication")
-            } footer: {
-                authenticationFooter
-            }
-
-            ValidationErrorSection(error: viewModel.error)
-
-            Section {
-                Button {
-                    Task {
-                        let success = await viewModel.connect(modelContext: modelContext)
-                        if success {
-                            onComplete?()
-                            dismiss()
-                        }
+                Section {
+                    Picker("Method", selection: $viewModel.authMode) {
+                        Text("Password").tag(JellyfinAuthMode.userPass)
+                        Text("API Key").tag(JellyfinAuthMode.apiKey)
                     }
-                } label: {
-                    HStack {
-                        if viewModel.isAuthenticating {
-                            ProgressView()
-                                .padding(.trailing, 4)
-                        }
-                        Text(submitTitle)
+                    .pickerStyle(.segmented)
+
+                    switch viewModel.authMode {
+                    case .apiKey:
+                        SecureField("API Key", text: $viewModel.apiKey)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .textContentType(.password)
+                            #endif
+                            .autocorrectionDisabled()
+                    case .userPass:
+                        TextField("Username", text: $viewModel.username)
+                            #if os(iOS)
+                            .textInputAutocapitalization(.never)
+                            .textContentType(.username)
+                            #endif
+                            .autocorrectionDisabled()
+
+                        SecureField("Password", text: $viewModel.password)
+                            #if os(iOS)
+                            .textContentType(.password)
+                            #endif
                     }
-                    .frame(maxWidth: .infinity, alignment: .center)
+                } header: {
+                    Text("Authentication")
+                } footer: {
+                    authenticationFooter
                 }
-                .disabled(!viewModel.canConnect)
+
+                ValidationErrorSection(error: viewModel.error)
             }
+            .tint(ServiceIdentity.jellyfin.brandColor)
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #endif
         }
-        .tint(ServiceIdentity.jellyfin.brandColor)
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #endif
-        #if os(macOS)
-        .formStyle(.grouped)
-        #endif
         .task(id: profile?.id) {
             #if DEBUG
             if skipsInitialSeed { return }
@@ -138,11 +89,31 @@ private struct JellyfinConnectionFormView: View {
         }
     }
 
+    private func connect() {
+        Task {
+            let success = await viewModel.connect(modelContext: modelContext)
+            if success {
+                // Seerr signs in with this same Jellyfin account, so the Seerr sheet
+                // can offer to reuse it rather than making the user type it twice.
+                // Only a real sign-in produces something Seerr can use - an API key
+                // is not a credential it can present.
+                if viewModel.authMode == .userPass {
+                    credentialHandoff?.store(
+                        username: viewModel.username.trimmingCharacters(in: .whitespacesAndNewlines),
+                        password: viewModel.password
+                    )
+                }
+                onComplete?()
+                dismiss()
+            }
+        }
+    }
+
     @ViewBuilder
     private var authenticationFooter: some View {
         switch viewModel.authMode {
         case .apiKey:
-            Text("Create an API key in Jellyfin Dashboard > API Keys. API key setup is recommended for server administration.")
+            Text("Create an API key in Jellyfin Dashboard → API Keys. API key setup is recommended for server administration.")
         case .userPass:
             Text("Sign in with a Jellyfin administrator account. Trawl stores the returned access token in Keychain.")
         }
@@ -150,7 +121,7 @@ private struct JellyfinConnectionFormView: View {
 }
 
 #if DEBUG
-extension JellyfinConnectionFormView {
+extension JellyfinSetupSheet {
     init(
         previewViewModel: JellyfinSetupViewModel,
         profile: JellyfinServiceProfile? = nil,
@@ -359,20 +330,14 @@ struct JellyfinSettingsView: View {
             }
         }
         .sheet(isPresented: $showingConnectionSheet) {
-            AppSheetShell(
-                title: profile == nil ? "Add Jellyfin" : "Edit Jellyfin",
-                detents: [.medium, .large],
-                dragIndicator: .visible
-            ) {
-                JellyfinConnectionFormView(
-                    profile: profile,
-                    onComplete: {
-                        Task {
-                            await jellyfinServiceManager.initialize(from: profiles)
-                        }
+            JellyfinSetupSheet(
+                profile: profile,
+                onComplete: {
+                    Task {
+                        await jellyfinServiceManager.initialize(from: profiles)
                     }
-                )
-            }
+                }
+            )
         }
         .confirmationDialog(
             "Remove Jellyfin Server?",
@@ -528,7 +493,7 @@ private extension JellyfinAuthMode {
 
 #Preview("Jellyfin Setup - Mid Input") {
     PreviewHost(profiles: .empty, jellyfin: .preview(.notConfigured)) {
-        JellyfinConnectionFormView(
+        JellyfinSetupSheet(
             previewViewModel: JellyfinSetupViewModel(
                 previewHostURL: "http://192.168.1.50:8096",
                 previewUsername: "admin",
@@ -542,7 +507,7 @@ private extension JellyfinAuthMode {
 
 #Preview("Jellyfin Setup - Authenticating") {
     PreviewHost(profiles: .empty, jellyfin: .preview(.connecting)) {
-        JellyfinConnectionFormView(
+        JellyfinSetupSheet(
             previewViewModel: JellyfinSetupViewModel(
                 previewHostURL: "http://192.168.1.50:8096",
                 previewAPIKey: "preview-api-key",
@@ -554,7 +519,7 @@ private extension JellyfinAuthMode {
 
 #Preview("Jellyfin Setup - Error") {
     PreviewHost(profiles: .empty, jellyfin: .preview(.error("Could not reach Jellyfin at 192.168.1.50:8096."))) {
-        JellyfinConnectionFormView(
+        JellyfinSetupSheet(
             previewViewModel: JellyfinSetupViewModel(
                 previewHostURL: "http://nope.invalid:8096",
                 previewAPIKey: "preview-api-key",

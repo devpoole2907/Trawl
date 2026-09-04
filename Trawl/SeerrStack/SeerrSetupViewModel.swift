@@ -5,13 +5,57 @@ import Observation
 @MainActor
 @Observable
 final class SeerrSetupViewModel {
+    var displayName: String = "Seerr"
     var hostURL: String = ""
     var username: String = ""
     var password: String = ""
-    
+    /// Seerr was the only service whose sheet offered no way to name the server or
+    /// to accept a certificate it signed itself, so a self-signed Seerr behind
+    /// HTTPS could not be reached and there was nothing in the sheet to say why.
+    var allowsUntrustedTLS: Bool = false
+
     var isAuthenticating: Bool = false
     var error: String? = nil
-    
+
+    private var seededProfileID: UUID?
+    private var hasSeeded = false
+
+    var canConnect: Bool {
+        !isAuthenticating
+            && !trimmed(hostURL).isEmpty
+            && !trimmed(username).isEmpty
+            && !password.isEmpty
+    }
+
+    func seed(from profile: SeerrServiceProfile?) {
+        guard !hasSeeded || seededProfileID != profile?.id else { return }
+        hasSeeded = true
+        seededProfileID = profile?.id
+        error = nil
+
+        guard let profile else {
+            displayName = "Seerr"
+            hostURL = ""
+            allowsUntrustedTLS = false
+            username = ""
+            password = ""
+            return
+        }
+
+        // Only the URL and its options are restored. The username and password are
+        // Jellyfin credentials exchanged once for a session cookie and never stored,
+        // so re-authenticating is always required.
+        displayName = profile.displayName
+        hostURL = profile.hostURL
+        allowsUntrustedTLS = profile.allowsUntrustedTLS
+        username = ""
+        password = ""
+    }
+
+    private func trimmed(_ value: String) -> String {
+        value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     func login(modelContext: ModelContext) async -> Bool {
         guard !hostURL.isEmpty, !username.isEmpty, !password.isEmpty else { return false }
 
@@ -32,7 +76,7 @@ final class SeerrSetupViewModel {
         do {
             let profiles = try modelContext.fetch(FetchDescriptor<SeerrServiceProfile>())
             let profile = profiles.first(where: { $0.isEnabled }) ?? profiles.first
-            let allowsUntrustedTLS = profile?.allowsUntrustedTLS ?? false
+            let allowsUntrustedTLS = self.allowsUntrustedTLS
 
             let client = SeerrAPIClient(baseURL: normalizedURL, allowsUntrustedTLS: allowsUntrustedTLS)
             let user = try await client.loginJellyfin(username: username, password: password)
@@ -57,7 +101,8 @@ final class SeerrSetupViewModel {
             let sessionCookieKey = savedProfile.sessionCookieKey
             let originalSessionCookie = isNewProfile ? nil : try await KeychainHelper.shared.read(key: sessionCookieKey)
 
-            savedProfile.displayName = originalDisplayName.isEmpty ? "Seerr" : originalDisplayName
+            let chosenName = trimmed(displayName)
+            savedProfile.displayName = chosenName.isEmpty ? "Seerr" : chosenName
             savedProfile.hostURL = normalizedURL
             savedProfile.isEnabled = true
             savedProfile.allowsUntrustedTLS = allowsUntrustedTLS
@@ -141,9 +186,11 @@ extension SeerrSetupViewModel {
         previewUsername: String = "",
         previewPassword: String = "",
         previewIsAuthenticating: Bool = false,
-        previewError: String? = nil
+        previewError: String? = nil,
+        previewDisplayName: String = "Seerr"
     ) {
         self.init()
+        displayName = previewDisplayName
         hostURL = previewHostURL
         username = previewUsername
         password = previewPassword

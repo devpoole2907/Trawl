@@ -19,6 +19,39 @@ extension Notification.Name {
 private let notificationSheetTransitionID = "recent-notifications-accessory"
 #endif
 
+private struct SidebarListChrome: ViewModifier {
+    @Binding var search: String
+    let placement: SearchFieldPlacement
+
+    func body(content: Content) -> some View {
+        content
+            .navigationTitle("Trawl")
+            .searchable(text: $search, placement: placement, prompt: "Search Trawl")
+    }
+}
+
+#if os(iOS)
+private struct SidebarRowRestorationModifier: ViewModifier {
+    let row: RootTab
+    let detailColumn: Bool
+    let state: SidebarScrollState
+    let proxy: ScrollViewProxy
+
+    func body(content: Content) -> some View {
+        content.onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+            state.rowFrames[row] = frame
+            if let anchor = state.takeRestoration(for: row, detailColumn: detailColumn) {
+                var transaction = Transaction()
+                transaction.disablesAnimations = true
+                withTransaction(transaction) {
+                    proxy.scrollTo(row, anchor: anchor)
+                }
+            }
+        }
+    }
+}
+#endif
+
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.scenePhase) private var scenePhase
@@ -87,6 +120,7 @@ struct ContentView: View {
     @State private var servicesTask: Task<Void, Never>?
     @State private var connectionRetryScheduler = ConnectionRetryScheduler()
     @State private var downloadsNavigator = DownloadsNavigator()
+    @State private var jellyfinCredentialHandoff = JellyfinCredentialHandoff()
     #if os(macOS)
     @AppStorage("hasPromptedForMagnetHandler") private var hasPromptedForMagnetHandler = false
     @State private var showMagnetHandlerPrompt = false
@@ -125,6 +159,7 @@ struct ContentView: View {
             }
         }
         .environment(connectionRetryScheduler)
+        .environment(jellyfinCredentialHandoff)
         // `SyncService` and `TorrentService` are the only two service dependencies
         // not injected at the app root, because they come from `AppServices`, which
         // only exists once a qBittorrent server is configured. Every one of the 43
@@ -743,50 +778,67 @@ struct ContentView: View {
             }
         )
 
+        #if os(macOS)
+        // A Mac sidebar is already a native, continuously scrollable outline-style
+        // list. Wrapping it in ScrollViewReader makes SwiftUI install a second
+        // scrolling coordinator around the NSScrollView; after clicking a row that
+        // coordinator can retain the wheel/trackpad gesture and the list appears
+        // frozen. Mac never needs the restoration below because changing a
+        // destination does not replace its split-view shape the way iPad does.
+        return sidebarListContent(selection: selection, downloadBadge: downloadBadge)
+            .modifier(SidebarListChrome(search: $sidebarSearch, placement: sidebarSearchPlacement))
+        #else
         let detailColumn = selectedTab.wantsDetailColumn
         return ScrollViewReader { proxy in
-            List(selection: selection) {
-                if isSearchingSidebar {
-                    sidebarSearchResults
-                } else {
-                    ForEach(SidebarSection.allCases) { section in
-                        Section(isExpanded: expansionBinding(for: section)) {
-                            ForEach(section.rows, id: \.self) { row in
-                                sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
-                                .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
-                                    sidebarScroll.rowFrames[row] = frame
-                                    if let anchor = sidebarScroll.takeRestoration(for: row, detailColumn: detailColumn) {
-                                        var transaction = Transaction()
-                                        transaction.disablesAnimations = true
-                                        withTransaction(transaction) {
-                                            proxy.scrollTo(row, anchor: anchor)
-                                        }
-                                    }
-                                }
-                            }
-                        } header: {
-                            Text(section.title)
-                        }
-                    }
-                }
+            sidebarListContent(selection: selection, downloadBadge: downloadBadge) { row in
+                SidebarRowRestorationModifier(
+                    row: row,
+                    detailColumn: detailColumn,
+                    state: sidebarScroll,
+                    proxy: proxy
+                )
             }
-            .navigationTitle("Trawl")
-            .searchable(
-                text: $sidebarSearch,
-                // `.sidebar` reads like the obvious placement and renders *nothing* on
-                // iPadOS - no field in the bar, no field in the list, nothing in the
-                // accessibility tree. It is a macOS placement. The drawer is what iOS
-                // actually draws under a navigation bar, and `.always` keeps it there
-                // rather than hiding it until the list is pulled down, which matters
-                // when this field is the only search this chrome has.
-                placement: sidebarSearchPlacement,
-                prompt: "Search Trawl"
-            )
+            .modifier(SidebarListChrome(search: $sidebarSearch, placement: sidebarSearchPlacement))
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
                 sidebarScroll.viewportFrame = $0
             }
-
         }
+        #endif
+    }
+
+    @ViewBuilder
+    private func sidebarListContent<RowModifier: ViewModifier>(
+        selection: Binding<RootTab?>,
+        downloadBadge: Int,
+        rowModifier: @escaping (RootTab) -> RowModifier
+    ) -> some View {
+        List(selection: selection) {
+            if isSearchingSidebar {
+                sidebarSearchResults
+            } else {
+                ForEach(SidebarSection.allCases) { section in
+                    Section(isExpanded: expansionBinding(for: section)) {
+                        ForEach(section.rows, id: \.self) { row in
+                            sidebarRow(row, badge: row == .downloads ? downloadBadge : 0)
+                                .modifier(rowModifier(row))
+                        }
+                    } header: {
+                        Text(section.title)
+                    }
+                }
+            }
+        }
+    }
+
+    private func sidebarListContent(
+        selection: Binding<RootTab?>,
+        downloadBadge: Int
+    ) -> some View {
+        sidebarListContent(
+            selection: selection,
+            downloadBadge: downloadBadge,
+            rowModifier: { _ in EmptyModifier() }
+        )
     }
 
     private var sidebarSearchPlacement: SearchFieldPlacement {

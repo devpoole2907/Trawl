@@ -2,101 +2,143 @@ import SwiftUI
 import SwiftData
 
 struct SeerrSetupSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.modelContext) private var modelContext
+    @Environment(JellyfinCredentialHandoff.self) private var credentialHandoff: JellyfinCredentialHandoff?
+    @State private var viewModel = SeerrSetupViewModel()
+    /// Whether to sign in with the Jellyfin account entered earlier in this run.
+    @State private var usesJellyfinCredentials = false
+    #if DEBUG
+    private var skipsInitialSeed = false
+    #endif
+
     var existingProfile: SeerrServiceProfile?
     var onComplete: (() -> Void)?
+
+    init(existingProfile: SeerrServiceProfile? = nil, onComplete: (() -> Void)? = nil) {
+        self.existingProfile = existingProfile
+        self.onComplete = onComplete
+    }
+
+    /// Offered only when Jellyfin was connected with a username and password in
+    /// this run of the app. An API key is not a credential Seerr can present, and
+    /// nothing is carried across launches - see `JellyfinCredentialHandoff`.
+    private var canReuseJellyfinCredentials: Bool {
+        credentialHandoff?.isAvailable == true
+    }
 
     var body: some View {
         AppSheetShell(
             title: existingProfile == nil ? "Add Seerr" : "Edit Seerr",
+            confirmTitle: existingProfile == nil ? "Connect" : "Save Connection",
+            isConfirmDisabled: !viewModel.canConnect,
+            isConfirmLoading: viewModel.isAuthenticating,
+            onConfirm: connect,
+            confirmPlacement: .prominentBottom,
             detents: [.large],
             dragIndicator: .visible
         ) {
-            SeerrConnectionFormView(existingProfile: existingProfile, onComplete: onComplete)
-        }
-    }
-}
+            Form {
+                ServiceSetupBlurb(existingProfile == nil
+                    ? "Connect Trawl to your Seerr instance as an Admin."
+                    : "Sign in again to refresh this server's session.")
 
-private struct SeerrConnectionFormView: View {
-    @Environment(\.dismiss) private var dismiss
-    @Environment(\.modelContext) private var modelContext
-    @State private var viewModel = SeerrSetupViewModel()
+                ServiceServerSection(
+                    displayName: $viewModel.displayName,
+                    url: $viewModel.hostURL,
+                    urlTitle: "Seerr URL (e.g. http://192.168.1.50:5055)",
+                    urlMacLabel: "Seerr URL",
+                    allowsUntrustedTLS: $viewModel.allowsUntrustedTLS
+                )
 
-    /// Editing an existing server should start from what's already configured,
-    /// the way every other service's editor does. Only the URL can be restored:
-    /// the username and password are Jellyfin credentials exchanged once for a
-    /// session cookie and never stored, so re-authenticating is required.
-    var existingProfile: SeerrServiceProfile?
-    var onComplete: (() -> Void)?
-
-    var body: some View {
-        Form {
-            Section {
-                Text(existingProfile == nil
-                     ? "Connect Trawl to your Seerr instance as an Admin."
-                     : "Sign in again to refresh this server's session.")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-            }
-
-            Section("Server") {
-                TextField("Seerr URL (e.g. http://192.168.1.50:5055)", text: $viewModel.hostURL)
-                    #if os(iOS)
-                    .keyboardType(.URL)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .autocorrectionDisabled()
-            }
-
-            Section("Credentials") {
-                TextField("Jellyfin Username", text: $viewModel.username)
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    #endif
-                    .autocorrectionDisabled()
-                SecureField("Jellyfin Password", text: $viewModel.password)
-            }
-
-            if let error = viewModel.error {
                 Section {
-                    Text(error)
-                        .foregroundStyle(.red)
-                        .font(.footnote)
-                }
-            }
+                    if canReuseJellyfinCredentials {
+                        Toggle("Use my Jellyfin sign-in", isOn: $usesJellyfinCredentials)
+                    }
 
-            Section {
-                Button {
-                    Task {
-                        let success = await viewModel.login(modelContext: modelContext)
-                        if success {
-                            onComplete?()
-                            dismiss()
-                        }
-                    }
-                } label: {
-                    HStack {
-                        if viewModel.isAuthenticating {
-                            ProgressView()
-                                .padding(.trailing, 4)
-                        }
-                        Text("Sign In")
-                    }
-                    .frame(maxWidth: .infinity, alignment: .center)
+                    TextField("Jellyfin Username", text: $viewModel.username)
+                        #if os(iOS)
+                        .textInputAutocapitalization(.never)
+                        .textContentType(.username)
+                        #endif
+                        .autocorrectionDisabled()
+                        .disabled(usesJellyfinCredentials)
+
+                    SecureField("Jellyfin Password", text: $viewModel.password)
+                        #if os(iOS)
+                        .textContentType(.password)
+                        #endif
+                        .disabled(usesJellyfinCredentials)
+                } header: {
+                    Text("Authentication")
+                } footer: {
+                    Text(usesJellyfinCredentials
+                        ? "Signing in with the Jellyfin account you just connected."
+                        : "Sign in with the Jellyfin admin account configured on your Seerr instance.")
                 }
-                .disabled(viewModel.hostURL.isEmpty || viewModel.username.isEmpty || viewModel.password.isEmpty || viewModel.isAuthenticating)
+
+                ValidationErrorSection(error: viewModel.error)
+            }
+            .tint(ServiceIdentity.seerr.brandColor)
+            #if os(iOS)
+            .listStyle(.insetGrouped)
+            #endif
+            .onChange(of: usesJellyfinCredentials) { _, isOn in
+                applyJellyfinCredentials(isOn)
             }
         }
-        .tint(ServiceIdentity.seerr.brandColor)
-        .onAppear {
-            if viewModel.hostURL.isEmpty, let existingProfile {
-                viewModel.hostURL = existingProfile.hostURL
+        .task(id: existingProfile?.id) {
+            #if DEBUG
+            if skipsInitialSeed { return }
+            #endif
+            viewModel.seed(from: existingProfile)
+            // Pre-ticked when there is something to reuse and nothing typed yet, so
+            // the common path through onboarding is Jellyfin, then Seerr, then go.
+            if canReuseJellyfinCredentials, viewModel.username.isEmpty, viewModel.password.isEmpty {
+                usesJellyfinCredentials = true
+                applyJellyfinCredentials(true)
             }
         }
-        #if os(iOS)
-        .listStyle(.insetGrouped)
-        #endif
+    }
+
+    /// Fills the fields from the handoff, or empties them again when unticked, so
+    /// unticking never leaves someone else's username sitting in a disabled field.
+    private func applyJellyfinCredentials(_ isOn: Bool) {
+        guard let credentialHandoff else { return }
+        if isOn {
+            viewModel.username = credentialHandoff.username ?? ""
+            viewModel.password = credentialHandoff.password ?? ""
+        } else {
+            viewModel.username = ""
+            viewModel.password = ""
+        }
+    }
+
+    private func connect() {
+        Task {
+            let success = await viewModel.login(modelContext: modelContext)
+            if success {
+                onComplete?()
+                dismiss()
+            }
+        }
     }
 }
+
+#if DEBUG
+extension SeerrSetupSheet {
+    init(
+        previewViewModel: SeerrSetupViewModel,
+        existingProfile: SeerrServiceProfile? = nil,
+        onComplete: (() -> Void)? = nil
+    ) {
+        self.existingProfile = existingProfile
+        self.onComplete = onComplete
+        self._viewModel = State(initialValue: previewViewModel)
+        self.skipsInitialSeed = true
+    }
+}
+#endif
 
 struct SeerrSettingsView: View {
     @Environment(\.modelContext) private var modelContext
@@ -240,21 +282,15 @@ struct SeerrSettingsView: View {
             await loadPublicSettings()
         }
         .sheet(isPresented: $showingConnectionSheet) {
-            AppSheetShell(
-                title: profile == nil ? "Add Seerr" : "Edit Seerr",
-                detents: [.large],
-                dragIndicator: .visible
-            ) {
-                SeerrConnectionFormView(
-                    existingProfile: profile,
-                    onComplete: {
-                        Task {
-                            await seerrServiceManager.initialize(from: profiles)
-                            await loadPublicSettings()
-                        }
+            SeerrSetupSheet(
+                existingProfile: profile,
+                onComplete: {
+                    Task {
+                        await seerrServiceManager.initialize(from: profiles)
+                        await loadPublicSettings()
                     }
-                )
-            }
+                }
+            )
         }
         .confirmationDialog(
             "Remove Seerr Server?",
@@ -327,16 +363,6 @@ private extension SeerrPublicSettings {
 }
 
 #if DEBUG
-extension SeerrConnectionFormView {
-    init(
-        previewViewModel: SeerrSetupViewModel,
-        onComplete: (() -> Void)? = nil
-    ) {
-        self.onComplete = onComplete
-        self._viewModel = State(initialValue: previewViewModel)
-    }
-}
-
 extension SeerrSettingsView {
     init(
         previewPublicSettings: SeerrPublicSettings? = .preview,
@@ -356,7 +382,7 @@ extension SeerrSettingsView {
 
 #Preview("Seerr Setup - Mid Input") {
     PreviewHost(profiles: .empty, seerr: .preview(.notConfigured)) {
-        SeerrConnectionFormView(
+        SeerrSetupSheet(
             previewViewModel: SeerrSetupViewModel(
                 previewHostURL: "http://192.168.1.50:5055",
                 previewUsername: "admin",
@@ -368,7 +394,7 @@ extension SeerrSettingsView {
 
 #Preview("Seerr Setup - Authenticating") {
     PreviewHost(profiles: .empty, seerr: .preview(.connecting)) {
-        SeerrConnectionFormView(
+        SeerrSetupSheet(
             previewViewModel: SeerrSetupViewModel(
                 previewHostURL: "http://192.168.1.50:5055",
                 previewUsername: "admin",
@@ -381,7 +407,7 @@ extension SeerrSettingsView {
 
 #Preview("Seerr Setup - Error") {
     PreviewHost(profiles: .empty, seerr: .preview(.error("Could not reach Seerr."))) {
-        SeerrConnectionFormView(
+        SeerrSetupSheet(
             previewViewModel: SeerrSetupViewModel(
                 previewHostURL: "http://nope.example:5055",
                 previewUsername: "admin",

@@ -10,7 +10,10 @@ final class JellyfinSetupViewModel {
     var username: String = ""
     var password: String = ""
     var apiKey: String = ""
-    var authMode: JellyfinAuthMode = .apiKey
+    // Username/password is the onboarding default because Seerr authenticates
+    // through that same Jellyfin account and can reuse it on the next sheet. API
+    // key remains available for people who prefer a dedicated admin credential.
+    var authMode: JellyfinAuthMode = .userPass
     var displayName: String = "Jellyfin"
     var allowsUntrustedTLS: Bool = false
     var error: String?
@@ -43,7 +46,7 @@ final class JellyfinSetupViewModel {
         guard let profile else {
             displayName = "Jellyfin"
             hostURL = ""
-            authMode = .apiKey
+            authMode = .userPass
             allowsUntrustedTLS = false
             username = ""
             password = ""

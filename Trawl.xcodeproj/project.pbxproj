@@ -356,6 +356,7 @@
 				Views/FormComponents/CredentialsSection.swift,
 				Views/FormComponents/ModalFormStyle.swift,
 				Views/FormComponents/ServerURLField.swift,
+				Views/FormComponents/ServiceSetupSections.swift,
 				Views/FormComponents/ValidationErrorSection.swift,
 				Views/InAppNotificationBanner.swift,
 				Views/InAppNotificationHostingController.swift,
@@ -392,6 +393,7 @@
 				Views/UnifiedUserBrowserState.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
+				Views/JellyfinCredentialHandoff.swift,
 				Views/WelcomeFlowView.swift,
 			);
 			target = CC000003CC000003CC000003 /* TrawlShare */;
@@ -698,6 +700,7 @@
 				Views/FormComponents/CredentialsSection.swift,
 				Views/FormComponents/ModalFormStyle.swift,
 				Views/FormComponents/ServerURLField.swift,
+				Views/FormComponents/ServiceSetupSections.swift,
 				Views/FormComponents/ValidationErrorSection.swift,
 				Views/InAppNotificationBanner.swift,
 				Views/InAppNotificationHostingController.swift,
@@ -733,6 +736,7 @@
 				Views/UnifiedUserBrowserState.swift,
 				Views/UnifiedUserDetailView.swift,
 				Views/UnifiedUserListView.swift,
+				Views/JellyfinCredentialHandoff.swift,
 				Views/WelcomeFlowView.swift,
 			);
 			target = FF000003FF000003FF000003 /* TrawlWidgets */;
